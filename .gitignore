@@ -1,0 +1,25 @@
+# Maven 构建产物
+target/
+*.class
+
+# 打包的 jar（用 release 发布）
+java-toolbox.jar
+*.shaded.jar
+
+# IDE
+.idea/
+*.iml
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 临时
+*.log
+*.tmp
+dependency-reduced-pom.xml

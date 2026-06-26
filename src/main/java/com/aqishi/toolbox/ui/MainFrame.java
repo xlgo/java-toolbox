@@ -6,9 +6,9 @@ import com.aqishi.toolbox.calc.CalculatorPanel;
 import com.aqishi.toolbox.calc.StatisticsPanel;
 import com.aqishi.toolbox.convert.ConvertPanel;
 import com.aqishi.toolbox.convert.TimePanel;
+import com.aqishi.toolbox.crypto.AsymmetricPanel;
 import com.aqishi.toolbox.crypto.CryptoPanel;
-import com.aqishi.toolbox.crypto.SM2Panel;
-import com.aqishi.toolbox.crypto.SM4Panel;
+import com.aqishi.toolbox.crypto.SymmetricPanel;
 import com.aqishi.toolbox.misc.ColorPanel;
 import com.aqishi.toolbox.misc.JsonPanel;
 import com.aqishi.toolbox.misc.RegexPanel;
@@ -86,8 +86,8 @@ public class MainFrame extends JFrame {
     private JComponent buildCenter() {
         ToolPanel[] tools = {
                 new CryptoPanel(),
-                new SM2Panel(),
-                new SM4Panel(),
+                new SymmetricPanel(),
+                new AsymmetricPanel(),
                 new ConvertPanel(),
                 new TimePanel(),
                 new SortPanel(),

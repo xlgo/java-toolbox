@@ -30,18 +30,45 @@ public class ColorPanel extends ToolPanel {
 
         hexF = field(); rgbF = field(); hslF = field();
 
+        JButton copyHexBtn = UIUtils.button("复制", 60);
+        JButton copyRgbBtn = UIUtils.button("复制", 60);
+        JButton copyHslBtn = UIUtils.button("复制", 60);
+
+        copyHexBtn.addActionListener(e -> UIUtils.copyToClipboard(hexF.getText()));
+        copyRgbBtn.addActionListener(e -> UIUtils.copyToClipboard(rgbF.getText()));
+        copyHslBtn.addActionListener(e -> UIUtils.copyToClipboard(hslF.getText()));
+
         c.gridx = 0; c.gridy = 0; c.weightx = 0; form.add(label("HEX (#RRGGBB)"), c);
         c.gridx = 1; c.weightx = 1; form.add(hexF, c);
+        c.gridx = 2; c.weightx = 0; form.add(copyHexBtn, c);
+
         c.gridx = 0; c.gridy = 1; c.weightx = 0; form.add(label("RGB (r,g,b)"), c);
         c.gridx = 1; c.weightx = 1; form.add(rgbF, c);
+        c.gridx = 2; c.weightx = 0; form.add(copyRgbBtn, c);
+
         c.gridx = 0; c.gridy = 2; c.weightx = 0; form.add(label("HSL (h,s%,l%)"), c);
         c.gridx = 1; c.weightx = 1; form.add(hslF, c);
+        c.gridx = 2; c.weightx = 0; form.add(copyHslBtn, c);
 
-        preview = new JLabel("  预览  ");
+        preview = new JLabel("  预览 (点击选择)  ");
         preview.setOpaque(true);
-        preview.setPreferredSize(new Dimension(120, 60));
+        preview.setPreferredSize(new Dimension(150, 40));
         preview.setHorizontalAlignment(SwingConstants.CENTER);
-        c.gridx = 0; c.gridy = 3; c.gridwidth = 2; c.weightx = 1; form.add(preview, c);
+        preview.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        preview.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                chooseColor();
+            }
+        });
+
+        JButton chooseBtn = UIUtils.button("选择颜色...", 120);
+        chooseBtn.addActionListener(e -> chooseColor());
+
+        c.gridx = 0; c.gridy = 3; c.gridwidth = 1; c.weightx = 0.5;
+        form.add(preview, c);
+        c.gridx = 1; c.gridy = 3; c.gridwidth = 2; c.weightx = 0.5;
+        form.add(chooseBtn, c);
 
         hexF.addActionListener(e -> fromHex(hexF.getText()));
         rgbF.addActionListener(e -> fromRgb(rgbF.getText()));
@@ -67,6 +94,14 @@ public class ColorPanel extends ToolPanel {
         root.add(palette, BorderLayout.SOUTH);
 
         return root;
+    }
+
+    private void chooseColor() {
+        Color initialColor = preview.getBackground();
+        Color chosen = JColorChooser.showDialog(preview, "选择颜色", initialColor);
+        if (chosen != null) {
+            apply(chosen);
+        }
     }
 
     private void fromHex(String text) {

@@ -57,7 +57,7 @@ public class ConvertPanel extends ToolPanel {
         dec.addActionListener(e -> syncFrom(Long.parseLong(dec.getText().trim()), dec, oct, hex, bin));
         oct.addActionListener(e -> syncFrom(Long.parseLong(oct.getText().trim(), 8), dec, oct, hex, bin));
         hex.addActionListener(e -> syncFrom(Long.parseLong(hex.getText().trim(), 16), dec, oct, hex, bin));
-        bin.addActionListener(e -> syncFrom(Long.parseLong(bin.getText().trim(), 2), dec, oct, hex, bin));
+        bin.addActionListener(e -> syncFrom(Long.parseLong(bin.getText().replace(" ", "").trim(), 2), dec, oct, hex, bin));
 
         JButton sync = UIUtils.button("转换", 90);
         sync.addActionListener(e -> {
@@ -69,7 +69,7 @@ public class ConvertPanel extends ToolPanel {
                 else if (!oct.getText().trim().isEmpty())
                     syncFrom(Long.parseLong(oct.getText().trim(), 8), dec, oct, hex, bin);
                 else if (!bin.getText().trim().isEmpty())
-                    syncFrom(Long.parseLong(bin.getText().trim(), 2), dec, oct, hex, bin);
+                    syncFrom(Long.parseLong(bin.getText().replace(" ", "").trim(), 2), dec, oct, hex, bin);
             } catch (Exception ex) {
                 UIUtils.error(p, "解析失败：" + ex.getMessage());
             }
@@ -83,7 +83,21 @@ public class ConvertPanel extends ToolPanel {
         dec.setText(String.valueOf(v));
         oct.setText(Long.toOctalString(v));
         hex.setText(Long.toHexString(v));
-        bin.setText(Long.toBinaryString(v));
+        bin.setText(formatBinary(Long.toBinaryString(v)));
+    }
+
+    private static String formatBinary(String binStr) {
+        String clean = binStr.replace(" ", "");
+        StringBuilder sb = new StringBuilder();
+        int len = clean.length();
+        for (int i = 0; i < len; i++) {
+            sb.append(clean.charAt(i));
+            int distToRight = len - 1 - i;
+            if (distToRight > 0 && distToRight % 4 == 0) {
+                sb.append(" ");
+            }
+        }
+        return sb.toString();
     }
 
     /** 编码转换 */

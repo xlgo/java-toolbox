@@ -82,6 +82,7 @@ public final class ThemeManager {
     /** 初始化默认主题（main 启动时调用一次） */
     public static void setupDefault() {
         try {
+            applyCustomDefaults();
             FlatIntelliJLaf.setup();
         } catch (Throwable e) {
             try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
@@ -95,6 +96,7 @@ public final class ThemeManager {
         if (t == null) return;
         try {
             FlatAnimatedLafChange.showSnapshot();
+            applyCustomDefaults();
 
             FlatLaf laf;
             if (t.lafClass != null) {
@@ -115,5 +117,11 @@ public final class ThemeManager {
         } finally {
             FlatAnimatedLafChange.hideSnapshotWithAnimation();
         }
+    }
+
+    private static void applyCustomDefaults() {
+        UIManager.put("Button.minimumHeight", 32);
+        UIManager.put("TextField.minimumHeight", 32);
+        UIManager.put("ComboBox.minimumHeight", 32);
     }
 }

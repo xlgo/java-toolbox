@@ -33,7 +33,11 @@ public final class UIUtils {
 
     /** 等宽字体 */
     public static Font monoFont() {
-        return new Font(Font.MONOSPACED, Font.PLAIN, 13);
+        Font f = new Font("Microsoft YaHei", Font.PLAIN, 13);
+        if ("Dialog".equals(f.getFamily())) {
+            return new Font(Font.SANS_SERIF, Font.PLAIN, 13);
+        }
+        return f;
     }
 
     /** 普通字体 */
@@ -50,7 +54,8 @@ public final class UIUtils {
     /** 按钮，统一尺寸 */
     public static JButton button(String text, int width) {
         JButton b = new JButton(text);
-        b.setPreferredSize(new Dimension(width, 30));
+        int height = Math.max(32, b.getPreferredSize().height);
+        b.setPreferredSize(new Dimension(width, height));
         b.setFocusPainted(false);
         b.setFont(plainFont());
         return b;

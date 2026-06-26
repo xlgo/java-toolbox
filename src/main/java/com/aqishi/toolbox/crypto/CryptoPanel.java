@@ -41,12 +41,13 @@ public class CryptoPanel extends ToolPanel {
         JButton md5 = UIUtils.button("MD5", 90);
         JButton sha1 = UIUtils.button("SHA-1", 90);
         JButton sha256 = UIUtils.button("SHA-256", 90);
+        JButton sm3 = UIUtils.button("SM3", 90);
         JButton b64enc = UIUtils.button("Base64 编码", 110);
         JButton b64dec = UIUtils.button("Base64 解码", 110);
         JButton aesEnc = UIUtils.button("AES 加密", 100);
         JButton aesDec = UIUtils.button("AES 解密", 100);
         JButton clear = UIUtils.button("清空", 80);
-        btns.add(md5); btns.add(sha1); btns.add(sha256);
+        btns.add(md5); btns.add(sha1); btns.add(sha256); btns.add(sm3);
         btns.add(b64enc); btns.add(b64dec);
         btns.add(aesEnc); btns.add(aesDec); btns.add(clear);
         root.add(btns, BorderLayout.CENTER);
@@ -69,6 +70,14 @@ public class CryptoPanel extends ToolPanel {
         md5.addActionListener(e -> digest.accept("MD5"));
         sha1.addActionListener(e -> digest.accept("SHA-1"));
         sha256.addActionListener(e -> digest.accept("SHA-256"));
+
+        sm3.addActionListener(e -> {
+            String text = input.getText();
+            if (text.isEmpty()) {
+                UIUtils.info(root, "请输入文本"); return;
+            }
+            output.setText(SM3Utils.hash(text));
+        });
 
         b64enc.addActionListener(e -> {
             String text = input.getText();

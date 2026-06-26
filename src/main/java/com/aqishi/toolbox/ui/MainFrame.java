@@ -4,6 +4,7 @@ import com.aqishi.toolbox.algo.SearchPanel;
 import com.aqishi.toolbox.algo.SortPanel;
 import com.aqishi.toolbox.calc.CalculatorPanel;
 import com.aqishi.toolbox.calc.StatisticsPanel;
+import com.aqishi.toolbox.convert.Base64ImagePanel;
 import com.aqishi.toolbox.convert.ConvertPanel;
 import com.aqishi.toolbox.convert.TimePanel;
 import com.aqishi.toolbox.crypto.AsymmetricPanel;
@@ -11,6 +12,8 @@ import com.aqishi.toolbox.crypto.CryptoPanel;
 import com.aqishi.toolbox.crypto.SymmetricPanel;
 import com.aqishi.toolbox.misc.ColorPanel;
 import com.aqishi.toolbox.misc.JsonPanel;
+import com.aqishi.toolbox.misc.JwtPanel;
+import com.aqishi.toolbox.misc.PasswordPanel;
 import com.aqishi.toolbox.misc.RegexPanel;
 import com.aqishi.toolbox.misc.UuidPanel;
 import com.aqishi.toolbox.util.UIUtils;
@@ -90,12 +93,15 @@ public class MainFrame extends JFrame {
                 new AsymmetricPanel(),
                 new ConvertPanel(),
                 new TimePanel(),
+                new Base64ImagePanel(),
                 new SortPanel(),
                 new SearchPanel(),
                 new CalculatorPanel(),
                 new StatisticsPanel(),
                 new RegexPanel(),
                 new UuidPanel(),
+                new PasswordPanel(),
+                new JwtPanel(),
                 new JsonPanel(),
                 new ColorPanel(),
         };

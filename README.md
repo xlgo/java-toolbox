@@ -12,12 +12,15 @@
 | 加密 | 非对称加密 | RSA / SM2（支持密钥对生成、公钥加密/私钥解密、私钥签名/公钥验签） |
 | 转换 | 进制与编码 | 二/八/十/十六进制互转（二进制 4 位自动分组美化），UTF-8/GBK/URL 编码 |
 | 转换 | 时间戳转换 | 秒/毫秒、自定义格式、时区 |
+| 转换 | Base64 图片转换 | 图片文件与 Base64 字符串互转，支持比例自适应预览与本地保存 |
 | 算法 | 排序可视化 | 冒泡/选择/插入/快排/归并，逐帧动画 + 统计 |
 | 算法 | 查找算法 | 二分查找（区间收缩过程）+ 线性查找 |
 | 计算 | 科学计算器 | 表达式求值（Nashorn 优先，回退自实现双栈求值器） |
 | 计算 | 统计计算 | 均值/中位数/方差/标准差/极差 |
 | 杂项 | 正则测试 | 实时匹配高亮、分组捕获、匹配计数 |
 | 杂项 | UUID 生成 | 批量生成、去横线、大写、一键复制 |
+| 杂项 | JWT 编解码 | 支持 Header/Payload 实时解析与过期状态提示，支持 HS256 签名生成 |
+| 杂项 | 密码生成器 | 基于 SecureRandom 的离线强密码生成与实时强度评估 |
 | 杂项 | JSON 格式化 | 无依赖 JSON 美化/压缩状态机 |
 | 杂项 | 颜色转换 | HEX / RGB / HSL 互转，集成 **JColorChooser 调色板** 与 **一键复制** |
 
@@ -85,9 +88,19 @@ src/main/java/com/aqishi/toolbox/
 │   ├── SM2Utils.java      # SM2 算法工具
 │   └── SM3Utils.java      # SM3 算法工具
 ├── convert/               # 转换
+│   ├── ConvertPanel.java  # 进制与编码面板
+│   ├── TimePanel.java     # 时间戳面板
+│   └── Base64ImagePanel.java# Base64 图片转换面板
 ├── algo/                  # 算法
 ├── calc/                  # 计算
 ├── misc/                  # 杂项
+│   ├── RegexPanel.java    # 正则面板
+│   ├── UuidPanel.java     # UUID 面板
+│   ├── JwtPanel.java      # JWT 编解码面板
+│   ├── PasswordPanel.java # 密码生成器面板
+│   ├── JsonPanel.java     # JSON 面板
+│   ├── JsonFormatter.java # JSON 格式化状态机
+│   └── ColorPanel.java    # 颜色转换面板
 └── util/UIUtils.java      # UI 辅助
 ```
 

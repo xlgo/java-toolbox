@@ -98,11 +98,8 @@ public class MainFrame extends JFrame {
 
         JLabel title = new JLabel("Java 工具箱");
         title.setFont(UIUtils.titleFont().deriveFont(16f));
-        JLabel subtitle = new JLabel("  ·  加密 / 转换 / 算法 / 计算 / 格式化 / 开发工具 / 生成");        subtitle.setFont(UIUtils.plainFont());
-        subtitle.setForeground(UIManager.getColor("Label.disabledForeground"));
         JPanel titleBox = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         titleBox.add(title);
-        titleBox.add(subtitle);
         bar.add(titleBox, BorderLayout.WEST);
 
         // ===== 搜索框 =====
@@ -241,14 +238,61 @@ public class MainFrame extends JFrame {
         return holder;
     }
 
-    /** 状态栏 */
+    /** 状态栏（含 JVM 内存/CPU 监控） */
     private JComponent buildStatusBar() {
-        statusLabel = new JLabel("  就绪  |  JDK " + System.getProperty("java.version")
-                + "  |  双击 run.bat 或 java -jar java-toolbox.jar 启动");
+        statusLabel = new JLabel();
         statusLabel.setFont(UIUtils.plainFont().deriveFont(12f));
         statusLabel.setBorder(BorderFactory.createCompoundBorder(
                 new MatteBorder(1, 0, 0, 0, UIManager.getColor("Component.borderColor")),
                 new EmptyBorder(4, 8, 4, 8)));
+
+        // 每秒刷新内存/CPU 信息
+        javax.swing.Timer timer = new javax.swing.Timer(2000, e -> updateStatusBar());
+        timer.setInitialDelay(0);
+        timer.start();
+
         return statusLabel;
+    }
+
+    private void updateStatusBar() {
+        Runtime rt = Runtime.getRuntime();
+        long total = rt.totalMemory();
+        long free = rt.freeMemory();
+        long used = total - free;
+        long max = rt.maxMemory();
+
+        String memUsed = formatBytes(used);
+        String memTotal = formatBytes(total);
+        String memMax = formatBytes(max);
+        int memPct = (int) (used * 100L / total);
+
+        // JDK 版本
+        String jdkVer = System.getProperty("java.version");
+
+        // 尝试获取进程 CPU 占用
+        String cpuStr = "";
+        try {
+            java.lang.management.OperatingSystemMXBean osBean =
+                    java.lang.management.ManagementFactory.getOperatingSystemMXBean();
+            if (osBean instanceof com.sun.management.OperatingSystemMXBean) {
+                double cpuLoad = ((com.sun.management.OperatingSystemMXBean) osBean).getCpuLoad();
+                if (cpuLoad >= 0) {
+                    cpuStr = String.format("CPU %d%%", (int) (cpuLoad * 100));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        StringBuilder sb = new StringBuilder("  就绪  |  JDK ").append(jdkVer);
+        sb.append("  |  ").append(cpuStr.isEmpty() ? "" : cpuStr + "  |  ");
+        sb.append("内存 ").append(memUsed).append(" / ").append(memTotal).append(" (最大 ").append(memMax).append(")  ").append(memPct).append("%");
+        statusLabel.setText(sb.toString());
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + "B";
+        if (bytes < 1024 * 1024) return String.format("%.1fKB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.1fMB", bytes / (1024.0 * 1024.0));
+        return String.format("%.1fGB", bytes / (1024.0 * 1024.0 * 1024.0));
     }
 }

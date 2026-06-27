@@ -20,22 +20,20 @@ import java.util.Iterator;
 
 /**
  * Base64 图片互转面板。
- * <p>提供本地图片编码为 Base64 String，以及解析 Base64 并预览、保存图片的功能。
- * 预览时使用降采样读取，Base64 输出使用截断显示避免大文本撑爆 JTextArea 内存。</p>
+ * <p>所有耗时操作（文件读取、Base64编解码、图片解码）均在后台线程执行。</p>
  */
 public class Base64ImagePanel extends ToolPanel {
 
-    /** 显示截断阈值：超过此大小的 Base64 只显示前 N 字符 */
     private static final int DISPLAY_LIMIT = 5000;
 
-    // 图片转 Base64 组件
+    // 图片转 Base64
     private JLabel uploadPreview;
     private JTextArea base64Output;
     private byte[] loadedImageBytes;
     private String loadedImageFormat = "png";
-    private String fullBase64Output = "";  // 完整 Base64（仅用于复制）
+    private String fullBase64Output = "";
 
-    // Base64 转图片组件
+    // Base64 转图片
     private JTextArea base64Input;
     private JLabel downloadPreview;
     private byte[] decodedImageBytes;
@@ -64,7 +62,6 @@ public class Base64ImagePanel extends ToolPanel {
         base64Output = new JTextArea(8, 20);
         base64Output.setFont(UIUtils.monoFont());
         base64Output.setEditable(false);
-        // 不使用自动换行：大段 Base64 自动换行会导致 Swing 内部视图内存暴增
         base64Output.setLineWrap(false);
 
         JPanel leftActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -115,56 +112,67 @@ public class Base64ImagePanel extends ToolPanel {
         rightPanel.add(inScroll, BorderLayout.CENTER);
         rightPanel.add(rightActions, BorderLayout.SOUTH);
 
-        // ===== 拼装主面板 =====
         root.add(leftPanel);
         root.add(rightPanel);
 
-        // ===== 事件绑定 =====
+        // ===== 事件：选择图片 =====
         selectImgBtn.addActionListener(e -> {
             JFileChooser chooser = new JFileChooser();
             chooser.setFileFilter(new FileNameExtensionFilter("图片文件 (*.png, *.jpg, *.jpeg, *.gif, *.bmp)",
                     "png", "jpg", "jpeg", "gif", "bmp"));
-            if (chooser.showOpenDialog(root) == JFileChooser.APPROVE_OPTION) {
+            if (chooser.showOpenDialog(root) != JFileChooser.APPROVE_OPTION) return;
+
+            File file = chooser.getSelectedFile();
+            selectImgBtn.setEnabled(false);
+            selectImgBtn.setText("加载中...");
+            uploadPreview.setIcon(null);
+            uploadPreview.setText("正在处理...");
+
+            new Thread(() -> {
                 try {
-                    File file = chooser.getSelectedFile();
                     String name = file.getName().toLowerCase();
-                    if (name.endsWith(".jpg") || name.endsWith(".jpeg")) loadedImageFormat = "jpeg";
-                    else if (name.endsWith(".gif")) loadedImageFormat = "gif";
-                    else if (name.endsWith(".bmp")) loadedImageFormat = "bmp";
-                    else loadedImageFormat = "png";
+                    String fmt;
+                    if (name.endsWith(".jpg") || name.endsWith(".jpeg")) fmt = "jpeg";
+                    else if (name.endsWith(".gif")) fmt = "gif";
+                    else if (name.endsWith(".bmp")) fmt = "bmp";
+                    else fmt = "png";
 
-                    // 先释放旧数据
-                    loadedImageBytes = null;
-                    fullBase64Output = "";
+                    byte[] raw = Files.readAllBytes(file.toPath());
+                    ImageIcon icon = scaleImagePreview(raw, 180, 180);
+                    String b64 = Base64.getEncoder().encodeToString(raw);
+                    String full = "data:image/" + fmt + ";base64," + b64;
 
-                    loadedImageBytes = Files.readAllBytes(file.toPath());
+                    SwingUtilities.invokeLater(() -> {
+                        loadedImageFormat = fmt;
+                        loadedImageBytes = raw;
+                        fullBase64Output = full;
 
-                    // 降采样预览
-                    ImageIcon icon = scaleImagePreview(loadedImageBytes, 180, 180);
-                    if (icon != null) {
-                        uploadPreview.setText("");
-                        uploadPreview.setIcon(icon);
-                    } else {
-                        uploadPreview.setText("加载图片失败");
-                        uploadPreview.setIcon(null);
-                    }
+                        if (icon != null) {
+                            uploadPreview.setText("");
+                            uploadPreview.setIcon(icon);
+                        } else {
+                            uploadPreview.setText("加载图片失败");
+                        }
 
-                    // 编码 Base64
-                    String base64Str = Base64.getEncoder().encodeToString(loadedImageBytes);
-                    fullBase64Output = "data:image/" + loadedImageFormat + ";base64," + base64Str;
-
-                    // 截断显示，避免大文本撑爆 JTextArea
-                    if (fullBase64Output.length() > DISPLAY_LIMIT) {
-                        base64Output.setText(fullBase64Output.substring(0, DISPLAY_LIMIT)
-                                + "\n\n... (已截断，共 " + fullBase64Output.length()
-                                + " 字符，点击「复制 Base64」获取完整内容)");
-                    } else {
-                        base64Output.setText(fullBase64Output);
-                    }
+                        if (full.length() > DISPLAY_LIMIT) {
+                            base64Output.setText(full.substring(0, DISPLAY_LIMIT)
+                                    + "\n\n... (已截断，共 " + full.length()
+                                    + " 字符，点击「复制 Base64」获取完整内容)");
+                        } else {
+                            base64Output.setText(full);
+                        }
+                        selectImgBtn.setEnabled(true);
+                        selectImgBtn.setText("选择图片...");
+                    });
                 } catch (Exception ex) {
-                    UIUtils.error(root, "图片转换失败: " + ex.getMessage());
+                    SwingUtilities.invokeLater(() -> {
+                        uploadPreview.setText("处理失败");
+                        UIUtils.error(root, "图片转换失败: " + ex.getMessage());
+                        selectImgBtn.setEnabled(true);
+                        selectImgBtn.setText("选择图片...");
+                    });
                 }
-            }
+            }).start();
         });
 
         copyBase64Btn.addActionListener(e -> {
@@ -174,38 +182,51 @@ public class Base64ImagePanel extends ToolPanel {
             }
         });
 
+        // ===== 事件：解析 Base64 =====
         parseBtn.addActionListener(e -> {
             String rawInput = base64Input.getText().trim();
             if (rawInput.isEmpty()) {
                 UIUtils.error(root, "请输入 Base64 字符串");
                 return;
             }
-            try {
-                // 剔除 "data:image/xxx;base64," 前缀
-                if (rawInput.contains("base64,")) {
-                    rawInput = rawInput.substring(rawInput.indexOf("base64,") + 7);
-                }
-
-                // 先释放旧数据
-                decodedImageBytes = null;
-                downloadPreview.setIcon(null);
-
-                decodedImageBytes = Base64.getDecoder().decode(rawInput);
-
-                // 降采样预览
-                ImageIcon icon = scaleImagePreview(decodedImageBytes, 180, 180);
-                if (icon != null) {
-                    downloadPreview.setText("");
-                    downloadPreview.setIcon(icon);
-                } else {
-                    downloadPreview.setText("无法解析该图片，可能数据不完整");
-                    downloadPreview.setIcon(null);
-                }
-            } catch (Exception ex) {
-                UIUtils.error(root, "解析 Base64 失败：" + ex.getMessage());
+            if (rawInput.contains("base64,")) {
+                rawInput = rawInput.substring(rawInput.indexOf("base64,") + 7);
             }
+            final String data = rawInput;
+
+            parseBtn.setEnabled(false);
+            parseBtn.setText("解析中...");
+            downloadPreview.setIcon(null);
+            downloadPreview.setText("正在解码...");
+
+            new Thread(() -> {
+                try {
+                    byte[] raw = Base64.getDecoder().decode(data);
+                    ImageIcon icon = scaleImagePreview(raw, 180, 180);
+
+                    SwingUtilities.invokeLater(() -> {
+                        decodedImageBytes = raw;
+                        if (icon != null) {
+                            downloadPreview.setText("");
+                            downloadPreview.setIcon(icon);
+                        } else {
+                            downloadPreview.setText("无法解析该图片，可能数据不完整");
+                        }
+                        parseBtn.setEnabled(true);
+                        parseBtn.setText("解析并预览");
+                    });
+                } catch (Exception ex) {
+                    SwingUtilities.invokeLater(() -> {
+                        downloadPreview.setText("解析失败");
+                        UIUtils.error(root, "解析 Base64 失败：" + ex.getMessage());
+                        parseBtn.setEnabled(true);
+                        parseBtn.setText("解析并预览");
+                    });
+                }
+            }).start();
         });
 
+        // ===== 事件：保存 / 清空 =====
         saveBtn.addActionListener(e -> {
             if (decodedImageBytes == null) {
                 UIUtils.error(root, "请先输入并成功解析图片");
@@ -215,9 +236,8 @@ public class Base64ImagePanel extends ToolPanel {
             chooser.setSelectedFile(new File("decoded_image.png"));
             if (chooser.showSaveDialog(root) == JFileChooser.APPROVE_OPTION) {
                 try {
-                    File file = chooser.getSelectedFile();
-                    Files.write(file.toPath(), decodedImageBytes);
-                    UIUtils.info(root, "保存成功！\n文件路径: " + file.getAbsolutePath());
+                    Files.write(chooser.getSelectedFile().toPath(), decodedImageBytes);
+                    UIUtils.info(root, "保存成功！");
                 } catch (Exception ex) {
                     UIUtils.error(root, "保存失败: " + ex.getMessage());
                 }
@@ -234,10 +254,6 @@ public class Base64ImagePanel extends ToolPanel {
         return root;
     }
 
-    /**
-     * 降采样缩略图预览：使用 ImageReader 的分层降采样（setSourceSubsampling），
-     * 避免将超大图片完整解码到内存中再缩小。
-     */
     private ImageIcon scaleImagePreview(byte[] bytes, int maxW, int maxH) {
         ImageInputStream iis = null;
         ImageReader reader = null;
@@ -252,7 +268,6 @@ public class Base64ImagePanel extends ToolPanel {
             int width = reader.getWidth(0);
             int height = reader.getHeight(0);
 
-            // 计算降采样因子
             int subsample = 1;
             while (width / subsample > maxW * 2 || height / subsample > maxH * 2) {
                 subsample *= 2;
@@ -273,7 +288,7 @@ public class Base64ImagePanel extends ToolPanel {
                 int w = (int) (iw * ratio);
                 int h = (int) (ih * ratio);
                 Image scaled = img.getScaledInstance(w, h, Image.SCALE_SMOOTH);
-                img.flush(); // 释放原始 BufferedImage
+                img.flush();
                 return new ImageIcon(scaled);
             }
             return new ImageIcon(img);

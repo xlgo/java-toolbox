@@ -19,7 +19,10 @@ import java.util.function.Function;
 public class SortPanel extends ToolPanel {
 
     public SortPanel() {
-        super("算法", "排序可视化");
+        super("算法", "排序可视化",
+                "冒泡", "Bubble", "选择", "Selection", "插入", "Insertion",
+                "快速", "Quick", "归并", "Merge", "排序算法",
+                "排序动画", "算法可视化");
     }
 
     @Override

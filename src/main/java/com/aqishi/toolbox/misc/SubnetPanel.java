@@ -12,7 +12,9 @@ import java.awt.*;
 public class SubnetPanel extends ToolPanel {
 
     public SubnetPanel() {
-        super("杂项", "子网计算器");
+        super("开发工具", "子网计算器",
+                "Subnet", "CIDR", "IP", "子网掩码",
+                "网络地址", "广播地址", "子网");
     }
 
     @Override

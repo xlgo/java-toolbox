@@ -16,7 +16,9 @@ import java.util.regex.Pattern;
 public class DockerComposePanel extends ToolPanel {
 
     public DockerComposePanel() {
-        super("杂项", "Docker 转换");
+        super("开发工具", "Docker 转换",
+                "Docker", "Compose", "容器", "docker-compose",
+                "docker run", "容器编排");
     }
 
     @Override

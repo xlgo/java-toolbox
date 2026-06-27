@@ -24,7 +24,9 @@ public class AsymmetricPanel extends ToolPanel {
     private JTextArea output;
 
     public AsymmetricPanel() {
-        super("加密", "非对称加密");
+        super("加密", "非对称加密",
+                "RSA", "SM2", "国密", "公钥", "私钥", "签名", "验签",
+                "非对称", "密钥对", "数字签名");
     }
 
     @Override

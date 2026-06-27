@@ -16,7 +16,9 @@ import java.util.List;
 public class CronPanel extends ToolPanel {
 
     public CronPanel() {
-        super("杂项", "Cron 表达式解析");
+        super("开发工具", "Cron 表达式解析",
+                "Cron", "定时", "调度", "表达式",
+                "Cron表达式", "定时任务", "crontab");
     }
 
     @Override

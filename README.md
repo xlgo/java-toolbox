@@ -18,18 +18,18 @@
 | 算法 | 查找算法 | 二分查找（区间收缩过程）+ 线性查找 |
 | 计算 | 科学计算器 | 表达式求值（Nashorn 优先，回退自实现双栈求值器） |
 | 计算 | 统计计算 | 均值/中位数/方差/标准差/极差 |
-| 杂项 | 正则测试 | 实时匹配高亮、分组捕获、匹配计数 |
-| 杂项 | UUID 生成 | 批量生成、去横线、大写、一键复制 |
-| 杂项 | JWT 编解码 | 支持 Header/Payload 实时解析与过期状态提示，支持 HS256 签名生成 |
-| 杂项 | 密码生成器 | 基于 SecureRandom 的离线强密码生成与实时强度评估 |
-| 杂项 | JSON 格式化 | 无依赖 JSON 美化/压缩状态机 |
-| 杂项 | XML 格式化 | 无依赖 XML 美化（缩进 2 空格）与压缩，支持语法错误校验 |
-| 杂项 | SQL 格式化 | 对常见 SQL 关键字大写美化、换行与缩进优化 |
-| 杂项 | Cron 表达式解析 | 校验 Cron 表达式，并计算未来 5 次的预计执行时间 |
-| 杂项 | 文本对比 | 纯 Java 计算两端文本差异，并以彩色高亮显示结果（标记新增与删除行） |
-| 杂项 | Docker 转换 | 将 `docker run` 运行命令解析并一键转换为 `docker-compose` YAML 声明配置 |
-| 杂项 | 子网计算器 | 输入 IP/CIDR（如 `192.168.1.1/24`）计算网络地址、广播地址、掩码并展示二进制 |
-| 杂项 | 颜色转换 | HEX / RGB / HSL 互转，集成 **JColorChooser 调色板** 与 **一键复制** |
+| 格式化 | JSON 格式化 | 无依赖 JSON 美化/压缩状态机 |
+| 格式化 | XML 格式化 | 无依赖 XML 美化（缩进 2 空格）与压缩，支持语法错误校验 |
+| 格式化 | SQL 格式化 | 对常见 SQL 关键字大写美化、换行与缩进优化 |
+| 开发工具 | 正则测试 | 实时匹配高亮、分组捕获、匹配计数 |
+| 开发工具 | JWT 编解码 | 支持 Header/Payload 实时解析与过期状态提示，支持 HS256 签名生成 |
+| 开发工具 | Cron 表达式解析 | 校验 Cron 表达式，并计算未来 5 次的预计执行时间 |
+| 开发工具 | 文本对比 | 纯 Java 计算两端文本差异，并以彩色高亮显示结果（标记新增与删除行） |
+| 开发工具 | Docker 转换 | 将 `docker run` 运行命令解析并一键转换为 `docker-compose` YAML 声明配置 |
+| 开发工具 | 子网计算器 | 输入 IP/CIDR（如 `192.168.1.1/24`）计算网络地址、广播地址、掩码并展示二进制 |
+| 开发工具 | 颜色转换 | HEX / RGB / HSL 互转，集成 **JColorChooser 调色板** 与 **一键复制** |
+| 生成 | UUID 生成 | 批量生成、去横线、大写、一键复制 |
+| 生成 | 密码生成器 | 基于 SecureRandom 的离线强密码生成与实时强度评估 |
 
 ## 主题与体验优化
 
@@ -40,16 +40,16 @@
 ## 界面布局
 
 ```
-┌─────────────────────────────────────────────┐
-│  Java 工具箱  · 算法 / 加密 / 转换 / 计算 / 杂项  [主题▾] │
-├─────────────────────────────────────────────┤
-│ [加密][转换][算法][计算][杂项]  ← 一级页签      │
-├──────────┬──────────────────────────────────┤
-│ 工具列表  │                                  │
-│ • 工具A  │       内容区（CardLayout）         │
-│ • 工具B  │                                  │
-│ • 工具C  │                                  │
-└──────────┴──────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Java 工具箱  · 加密 / 转换 / 算法 / 计算 / 格式化 / 开发工具 / 生成  │
+├──────────────────────────────────────────────────────┤
+│ [加密][转换][算法][计算][格式化][开发工具][生成]     │
+├──────────┬───────────────────────────────────────────┤
+│ 工具列表  │                                           │
+│ • 工具A  │           内容区（CardLayout）              │
+│ • 工具B  │                                           │
+│ • 工具C  │                                           │
+└──────────┴───────────────────────────────────────────┘
 ```
 
 ## 运行
@@ -83,31 +83,27 @@ mvn clean package -DskipTests
 src/main/java/com/aqishi/toolbox/
 ├── Main.java              # 启动入口
 ├── ui/
-│   ├── MainFrame.java     # 主窗口：页签 + 列表 + 主题
-│   ├── ToolPanel.java     # 工具面板抽象基类
-│   └── ThemeManager.java  # FlatLaf 主题管理
-├── crypto/                # 加密相关
-│   ├── CryptoPanel.java   # 摘要与编解码面板
-│   ├── SymmetricPanel.java# 对称加密面板 (AES/DES/3DES/SM4)
-│   ├── SymmetricUtils.java# 对称加密工具
-│   ├── AsymmetricPanel.java# 非对称加密面板 (RSA/SM2)
-│   ├── RSAUtils.java      # RSA 算法工具
-│   ├── SM2Utils.java      # SM2 算法工具
-│   └── SM3Utils.java      # SM3 算法工具
+│   ├── MainFrame.java     # 主窗口：7 大页签 + 搜索 + 主题
+│   ├── ToolPanel.java     # 工具面板抽象基类（含搜索关键词匹配）
+│   └── ThemeManager.java  # FlatLaf 主题管理（54 套主题）
+├── crypto/                # 加密
 ├── convert/               # 转换
-│   ├── ConvertPanel.java  # 进制与编码面板
-│   ├── TimePanel.java     # 时间戳面板
-│   └── Base64ImagePanel.java# Base64 图片转换面板
 ├── algo/                  # 算法
 ├── calc/                  # 计算
-├── misc/                  # 杂项
-│   ├── RegexPanel.java    # 正则面板
-│   ├── UuidPanel.java     # UUID 面板
-│   ├── JwtPanel.java      # JWT 编解码面板
-│   ├── PasswordPanel.java # 密码生成器面板
-│   ├── JsonPanel.java     # JSON 面板
+├── misc/                  # 格式化 / 开发工具 / 生成
+│   ├── JsonPanel.java     # JSON 格式化
 │   ├── JsonFormatter.java # JSON 格式化状态机
-│   └── ColorPanel.java    # 颜色转换面板
+│   ├── XmlPanel.java      # XML 格式化
+│   ├── SqlPanel.java      # SQL 格式化
+│   ├── RegexPanel.java    # 正则测试
+│   ├── JwtPanel.java      # JWT 编解码
+│   ├── CronPanel.java     # Cron 表达式
+│   ├── TextDiffPanel.java # 文本对比
+│   ├── DockerComposePanel.java # Docker 转换
+│   ├── SubnetPanel.java   # 子网计算器
+│   ├── ColorPanel.java    # 颜色转换
+│   ├── UuidPanel.java     # UUID 生成
+│   └── PasswordPanel.java # 密码生成器
 └── util/UIUtils.java      # UI 辅助
 ```
 

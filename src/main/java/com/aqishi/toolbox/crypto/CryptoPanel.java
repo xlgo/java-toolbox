@@ -22,7 +22,10 @@ import javax.crypto.spec.SecretKeySpec;
 public class CryptoPanel extends ToolPanel {
 
     public CryptoPanel() {
-        super("加密", "摘要与编解码");
+        super("加密", "摘要与编解码",
+                "MD5", "SHA-1", "SHA-256", "SHA256", "SM3", "哈希", "Hash",
+                "消息摘要", "散列", "Base64", "编解码", "编码", "解码",
+                "国密", "Hmac", "HMAC");
     }
 
     @Override

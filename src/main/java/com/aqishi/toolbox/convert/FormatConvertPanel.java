@@ -22,7 +22,9 @@ public class FormatConvertPanel extends ToolPanel {
     private final XmlMapper xmlMapper;
 
     public FormatConvertPanel() {
-        super("转换", "格式转换");
+        super("转换", "格式转换",
+                "JSON", "XML", "YAML", "CSV", "Properties",
+                "格式互转", "数据转换", "序列化");
         
         this.jsonMapper = new ObjectMapper();
         this.jsonMapper.enable(SerializationFeature.INDENT_OUTPUT);

@@ -30,7 +30,9 @@ public class PasswordPanel extends ToolPanel {
     private static final String SPECIAL = "!@#$%^&*()_+-=[]{}|;:,.<>?";
 
     public PasswordPanel() {
-        super("杂项", "密码生成器");
+        super("生成", "密码生成器",
+                "密码", "Password", "随机密码", "强密码",
+                "密码强度", "口令", "密码生成");
     }
 
     @Override

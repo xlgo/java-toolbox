@@ -19,7 +19,9 @@ import java.util.Date;
 public class TimePanel extends ToolPanel {
 
     public TimePanel() {
-        super("转换", "时间戳转换");
+        super("转换", "时间戳转换",
+                "Unix", "Timestamp", "时间戳", "日期转换", "时区",
+                "毫秒", "秒戳", "DateTime", "时间格式化");
     }
 
     @Override

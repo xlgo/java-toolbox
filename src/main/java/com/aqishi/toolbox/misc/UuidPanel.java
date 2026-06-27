@@ -14,7 +14,9 @@ import java.util.UUID;
 public class UuidPanel extends ToolPanel {
 
     public UuidPanel() {
-        super("杂项", "UUID 生成");
+        super("生成", "UUID 生成",
+                "UUID", "GUID", "唯一标识", "随机数",
+                "批量生成");
     }
 
     @Override

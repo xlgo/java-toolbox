@@ -20,7 +20,10 @@ import java.nio.charset.StandardCharsets;
 public class ConvertPanel extends ToolPanel {
 
     public ConvertPanel() {
-        super("转换", "进制与编码");
+        super("转换", "进制与编码",
+                "二进制", "八进制", "十进制", "十六进制", "Hex",
+                "UTF-8", "UTF8", "GBK", "ISO-8859-1", "URL编码", "URL解码",
+                "进制转换", "编码转换", "字符编码");
     }
 
     @Override

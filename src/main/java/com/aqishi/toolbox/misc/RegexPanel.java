@@ -14,7 +14,9 @@ import java.util.regex.Pattern;
 public class RegexPanel extends ToolPanel {
 
     public RegexPanel() {
-        super("杂项", "正则测试");
+        super("开发工具", "正则测试",
+                "Regex", "正则表达式", "匹配", "正则",
+                "正则匹配", "正则测试", "Pattern");
     }
 
     @Override

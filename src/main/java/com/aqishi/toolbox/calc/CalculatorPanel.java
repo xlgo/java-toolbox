@@ -17,7 +17,9 @@ import java.util.Arrays;
 public class CalculatorPanel extends ToolPanel {
 
     public CalculatorPanel() {
-        super("计算", "科学计算器");
+        super("计算", "科学计算器",
+                "表达式", "求值", "计算器", "Calc",
+                "数学", "函数", "sqrt", "pow");
     }
 
     @Override

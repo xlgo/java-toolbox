@@ -12,7 +12,9 @@ import java.awt.*;
 public class ColorPanel extends ToolPanel {
 
     public ColorPanel() {
-        super("杂项", "颜色转换");
+        super("开发工具", "颜色转换",
+                "HEX", "RGB", "HSL", "调色板", "Color",
+                "颜色", "颜色选择", "色值");
     }
 
     private JTextField hexF, rgbF, hslF;

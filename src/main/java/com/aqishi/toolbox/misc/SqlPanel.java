@@ -26,7 +26,9 @@ public class SqlPanel extends ToolPanel {
     ));
 
     public SqlPanel() {
-        super("杂项", "SQL 格式化");
+        super("格式化", "SQL 格式化",
+                "SQL", "美化", "格式化",
+                "Sql美化", "SQL美化", "关键字大写");
     }
 
     @Override

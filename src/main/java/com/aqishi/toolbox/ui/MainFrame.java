@@ -72,7 +72,7 @@ public class MainFrame extends JFrame {
     };
 
     public MainFrame() {
-        super("Java 工具箱 v1.2");
+        super("Java 工具箱 v1.3");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setSize(1024, 660);
         setMinimumSize(new Dimension(820, 520));
@@ -96,8 +96,7 @@ public class MainFrame extends JFrame {
 
         JLabel title = new JLabel("Java 工具箱");
         title.setFont(UIUtils.titleFont().deriveFont(16f));
-        JLabel subtitle = new JLabel("  ·  算法 / 加密 / 转换 / 计算 / 杂项");
-        subtitle.setFont(UIUtils.plainFont());
+        JLabel subtitle = new JLabel("  ·  加密 / 转换 / 算法 / 计算 / 格式化 / 开发工具 / 生成");        subtitle.setFont(UIUtils.plainFont());
         subtitle.setForeground(UIManager.getColor("Label.disabledForeground"));
         JPanel titleBox = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         titleBox.add(title);
@@ -108,7 +107,7 @@ public class MainFrame extends JFrame {
         JPanel searchBox = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
         JTextField searchField = new JTextField();
         searchField.setPreferredSize(new Dimension(240, 30));
-        searchField.putClientProperty("JTextField.placeholderText", "搜索工具 (例如: JSON)...");
+        searchField.putClientProperty("JTextField.placeholderText", "搜索工具 (例如: JSON, MD5, RSA)...");
         searchField.putClientProperty("JTextField.showClearButton", true);
         searchBox.add(searchField);
         bar.add(searchBox, BorderLayout.CENTER);
@@ -127,7 +126,7 @@ public class MainFrame extends JFrame {
 
                 int count = 0;
                 for (ToolPanel t : tools) {
-                    if (t.getName().toLowerCase().contains(q) || t.getGroup().toLowerCase().contains(q)) {
+                    if (t.matchesSearch(q)) {
                         JMenuItem item = new JMenuItem(t.getGroup() + " > " + t.getName());
                         item.setFont(UIUtils.plainFont());
                         item.addActionListener(ev -> {

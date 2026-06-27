@@ -22,7 +22,9 @@ import java.io.StringWriter;
 public class XmlPanel extends ToolPanel {
 
     public XmlPanel() {
-        super("杂项", "XML 格式化");
+        super("格式化", "XML 格式化",
+                "XML", "美化", "压缩", "格式化",
+                "Xml美化", "Xml压缩");
     }
 
     @Override

@@ -4,19 +4,23 @@ import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.file.Files;
 import java.util.Base64;
+import java.util.Iterator;
 
 /**
  * Base64 图片互转面板。
- * <p>提供本地图片编码为 Base64 String，以及解析 Base64 并预览、保存图片的功能。</p>
+ * <p>提供本地图片编码为 Base64 String，以及解析 Base64 并预览、保存图片的功能。
+ * 预览时使用降采样读取，避免高分辨率图片解码为完整尺寸消耗大量内存。</p>
  */
 public class Base64ImagePanel extends ToolPanel {
 
@@ -111,8 +115,13 @@ public class Base64ImagePanel extends ToolPanel {
                     else if (name.endsWith(".bmp")) loadedImageFormat = "bmp";
                     else loadedImageFormat = "png";
 
+                    // 先释放旧数据，避免同时持有新旧两份大内存
+                    loadedImageBytes = null;
+
                     loadedImageBytes = Files.readAllBytes(file.toPath());
-                    ImageIcon icon = scaleImage(loadedImageBytes, 180, 180);
+
+                    // 使用降采样预览，避免完整解码大图
+                    ImageIcon icon = scaleImagePreview(loadedImageBytes, 180, 180);
                     if (icon != null) {
                         uploadPreview.setText("");
                         uploadPreview.setIcon(icon);
@@ -121,7 +130,7 @@ public class Base64ImagePanel extends ToolPanel {
                         uploadPreview.setIcon(null);
                     }
 
-                    // 转换为 Data URI Scheme 格式
+                    // 直接对原始字节做 Base64 编码，不经过解码
                     String base64Str = Base64.getEncoder().encodeToString(loadedImageBytes);
                     base64Output.setText("data:image/" + loadedImageFormat + ";base64," + base64Str);
                 } catch (Exception ex) {
@@ -145,13 +154,19 @@ public class Base64ImagePanel extends ToolPanel {
                 return;
             }
             try {
-                // 剔除 "data:image/xxx;base64," 的前缀（如果包含）
+                // 剔除 "data:image/xxx;base64," 前缀
                 if (rawInput.contains("base64,")) {
                     rawInput = rawInput.substring(rawInput.indexOf("base64,") + 7);
                 }
 
+                // 先释放旧数据
+                decodedImageBytes = null;
+                downloadPreview.setIcon(null);
+
                 decodedImageBytes = Base64.getDecoder().decode(rawInput);
-                ImageIcon icon = scaleImage(decodedImageBytes, 180, 180);
+
+                // 降采样预览
+                ImageIcon icon = scaleImagePreview(decodedImageBytes, 180, 180);
                 if (icon != null) {
                     downloadPreview.setText("");
                     downloadPreview.setIcon(icon);
@@ -192,11 +207,40 @@ public class Base64ImagePanel extends ToolPanel {
         return root;
     }
 
-    private ImageIcon scaleImage(byte[] bytes, int maxW, int maxH) {
+    /**
+     * 降采样缩略图预览：使用 ImageReader 的分层降采样（setSourceSubsampling），
+     * 避免将超大图片完整解码到内存中再缩小。
+     * <p>例如一个 8000×6000 的图片，降采样因子为 8 时仅解码为 1000×750，再缩放到 180px 预览。</p>
+     */
+    private ImageIcon scaleImagePreview(byte[] bytes, int maxW, int maxH) {
+        ImageInputStream iis = null;
+        ImageReader reader = null;
         try {
-            ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
-            BufferedImage img = ImageIO.read(bis);
+            iis = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes));
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
+            if (!readers.hasNext()) return null;
+
+            reader = readers.next();
+            reader.setInput(iis, false, false);
+
+            int width = reader.getWidth(0);
+            int height = reader.getHeight(0);
+
+            // 计算降采样因子：保证采样后的尺寸 <= maxW*2 和 maxH*2
+            int subsample = 1;
+            while (width / subsample > maxW * 2 || height / subsample > maxH * 2) {
+                subsample *= 2;
+            }
+
+            ImageReadParam param = reader.getDefaultReadParam();
+            if (subsample > 1) {
+                param.setSourceSubsampling(subsample, subsample, 0, 0);
+            }
+
+            BufferedImage img = reader.read(0, param);
             if (img == null) return null;
+
+            // 如果需要，再精确缩放到预览尺寸
             int iw = img.getWidth();
             int ih = img.getHeight();
             double ratio = Math.min((double) maxW / iw, (double) maxH / ih);
@@ -207,8 +251,12 @@ public class Base64ImagePanel extends ToolPanel {
                 return new ImageIcon(scaled);
             }
             return new ImageIcon(img);
+
         } catch (Exception e) {
             return null;
+        } finally {
+            if (reader != null) reader.dispose();
+            if (iis != null) try { iis.close(); } catch (Exception ignored) {}
         }
     }
 }

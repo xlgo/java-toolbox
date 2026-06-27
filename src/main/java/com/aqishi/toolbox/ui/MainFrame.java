@@ -40,6 +40,36 @@ import java.util.Map;
 public class MainFrame extends JFrame {
 
     private JLabel statusLabel;
+    private JTabbedPane tabs;
+    private final Map<String, JList<String>> groupListMap = new java.util.HashMap<>();
+    private final Map<String, CardLayout> groupCardMap = new java.util.HashMap<>();
+    private final Map<String, JPanel> groupContentMap = new java.util.HashMap<>();
+    
+    private final ToolPanel[] tools = {
+            new CryptoPanel(),
+            new SymmetricPanel(),
+            new AsymmetricPanel(),
+            new ConvertPanel(),
+            new TimePanel(),
+            new Base64ImagePanel(),
+            new FormatConvertPanel(),
+            new SortPanel(),
+            new SearchPanel(),
+            new CalculatorPanel(),
+            new StatisticsPanel(),
+            new RegexPanel(),
+            new UuidPanel(),
+            new PasswordPanel(),
+            new JwtPanel(),
+            new JsonPanel(),
+            new XmlPanel(),
+            new SqlPanel(),
+            new CronPanel(),
+            new TextDiffPanel(),
+            new DockerComposePanel(),
+            new SubnetPanel(),
+            new ColorPanel(),
+    };
 
     public MainFrame() {
         super("Java 工具箱 v1.2");
@@ -57,7 +87,7 @@ public class MainFrame extends JFrame {
         add(buildStatusBar(), BorderLayout.SOUTH);
     }
 
-    /** 顶部栏：标题 + 主题切换下拉框 */
+    /** 顶部栏：标题 + 搜索框 + 主题切换下拉框 */
     private JComponent buildTopBar() {
         JPanel bar = new JPanel(new BorderLayout(8, 0));
         bar.setBorder(BorderFactory.createCompoundBorder(
@@ -73,6 +103,48 @@ public class MainFrame extends JFrame {
         titleBox.add(title);
         titleBox.add(subtitle);
         bar.add(titleBox, BorderLayout.WEST);
+
+        // ===== 搜索框 =====
+        JPanel searchBox = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+        JTextField searchField = new JTextField();
+        searchField.setPreferredSize(new Dimension(240, 30));
+        searchField.putClientProperty("JTextField.placeholderText", "搜索工具 (例如: JSON)...");
+        searchField.putClientProperty("JTextField.showClearButton", true);
+        searchBox.add(searchField);
+        bar.add(searchBox, BorderLayout.CENTER);
+
+        JPopupMenu searchPopup = new JPopupMenu();
+        searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { updateSearch(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { updateSearch(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { updateSearch(); }
+
+            private void updateSearch() {
+                String q = searchField.getText().trim().toLowerCase();
+                searchPopup.setVisible(false);
+                searchPopup.removeAll();
+                if (q.isEmpty()) return;
+
+                int count = 0;
+                for (ToolPanel t : tools) {
+                    if (t.getName().toLowerCase().contains(q) || t.getGroup().toLowerCase().contains(q)) {
+                        JMenuItem item = new JMenuItem(t.getGroup() + " > " + t.getName());
+                        item.setFont(UIUtils.plainFont());
+                        item.addActionListener(ev -> {
+                            selectTool(t);
+                            SwingUtilities.invokeLater(() -> searchField.setText(""));
+                        });
+                        searchPopup.add(item);
+                        count++;
+                        if (count >= 10) break;
+                    }
+                }
+                if (count > 0) {
+                    searchPopup.show(searchField, 0, searchField.getHeight());
+                    searchField.requestFocusInWindow();
+                }
+            }
+        });
 
         // 主题切换
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
@@ -92,53 +164,47 @@ public class MainFrame extends JFrame {
         return bar;
     }
 
+    /** 智能跳转选中特定的工具 */
+    private void selectTool(ToolPanel targetTool) {
+        String group = targetTool.getGroup();
+        int tabCount = tabs.getTabCount();
+        for (int i = 0; i < tabCount; i++) {
+            if (tabs.getTitleAt(i).equals(group)) {
+                tabs.setSelectedIndex(i);
+                JList<String> list = groupListMap.get(group);
+                CardLayout cards = groupCardMap.get(group);
+                JPanel content = groupContentMap.get(group);
+                if (list != null && cards != null && content != null) {
+                    list.setSelectedValue(targetTool.getName(), true);
+                    cards.show(content, targetTool.getName());
+                }
+                break;
+            }
+        }
+    }
+
     /** 中部：页签 + 列表 + 内容区 */
     private JComponent buildCenter() {
-        ToolPanel[] tools = {
-                new CryptoPanel(),
-                new SymmetricPanel(),
-                new AsymmetricPanel(),
-                new ConvertPanel(),
-                new TimePanel(),
-                new Base64ImagePanel(),
-                new FormatConvertPanel(),
-                new SortPanel(),
-                new SearchPanel(),
-                new CalculatorPanel(),
-                new StatisticsPanel(),
-                new RegexPanel(),
-                new UuidPanel(),
-                new PasswordPanel(),
-                new JwtPanel(),
-                new JsonPanel(),
-                new XmlPanel(),
-                new SqlPanel(),
-                new CronPanel(),
-                new TextDiffPanel(),
-                new DockerComposePanel(),
-                new SubnetPanel(),
-                new ColorPanel(),
-        };
         Map<String, java.util.List<ToolPanel>> grouped = new LinkedHashMap<>();
         for (ToolPanel t : tools)
             grouped.computeIfAbsent(t.getGroup(), k -> new java.util.ArrayList<>()).add(t);
 
-        JTabbedPane tabs = new JTabbedPane();
+        tabs = new JTabbedPane();
         tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
         tabs.setBorder(new EmptyBorder(4, 6, 6, 6));
 
         for (Map.Entry<String, java.util.List<ToolPanel>> entry : grouped.entrySet()) {
-            tabs.addTab(entry.getKey(), buildGroupTab(entry.getValue()));
+            tabs.addTab(entry.getKey(), buildGroupTab(entry.getKey(), entry.getValue()));
         }
         return tabs;
     }
 
     /** 单个大类 Tab：左侧 JList + 右侧 CardLayout */
-    private JComponent buildGroupTab(java.util.List<ToolPanel> tools) {
+    private JComponent buildGroupTab(String groupName, java.util.List<ToolPanel> toolsList) {
         JPanel holder = new JPanel(new BorderLayout(0, 0));
 
         DefaultListModel<String> listModel = new DefaultListModel<>();
-        for (ToolPanel t : tools) listModel.addElement(t.getName());
+        for (ToolPanel t : toolsList) listModel.addElement(t.getName());
         JList<String> list = new JList<>(listModel);
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         list.setSelectedIndex(0);
@@ -146,6 +212,8 @@ public class MainFrame extends JFrame {
         list.setFixedCellWidth(150);
         list.setFont(UIUtils.plainFont().deriveFont(14f));
         list.setBorder(new EmptyBorder(6, 8, 6, 8));
+        
+        groupListMap.put(groupName, list);
 
         JScrollPane listScroll = new JScrollPane(list);
         listScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
@@ -155,8 +223,11 @@ public class MainFrame extends JFrame {
         CardLayout cards = new CardLayout();
         JPanel content = new JPanel(cards);
         content.setBorder(new EmptyBorder(2, 8, 4, 4));
-        for (ToolPanel t : tools) content.add(t.getView(), t.getName());
-        cards.show(content, tools.get(0).getName());
+        for (ToolPanel t : toolsList) content.add(t.getView(), t.getName());
+        cards.show(content, toolsList.get(0).getName());
+        
+        groupCardMap.put(groupName, cards);
+        groupContentMap.put(groupName, content);
 
         list.addListSelectionListener(e -> {
             if (e.getValueIsAdjusting()) return;

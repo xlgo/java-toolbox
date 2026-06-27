@@ -10,7 +10,6 @@ import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.openssl.PEMKeyPair;
 import org.bouncycastle.openssl.PEMParser;
@@ -22,7 +21,6 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import javax.security.auth.x500.X500Principal;
 import java.io.*;
 import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -32,17 +30,10 @@ import java.util.*;
 
 /**
  * 证书工具类：根证书创建、证书签发、证书解析、PEM 编解码。
- * <p>基于 BouncyCastle bcpkix 实现 X.509 v3 证书操作。</p>
+ * <p>使用 JDK 内置 RSA/EC 密钥生成 + BouncyCastle bcpkix 证书构建。
+ * 不注册 BouncyCastleProvider，避免加载数百个加密服务占用内存。</p>
  */
 public class CertUtils {
-
-    private static final String BC_PROVIDER = BouncyCastleProvider.PROVIDER_NAME;
-
-    static {
-        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
-            Security.addProvider(new BouncyCastleProvider());
-        }
-    }
 
     // ===========================================================
     //  支持的密钥算法
@@ -89,10 +80,10 @@ public class CertUtils {
                 createSubjectKeyId(keyPair.getPublic()));
 
         ContentSigner signer = new JcaContentSignerBuilder(sigAlg)
-                .setProvider(BC_PROVIDER).build(keyPair.getPrivate());
+                .build(keyPair.getPrivate());
         X509CertificateHolder holder = builder.build(signer);
         X509Certificate cert = new JcaX509CertificateConverter()
-                .setProvider(BC_PROVIDER).getCertificate(holder);
+                .getCertificate(holder);
 
         return new CertResult(cert, keyPair.getPrivate());
     }
@@ -154,10 +145,10 @@ public class CertUtils {
         }
 
         ContentSigner signer = new JcaContentSignerBuilder(sigAlg)
-                .setProvider(BC_PROVIDER).build(caKey);
+                .build(caKey);
         X509CertificateHolder holder = builder.build(signer);
         X509Certificate cert = new JcaX509CertificateConverter()
-                .setProvider(BC_PROVIDER).getCertificate(holder);
+                .getCertificate(holder);
 
         return new CertResult(cert, keyPair.getPrivate());
     }
@@ -203,7 +194,7 @@ public class CertUtils {
         Object obj = parser.readObject();
         parser.close();
 
-        JcaPEMKeyConverter converter = new JcaPEMKeyConverter().setProvider(BC_PROVIDER);
+        JcaPEMKeyConverter converter = new JcaPEMKeyConverter();
 
         if (obj instanceof PrivateKeyInfo) {
             return converter.getPrivateKey((PrivateKeyInfo) obj);
@@ -222,7 +213,7 @@ public class CertUtils {
     private static KeyPair generateKeyPair(int idx) throws Exception {
         String algorithm = KEY_ALG_INTERNAL[idx];
         int size = KEY_SIZES[idx];
-        KeyPairGenerator kpg = KeyPairGenerator.getInstance(algorithm, BC_PROVIDER);
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance(algorithm);
         kpg.initialize(size, new SecureRandom());
         return kpg.generateKeyPair();
     }

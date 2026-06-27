@@ -7,6 +7,7 @@ import com.aqishi.toolbox.calc.StatisticsPanel;
 import com.aqishi.toolbox.convert.Base64ImagePanel;
 import com.aqishi.toolbox.convert.ConvertPanel;
 import com.aqishi.toolbox.convert.TimePanel;
+import com.aqishi.toolbox.convert.FormatConvertPanel;
 import com.aqishi.toolbox.crypto.AsymmetricPanel;
 import com.aqishi.toolbox.crypto.CryptoPanel;
 import com.aqishi.toolbox.crypto.SymmetricPanel;
@@ -16,6 +17,12 @@ import com.aqishi.toolbox.misc.JwtPanel;
 import com.aqishi.toolbox.misc.PasswordPanel;
 import com.aqishi.toolbox.misc.RegexPanel;
 import com.aqishi.toolbox.misc.UuidPanel;
+import com.aqishi.toolbox.misc.XmlPanel;
+import com.aqishi.toolbox.misc.SqlPanel;
+import com.aqishi.toolbox.misc.CronPanel;
+import com.aqishi.toolbox.misc.TextDiffPanel;
+import com.aqishi.toolbox.misc.DockerComposePanel;
+import com.aqishi.toolbox.misc.SubnetPanel;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -94,6 +101,7 @@ public class MainFrame extends JFrame {
                 new ConvertPanel(),
                 new TimePanel(),
                 new Base64ImagePanel(),
+                new FormatConvertPanel(),
                 new SortPanel(),
                 new SearchPanel(),
                 new CalculatorPanel(),
@@ -103,6 +111,12 @@ public class MainFrame extends JFrame {
                 new PasswordPanel(),
                 new JwtPanel(),
                 new JsonPanel(),
+                new XmlPanel(),
+                new SqlPanel(),
+                new CronPanel(),
+                new TextDiffPanel(),
+                new DockerComposePanel(),
+                new SubnetPanel(),
                 new ColorPanel(),
         };
         Map<String, java.util.List<ToolPanel>> grouped = new LinkedHashMap<>();

@@ -8,6 +8,7 @@ import javax.imageio.ImageReadParam;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import javax.swing.*;
+import javax.swing.border.TitledBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.image.BufferedImage;
@@ -20,15 +21,19 @@ import java.util.Iterator;
 /**
  * Base64 图片互转面板。
  * <p>提供本地图片编码为 Base64 String，以及解析 Base64 并预览、保存图片的功能。
- * 预览时使用降采样读取，避免高分辨率图片解码为完整尺寸消耗大量内存。</p>
+ * 预览时使用降采样读取，Base64 输出使用截断显示避免大文本撑爆 JTextArea 内存。</p>
  */
 public class Base64ImagePanel extends ToolPanel {
+
+    /** 显示截断阈值：超过此大小的 Base64 只显示前 N 字符 */
+    private static final int DISPLAY_LIMIT = 5000;
 
     // 图片转 Base64 组件
     private JLabel uploadPreview;
     private JTextArea base64Output;
     private byte[] loadedImageBytes;
     private String loadedImageFormat = "png";
+    private String fullBase64Output = "";  // 完整 Base64（仅用于复制）
 
     // Base64 转图片组件
     private JTextArea base64Input;
@@ -58,8 +63,9 @@ public class Base64ImagePanel extends ToolPanel {
 
         base64Output = new JTextArea(8, 20);
         base64Output.setFont(UIUtils.monoFont());
-        base64Output.setLineWrap(true);
         base64Output.setEditable(false);
+        // 不使用自动换行：大段 Base64 自动换行会导致 Swing 内部视图内存暴增
+        base64Output.setLineWrap(false);
 
         JPanel leftActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         JButton selectImgBtn = UIUtils.button("选择图片...", 100);
@@ -67,8 +73,14 @@ public class Base64ImagePanel extends ToolPanel {
         leftActions.add(selectImgBtn);
         leftActions.add(copyBase64Btn);
 
+        JScrollPane outScroll = new JScrollPane(base64Output);
+        outScroll.setBorder(BorderFactory.createTitledBorder(
+                null, "输出 Base64 String", TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION, UIUtils.plainFont(),
+                UIManager.getColor("Component.accentColor")));
+
         leftPanel.add(uploadPreview, BorderLayout.NORTH);
-        leftPanel.add(UIUtils.scrollText(base64Output, "输出 Base64 String"), BorderLayout.CENTER);
+        leftPanel.add(outScroll, BorderLayout.CENTER);
         leftPanel.add(leftActions, BorderLayout.SOUTH);
 
         // ===== 右半部：Base64 -> 图片 =====
@@ -83,7 +95,13 @@ public class Base64ImagePanel extends ToolPanel {
 
         base64Input = new JTextArea(8, 20);
         base64Input.setFont(UIUtils.monoFont());
-        base64Input.setLineWrap(true);
+        base64Input.setLineWrap(false);
+
+        JScrollPane inScroll = new JScrollPane(base64Input);
+        inScroll.setBorder(BorderFactory.createTitledBorder(
+                null, "输入 Base64 String", TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION, UIUtils.plainFont(),
+                UIManager.getColor("Component.accentColor")));
 
         JPanel rightActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         JButton parseBtn = UIUtils.button("解析并预览", 100);
@@ -94,7 +112,7 @@ public class Base64ImagePanel extends ToolPanel {
         rightActions.add(clearRightBtn);
 
         rightPanel.add(downloadPreview, BorderLayout.NORTH);
-        rightPanel.add(UIUtils.scrollText(base64Input, "输入 Base64 String"), BorderLayout.CENTER);
+        rightPanel.add(inScroll, BorderLayout.CENTER);
         rightPanel.add(rightActions, BorderLayout.SOUTH);
 
         // ===== 拼装主面板 =====
@@ -115,12 +133,13 @@ public class Base64ImagePanel extends ToolPanel {
                     else if (name.endsWith(".bmp")) loadedImageFormat = "bmp";
                     else loadedImageFormat = "png";
 
-                    // 先释放旧数据，避免同时持有新旧两份大内存
+                    // 先释放旧数据
                     loadedImageBytes = null;
+                    fullBase64Output = "";
 
                     loadedImageBytes = Files.readAllBytes(file.toPath());
 
-                    // 使用降采样预览，避免完整解码大图
+                    // 降采样预览
                     ImageIcon icon = scaleImagePreview(loadedImageBytes, 180, 180);
                     if (icon != null) {
                         uploadPreview.setText("");
@@ -130,9 +149,18 @@ public class Base64ImagePanel extends ToolPanel {
                         uploadPreview.setIcon(null);
                     }
 
-                    // 直接对原始字节做 Base64 编码，不经过解码
+                    // 编码 Base64
                     String base64Str = Base64.getEncoder().encodeToString(loadedImageBytes);
-                    base64Output.setText("data:image/" + loadedImageFormat + ";base64," + base64Str);
+                    fullBase64Output = "data:image/" + loadedImageFormat + ";base64," + base64Str;
+
+                    // 截断显示，避免大文本撑爆 JTextArea
+                    if (fullBase64Output.length() > DISPLAY_LIMIT) {
+                        base64Output.setText(fullBase64Output.substring(0, DISPLAY_LIMIT)
+                                + "\n\n... (已截断，共 " + fullBase64Output.length()
+                                + " 字符，点击「复制 Base64」获取完整内容)");
+                    } else {
+                        base64Output.setText(fullBase64Output);
+                    }
                 } catch (Exception ex) {
                     UIUtils.error(root, "图片转换失败: " + ex.getMessage());
                 }
@@ -140,10 +168,9 @@ public class Base64ImagePanel extends ToolPanel {
         });
 
         copyBase64Btn.addActionListener(e -> {
-            String text = base64Output.getText();
-            if (!text.isEmpty()) {
-                UIUtils.copyToClipboard(text);
-                UIUtils.info(root, "Base64 数据已成功复制到剪贴板。");
+            if (!fullBase64Output.isEmpty()) {
+                UIUtils.copyToClipboard(fullBase64Output);
+                UIUtils.info(root, "Base64 数据已成功复制到剪贴板。\n共 " + fullBase64Output.length() + " 字符。");
             }
         });
 
@@ -210,7 +237,6 @@ public class Base64ImagePanel extends ToolPanel {
     /**
      * 降采样缩略图预览：使用 ImageReader 的分层降采样（setSourceSubsampling），
      * 避免将超大图片完整解码到内存中再缩小。
-     * <p>例如一个 8000×6000 的图片，降采样因子为 8 时仅解码为 1000×750，再缩放到 180px 预览。</p>
      */
     private ImageIcon scaleImagePreview(byte[] bytes, int maxW, int maxH) {
         ImageInputStream iis = null;
@@ -226,7 +252,7 @@ public class Base64ImagePanel extends ToolPanel {
             int width = reader.getWidth(0);
             int height = reader.getHeight(0);
 
-            // 计算降采样因子：保证采样后的尺寸 <= maxW*2 和 maxH*2
+            // 计算降采样因子
             int subsample = 1;
             while (width / subsample > maxW * 2 || height / subsample > maxH * 2) {
                 subsample *= 2;
@@ -240,7 +266,6 @@ public class Base64ImagePanel extends ToolPanel {
             BufferedImage img = reader.read(0, param);
             if (img == null) return null;
 
-            // 如果需要，再精确缩放到预览尺寸
             int iw = img.getWidth();
             int ih = img.getHeight();
             double ratio = Math.min((double) maxW / iw, (double) maxH / ih);
@@ -248,6 +273,7 @@ public class Base64ImagePanel extends ToolPanel {
                 int w = (int) (iw * ratio);
                 int h = (int) (ih * ratio);
                 Image scaled = img.getScaledInstance(w, h, Image.SCALE_SMOOTH);
+                img.flush(); // 释放原始 BufferedImage
                 return new ImageIcon(scaled);
             }
             return new ImageIcon(img);

@@ -78,12 +78,9 @@ public class CertPanel extends ToolPanel {
         rootAlgCombo.setFont(UIUtils.plainFont());
         configPanel.add(rootAlgCombo, gbc);
 
-        // 主题
+        // 主题字段
         row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.gridwidth = 2;
-        configPanel.add(new JLabel("主题 (Subject DN)："), gbc);
-        row++; gbc.gridwidth = 1;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.gridwidth = 1;
         configPanel.add(new JLabel("CN (通用名称)"), gbc);
         gbc.gridx = 1; gbc.weightx = 1.0;
         rootCnField = new JTextField("My Root CA");
@@ -196,19 +193,17 @@ public class CertPanel extends ToolPanel {
 
         int row = 0;
 
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.gridwidth = 2;
+        // 密钥算法：label + combo on same row (同创建根证书页签)
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.gridwidth = 1;
         rightPanel.add(new JLabel("密钥算法："), gbc);
-        row++; gbc.gridwidth = 1;
-        gbc.gridx = 1;
+        gbc.gridx = 1; gbc.weightx = 1.0;
         signAlgCombo = new JComboBox<>(KEY_ALG_ITEMS);
         signAlgCombo.setFont(UIUtils.plainFont());
         rightPanel.add(signAlgCombo, gbc);
 
+        // 主题字段
         row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
-        rightPanel.add(new JLabel("主题 (Subject DN)："), gbc);
-        row++; gbc.gridwidth = 1;
-        gbc.gridx = 0; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.gridwidth = 1;
         rightPanel.add(new JLabel("CN"), gbc);
         gbc.gridx = 1; gbc.weightx = 1.0;
         signCnField = new JTextField("myserver.example.com");
@@ -252,7 +247,7 @@ public class CertPanel extends ToolPanel {
         row++;
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.gridwidth = 2;
         rightPanel.add(new JLabel("SAN (域名, 多个用逗号分隔)："), gbc);
-        row++; gbc.gridwidth = 1;
+        row++; gbc.gridy = row; gbc.gridwidth = 1;
         gbc.gridx = 0; gbc.weightx = 0;
         gbc.gridx = 1; gbc.weightx = 1.0;
         signSanField = new JTextField("example.com, www.example.com");
@@ -261,7 +256,7 @@ public class CertPanel extends ToolPanel {
         row++;
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.gridwidth = 2;
         rightPanel.add(new JLabel("有效期 (年)："), gbc);
-        row++; gbc.gridwidth = 1;
+        row++; gbc.gridy = row; gbc.gridwidth = 1;
         gbc.gridx = 1; gbc.weightx = 1.0;
         signYearsSpinner = new JSpinner(new SpinnerNumberModel(2, 1, 50, 1));
         rightPanel.add(signYearsSpinner, gbc);

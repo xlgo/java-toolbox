@@ -80,6 +80,33 @@ public class MainFrame extends JFrame {
         setMinimumSize(new Dimension(820, 520));
         setLocationRelativeTo(null);
         initUI();
+
+        // 如果指定了 -Dscreenshot=path，则延迟拍照后退出
+        String ssPath = System.getProperty("screenshot");
+        if (ssPath != null && !ssPath.isEmpty()) {
+            final String path = ssPath;
+            javax.swing.Timer ssTimer = new javax.swing.Timer(2000, e -> {
+                takeScreenshot(path);
+            });
+            ssTimer.setRepeats(false);
+            ssTimer.start();
+        }
+    }
+
+    /** 对当前窗口截图并保存到文件 */
+    private void takeScreenshot(String path) {
+        try {
+            Robot robot = new Robot();
+            Rectangle bounds = getBounds();
+            // 先确保窗口在最前面
+            toFront();
+            Thread.sleep(300);
+            java.awt.image.BufferedImage img = robot.createScreenCapture(bounds);
+            javax.imageio.ImageIO.write(img, "png", new java.io.File(path));
+            System.out.println("Screenshot saved: " + path);
+        } catch (Exception ex) {
+            System.err.println("Screenshot failed: " + ex.getMessage());
+        }
     }
 
     private void initUI() {
@@ -256,36 +283,31 @@ public class MainFrame extends JFrame {
 
     private void updateStatusBar() {
         Runtime rt = Runtime.getRuntime();
-        long total = rt.totalMemory();
-        long free = rt.freeMemory();
-        long used = total - free;
+        long used = rt.totalMemory() - rt.freeMemory();
         long max = rt.maxMemory();
 
-        String memUsed = formatBytes(used);
-        String memTotal = formatBytes(total);
-        String memMax = formatBytes(max);
-        int memPct = (int) (used * 100L / total);
+        int memPct = max > 0 ? (int) (used * 100L / max) : 0;
 
-        // JDK 版本
         String jdkVer = System.getProperty("java.version");
 
-        // 尝试获取进程 CPU 占用
+        // 进程 CPU 占用（非系统 CPU）
         String cpuStr = "";
         try {
             java.lang.management.OperatingSystemMXBean osBean =
                     java.lang.management.ManagementFactory.getOperatingSystemMXBean();
             if (osBean instanceof com.sun.management.OperatingSystemMXBean) {
-                double cpuLoad = ((com.sun.management.OperatingSystemMXBean) osBean).getCpuLoad();
+                double cpuLoad = ((com.sun.management.OperatingSystemMXBean) osBean).getProcessCpuLoad();
                 if (cpuLoad >= 0) {
-                    cpuStr = String.format("CPU %d%%", (int) (cpuLoad * 100));
+                    cpuStr = String.format("CPU %.1f%%", cpuLoad * 100);
                 }
             }
         } catch (Exception ignored) {
         }
 
         StringBuilder sb = new StringBuilder("  就绪  |  JDK ").append(jdkVer);
-        sb.append("  |  ").append(cpuStr.isEmpty() ? "" : cpuStr + "  |  ");
-        sb.append("内存 ").append(memUsed).append(" / ").append(memTotal).append(" (最大 ").append(memMax).append(")  ").append(memPct).append("%");
+        if (!cpuStr.isEmpty()) sb.append("  |  ").append(cpuStr);
+        sb.append("  |  内存 ").append(formatBytes(used)).append(" / ").append(formatBytes(max));
+        sb.append("  (").append(memPct).append("%)");
         statusLabel.setText(sb.toString());
     }
 

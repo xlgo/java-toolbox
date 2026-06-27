@@ -3,7 +3,7 @@
 > 桌面端多功能工具箱，基于 Java Swing + FlatLaf 外观包。JDK 8+ 即可运行，双击 `run.bat` 或 `java -jar java-toolbox.jar` 启动。
 
 <p align="center">
-  <img src="screenshots/overview.png" alt="Java 工具箱概览" width="800"/>
+  <img src="screenshots/overview.png" alt="Java 工具箱概览" width="750"/>
 </p>
 
 ## 功能一览

@@ -269,10 +269,10 @@ public class K8sPanel extends ToolPanel {
         StringBuilder y = new StringBuilder();
         boolean all = type == -1;
 
-        if (all || type == 3) appendSep(y, buildConfigMap(name, ns));
-        if (all || type == 0) appendSep(y, buildDeploy(name, ns));
-        if (all || type == 1) appendSep(y, buildService(name, ns));
-        if (all || type == 2) appendSep(y, buildIngress(name, ns));
+        if (all || type == 3) { String s = buildConfigMap(name, ns); if (!s.isEmpty()) appendSep(y, "# --- ConfigMap ---\n" + s); }
+        if (all || type == 0) { String s = buildDeploy(name, ns);   if (!s.isEmpty()) appendSep(y, "# --- Deployment ---\n" + s); }
+        if (all || type == 1) { String s = buildService(name, ns);  if (!s.isEmpty()) appendSep(y, "# --- Service ---\n" + s); }
+        if (all || type == 2) { String s = buildIngress(name, ns);  if (!s.isEmpty()) appendSep(y, "# --- Ingress ---\n" + s); }
 
         outputArea.setText(y.toString());
     }

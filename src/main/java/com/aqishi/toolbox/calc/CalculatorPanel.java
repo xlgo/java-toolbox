@@ -108,15 +108,27 @@ public class CalculatorPanel extends ToolPanel {
             ScriptEngine engine = new ScriptEngineManager().getEngineByName("js");
             if (engine != null) {
                 Object r = engine.eval(expression);
-                return String.valueOf(r);
+                double val = ((Number) r).doubleValue();
+                return formatResult(val);
             }
         } catch (ScriptException ignore) {
         }
         // 回退：简易中缀求值
         try {
-            return String.valueOf(SimpleEval.eval(expression));
+            double val = SimpleEval.eval(expression);
+            return formatResult(val);
         } catch (Exception ex) {
             return "错误";
         }
+    }
+
+    /** 格式化结果：消除浮点误差（如 2-1.1 → 0.9 而非 0.8999999999） */
+    private static String formatResult(double value) {
+        if (Double.isNaN(value)) return "NaN";
+        if (Double.isInfinite(value)) return value > 0 ? "∞" : "-∞";
+        // 保留 10 位小数并去掉尾部多余的 0
+        String s = String.format("%.10f", value).replaceAll("0+$", "");
+        if (s.endsWith(".")) s = s.substring(0, s.length() - 1);
+        return s;
     }
 }

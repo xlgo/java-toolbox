@@ -13,6 +13,7 @@ import com.aqishi.toolbox.crypto.CryptoPanel;
 import com.aqishi.toolbox.crypto.SymmetricPanel;
 import com.aqishi.toolbox.misc.ColorPanel;
 import com.aqishi.toolbox.misc.CertPanel;
+import com.aqishi.toolbox.misc.K8sPanel;
 import com.aqishi.toolbox.misc.JsonPanel;
 import com.aqishi.toolbox.misc.JwtPanel;
 import com.aqishi.toolbox.misc.PasswordPanel;
@@ -71,6 +72,7 @@ public class MainFrame extends JFrame {
             new SubnetPanel(),
             new ColorPanel(),
             new CertPanel(),
+            new K8sPanel(),
     };
 
     public MainFrame() {

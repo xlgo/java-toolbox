@@ -28,7 +28,7 @@ public final class SymmetricUtils {
     }
 
     /** 支持的填充方式 */
-    public static final String[] PADDINGS = {"PKCS5Padding", "NoPadding"};
+    public static final String[] PADDINGS = {"PKCS5Padding", "NoPadding", "ISO10126Padding"};
 
     /**
      * 生成随机密钥

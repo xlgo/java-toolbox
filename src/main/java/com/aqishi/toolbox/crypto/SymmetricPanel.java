@@ -16,6 +16,7 @@ public class SymmetricPanel extends ToolPanel {
 
     private JComboBox<String> algoCombo;
     private JComboBox<String> modeCombo;
+    private JComboBox<String> paddingCombo;
     private JComboBox<Integer> keySizeCombo;
     private JComboBox<String> encodingCombo; // Base64 或 Hex
     private JTextArea keyArea;
@@ -57,27 +58,33 @@ public class SymmetricPanel extends ToolPanel {
         configPanel.add(modeCombo, gbc);
 
         gbc.gridx = 4; gbc.weightx = 0;
-        configPanel.add(new JLabel("密钥长度："), gbc);
+        configPanel.add(new JLabel("填充："), gbc);
         gbc.gridx = 5; gbc.weightx = 0.2;
+        paddingCombo = new JComboBox<>(SymmetricUtils.PADDINGS);
+        configPanel.add(paddingCombo, gbc);
+
+        gbc.gridx = 6; gbc.weightx = 0;
+        configPanel.add(new JLabel("密钥长度："), gbc);
+        gbc.gridx = 7; gbc.weightx = 0.2;
         keySizeCombo = new JComboBox<>();
         configPanel.add(keySizeCombo, gbc);
 
-        gbc.gridx = 6; gbc.weightx = 0;
+        gbc.gridx = 8; gbc.weightx = 0;
         configPanel.add(new JLabel("密钥格式："), gbc);
-        gbc.gridx = 7; gbc.weightx = 0.2;
+        gbc.gridx = 9; gbc.weightx = 0.2;
         encodingCombo = new JComboBox<>(new String[]{"Base64", "Hex", "UTF-8 文本"});
         configPanel.add(encodingCombo, gbc);
 
         // 2. 密钥输入框
         gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
         configPanel.add(new JLabel("密钥："), gbc);
-        gbc.gridx = 1; gbc.gridwidth = 5; gbc.weightx = 1.0;
+        gbc.gridx = 1; gbc.gridwidth = 7; gbc.weightx = 1.0;
         keyArea = new JTextArea(2, 40);
         keyArea.setFont(UIUtils.monoFont().deriveFont(11f));
         keyArea.setLineWrap(true);
         configPanel.add(new JScrollPane(keyArea), gbc);
 
-        gbc.gridx = 6; gbc.gridwidth = 2; gbc.weightx = 0;
+        gbc.gridx = 8; gbc.gridwidth = 2; gbc.weightx = 0;
         JPanel keyBtnCol = new JPanel(new GridLayout(2, 1, 0, 4));
         JButton genKeyBtn = UIUtils.button("生成密钥", 90);
         JButton copyKeyBtn = UIUtils.button("复制密钥", 90);
@@ -88,13 +95,13 @@ public class SymmetricPanel extends ToolPanel {
         // 3. IV 向量配置行
         gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 1; gbc.weightx = 0;
         configPanel.add(new JLabel("IV 向量："), gbc);
-        gbc.gridx = 1; gbc.gridwidth = 4; gbc.weightx = 0.6;
+        gbc.gridx = 1; gbc.gridwidth = 6; gbc.weightx = 0.6;
         ivField = new JTextField();
         ivField.setFont(UIUtils.monoFont());
         ivField.setEnabled(false);
         configPanel.add(ivField, gbc);
 
-        gbc.gridx = 5; gbc.gridwidth = 3; gbc.weightx = 0.4;
+        gbc.gridx = 7; gbc.gridwidth = 3; gbc.weightx = 0.4;
         customIvCheckbox = new JCheckBox("自定义 IV（留空为自动随机 IV）");
         customIvCheckbox.setFont(UIUtils.plainFont());
         configPanel.add(customIvCheckbox, gbc);
@@ -201,10 +208,11 @@ public class SymmetricPanel extends ToolPanel {
 
                 String algo = getSelectedAlgo();
                 String mode = (String) modeCombo.getSelectedItem();
+                String padding = (String) paddingCombo.getSelectedItem();
                 byte[] ivBytes = getIvBytes();
 
-                String cipher = SymmetricUtils.encrypt(algo, mode, text, keyBytes, ivBytes, false);
-                outputArea.setText("[加密成功]\n算法：" + algo + "-" + mode + "\n密文 (Base64)：\n" + cipher);
+                String cipher = SymmetricUtils.encrypt(algo, mode, padding, text, keyBytes, ivBytes, false);
+                outputArea.setText("[加密成功]\n算法：" + algo + "-" + mode + "-" + padding + "\n密文 (Base64)：\n" + cipher);
             } catch (Exception ex) {
                 UIUtils.error(root, "加密失败：" + ex.getMessage());
             }
@@ -225,9 +233,10 @@ public class SymmetricPanel extends ToolPanel {
 
                 String algo = getSelectedAlgo();
                 String mode = (String) modeCombo.getSelectedItem();
+                String padding = (String) paddingCombo.getSelectedItem();
                 byte[] ivBytes = getIvBytes();
 
-                String plain = SymmetricUtils.decrypt(algo, mode, text, keyBytes, ivBytes, false);
+                String plain = SymmetricUtils.decrypt(algo, mode, padding, text, keyBytes, ivBytes, false);
                 outputArea.setText("[解密成功]\n原文：\n" + plain);
             } catch (Exception ex) {
                 UIUtils.error(root, "解密失败：" + ex.getMessage());

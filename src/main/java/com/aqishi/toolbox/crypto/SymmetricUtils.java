@@ -12,7 +12,7 @@ import java.util.Base64;
 
 /**
  * 通用对称加密工具类：支持 AES、DES、3DES、SM4 算法。
- * 支持 ECB、CBC 模式与 PKCS5Padding 填充。
+ * 支持 ECB、CBC 模式与 PKCS5Padding / NoPadding 填充。
  */
 public final class SymmetricUtils {
 
@@ -26,6 +26,9 @@ public final class SymmetricUtils {
 
     private SymmetricUtils() {
     }
+
+    /** 支持的填充方式 */
+    public static final String[] PADDINGS = {"PKCS5Padding", "NoPadding"};
 
     /**
      * 生成随机密钥
@@ -51,20 +54,32 @@ public final class SymmetricUtils {
      *
      * @param algorithm  算法 ("AES", "DES", "DESede", "SM4")
      * @param mode       模式 ("ECB", "CBC")
+     * @param padding    填充方式 ("PKCS5Padding", "NoPadding")
      * @param plainText  明文
      * @param keyBytes   密钥字节数组
      * @param customIv   自定义 IV，如果为 CBC 模式且 customIv 为空，则自动生成随机 IV 拼在密文前
      * @param useHex     是否输出 Hex 字符串（否则输出 Base64）
      * @return 密文
      */
-    public static String encrypt(String algorithm, String mode, String plainText, byte[] keyBytes, byte[] customIv, boolean useHex) throws Exception {
+    public static String encrypt(String algorithm, String mode, String padding, String plainText, byte[] keyBytes, byte[] customIv, boolean useHex) throws Exception {
         byte[] plainBytes = plainText.getBytes(StandardCharsets.UTF_8);
+
+        // NoPadding 要求原文长度为分组大小的整数倍
+        if ("NoPadding".equalsIgnoreCase(padding)) {
+            int blockSize = getBlockSize(algorithm);
+            if (plainBytes.length % blockSize != 0) {
+                throw new IllegalArgumentException("NoPadding 模式要求明文长度必须是 "
+                        + blockSize + " 字节的整数倍（当前 " + plainBytes.length + " 字节）");
+            }
+        }
+
         SecretKeySpec keySpec = new SecretKeySpec(keyBytes, algorithm);
-        
-        // SM4 优先使用 BC Provider
+
+        String transform = algorithm + "/" + mode + "/" + padding;
+        // SM4 需要 BC Provider
         Cipher cipher = "SM4".equalsIgnoreCase(algorithm)
-                ? Cipher.getInstance("SM4/" + mode + "/PKCS5Padding", "BC")
-                : Cipher.getInstance(algorithm + "/" + mode + "/PKCS5Padding");
+                ? Cipher.getInstance(transform, "BC")
+                : Cipher.getInstance(transform);
 
         byte[] ivBytes = null;
         if ("CBC".equalsIgnoreCase(mode)) {
@@ -101,19 +116,21 @@ public final class SymmetricUtils {
      *
      * @param algorithm  算法 ("AES", "DES", "DESede", "SM4")
      * @param mode       模式 ("ECB", "CBC")
+     * @param padding    填充方式 ("PKCS5Padding", "NoPadding")
      * @param cipherText 密文 (Base64 或 Hex 格式)
      * @param keyBytes   密钥字节数组
      * @param customIv   自定义 IV，若为 CBC 且为空，则默认密文前面拼有 IV
      * @param isHex      密文是否为 Hex 格式
      * @return 明文
      */
-    public static String decrypt(String algorithm, String mode, String cipherText, byte[] keyBytes, byte[] customIv, boolean isHex) throws Exception {
+    public static String decrypt(String algorithm, String mode, String padding, String cipherText, byte[] keyBytes, byte[] customIv, boolean isHex) throws Exception {
         byte[] inputBytes = isHex ? hexToBytes(cipherText.trim()) : Base64.getDecoder().decode(cipherText.trim());
         SecretKeySpec keySpec = new SecretKeySpec(keyBytes, algorithm);
-        
+
+        String transform = algorithm + "/" + mode + "/" + padding;
         Cipher cipher = "SM4".equalsIgnoreCase(algorithm)
-                ? Cipher.getInstance("SM4/" + mode + "/PKCS5Padding", "BC")
-                : Cipher.getInstance(algorithm + "/" + mode + "/PKCS5Padding");
+                ? Cipher.getInstance(transform, "BC")
+                : Cipher.getInstance(transform);
 
         byte[] cipherBytes;
         if ("CBC".equalsIgnoreCase(mode)) {
@@ -159,5 +176,14 @@ public final class SymmetricUtils {
                     + Character.digit(clean.charAt(i + 1), 16));
         }
         return data;
+    }
+
+    /** 获取分组大小（字节） */
+    public static int getBlockSize(String algorithm) {
+        switch (algorithm.toUpperCase()) {
+            case "AES": case "SM4": return 16;
+            case "DES": case "DESEDE": case "3DES": return 8;
+            default: return 16;
+        }
     }
 }

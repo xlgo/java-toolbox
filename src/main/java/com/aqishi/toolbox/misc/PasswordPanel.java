@@ -19,6 +19,7 @@ public class PasswordPanel extends ToolPanel {
     private JCheckBox lowerCheck;
     private JCheckBox digitCheck;
     private JCheckBox specialCheck;
+    private JCheckBox[] specialCharChecks;
     
     private JTextField passwordField;
     private JLabel strengthLabel;
@@ -27,7 +28,7 @@ public class PasswordPanel extends ToolPanel {
     private static final String UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     private static final String LOWER = "abcdefghijklmnopqrstuvwxyz";
     private static final String DIGITS = "0123456789";
-    private static final String SPECIAL = "!@#$%^&*()_+-=[]{}|;:,.<>?";
+    private static final String DEFAULT_SPECIAL = "!@#$%^&*_+-=|";
 
     public PasswordPanel() {
         super("生成", "密码生成器",
@@ -82,6 +83,36 @@ public class PasswordPanel extends ToolPanel {
         checkPanel.add(specialCheck);
         configPanel.add(checkPanel, gbc);
 
+        // 3. 自定义特殊字符配置 (流式布局 + 全选/反选)
+        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 1; gbc.weightx = 0;
+        configPanel.add(new JLabel("选择特殊字符："), gbc);
+
+        JPanel specialConfigPanel = new JPanel(new BorderLayout(8, 0));
+        JPanel specialGrid = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        char[] specialArray = DEFAULT_SPECIAL.toCharArray();
+        specialCharChecks = new JCheckBox[specialArray.length];
+        for (int i = 0; i < specialArray.length; i++) {
+            specialCharChecks[i] = new JCheckBox(String.valueOf(specialArray[i]), true);
+            specialCharChecks[i].setFont(UIUtils.monoFont().deriveFont(13f));
+            specialGrid.add(specialCharChecks[i]);
+        }
+
+        JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        JButton selectAllBtn = new JButton("全选");
+        JButton invertBtn = new JButton("反选");
+        selectAllBtn.setFont(UIUtils.plainFont().deriveFont(12f));
+        invertBtn.setFont(UIUtils.plainFont().deriveFont(12f));
+        selectAllBtn.setMargin(new Insets(2, 6, 2, 6));
+        invertBtn.setMargin(new Insets(2, 6, 2, 6));
+        actionPanel.add(selectAllBtn);
+        actionPanel.add(invertBtn);
+
+        specialConfigPanel.add(specialGrid, BorderLayout.CENTER);
+        specialConfigPanel.add(actionPanel, BorderLayout.EAST);
+
+        gbc.gridx = 1; gbc.gridwidth = 2; gbc.weightx = 1.0;
+        configPanel.add(specialConfigPanel, gbc);
+
         root.add(configPanel, BorderLayout.NORTH);
 
         // ===== 中部：生成与展示区 =====
@@ -126,6 +157,31 @@ public class PasswordPanel extends ToolPanel {
             lenLabel.setText(lenSlider.getValue() + " 位 ");
         });
 
+        specialCheck.addActionListener(e -> {
+            boolean selected = specialCheck.isSelected();
+            for (JCheckBox cb : specialCharChecks) {
+                cb.setEnabled(selected);
+            }
+            selectAllBtn.setEnabled(selected);
+            invertBtn.setEnabled(selected);
+        });
+
+        selectAllBtn.addActionListener(e -> {
+            for (JCheckBox cb : specialCharChecks) {
+                if (cb.isEnabled()) {
+                    cb.setSelected(true);
+                }
+            }
+        });
+
+        invertBtn.addActionListener(e -> {
+            for (JCheckBox cb : specialCharChecks) {
+                if (cb.isEnabled()) {
+                    cb.setSelected(!cb.isSelected());
+                }
+            }
+        });
+
         genBtn.addActionListener(e -> generatePassword());
         copyBtn.addActionListener(e -> {
             String pwd = passwordField.getText();
@@ -141,6 +197,18 @@ public class PasswordPanel extends ToolPanel {
         return root;
     }
 
+    private String getSelectedSpecialChars() {
+        StringBuilder sb = new StringBuilder();
+        if (specialCharChecks != null) {
+            for (JCheckBox cb : specialCharChecks) {
+                if (cb.isSelected() && cb.isEnabled()) {
+                    sb.append(cb.getText());
+                }
+            }
+        }
+        return sb.toString();
+    }
+
     private void generatePassword() {
         int length = lenSlider.getValue();
         StringBuilder pool = new StringBuilder();
@@ -148,7 +216,16 @@ public class PasswordPanel extends ToolPanel {
         if (upperCheck.isSelected()) pool.append(UPPER);
         if (lowerCheck.isSelected()) pool.append(LOWER);
         if (digitCheck.isSelected()) pool.append(DIGITS);
-        if (specialCheck.isSelected()) pool.append(SPECIAL);
+        
+        String specialChars = "";
+        if (specialCheck.isSelected()) {
+            specialChars = getSelectedSpecialChars();
+            if (specialChars.isEmpty()) {
+                UIUtils.error(passwordField, "请至少勾选一个特殊字符！");
+                return;
+            }
+            pool.append(specialChars);
+        }
 
         if (pool.length() == 0) {
             UIUtils.error(passwordField, "请至少勾选一种包含的字符类型！");
@@ -162,9 +239,12 @@ public class PasswordPanel extends ToolPanel {
         if (upperCheck.isSelected()) pwd.append(UPPER.charAt(random.nextInt(UPPER.length())));
         if (lowerCheck.isSelected()) pwd.append(LOWER.charAt(random.nextInt(LOWER.length())));
         if (digitCheck.isSelected()) pwd.append(DIGITS.charAt(random.nextInt(DIGITS.length())));
-        if (specialCheck.isSelected()) pwd.append(SPECIAL.charAt(random.nextInt(SPECIAL.length())));
+        if (specialCheck.isSelected() && !specialChars.isEmpty()) {
+            pwd.append(specialChars.charAt(random.nextInt(specialChars.length())));
+        }
 
         int remaining = length - pwd.length();
+        if (remaining < 0) remaining = 0;
         for (int i = 0; i < remaining; i++) {
             pwd.append(pool.charAt(random.nextInt(pool.length())));
         }
@@ -192,7 +272,18 @@ public class PasswordPanel extends ToolPanel {
         if (pwd.matches(".*[A-Z].*")) types++;
         if (pwd.matches(".*[a-z].*")) types++;
         if (pwd.matches(".*[0-9].*")) types++;
-        if (pwd.matches(".*[" + java.util.regex.Pattern.quote(SPECIAL) + "].*")) types++;
+        
+        String specialChars = specialCheck.isSelected() ? getSelectedSpecialChars() : DEFAULT_SPECIAL;
+        if (!specialChars.isEmpty()) {
+            boolean hasSpecial = false;
+            for (char c : specialChars.toCharArray()) {
+                if (pwd.indexOf(c) >= 0) {
+                    hasSpecial = true;
+                    break;
+                }
+            }
+            if (hasSpecial) types++;
+        }
 
         if (len < 10 || types <= 1) {
             return "低 (建议增加长度与字符类型)";

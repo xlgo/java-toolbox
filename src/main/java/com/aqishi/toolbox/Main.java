@@ -2,6 +2,7 @@ package com.aqishi.toolbox;
 
 import com.aqishi.toolbox.ui.MainFrame;
 import com.aqishi.toolbox.ui.ThemeManager;
+import com.aqishi.toolbox.util.I18n;
 
 import java.awt.EventQueue;
 
@@ -12,7 +13,9 @@ import java.awt.EventQueue;
 public final class Main {
 
     public static void main(String[] args) {
-        // 安装 FlatLaf 默认外观（IntelliJ 风格）
+        // 初始化国际化配置
+        I18n.init();
+        // 安装 FlatLaf 持久化配置外观
         ThemeManager.setupDefault();
 
         EventQueue.invokeLater(() -> {

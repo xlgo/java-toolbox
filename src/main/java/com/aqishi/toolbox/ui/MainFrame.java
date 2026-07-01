@@ -26,7 +26,11 @@ import com.aqishi.toolbox.misc.CronPanel;
 import com.aqishi.toolbox.misc.TextDiffPanel;
 import com.aqishi.toolbox.misc.DockerComposePanel;
 import com.aqishi.toolbox.misc.SubnetPanel;
+import com.aqishi.toolbox.misc.HttpTestPanel;
+import com.aqishi.toolbox.misc.CallbackTestPanel;
 import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.util.ConfigManager;
+import com.aqishi.toolbox.util.I18n;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -72,17 +76,41 @@ public class MainFrame extends JFrame {
             new TextDiffPanel(),
             new DockerComposePanel(),
             new SubnetPanel(),
+            new HttpTestPanel(),
+            new CallbackTestPanel(),
             new ColorPanel(),
             new CertPanel(),
             new K8sPanel(),
     };
 
     public MainFrame() {
-        super("Java 工具箱 v1.3");
+        super(I18n.get("app.title"));
         setDefaultCloseOperation(EXIT_ON_CLOSE);
-        setSize(1024, 660);
+        
+        int width = ConfigManager.getInt("width", 1024);
+        int height = ConfigManager.getInt("height", 660);
+        int x = ConfigManager.getInt("x", -1);
+        int y = ConfigManager.getInt("y", -1);
+        setSize(width, height);
         setMinimumSize(new Dimension(820, 520));
-        setLocationRelativeTo(null);
+        if (x != -1 && y != -1) {
+            setLocation(x, y);
+        } else {
+            setLocationRelativeTo(null);
+        }
+
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                ConfigManager.setInt("width", getWidth());
+                ConfigManager.setInt("height", getHeight());
+                Point p = getLocation();
+                ConfigManager.setInt("x", p.x);
+                ConfigManager.setInt("y", p.y);
+                ConfigManager.save();
+            }
+        });
+
         initUI();
 
         // 如果指定了 -Dscreenshot=path，则延迟拍照后退出
@@ -127,7 +155,7 @@ public class MainFrame extends JFrame {
                 new MatteBorder(0, 0, 1, 0, UIManager.getColor("Component.borderColor")),
                 new EmptyBorder(8, 14, 8, 14)));
 
-        JLabel title = new JLabel("Java 工具箱");
+        JLabel title = new JLabel(I18n.get("top.title"));
         title.setFont(UIUtils.titleFont().deriveFont(16f));
         JPanel titleBox = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         titleBox.add(title);
@@ -137,7 +165,7 @@ public class MainFrame extends JFrame {
         JPanel searchBox = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
         JTextField searchField = new JTextField();
         searchField.setPreferredSize(new Dimension(240, 30));
-        searchField.putClientProperty("JTextField.placeholderText", "搜索工具 (例如: JSON, MD5, RSA)...");
+        searchField.putClientProperty("JTextField.placeholderText", I18n.get("top.search.placeholder"));
         searchField.putClientProperty("JTextField.showClearButton", true);
         searchBox.add(searchField);
         bar.add(searchBox, BorderLayout.CENTER);
@@ -157,7 +185,7 @@ public class MainFrame extends JFrame {
                 int count = 0;
                 for (ToolPanel t : tools) {
                     if (t.matchesSearch(q)) {
-                        JMenuItem item = new JMenuItem(t.getGroup() + " > " + t.getName());
+                        JMenuItem item = new JMenuItem(I18n.get("group." + t.getGroup()) + " > " + I18n.get("tool." + t.getName()));
                         item.setFont(UIUtils.plainFont());
                         item.addActionListener(ev -> {
                             selectTool(t);
@@ -175,37 +203,77 @@ public class MainFrame extends JFrame {
             }
         });
 
-        // 主题切换
+        // 右侧区：主题切换 + 语言切换
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-        JLabel themeLabel = new JLabel("主题");
+        
+        JLabel themeLabel = new JLabel(I18n.get("top.theme"));
         themeLabel.setFont(UIUtils.plainFont());
         JComboBox<String> themeBox = new JComboBox<>(ThemeManager.names());
         themeBox.setSelectedItem(ThemeManager.current().name);
-        themeBox.setPreferredSize(new Dimension(170, 30));
+        themeBox.setPreferredSize(new Dimension(160, 30));
         themeBox.addActionListener(e -> {
             String sel = (String) themeBox.getSelectedItem();
             ThemeManager.apply(sel);
         });
         right.add(themeLabel);
         right.add(themeBox);
+
+        // 语言选择
+        right.add(new JLabel("  ")); // Spacer
+        JLabel langLabel = new JLabel(I18n.get("top.lang"));
+        langLabel.setFont(UIUtils.plainFont());
+        String currentLang = ConfigManager.get("locale", "zh_CN");
+        JComboBox<String> langBox = new JComboBox<>(new String[]{"简体中文", "English"});
+        langBox.setSelectedIndex("en_US".equals(currentLang) ? 1 : 0);
+        langBox.setPreferredSize(new Dimension(100, 30));
+        langBox.addActionListener(e -> {
+            String selected = (String) langBox.getSelectedItem();
+            String targetLocale = "English".equals(selected) ? "en_US" : "zh_CN";
+            if (!targetLocale.equals(ConfigManager.get("locale", "zh_CN"))) {
+                ConfigManager.set("locale", targetLocale);
+                ConfigManager.save();
+                I18n.init();
+                reload(this);
+            }
+        });
+        right.add(langLabel);
+        right.add(langBox);
+
         bar.add(right, BorderLayout.EAST);
 
         return bar;
     }
 
+    private static void reload(MainFrame currentFrame) {
+        ConfigManager.setInt("width", currentFrame.getWidth());
+        ConfigManager.setInt("height", currentFrame.getHeight());
+        Point p = currentFrame.getLocation();
+        ConfigManager.setInt("x", p.x);
+        ConfigManager.setInt("y", p.y);
+        ConfigManager.save();
+
+        currentFrame.dispose();
+
+        SwingUtilities.invokeLater(() -> {
+            MainFrame frame = new MainFrame();
+            frame.setVisible(true);
+        });
+    }
+
     /** 智能跳转选中特定的工具 */
     private void selectTool(ToolPanel targetTool) {
         String group = targetTool.getGroup();
+        String groupTranslated = I18n.get("group." + group);
         int tabCount = tabs.getTabCount();
         for (int i = 0; i < tabCount; i++) {
-            if (tabs.getTitleAt(i).equals(group)) {
+            if (tabs.getTitleAt(i).equals(groupTranslated)) {
                 tabs.setSelectedIndex(i);
                 JList<String> list = groupListMap.get(group);
                 CardLayout cards = groupCardMap.get(group);
                 JPanel content = groupContentMap.get(group);
                 if (list != null && cards != null && content != null) {
-                    list.setSelectedValue(targetTool.getName(), true);
-                    cards.show(content, targetTool.getName());
+                    list.setSelectedValue(I18n.get("tool." + targetTool.getName()), true);
+                    cards.show(content, I18n.get("tool." + targetTool.getName()));
                 }
                 break;
             }
@@ -223,7 +291,7 @@ public class MainFrame extends JFrame {
         tabs.setBorder(new EmptyBorder(4, 6, 6, 6));
 
         for (Map.Entry<String, java.util.List<ToolPanel>> entry : grouped.entrySet()) {
-            tabs.addTab(entry.getKey(), buildGroupTab(entry.getKey(), entry.getValue()));
+            tabs.addTab(I18n.get("group." + entry.getKey()), buildGroupTab(entry.getKey(), entry.getValue()));
         }
         return tabs;
     }
@@ -233,7 +301,7 @@ public class MainFrame extends JFrame {
         JPanel holder = new JPanel(new BorderLayout(0, 0));
 
         DefaultListModel<String> listModel = new DefaultListModel<>();
-        for (ToolPanel t : toolsList) listModel.addElement(t.getName());
+        for (ToolPanel t : toolsList) listModel.addElement(I18n.get("tool." + t.getName()));
         JList<String> list = new JList<>(listModel);
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         list.setSelectedIndex(0);
@@ -252,8 +320,8 @@ public class MainFrame extends JFrame {
         CardLayout cards = new CardLayout();
         JPanel content = new JPanel(cards);
         content.setBorder(new EmptyBorder(2, 8, 4, 4));
-        for (ToolPanel t : toolsList) content.add(t.getView(), t.getName());
-        cards.show(content, toolsList.get(0).getName());
+        for (ToolPanel t : toolsList) content.add(t.getView(), I18n.get("tool." + t.getName()));
+        cards.show(content, I18n.get("tool." + toolsList.get(0).getName()));
         
         groupCardMap.put(groupName, cards);
         groupContentMap.put(groupName, content);
@@ -308,11 +376,9 @@ public class MainFrame extends JFrame {
         } catch (Exception ignored) {
         }
 
-        StringBuilder sb = new StringBuilder("  就绪  |  JDK ").append(jdkVer);
-        if (!cpuStr.isEmpty()) sb.append("  |  ").append(cpuStr);
-        sb.append("  |  内存 ").append(formatBytes(used)).append(" / ").append(formatBytes(max));
-        sb.append("  (").append(memPct).append("%)");
-        statusLabel.setText(sb.toString());
+        String cpuVal = cpuStr.isEmpty() ? "CPU --%" : cpuStr;
+        String statusText = I18n.get("status.ready", jdkVer, cpuVal, formatBytes(used), formatBytes(max), memPct);
+        statusLabel.setText(statusText);
     }
 
     private static String formatBytes(long bytes) {

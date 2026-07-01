@@ -10,6 +10,8 @@ import com.formdev.flatlaf.intellijthemes.FlatAllIJThemes;
 import com.formdev.flatlaf.themes.FlatMacDarkLaf;
 import com.formdev.flatlaf.themes.FlatMacLightLaf;
 
+import com.aqishi.toolbox.util.ConfigManager;
+
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -83,7 +85,20 @@ public final class ThemeManager {
     public static void setupDefault() {
         try {
             applyCustomDefaults();
-            FlatIntelliJLaf.setup();
+            String savedTheme = ConfigManager.get("theme", "IntelliJ（默认）");
+            Theme t = get(savedTheme);
+            if (t == null) {
+                t = THEMES.get(2); // 回退默认主题
+            }
+            FlatLaf laf;
+            if (t.lafClass != null) {
+                laf = t.lafClass.getDeclaredConstructor().newInstance();
+            } else {
+                Class<?> clazz = Class.forName(t.lafClassName);
+                laf = (FlatLaf) clazz.getDeclaredConstructor().newInstance();
+            }
+            FlatLaf.setup(laf);
+            current = t;
         } catch (Throwable e) {
             try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
             catch (Exception ignored) { }
@@ -110,6 +125,10 @@ public final class ThemeManager {
             FlatLaf.setup(laf);
             FlatLaf.updateUI();
             current = t;
+            
+            // 保存配置
+            ConfigManager.set("theme", t.name);
+            ConfigManager.save();
         } catch (Throwable e) {
             // 失败回退系统 LAF
             try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }

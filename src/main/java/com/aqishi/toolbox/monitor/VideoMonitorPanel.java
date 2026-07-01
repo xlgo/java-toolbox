@@ -9,68 +9,68 @@ import javax.swing.tree.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.RoundRectangle2D;
-import java.util.ArrayList;
+import java.time.LocalTime;
+import java.util.*;
 import java.util.List;
 
 /**
  * 视频监控面板。
- * 左侧设备树，右侧支持 1/4/5/9/16/25 窗口布局的视频播放区域。
- * 视频单元格支持：双击全屏、拖拽分配、单击选中。
+ * <p>左侧设备树，右侧 GridBagLayout 驱动的视频网格。</p>
+ * <p>支持：Ctrl+多选 → 合并格子；单选合并格 → 拆分；保存命名布局并持久化恢复。</p>
  */
 public class VideoMonitorPanel extends ToolPanel {
 
-    /** 所有支持的布局模式：[显示数量, 列数, 行数] */
-    private static final int[][] LAYOUTS = {
+    /* 预设布局：[格数, 列数, 行数] */
+    private static final int[][] PRESETS = {
             {1,  1, 1},
             {4,  2, 2},
-            {5,  3, 2},  // 5窗口：1大+4小(特殊布局)
+            {5,  3, 4},   // 5画面：1大格+4小格，实际网格 4行×3列
             {9,  3, 3},
             {16, 4, 4},
             {25, 5, 5},
     };
-    private static final String[] LAYOUT_LABELS = {"1", "4", "5", "9", "16", "25"};
+    private static final String[] PRESET_LABELS = {"1", "4", "5", "9", "16", "25"};
 
-    // 视频单元格公用颜色常量（抽提到外层以兼容 JDK 8 内部类限制）
-    private static final Color CELL_BG_COLOR    = new Color(22, 25, 30);
-    private static final Color CELL_SEL_COLOR   = new Color(0, 120, 212);
-    private static final Color CELL_HOVER_COLOR = new Color(40, 45, 55);
-    private static final Color CELL_ACTIVE_BG   = new Color(15, 20, 28);
-    private static final Color CELL_TEXT_DIM    = new Color(120, 130, 145);
-    private static final Color CELL_TEXT_BRIGHT = new Color(200, 210, 220);
+    /* 颜色常量（外层以兼容 JDK 8 内部非静态类限制） */
+    static final Color C_BG     = new Color(22, 25, 30);
+    static final Color C_SEL    = new Color(0, 120, 212);
+    static final Color C_MULTI  = new Color(0, 160, 90);
+    static final Color C_HOVER  = new Color(40, 45, 55);
+    static final Color C_ACTIVE = new Color(15, 20, 28);
+    static final Color C_DIM    = new Color(120, 130, 145);
+    static final Color C_BRIGHT = new Color(200, 210, 220);
 
     private JPanel videoGrid;
-    private final List<VideoCell> cells = new ArrayList<>();
-    private int currentLayout = 0;   // 当前预设布局索引，-1 代表自定义
-    private VideoCell selectedCell = null;
-    private int customRows = 3;       // 自定义布局行数
-    private int customCols = 3;       // 自定义布局列数
-    private JComboBox<String> layoutCombo;  // 提升为字段供内部方法更新
+    private final List<VideoCell> cells       = new ArrayList<>();
+    private final List<VideoCell> multiSel    = new ArrayList<>();
+    private VideoCell primaryCell = null;
+    private int gridRows = 1;
+    private int gridCols = 1;
+
+    private JComboBox<String> layoutCombo;
+    private final List<String> savedNames = new ArrayList<>();
 
     public VideoMonitorPanel() {
         super("开发工具", "视频监控",
-                "视频", "监控", "摄像头", "Video", "camera", "player",
-                "RTSP", "直播", "多画面", "分屏");
+                "视频", "监控", "摄像头", "Video", "camera", "RTSP", "分屏", "合并", "直播");
     }
 
+    // ==================== 构建主面板 ====================
     @Override
     protected JComponent build() {
         JPanel root = new JPanel(new BorderLayout(0, 0));
+        root.add(buildToolbar(), BorderLayout.NORTH);
 
-        // ==================== 顶部工具栏 ====================
-        JPanel toolbar = buildToolbar();
-        root.add(toolbar, BorderLayout.NORTH);
-
-        // ==================== 主体：左右分栏 ====================
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
                 buildDeviceTree(), buildVideoArea());
-        splitPane.setDividerLocation(220);
-        splitPane.setDividerSize(4);
-        splitPane.setResizeWeight(0.0);
-        root.add(splitPane, BorderLayout.CENTER);
+        split.setDividerLocation(220);
+        split.setDividerSize(4);
+        split.setResizeWeight(0.0);
+        root.add(split, BorderLayout.CENTER);
 
-        // 恢复上次保存的布局
+        loadSavedNames();
+        rebuildCombo();
         restoreLayout();
-
         return root;
     }
 
@@ -81,183 +81,94 @@ public class VideoMonitorPanel extends ToolPanel {
                 BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Component.borderColor")),
                 new javax.swing.border.EmptyBorder(6, 10, 6, 10)));
 
-        JLabel titleLbl = new JLabel("  📹  视频监控");
-        titleLbl.setFont(UIUtils.titleFont().deriveFont(Font.BOLD, 14f));
-        bar.add(titleLbl, BorderLayout.WEST);
+        JLabel title = new JLabel("  \uD83D\uDCF9  视频监控");
+        title.setFont(UIUtils.titleFont().deriveFont(Font.BOLD, 14f));
+        bar.add(title, BorderLayout.WEST);
 
-        // 布局切换下拉框（含自定义选项）
-        JPanel layoutPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        JLabel layoutLbl = new JLabel("分屏布局:");
-        layoutLbl.setFont(UIUtils.plainFont());
-        layoutPanel.add(layoutLbl);
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
 
-        // 预设选项 + 自定义
-        String[] comboItems = new String[LAYOUT_LABELS.length + 1];
-        for (int i = 0; i < LAYOUT_LABELS.length; i++) {
-            comboItems[i] = LAYOUT_LABELS[i] + " 画面";
-        }
-        comboItems[LAYOUT_LABELS.length] = "自定义...";
-
-        layoutCombo = new JComboBox<>(comboItems);
+        right.add(label("布局:"));
+        layoutCombo = new JComboBox<>();
         layoutCombo.setFont(UIUtils.plainFont().deriveFont(12f));
-        layoutCombo.setPreferredSize(new Dimension(110, 28));
-        layoutCombo.setSelectedIndex(0);
-        layoutCombo.addActionListener(e -> {
-            int idx = layoutCombo.getSelectedIndex();
-            if (idx == LAYOUT_LABELS.length) {
-                // 选择「自定义...」时弹出对话框
-                showCustomLayoutDialog();
-            } else {
-                applyLayout(idx);
-            }
-        });
-        layoutPanel.add(layoutCombo);
+        layoutCombo.setPreferredSize(new Dimension(130, 28));
+        layoutCombo.addActionListener(e -> onComboSelected(layoutCombo.getSelectedIndex()));
+        right.add(layoutCombo);
 
-        // 保存布局按钮
-        layoutPanel.add(Box.createHorizontalStrut(2));
-        JButton saveBtn = UIUtils.button("保存布局", 70);
-        saveBtn.setToolTipText("将当前分屏布局保存，下次启动自动恢复");
-        saveBtn.addActionListener(e -> saveLayout());
-        layoutPanel.add(saveBtn);
+        right.add(Box.createHorizontalStrut(6));
 
-        // 全部清空按钮
-        layoutPanel.add(Box.createHorizontalStrut(2));
-        JButton clearBtn = UIUtils.button("清空", 55);
+        JButton mergeBtn = UIUtils.button("合并", 52);
+        mergeBtn.setToolTipText("Ctrl+点击选中多个相邻格后点此合并");
+        mergeBtn.addActionListener(e -> mergeSelected());
+        right.add(mergeBtn);
+
+        JButton splitBtn = UIUtils.button("拆分", 52);
+        splitBtn.setToolTipText("将当前选中的合并格拆分回独立小格");
+        splitBtn.addActionListener(e -> splitSelected());
+        right.add(splitBtn);
+
+        right.add(Box.createHorizontalStrut(6));
+
+        JButton saveBtn = UIUtils.button("保存布局", 72);
+        saveBtn.setToolTipText("为当前布局命名保存，下次可从下拉框选用");
+        saveBtn.addActionListener(e -> saveCurrentLayout());
+        right.add(saveBtn);
+
+        JButton clearBtn = UIUtils.button("清空", 52);
         clearBtn.addActionListener(e -> clearAllCells());
-        layoutPanel.add(clearBtn);
+        right.add(clearBtn);
 
-        bar.add(layoutPanel, BorderLayout.EAST);
+        bar.add(right, BorderLayout.EAST);
         return bar;
     }
 
-    // ==================== 自定义布局对话框 ====================
-    /**
-     * 弹出行列输入对话框，确认后应用并更新下拉框标签。
-     */
-    private void showCustomLayoutDialog() {
-        JSpinner rowSpinner = new JSpinner(new SpinnerNumberModel(customRows, 1, 10, 1));
-        JSpinner colSpinner = new JSpinner(new SpinnerNumberModel(customCols, 1, 10, 1));
-        rowSpinner.setPreferredSize(new Dimension(60, 28));
-        colSpinner.setPreferredSize(new Dimension(60, 28));
+    private JLabel label(String text) {
+        JLabel l = new JLabel(text);
+        l.setFont(UIUtils.plainFont());
+        return l;
+    }
 
-        JPanel panel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(6, 8, 6, 8);
-        gbc.anchor = GridBagConstraints.WEST;
-
-        gbc.gridx = 0; gbc.gridy = 0;
-        panel.add(new JLabel("行数 (1-10):"), gbc);
-        gbc.gridx = 1;
-        panel.add(rowSpinner, gbc);
-        gbc.gridx = 0; gbc.gridy = 1;
-        panel.add(new JLabel("列数 (1-10):"), gbc);
-        gbc.gridx = 1;
-        panel.add(colSpinner, gbc);
-
-        Window owner = SwingUtilities.getWindowAncestor(videoGrid);
-        int result = JOptionPane.showConfirmDialog(
-                owner, panel, "自定义布局",
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-
-        if (result == JOptionPane.OK_OPTION) {
-            customRows = (Integer) rowSpinner.getValue();
-            customCols = (Integer) colSpinner.getValue();
-            applyCustomLayout(customRows, customCols);
-            // 更新下拉框：将「自定义...」替换为实际尺寸标签
-            String label = customRows + "×" + customCols + " 自定义";
-            if (layoutCombo.getItemCount() > LAYOUT_LABELS.length
-                    && layoutCombo.getItemAt(LAYOUT_LABELS.length).startsWith("自定义")) {
-                layoutCombo.removeItemAt(LAYOUT_LABELS.length);
-            }
-            layoutCombo.addItem(label);
-            layoutCombo.setSelectedIndex(layoutCombo.getItemCount() - 1);
-        } else {
-            // 取消时回到上一个选中项
-            if (currentLayout >= 0 && currentLayout < LAYOUT_LABELS.length) {
-                layoutCombo.setSelectedIndex(currentLayout);
-            } else {
-                layoutCombo.setSelectedIndex(layoutCombo.getItemCount() - 1);
-            }
+    // ==================== 下拉框管理 ====================
+    private void rebuildCombo() {
+        if (layoutCombo == null) return;
+        int prevIdx = layoutCombo.getSelectedIndex();
+        layoutCombo.removeAllItems();
+        for (String lbl : PRESET_LABELS) layoutCombo.addItem(lbl + " 画面");
+        for (String name : savedNames)   layoutCombo.addItem("\u2B50 " + name);
+        layoutCombo.addItem("自定义...");
+        // 恢复选择
+        if (prevIdx >= 0 && prevIdx < layoutCombo.getItemCount()) {
+            layoutCombo.setSelectedIndex(prevIdx);
         }
     }
 
-    // ==================== 布局持久化 ====================
-    /** 保存当前布局到配置文件 */
-    private void saveLayout() {
-        if (currentLayout == -1) {
-            // 自定义布局
-            ConfigManager.set("monitor.layout", "custom");
-            ConfigManager.set("monitor.layout.rows", String.valueOf(customRows));
-            ConfigManager.set("monitor.layout.cols", String.valueOf(customCols));
+    private void onComboSelected(int idx) {
+        if (idx < 0) return;
+        int presetCount = PRESET_LABELS.length;
+        int savedCount  = savedNames.size();
+        if (idx < presetCount) {
+            applyPreset(idx);
+        } else if (idx < presetCount + savedCount) {
+            applySaved(savedNames.get(idx - presetCount));
         } else {
-            ConfigManager.set("monitor.layout", String.valueOf(currentLayout));
-            ConfigManager.set("monitor.layout.rows", "");
-            ConfigManager.set("monitor.layout.cols", "");
-        }
-        ConfigManager.save();
-        JOptionPane.showMessageDialog(
-                SwingUtilities.getWindowAncestor(videoGrid),
-                "布局已保存，下次启动将自动恢复。",
-                "保存成功", JOptionPane.INFORMATION_MESSAGE);
-    }
-
-    /** 启动时从配置文件恢复布局 */
-    private void restoreLayout() {
-        String saved = ConfigManager.get("monitor.layout", "0");
-        if ("custom".equals(saved)) {
-            customRows = ConfigManager.getInt("monitor.layout.rows", 3);
-            customCols = ConfigManager.getInt("monitor.layout.cols", 3);
-            applyCustomLayout(customRows, customCols);
-            // 更新下拉框显示
-            if (layoutCombo != null) {
-                String label = customRows + "×" + customCols + " 自定义";
-                if (layoutCombo.getItemAt(LAYOUT_LABELS.length).equals("自定义...")) {
-                    layoutCombo.removeItemAt(LAYOUT_LABELS.length);
-                    layoutCombo.addItem(label);
-                }
-                layoutCombo.setSelectedIndex(layoutCombo.getItemCount() - 1);
-            }
-        } else {
-            int idx = 0;
-            try { idx = Integer.parseInt(saved); } catch (NumberFormatException ignore) {}
-            idx = Math.max(0, Math.min(idx, LAYOUT_LABELS.length - 1));
-            applyLayout(idx);
-            if (layoutCombo != null) {
-                layoutCombo.setSelectedIndex(idx);
-            }
+            showCustomDialog();
         }
     }
 
     // ==================== 左侧设备树 ====================
     private JComponent buildDeviceTree() {
-        DefaultMutableTreeNode root = new DefaultMutableTreeNode("📡 所有设备");
-
-        // 示例设备组织结构
-        DefaultMutableTreeNode area1 = new DefaultMutableTreeNode("🏢 一楼大厅");
-        area1.add(cameraNode("门口摄像头-01", "rtsp://192.168.1.101:554/stream"));
-        area1.add(cameraNode("电梯口-02",     "rtsp://192.168.1.102:554/stream"));
-        area1.add(cameraNode("前台区域-03",   "rtsp://192.168.1.103:554/stream"));
-        root.add(area1);
-
-        DefaultMutableTreeNode area2 = new DefaultMutableTreeNode("🏢 二楼办公区");
-        area2.add(cameraNode("会议室A-04",    "rtsp://192.168.1.104:554/stream"));
-        area2.add(cameraNode("走廊东段-05",   "rtsp://192.168.1.105:554/stream"));
-        area2.add(cameraNode("财务室-06",     "rtsp://192.168.1.106:554/stream"));
-        root.add(area2);
-
-        DefaultMutableTreeNode area3 = new DefaultMutableTreeNode("🅿️ 停车场");
-        area3.add(cameraNode("入口道闸-07",   "rtsp://192.168.1.107:554/stream"));
-        area3.add(cameraNode("出口道闸-08",   "rtsp://192.168.1.108:554/stream"));
-        area3.add(cameraNode("B1层全景-09",   "rtsp://192.168.1.109:554/stream"));
-        area3.add(cameraNode("B2层全景-10",   "rtsp://192.168.1.110:554/stream"));
-        root.add(area3);
-
-        DefaultMutableTreeNode area4 = new DefaultMutableTreeNode("🔒 安防周界");
-        area4.add(cameraNode("北围墙-11",     "rtsp://192.168.1.111:554/stream"));
-        area4.add(cameraNode("南围墙-12",     "rtsp://192.168.1.112:554/stream"));
-        area4.add(cameraNode("东门岗亭-13",   "rtsp://192.168.1.113:554/stream"));
-        area4.add(cameraNode("西门岗亭-14",   "rtsp://192.168.1.114:554/stream"));
-        root.add(area4);
+        DefaultMutableTreeNode root = new DefaultMutableTreeNode("\uD83D\uDCE1 所有设备");
+        addArea(root, "\uD83C\uDFE2 一楼大厅",
+                "门口摄像头-01,电梯口-02,前台区域-03",
+                "rtsp://192.168.1.101,rtsp://192.168.1.102,rtsp://192.168.1.103");
+        addArea(root, "\uD83C\uDFE2 二楼办公区",
+                "会议室A-04,走廊东段-05,财务室-06",
+                "rtsp://192.168.1.104,rtsp://192.168.1.105,rtsp://192.168.1.106");
+        addArea(root, "\uD83C\uDD7F\uFE0F 停车场",
+                "入口道闸-07,出口道闸-08,B1层全景-09,B2层全景-10",
+                "rtsp://192.168.1.107,rtsp://192.168.1.108,rtsp://192.168.1.109,rtsp://192.168.1.110");
+        addArea(root, "\uD83D\uDD12 安防周界",
+                "北围墙-11,南围墙-12,东门岗亭-13,西门岗亭-14",
+                "rtsp://192.168.1.111,rtsp://192.168.1.112,rtsp://192.168.1.113,rtsp://192.168.1.114");
 
         JTree tree = new JTree(root);
         tree.setFont(UIUtils.plainFont().deriveFont(12f));
@@ -267,32 +178,25 @@ public class VideoMonitorPanel extends ToolPanel {
         tree.expandRow(0);
         tree.expandRow(1);
 
-        // 双击节点 -> 分配到当前选中格（或下一个空格）
         tree.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
                     TreePath path = tree.getPathForLocation(e.getX(), e.getY());
                     if (path == null) return;
-                    DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
-                    if (node.getUserObject() instanceof CameraInfo) {
-                        CameraInfo cam = (CameraInfo) node.getUserObject();
-                        assignCameraToCell(cam);
-                    }
+                    Object obj = ((DefaultMutableTreeNode) path.getLastPathComponent()).getUserObject();
+                    if (obj instanceof CameraInfo) assignCamera((CameraInfo) obj);
                 }
             }
         });
 
-        // 自定义渲染器：区分设备组和摄像头叶子节点
         tree.setCellRenderer(new DefaultTreeCellRenderer() {
             @Override
-            public Component getTreeCellRendererComponent(JTree tree, Object value,
+            public Component getTreeCellRendererComponent(JTree t, Object value,
                     boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
-                super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
+                super.getTreeCellRendererComponent(t, value, sel, expanded, leaf, row, hasFocus);
                 Object obj = ((DefaultMutableTreeNode) value).getUserObject();
-                if (obj instanceof CameraInfo) {
-                    setText("📷 " + ((CameraInfo) obj).name);
-                }
+                if (obj instanceof CameraInfo) setText("\uD83D\uDCF7 " + ((CameraInfo) obj).name);
                 return this;
             }
         });
@@ -300,151 +204,324 @@ public class VideoMonitorPanel extends ToolPanel {
         JScrollPane sp = new JScrollPane(tree);
         sp.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1,
                 UIManager.getColor("Component.borderColor")));
-        sp.setPreferredSize(new Dimension(220, 0));
 
-        // 树顶部标题
-        JPanel wrapper = new JPanel(new BorderLayout());
-        JLabel treeTitleLbl = new JLabel("  设备列表", JLabel.LEFT);
-        treeTitleLbl.setFont(UIUtils.plainFont().deriveFont(Font.BOLD, 12f));
-        treeTitleLbl.setBorder(new javax.swing.border.EmptyBorder(6, 6, 6, 0));
-        treeTitleLbl.setOpaque(true);
-        treeTitleLbl.setBackground(UIManager.getColor("Panel.background"));
-        treeTitleLbl.setBorder(BorderFactory.createCompoundBorder(
+        JPanel wrap = new JPanel(new BorderLayout());
+        JLabel hdr = new JLabel("  设备列表");
+        hdr.setFont(UIUtils.plainFont().deriveFont(Font.BOLD, 12f));
+        hdr.setOpaque(true);
+        hdr.setBackground(UIManager.getColor("Panel.background"));
+        hdr.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Component.borderColor")),
                 new javax.swing.border.EmptyBorder(5, 8, 5, 8)));
-        wrapper.add(treeTitleLbl, BorderLayout.NORTH);
-        wrapper.add(sp, BorderLayout.CENTER);
-        return wrapper;
+        wrap.add(hdr, BorderLayout.NORTH);
+        wrap.add(sp, BorderLayout.CENTER);
+        return wrap;
     }
 
-    private DefaultMutableTreeNode cameraNode(String name, String url) {
-        return new DefaultMutableTreeNode(new CameraInfo(name, url));
+    private void addArea(DefaultMutableTreeNode root, String areaName, String names, String urls) {
+        DefaultMutableTreeNode area = new DefaultMutableTreeNode(areaName);
+        String[] ns = names.split(",");
+        String[] us = urls.split(",");
+        for (int i = 0; i < ns.length; i++) {
+            area.add(new DefaultMutableTreeNode(new CameraInfo(ns[i].trim(), us[i].trim() + ":554/stream")));
+        }
+        root.add(area);
     }
 
     // ==================== 右侧视频区 ====================
     private JComponent buildVideoArea() {
-        videoGrid = new JPanel();
+        videoGrid = new JPanel(new GridBagLayout());
         videoGrid.setBackground(new Color(18, 18, 20));
-        videoGrid.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-
+        videoGrid.setBorder(BorderFactory.createEmptyBorder(3, 3, 3, 3));
         JScrollPane sp = new JScrollPane(videoGrid);
         sp.setBorder(null);
         sp.getViewport().setBackground(new Color(18, 18, 20));
         return sp;
     }
 
-    // ==================== 布局切换 ====================
-    /** 应用预设布局 */
-    private void applyLayout(int layoutIdx) {
-        this.currentLayout = layoutIdx;
-        int[] layout = LAYOUTS[layoutIdx];
-        int count = layout[0];
-        int cols  = layout[1];
-        int rows  = layout[2];
-
-        List<CameraInfo> prevCameras = collectCameras();
-        cells.clear();
-        videoGrid.removeAll();
-
-        if (count == 5) {
-            buildLayout5();
+    // ==================== 预设布局 ====================
+    private void applyPreset(int idx) {
+        int[] p = PRESETS[idx];
+        List<CellDef> defs;
+        if (p[0] == 5) {
+            // 5画面：左大格(4行2列) + 右侧4小格
+            defs = new ArrayList<>();
+            defs.add(new CellDef(0, 0, 4, 2));
+            defs.add(new CellDef(0, 2, 1, 1));
+            defs.add(new CellDef(1, 2, 1, 1));
+            defs.add(new CellDef(2, 2, 1, 1));
+            defs.add(new CellDef(3, 2, 1, 1));
+            applyGrid(p[2], p[1], defs);
         } else {
-            videoGrid.setLayout(new GridLayout(rows, cols, 3, 3));
-            for (int i = 0; i < count; i++) {
-                VideoCell cell = new VideoCell(i + 1);
-                cells.add(cell);
-                videoGrid.add(cell);
-            }
+            applyGrid(p[2], p[1], uniformDefs(p[2], p[1]));
+        }
+    }
+
+    /** 生成均匀网格的 CellDef 列表 */
+    private List<CellDef> uniformDefs(int rows, int cols) {
+        List<CellDef> defs = new ArrayList<>();
+        for (int r = 0; r < rows; r++)
+            for (int c = 0; c < cols; c++)
+                defs.add(new CellDef(r, c, 1, 1));
+        return defs;
+    }
+
+    /** 核心布局应用：清除旧格、按 CellDef 列表重新添加 VideoCell */
+    private void applyGrid(int rows, int cols, List<CellDef> defs) {
+        this.gridRows = rows;
+        this.gridCols = cols;
+
+        List<CameraInfo> prev = collectCameras();
+        cells.clear();
+        multiSel.clear();
+        primaryCell = null;
+        videoGrid.removeAll();
+        videoGrid.setLayout(new GridBagLayout());
+
+        int idx = 0;
+        for (CellDef def : defs) {
+            VideoCell cell = new VideoCell(++idx, def);
+            cells.add(cell);
+
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.gridx      = def.col;
+            gbc.gridy      = def.row;
+            gbc.gridwidth  = def.colSpan;
+            gbc.gridheight = def.rowSpan;
+            gbc.weightx    = 1.0;
+            gbc.weighty    = 1.0;
+            gbc.fill       = GridBagConstraints.BOTH;
+            gbc.insets     = new Insets(2, 2, 2, 2);
+            videoGrid.add(cell, gbc);
         }
 
-        restoreCameras(prevCameras);
-        if (!cells.isEmpty()) selectCell(cells.get(0));
+        for (int i = 0; i < Math.min(prev.size(), cells.size()); i++) {
+            if (prev.get(i) != null) cells.get(i).def.camera = prev.get(i);
+        }
+        if (!cells.isEmpty()) selectCell(cells.get(0), false);
         videoGrid.revalidate();
         videoGrid.repaint();
     }
 
-    /** 应用自定义行列布局 */
-    private void applyCustomLayout(int rows, int cols) {
-        this.currentLayout = -1;  // 标记为自定义
-        int count = rows * cols;
-
-        List<CameraInfo> prevCameras = collectCameras();
-        cells.clear();
-        videoGrid.removeAll();
-
-        videoGrid.setLayout(new GridLayout(rows, cols, 3, 3));
-        for (int i = 0; i < count; i++) {
-            VideoCell cell = new VideoCell(i + 1);
-            cells.add(cell);
-            videoGrid.add(cell);
+    // ==================== 合并 ====================
+    private void mergeSelected() {
+        if (multiSel.size() < 2) {
+            JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(videoGrid),
+                    "请先按住 Ctrl 并单击选中 2 个以上相邻格子，再点击合并。",
+                    "提示", JOptionPane.INFORMATION_MESSAGE);
+            return;
         }
 
-        restoreCameras(prevCameras);
-        if (!cells.isEmpty()) selectCell(cells.get(0));
-        videoGrid.revalidate();
+        // 包围矩形
+        int minR = Integer.MAX_VALUE, maxR = Integer.MIN_VALUE;
+        int minC = Integer.MAX_VALUE, maxC = Integer.MIN_VALUE;
+        for (VideoCell vc : multiSel) {
+            CellDef d = vc.def;
+            minR = Math.min(minR, d.row);
+            maxR = Math.max(maxR, d.row + d.rowSpan - 1);
+            minC = Math.min(minC, d.col);
+            maxC = Math.max(maxC, d.col + d.colSpan - 1);
+        }
+
+        // 收集多选格覆盖的所有网格坐标
+        Set<String> covered = new HashSet<>();
+        for (VideoCell vc : multiSel) {
+            CellDef d = vc.def;
+            for (int r = d.row; r < d.row + d.rowSpan; r++)
+                for (int c = d.col; c < d.col + d.colSpan; c++)
+                    covered.add(r + "," + c);
+        }
+        // 验证包围矩形内全部已覆盖（即连续矩形）
+        for (int r = minR; r <= maxR; r++) {
+            for (int c = minC; c <= maxC; c++) {
+                if (!covered.contains(r + "," + c)) {
+                    JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(videoGrid),
+                            "选中区域不是完整矩形，无法合并。\n请确保所选格子构成一个连续的矩形区域。",
+                            "无法合并", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+            }
+        }
+
+        CellDef merged = new CellDef(minR, minC, maxR - minR + 1, maxC - minC + 1);
+        merged.camera = multiSel.get(0).def.camera;   // 保留第一个格的摄像头
+
+        Set<VideoCell> selSet = new HashSet<>(multiSel);
+        List<CellDef> newDefs = new ArrayList<>();
+        for (VideoCell vc : cells) {
+            if (!selSet.contains(vc)) newDefs.add(vc.def);
+        }
+        newDefs.add(merged);
+        newDefs.sort((a, b) -> a.row != b.row ? a.row - b.row : a.col - b.col);
+        applyGrid(gridRows, gridCols, newDefs);
+    }
+
+    // ==================== 拆分 ====================
+    private void splitSelected() {
+        if (primaryCell == null) return;
+        CellDef d = primaryCell.def;
+        if (d.rowSpan == 1 && d.colSpan == 1) {
+            JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(videoGrid),
+                    "该格已是最小单元，无需拆分。", "提示", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        List<CellDef> newDefs = new ArrayList<>();
+        for (VideoCell vc : cells) {
+            if (vc == primaryCell) {
+                for (int r = d.row; r < d.row + d.rowSpan; r++)
+                    for (int c = d.col; c < d.col + d.colSpan; c++)
+                        newDefs.add(new CellDef(r, c, 1, 1));
+            } else {
+                newDefs.add(vc.def);
+            }
+        }
+        newDefs.sort((a, b) -> a.row != b.row ? a.row - b.row : a.col - b.col);
+        applyGrid(gridRows, gridCols, newDefs);
+    }
+
+    // ==================== 自定义布局对话框 ====================
+    private void showCustomDialog() {
+        JSpinner rowSpin = new JSpinner(new SpinnerNumberModel(gridRows, 1, 10, 1));
+        JSpinner colSpin = new JSpinner(new SpinnerNumberModel(gridCols, 1, 10, 1));
+        rowSpin.setPreferredSize(new Dimension(60, 28));
+        colSpin.setPreferredSize(new Dimension(60, 28));
+
+        JPanel p = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(6, 8, 6, 8);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.gridx = 0; gbc.gridy = 0; p.add(new JLabel("行数 (1-10):"), gbc);
+        gbc.gridx = 1; p.add(rowSpin, gbc);
+        gbc.gridx = 0; gbc.gridy = 1; p.add(new JLabel("列数 (1-10):"), gbc);
+        gbc.gridx = 1; p.add(colSpin, gbc);
+
+        int result = JOptionPane.showConfirmDialog(
+                SwingUtilities.getWindowAncestor(videoGrid), p,
+                "自定义布局", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            int rows = (Integer) rowSpin.getValue();
+            int cols = (Integer) colSpin.getValue();
+            applyGrid(rows, cols, uniformDefs(rows, cols));
+            // 下拉框保持"自定义..."选中
+        } else {
+            // 取消：恢复下拉框到上次预设
+            layoutCombo.setSelectedIndex(0);
+        }
+    }
+
+    // ==================== 布局保存与恢复 ====================
+    private void saveCurrentLayout() {
+        Window owner = SwingUtilities.getWindowAncestor(videoGrid);
+        String name = JOptionPane.showInputDialog(owner,
+                "请输入布局名称（已有同名则覆盖）:", "保存布局", JOptionPane.PLAIN_MESSAGE);
+        if (name == null || name.trim().isEmpty()) return;
+        name = name.trim();
+
+        // 序列化：rows:cols,r:c:rs:cs,...
+        StringBuilder sb = new StringBuilder().append(gridRows).append(":").append(gridCols);
+        for (VideoCell vc : cells) {
+            CellDef d = vc.def;
+            sb.append(",").append(d.row).append(":").append(d.col)
+              .append(":").append(d.rowSpan).append(":").append(d.colSpan);
+        }
+        ConfigManager.set("monitor.layout." + name, sb.toString());
+        if (!savedNames.contains(name)) savedNames.add(name);
+        ConfigManager.set("monitor.saved.names", String.join(",", savedNames));
+        ConfigManager.save();
+
+        // 重建下拉框并选中新名称
+        rebuildCombo();
+        layoutCombo.setSelectedIndex(PRESET_LABELS.length + savedNames.indexOf(name));
+
+        JOptionPane.showMessageDialog(owner, "布局 \"" + name + "\" 已保存！",
+                "保存成功", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void loadSavedNames() {
+        savedNames.clear();
+        String csv = ConfigManager.get("monitor.saved.names", "");
+        if (!csv.isEmpty()) {
+            for (String n : csv.split(",")) {
+                String t = n.trim();
+                if (!t.isEmpty()) savedNames.add(t);
+            }
+        }
+    }
+
+    private void applySaved(String name) {
+        String data = ConfigManager.get("monitor.layout." + name, "");
+        if (data.isEmpty()) return;
+        String[] parts = data.split(",");
+        String[] dims = parts[0].split(":");
+        int rows = Integer.parseInt(dims[0]);
+        int cols = Integer.parseInt(dims[1]);
+        List<CellDef> defs = new ArrayList<>();
+        for (int i = 1; i < parts.length; i++) {
+            String[] seg = parts[i].split(":");
+            defs.add(new CellDef(
+                    Integer.parseInt(seg[0]), Integer.parseInt(seg[1]),
+                    Integer.parseInt(seg[2]), Integer.parseInt(seg[3])));
+        }
+        applyGrid(rows, cols, defs);
+    }
+
+    /** 启动时从配置恢复布局 */
+    private void restoreLayout() {
+        String saved = ConfigManager.get("monitor.layout", "0");
+        if (saved.startsWith("saved:")) {
+            String name = saved.substring(6);
+            int idx = savedNames.indexOf(name);
+            if (idx >= 0) {
+                applySaved(name);
+                layoutCombo.setSelectedIndex(PRESET_LABELS.length + idx);
+                return;
+            }
+        }
+        int idx = 0;
+        try { idx = Integer.parseInt(saved); } catch (NumberFormatException ignore) {}
+        idx = Math.max(0, Math.min(idx, PRESET_LABELS.length - 1));
+        applyPreset(idx);
+        if (layoutCombo != null) layoutCombo.setSelectedIndex(idx);
+    }
+
+    // ==================== 选择逻辑 ====================
+    private void selectCell(VideoCell cell, boolean ctrl) {
+        if (ctrl) {
+            if (multiSel.contains(cell)) {
+                multiSel.remove(cell);
+                cell.multiSel = false;
+                cell.primary  = false;
+                if (cell == primaryCell) {
+                    primaryCell = multiSel.isEmpty() ? null : multiSel.get(0);
+                    if (primaryCell != null) primaryCell.primary = true;
+                }
+            } else {
+                multiSel.add(cell);
+                cell.multiSel = true;
+            }
+        } else {
+            for (VideoCell vc : cells) { vc.primary = false; vc.multiSel = false; }
+            multiSel.clear();
+            primaryCell = cell;
+            cell.primary = true;
+            multiSel.add(cell);
+        }
         videoGrid.repaint();
     }
 
-    /** 收集当前所有格的摄像头分配 */
-    private List<CameraInfo> collectCameras() {
-        List<CameraInfo> list = new ArrayList<>();
-        for (VideoCell cell : cells) {
-            list.add(cell.getCamera());
-        }
-        return list;
-    }
-
-    /** 将之前的摄像头分配按序恢复到新格中 */
-    private void restoreCameras(List<CameraInfo> prevCameras) {
-        for (int i = 0; i < Math.min(prevCameras.size(), cells.size()); i++) {
-            if (prevCameras.get(i) != null) {
-                cells.get(i).setCamera(prevCameras.get(i));
-            }
-        }
-    }
-
-    /** 5画面特殊布局（1大+4小） */
-    private void buildLayout5() {
-        videoGrid.setLayout(new BorderLayout(3, 3));
-
-        VideoCell mainCell = new VideoCell(1);
-        cells.add(mainCell);
-
-        JPanel rightPanel = new JPanel(new GridLayout(2, 2, 3, 3));
-        rightPanel.setBackground(new Color(18, 18, 20));
-        rightPanel.setPreferredSize(new Dimension(240, 0));
-
-        for (int i = 1; i <= 4; i++) {
-            VideoCell cell = new VideoCell(i + 1);
-            cells.add(cell);
-            rightPanel.add(cell);
-        }
-
-        videoGrid.add(mainCell, BorderLayout.CENTER);
-        videoGrid.add(rightPanel, BorderLayout.EAST);
-    }
-
-    // ==================== 单元格操作 ====================
-    private void selectCell(VideoCell cell) {
-        if (selectedCell != null) selectedCell.setSelected(false);
-        selectedCell = cell;
-        if (selectedCell != null) selectedCell.setSelected(true);
-    }
-
-    private void assignCameraToCell(CameraInfo cam) {
-        // 优先分配到选中格，否则找第一个空格
-        if (selectedCell != null) {
-            selectedCell.setCamera(cam);
-            // 自动移到下一格
-            int idx = cells.indexOf(selectedCell);
-            if (idx < cells.size() - 1) {
-                selectCell(cells.get(idx + 1));
-            }
+    private void assignCamera(CameraInfo cam) {
+        if (primaryCell != null) {
+            primaryCell.def.camera = cam;
+            primaryCell.repaint();
+            int idx = cells.indexOf(primaryCell);
+            if (idx >= 0 && idx < cells.size() - 1) selectCell(cells.get(idx + 1), false);
         } else {
-            for (VideoCell cell : cells) {
-                if (cell.getCamera() == null) {
-                    cell.setCamera(cam);
-                    selectCell(cell);
+            for (VideoCell vc : cells) {
+                if (vc.def.camera == null) {
+                    vc.def.camera = cam;
+                    vc.repaint();
+                    selectCell(vc, false);
                     return;
                 }
             }
@@ -452,81 +529,81 @@ public class VideoMonitorPanel extends ToolPanel {
     }
 
     private void clearAllCells() {
-        for (VideoCell cell : cells) {
-            cell.setCamera(null);
-        }
-        videoGrid.repaint();
+        for (VideoCell vc : cells) { vc.def.camera = null; vc.repaint(); }
     }
 
-    // ==================== 内部类：视频单元格 ====================
+    private List<CameraInfo> collectCameras() {
+        List<CameraInfo> list = new ArrayList<>();
+        for (VideoCell vc : cells) list.add(vc.def.camera);
+        return list;
+    }
+
+    // ==================== 内部类：CellDef ====================
+    private static class CellDef {
+        int row, col, rowSpan, colSpan;
+        CameraInfo camera;
+
+        CellDef(int row, int col, int rowSpan, int colSpan) {
+            this.row = row; this.col = col;
+            this.rowSpan = rowSpan; this.colSpan = colSpan;
+        }
+    }
+
+    // ==================== 内部类：VideoCell ====================
     private class VideoCell extends JPanel {
-        private final int index;
-        private CameraInfo camera;
-        private boolean selected;
+        final int index;
+        final CellDef def;
+        boolean primary;
+        boolean multiSel;
         private boolean hovered;
 
-        VideoCell(int index) {
+        VideoCell(int index, CellDef def) {
             this.index = index;
+            this.def = def;
             setOpaque(false);
-            setBackground(CELL_BG_COLOR);
-            setMinimumSize(new Dimension(100, 80));
+            setMinimumSize(new Dimension(50, 40));
 
             addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
-                    if (e.getClickCount() == 2 && camera != null) {
+                    boolean ctrl = (e.getModifiersEx() & InputEvent.CTRL_DOWN_MASK) != 0;
+                    if (e.getClickCount() == 2 && !ctrl && def.camera != null) {
                         openFullscreen();
                     } else {
-                        selectCell(VideoCell.this);
+                        selectCell(VideoCell.this, ctrl);
                     }
                 }
-
-                @Override
-                public void mouseEntered(MouseEvent e) {
-                    hovered = true;
-                    repaint();
-                }
-
-                @Override
-                public void mouseExited(MouseEvent e) {
-                    hovered = false;
-                    repaint();
-                }
+                @Override public void mouseEntered(MouseEvent e) { hovered = true;  repaint(); }
+                @Override public void mouseExited(MouseEvent e)  { hovered = false; repaint(); }
             });
 
             // 右键菜单
             JPopupMenu menu = new JPopupMenu();
-            JMenuItem clearItem = new JMenuItem("清除此通道");
-            clearItem.addActionListener(e -> setCamera(null));
-            JMenuItem fullItem = new JMenuItem("全屏查看");
+            JMenuItem fullItem  = new JMenuItem("全屏查看");
             fullItem.addActionListener(e -> openFullscreen());
+            JMenuItem mergeItem = new JMenuItem("合并（与多选格）");
+            mergeItem.addActionListener(e -> mergeSelected());
+            JMenuItem splitItem = new JMenuItem("拆分此格");
+            splitItem.addActionListener(e -> { selectCell(VideoCell.this, false); splitSelected(); });
+            JMenuItem clearItem = new JMenuItem("清除通道");
+            clearItem.addActionListener(e -> { def.camera = null; repaint(); });
             menu.add(fullItem);
+            menu.addSeparator();
+            menu.add(mergeItem);
+            menu.add(splitItem);
             menu.addSeparator();
             menu.add(clearItem);
             setComponentPopupMenu(menu);
         }
 
-        CameraInfo getCamera() { return camera; }
-
-        void setCamera(CameraInfo cam) {
-            this.camera = cam;
-            repaint();
-        }
-
-        void setSelected(boolean sel) {
-            this.selected = sel;
-            repaint();
-        }
-
         private void openFullscreen() {
-            if (camera == null) return;
+            if (def.camera == null) return;
             JDialog dlg = new JDialog(SwingUtilities.getWindowAncestor(this),
-                    "全屏 - " + camera.name, Dialog.ModalityType.APPLICATION_MODAL);
-            dlg.setUndecorated(false);
-            VideoCell fullCell = new VideoCell(index);
-            fullCell.camera = this.camera;
-            fullCell.setPreferredSize(new Dimension(960, 720));
-            dlg.add(fullCell);
+                    "全屏 - " + def.camera.name, Dialog.ModalityType.APPLICATION_MODAL);
+            VideoCell fc = new VideoCell(index, new CellDef(0, 0, 1, 1));
+            fc.def.camera = this.def.camera;
+            fc.setPreferredSize(new Dimension(960, 720));
+            dlg.add(fc);
             dlg.pack();
             dlg.setLocationRelativeTo(null);
             dlg.setVisible(true);
@@ -534,119 +611,126 @@ public class VideoMonitorPanel extends ToolPanel {
 
         @Override
         protected void paintComponent(Graphics g) {
+            int w = getWidth(), h = getHeight();
+            if (w < 8 || h < 8) return;
+
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-            int w = getWidth(), h = getHeight();
             float arc = 6f;
 
             // 背景
-            Color bg = camera != null ? CELL_ACTIVE_BG : (hovered ? CELL_HOVER_COLOR : CELL_BG_COLOR);
+            Color bg = def.camera != null ? C_ACTIVE : (hovered ? C_HOVER : C_BG);
             g2.setColor(bg);
             g2.fill(new RoundRectangle2D.Float(0, 0, w, h, arc, arc));
 
-            // 选中边框
-            if (selected) {
-                g2.setColor(CELL_SEL_COLOR);
-                g2.setStroke(new BasicStroke(2.5f));
-                g2.draw(new RoundRectangle2D.Float(1, 1, w - 2, h - 2, arc, arc));
+            // 边框
+            if (primary) {
+                g2.setColor(C_SEL); g2.setStroke(new BasicStroke(2.5f));
+            } else if (multiSel) {
+                g2.setColor(C_MULTI); g2.setStroke(new BasicStroke(2f));
             } else {
-                g2.setColor(new Color(45, 50, 60));
-                g2.setStroke(new BasicStroke(1f));
-                g2.draw(new RoundRectangle2D.Float(0.5f, 0.5f, w - 1, h - 1, arc, arc));
+                g2.setColor(new Color(45, 50, 60)); g2.setStroke(new BasicStroke(1f));
             }
+            g2.draw(new RoundRectangle2D.Float(1, 1, w - 2, h - 2, arc, arc));
 
-            if (camera == null) {
-                // 无信号占位图
-                drawNoSignal(g2, w, h);
-            } else {
-                // 有摄像头：绘制模拟画面占位
-                drawCameraPlaceholder(g2, w, h);
-            }
+            // 内容
+            if (def.camera == null) drawEmpty(g2, w, h);
+            else                    drawCamera(g2, w, h);
 
             // 通道编号角标
-            g2.setColor(selected ? CELL_SEL_COLOR : new Color(60, 65, 80));
-            g2.fillRoundRect(4, 4, 26, 16, 4, 4);
+            g2.setColor(primary ? C_SEL : new Color(50, 55, 70));
+            g2.fillRoundRect(4, 4, 22, 14, 4, 4);
             g2.setColor(Color.WHITE);
-            g2.setFont(UIUtils.plainFont().deriveFont(Font.BOLD, 10f));
+            g2.setFont(UIUtils.plainFont().deriveFont(Font.BOLD, 9f));
             FontMetrics fm = g2.getFontMetrics();
-            String numStr = String.valueOf(index);
-            g2.drawString(numStr, 4 + (26 - fm.stringWidth(numStr)) / 2, 4 + 12);
+            String num = String.valueOf(index);
+            g2.drawString(num, 4 + (22 - fm.stringWidth(num)) / 2, 4 + 10);
 
             g2.dispose();
         }
 
-        private void drawNoSignal(Graphics2D g2, int w, int h) {
-            // 摄像头图标（简单绘制）
+        private void drawEmpty(Graphics2D g2, int w, int h) {
+            if (w < 36 || h < 36) return;
             int cx = w / 2, cy = h / 2;
-            int iconSize = Math.min(w, h) / 4;
-            iconSize = Math.max(iconSize, 20);
-
+            int sz = Math.max(12, Math.min(w, h) / 6);
             g2.setColor(new Color(55, 60, 75));
-            g2.setStroke(new BasicStroke(2.5f));
-
-            // 机身
-            int bw = iconSize * 2, bh = (int)(iconSize * 1.4);
-            g2.drawRoundRect(cx - bw / 2, cy - bh / 2, bw, bh, 6, 6);
-            // 镜头
-            int lr = iconSize / 2;
+            g2.setStroke(new BasicStroke(2f));
+            int bw = sz * 2, bh = (int)(sz * 1.3);
+            g2.drawRoundRect(cx - bw / 2, cy - bh / 2, bw, bh, 5, 5);
+            int lr = sz / 2;
             g2.drawOval(cx - lr, cy - lr, lr * 2, lr * 2);
-            // 取景器突起
-            g2.drawRect(cx + bw / 2, cy - bh / 4, bh / 5, bh / 2);
-
-            // 提示文字
-            g2.setColor(CELL_TEXT_DIM);
-            g2.setFont(UIUtils.plainFont().deriveFont(11f));
-            String tip = "双击设备添加";
-            FontMetrics fm = g2.getFontMetrics();
-            g2.drawString(tip, cx - fm.stringWidth(tip) / 2, cy + bh / 2 + 18);
+            if (h > 80) {
+                g2.setColor(C_DIM);
+                g2.setFont(UIUtils.plainFont().deriveFont(10.5f));
+                String tip = "双击设备分配";
+                FontMetrics fm = g2.getFontMetrics();
+                g2.drawString(tip, cx - fm.stringWidth(tip) / 2, cy + bh / 2 + 16);
+            }
         }
 
-        private void drawCameraPlaceholder(Graphics2D g2, int w, int h) {
-            // 模拟视频画面：渐变背景
-            GradientPaint gp = new GradientPaint(
-                    0, 0, new Color(20, 35, 55),
-                    w, h, new Color(10, 20, 35));
-            g2.setPaint(gp);
+        private void drawCamera(Graphics2D g2, int w, int h) {
+            // 渐变背景
+            g2.setPaint(new GradientPaint(0, 0, new Color(20, 35, 55), w, h, new Color(10, 20, 35)));
             g2.fillRoundRect(2, 2, w - 4, h - 4, 5, 5);
-
-            // 模拟扫描线效果（纹理感）
+            // 扫描线
             g2.setColor(new Color(255, 255, 255, 8));
-            for (int y = 0; y < h; y += 4) {
-                g2.drawLine(2, y, w - 2, y);
+            for (int y = 2; y < h; y += 4) g2.drawLine(2, y, w - 2, y);
+
+            if (h <= 30) {
+                // 极小格：只显示名称
+                g2.setColor(C_BRIGHT);
+                g2.setFont(UIUtils.plainFont().deriveFont(10f));
+                drawTrunc(g2, def.camera.name, 28, h / 2 + 4, w - 32);
+                return;
             }
 
-            // 摄像头名称
-            g2.setColor(CELL_TEXT_BRIGHT);
-            g2.setFont(UIUtils.plainFont().deriveFont(Font.BOLD, 12f));
-            FontMetrics fm = g2.getFontMetrics();
-            String name = camera.name;
-            if (fm.stringWidth(name) > w - 20) {
-                name = name.substring(0, Math.max(1, name.length() * (w - 24) / (fm.stringWidth(name)))) + "...";
-            }
-            g2.drawString(name, 8, 26);
+            // 摄像头名称（顶部，留出角标空间）
+            g2.setColor(C_BRIGHT);
+            g2.setFont(UIUtils.plainFont().deriveFont(Font.BOLD, 11f));
+            drawTrunc(g2, def.camera.name, 30, 20, w - 58);
 
-            // 地址标签
-            g2.setColor(CELL_TEXT_DIM);
-            g2.setFont(UIUtils.plainFont().deriveFont(10f));
-            String urlStr = camera.url.length() > 32 ? camera.url.substring(0, 32) + "..." : camera.url;
-            g2.drawString(urlStr, 8, h - 12);
-
-            // 右下角：模拟时间戳（实际可替换为当前时间）
-            g2.setColor(new Color(255, 230, 50, 200));
-            g2.setFont(UIUtils.plainFont().deriveFont(Font.BOLD, 10f));
-            java.time.LocalTime now = java.time.LocalTime.now();
-            String ts = String.format("%02d:%02d:%02d", now.getHour(), now.getMinute(), now.getSecond());
-            fm = g2.getFontMetrics();
-            g2.drawString(ts, w - fm.stringWidth(ts) - 8, h - 12);
-
-            // "实况" 角标
-            g2.setColor(new Color(220, 60, 60, 220));
-            g2.fillRoundRect(w - 48, 6, 40, 16, 4, 4);
+            // 实况角标（右上）
+            g2.setColor(new Color(210, 55, 55, 220));
+            g2.fillRoundRect(w - 44, 5, 38, 14, 4, 4);
             g2.setColor(Color.WHITE);
-            g2.setFont(UIUtils.plainFont().deriveFont(Font.BOLD, 10f));
-            g2.drawString("● 实况", w - 45, 18);
+            g2.setFont(UIUtils.plainFont().deriveFont(9f));
+            g2.drawString("\u25CF 实况", w - 41, 15);
+
+            if (h > 64) {
+                // URL（底部左侧）
+                g2.setColor(C_DIM);
+                g2.setFont(UIUtils.plainFont().deriveFont(10f));
+                drawTrunc(g2, def.camera.url, 6, h - 12, w - 80);
+
+                // 时间戳（底部右侧）
+                g2.setColor(new Color(255, 230, 50, 200));
+                g2.setFont(UIUtils.plainFont().deriveFont(Font.BOLD, 10f));
+                String ts = String.format("%02d:%02d:%02d",
+                        LocalTime.now().getHour(), LocalTime.now().getMinute(), LocalTime.now().getSecond());
+                FontMetrics fm2 = g2.getFontMetrics();
+                g2.drawString(ts, w - fm2.stringWidth(ts) - 6, h - 12);
+            }
+        }
+
+        /**
+         * 在 (x, y) 处绘制文字，超出 maxWidth 时截断并加省略号。
+         */
+        private void drawTrunc(Graphics2D g2, String text, int x, int y, int maxWidth) {
+            if (text == null || text.isEmpty() || maxWidth <= 4) return;
+            FontMetrics fm = g2.getFontMetrics();
+            if (fm.stringWidth(text) <= maxWidth) {
+                g2.drawString(text, x, y);
+                return;
+            }
+            String ell = "...";
+            int ellW = fm.stringWidth(ell);
+            int avail = maxWidth - ellW;
+            if (avail <= 0) { g2.drawString(ell, x, y); return; }
+            int len = text.length();
+            while (len > 0 && fm.stringWidth(text.substring(0, len)) > avail) len--;
+            g2.drawString(text.substring(0, len) + ell, x, y);
         }
     }
 
@@ -654,15 +738,7 @@ public class VideoMonitorPanel extends ToolPanel {
     private static class CameraInfo {
         final String name;
         final String url;
-
-        CameraInfo(String name, String url) {
-            this.name = name;
-            this.url = url;
-        }
-
-        @Override
-        public String toString() {
-            return name;
-        }
+        CameraInfo(String name, String url) { this.name = name; this.url = url; }
+        @Override public String toString() { return name; }
     }
 }

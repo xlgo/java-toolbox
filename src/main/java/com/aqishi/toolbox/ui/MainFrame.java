@@ -2,6 +2,7 @@ package com.aqishi.toolbox.ui;
 
 import com.aqishi.toolbox.algo.SearchPanel;
 import com.aqishi.toolbox.algo.SortPanel;
+import com.aqishi.toolbox.algo.HanoiPanel;
 import com.aqishi.toolbox.calc.CalculatorPanel;
 import com.aqishi.toolbox.calc.StatisticsPanel;
 import com.aqishi.toolbox.convert.Base64ImagePanel;
@@ -57,6 +58,7 @@ public class MainFrame extends JFrame {
             new FormatConvertPanel(),
             new SortPanel(),
             new SearchPanel(),
+            new HanoiPanel(),
             new CalculatorPanel(),
             new StatisticsPanel(),
             new RegexPanel(),

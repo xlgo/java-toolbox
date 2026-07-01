@@ -58,11 +58,11 @@
 ## 运行
 
 ```bash
-# 方式一：双击
+# 方式一：双击或直接执行
 run.bat
 
-# 方式二：命令行启动
-java -Dfile.encoding=UTF-8 -jar java-toolbox.jar
+# 方式二：命令行启动（指定最大堆内存和文件编码）
+java -Xmx512m -Dfile.encoding=UTF-8 -jar .\target\java-toolbox.jar
 ```
 
 ## 编译

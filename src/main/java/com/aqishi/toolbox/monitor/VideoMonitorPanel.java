@@ -81,27 +81,25 @@ public class VideoMonitorPanel extends ToolPanel {
         titleLbl.setFont(UIUtils.titleFont().deriveFont(Font.BOLD, 14f));
         bar.add(titleLbl, BorderLayout.WEST);
 
-        // 布局切换按钮组
-        JPanel layoutPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        // 布局切换下拉框
+        JPanel layoutPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         JLabel layoutLbl = new JLabel("分屏布局:");
         layoutLbl.setFont(UIUtils.plainFont());
         layoutPanel.add(layoutLbl);
 
-        ButtonGroup bg = new ButtonGroup();
+        String[] comboItems = new String[LAYOUT_LABELS.length];
         for (int i = 0; i < LAYOUT_LABELS.length; i++) {
-            final int idx = i;
-            JToggleButton btn = new JToggleButton(LAYOUT_LABELS[i] + "P");
-            btn.setFont(UIUtils.plainFont().deriveFont(12f));
-            btn.setPreferredSize(new Dimension(42, 28));
-            btn.setFocusPainted(false);
-            btn.addActionListener(e -> applyLayout(idx));
-            bg.add(btn);
-            layoutPanel.add(btn);
-            if (i == 0) btn.setSelected(true);
+            comboItems[i] = LAYOUT_LABELS[i] + " 画面";
         }
+        JComboBox<String> layoutCombo = new JComboBox<>(comboItems);
+        layoutCombo.setFont(UIUtils.plainFont().deriveFont(12f));
+        layoutCombo.setPreferredSize(new Dimension(90, 28));
+        layoutCombo.setSelectedIndex(0);
+        layoutCombo.addActionListener(e -> applyLayout(layoutCombo.getSelectedIndex()));
+        layoutPanel.add(layoutCombo);
 
         // 全部清空按钮
-        layoutPanel.add(Box.createHorizontalStrut(8));
+        layoutPanel.add(Box.createHorizontalStrut(4));
         JButton clearBtn = UIUtils.button("清空", 60);
         clearBtn.addActionListener(e -> clearAllCells());
         layoutPanel.add(clearBtn);

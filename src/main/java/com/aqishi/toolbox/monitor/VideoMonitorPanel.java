@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.monitor;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -39,8 +40,11 @@ public class VideoMonitorPanel extends ToolPanel {
 
     private JPanel videoGrid;
     private final List<VideoCell> cells = new ArrayList<>();
-    private int currentLayout = 0;   // 默认1画面
+    private int currentLayout = 0;   // 当前预设布局索引，-1 代表自定义
     private VideoCell selectedCell = null;
+    private int customRows = 3;       // 自定义布局行数
+    private int customCols = 3;       // 自定义布局列数
+    private JComboBox<String> layoutCombo;  // 提升为字段供内部方法更新
 
     public VideoMonitorPanel() {
         super("开发工具", "视频监控",
@@ -64,8 +68,8 @@ public class VideoMonitorPanel extends ToolPanel {
         splitPane.setResizeWeight(0.0);
         root.add(splitPane, BorderLayout.CENTER);
 
-        // 默认应用1画面布局
-        applyLayout(0);
+        // 恢复上次保存的布局
+        restoreLayout();
 
         return root;
     }
@@ -81,31 +85,147 @@ public class VideoMonitorPanel extends ToolPanel {
         titleLbl.setFont(UIUtils.titleFont().deriveFont(Font.BOLD, 14f));
         bar.add(titleLbl, BorderLayout.WEST);
 
-        // 布局切换下拉框
+        // 布局切换下拉框（含自定义选项）
         JPanel layoutPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         JLabel layoutLbl = new JLabel("分屏布局:");
         layoutLbl.setFont(UIUtils.plainFont());
         layoutPanel.add(layoutLbl);
 
-        String[] comboItems = new String[LAYOUT_LABELS.length];
+        // 预设选项 + 自定义
+        String[] comboItems = new String[LAYOUT_LABELS.length + 1];
         for (int i = 0; i < LAYOUT_LABELS.length; i++) {
             comboItems[i] = LAYOUT_LABELS[i] + " 画面";
         }
-        JComboBox<String> layoutCombo = new JComboBox<>(comboItems);
+        comboItems[LAYOUT_LABELS.length] = "自定义...";
+
+        layoutCombo = new JComboBox<>(comboItems);
         layoutCombo.setFont(UIUtils.plainFont().deriveFont(12f));
-        layoutCombo.setPreferredSize(new Dimension(90, 28));
+        layoutCombo.setPreferredSize(new Dimension(110, 28));
         layoutCombo.setSelectedIndex(0);
-        layoutCombo.addActionListener(e -> applyLayout(layoutCombo.getSelectedIndex()));
+        layoutCombo.addActionListener(e -> {
+            int idx = layoutCombo.getSelectedIndex();
+            if (idx == LAYOUT_LABELS.length) {
+                // 选择「自定义...」时弹出对话框
+                showCustomLayoutDialog();
+            } else {
+                applyLayout(idx);
+            }
+        });
         layoutPanel.add(layoutCombo);
 
+        // 保存布局按钮
+        layoutPanel.add(Box.createHorizontalStrut(2));
+        JButton saveBtn = UIUtils.button("保存布局", 70);
+        saveBtn.setToolTipText("将当前分屏布局保存，下次启动自动恢复");
+        saveBtn.addActionListener(e -> saveLayout());
+        layoutPanel.add(saveBtn);
+
         // 全部清空按钮
-        layoutPanel.add(Box.createHorizontalStrut(4));
-        JButton clearBtn = UIUtils.button("清空", 60);
+        layoutPanel.add(Box.createHorizontalStrut(2));
+        JButton clearBtn = UIUtils.button("清空", 55);
         clearBtn.addActionListener(e -> clearAllCells());
         layoutPanel.add(clearBtn);
 
         bar.add(layoutPanel, BorderLayout.EAST);
         return bar;
+    }
+
+    // ==================== 自定义布局对话框 ====================
+    /**
+     * 弹出行列输入对话框，确认后应用并更新下拉框标签。
+     */
+    private void showCustomLayoutDialog() {
+        JSpinner rowSpinner = new JSpinner(new SpinnerNumberModel(customRows, 1, 10, 1));
+        JSpinner colSpinner = new JSpinner(new SpinnerNumberModel(customCols, 1, 10, 1));
+        rowSpinner.setPreferredSize(new Dimension(60, 28));
+        colSpinner.setPreferredSize(new Dimension(60, 28));
+
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(6, 8, 6, 8);
+        gbc.anchor = GridBagConstraints.WEST;
+
+        gbc.gridx = 0; gbc.gridy = 0;
+        panel.add(new JLabel("行数 (1-10):"), gbc);
+        gbc.gridx = 1;
+        panel.add(rowSpinner, gbc);
+        gbc.gridx = 0; gbc.gridy = 1;
+        panel.add(new JLabel("列数 (1-10):"), gbc);
+        gbc.gridx = 1;
+        panel.add(colSpinner, gbc);
+
+        Window owner = SwingUtilities.getWindowAncestor(videoGrid);
+        int result = JOptionPane.showConfirmDialog(
+                owner, panel, "自定义布局",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            customRows = (Integer) rowSpinner.getValue();
+            customCols = (Integer) colSpinner.getValue();
+            applyCustomLayout(customRows, customCols);
+            // 更新下拉框：将「自定义...」替换为实际尺寸标签
+            String label = customRows + "×" + customCols + " 自定义";
+            if (layoutCombo.getItemCount() > LAYOUT_LABELS.length
+                    && layoutCombo.getItemAt(LAYOUT_LABELS.length).startsWith("自定义")) {
+                layoutCombo.removeItemAt(LAYOUT_LABELS.length);
+            }
+            layoutCombo.addItem(label);
+            layoutCombo.setSelectedIndex(layoutCombo.getItemCount() - 1);
+        } else {
+            // 取消时回到上一个选中项
+            if (currentLayout >= 0 && currentLayout < LAYOUT_LABELS.length) {
+                layoutCombo.setSelectedIndex(currentLayout);
+            } else {
+                layoutCombo.setSelectedIndex(layoutCombo.getItemCount() - 1);
+            }
+        }
+    }
+
+    // ==================== 布局持久化 ====================
+    /** 保存当前布局到配置文件 */
+    private void saveLayout() {
+        if (currentLayout == -1) {
+            // 自定义布局
+            ConfigManager.set("monitor.layout", "custom");
+            ConfigManager.set("monitor.layout.rows", String.valueOf(customRows));
+            ConfigManager.set("monitor.layout.cols", String.valueOf(customCols));
+        } else {
+            ConfigManager.set("monitor.layout", String.valueOf(currentLayout));
+            ConfigManager.set("monitor.layout.rows", "");
+            ConfigManager.set("monitor.layout.cols", "");
+        }
+        ConfigManager.save();
+        JOptionPane.showMessageDialog(
+                SwingUtilities.getWindowAncestor(videoGrid),
+                "布局已保存，下次启动将自动恢复。",
+                "保存成功", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /** 启动时从配置文件恢复布局 */
+    private void restoreLayout() {
+        String saved = ConfigManager.get("monitor.layout", "0");
+        if ("custom".equals(saved)) {
+            customRows = ConfigManager.getInt("monitor.layout.rows", 3);
+            customCols = ConfigManager.getInt("monitor.layout.cols", 3);
+            applyCustomLayout(customRows, customCols);
+            // 更新下拉框显示
+            if (layoutCombo != null) {
+                String label = customRows + "×" + customCols + " 自定义";
+                if (layoutCombo.getItemAt(LAYOUT_LABELS.length).equals("自定义...")) {
+                    layoutCombo.removeItemAt(LAYOUT_LABELS.length);
+                    layoutCombo.addItem(label);
+                }
+                layoutCombo.setSelectedIndex(layoutCombo.getItemCount() - 1);
+            }
+        } else {
+            int idx = 0;
+            try { idx = Integer.parseInt(saved); } catch (NumberFormatException ignore) {}
+            idx = Math.max(0, Math.min(idx, LAYOUT_LABELS.length - 1));
+            applyLayout(idx);
+            if (layoutCombo != null) {
+                layoutCombo.setSelectedIndex(idx);
+            }
+        }
     }
 
     // ==================== 左侧设备树 ====================
@@ -214,6 +334,7 @@ public class VideoMonitorPanel extends ToolPanel {
     }
 
     // ==================== 布局切换 ====================
+    /** 应用预设布局 */
     private void applyLayout(int layoutIdx) {
         this.currentLayout = layoutIdx;
         int[] layout = LAYOUTS[layoutIdx];
@@ -221,17 +342,11 @@ public class VideoMonitorPanel extends ToolPanel {
         int cols  = layout[1];
         int rows  = layout[2];
 
-        // 保留已有的摄像头分配
-        List<CameraInfo> prevCameras = new ArrayList<>();
-        for (VideoCell cell : cells) {
-            prevCameras.add(cell.getCamera());
-        }
-
+        List<CameraInfo> prevCameras = collectCameras();
         cells.clear();
         videoGrid.removeAll();
 
         if (count == 5) {
-            // 5画面：左上1个大格(占2行2列) + 右侧2个 + 底部2个
             buildLayout5();
         } else {
             videoGrid.setLayout(new GridLayout(rows, cols, 3, 3));
@@ -242,20 +357,50 @@ public class VideoMonitorPanel extends ToolPanel {
             }
         }
 
-        // 恢复之前的摄像头分配
+        restoreCameras(prevCameras);
+        if (!cells.isEmpty()) selectCell(cells.get(0));
+        videoGrid.revalidate();
+        videoGrid.repaint();
+    }
+
+    /** 应用自定义行列布局 */
+    private void applyCustomLayout(int rows, int cols) {
+        this.currentLayout = -1;  // 标记为自定义
+        int count = rows * cols;
+
+        List<CameraInfo> prevCameras = collectCameras();
+        cells.clear();
+        videoGrid.removeAll();
+
+        videoGrid.setLayout(new GridLayout(rows, cols, 3, 3));
+        for (int i = 0; i < count; i++) {
+            VideoCell cell = new VideoCell(i + 1);
+            cells.add(cell);
+            videoGrid.add(cell);
+        }
+
+        restoreCameras(prevCameras);
+        if (!cells.isEmpty()) selectCell(cells.get(0));
+        videoGrid.revalidate();
+        videoGrid.repaint();
+    }
+
+    /** 收集当前所有格的摄像头分配 */
+    private List<CameraInfo> collectCameras() {
+        List<CameraInfo> list = new ArrayList<>();
+        for (VideoCell cell : cells) {
+            list.add(cell.getCamera());
+        }
+        return list;
+    }
+
+    /** 将之前的摄像头分配按序恢复到新格中 */
+    private void restoreCameras(List<CameraInfo> prevCameras) {
         for (int i = 0; i < Math.min(prevCameras.size(), cells.size()); i++) {
             if (prevCameras.get(i) != null) {
                 cells.get(i).setCamera(prevCameras.get(i));
             }
         }
-
-        // 默认选中第一个格
-        if (!cells.isEmpty()) {
-            selectCell(cells.get(0));
-        }
-
-        videoGrid.revalidate();
-        videoGrid.repaint();
     }
 
     /** 5画面特殊布局（1大+4小） */

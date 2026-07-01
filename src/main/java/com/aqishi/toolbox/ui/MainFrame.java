@@ -28,6 +28,7 @@ import com.aqishi.toolbox.misc.DockerComposePanel;
 import com.aqishi.toolbox.misc.SubnetPanel;
 import com.aqishi.toolbox.misc.HttpTestPanel;
 import com.aqishi.toolbox.misc.CallbackTestPanel;
+import com.aqishi.toolbox.monitor.VideoMonitorPanel;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.I18n;
@@ -81,6 +82,7 @@ public class MainFrame extends JFrame {
             new ColorPanel(),
             new CertPanel(),
             new K8sPanel(),
+            new VideoMonitorPanel(),
     };
 
     public MainFrame() {

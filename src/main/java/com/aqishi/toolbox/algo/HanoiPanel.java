@@ -64,7 +64,7 @@ public class HanoiPanel extends ToolPanel {
     private JLabel statusLabel;
 
     public HanoiPanel() {
-        super("算法", "汉诺塔", "Hanoi", "汉诺塔", "递归", "Tower of Hanoi");
+        super("algo", "hanoi", "Hanoi", "汉诺塔", "递归", "Tower of Hanoi");
         for (int i = 0; i < 3; i++) {
             towers[i] = new Stack<>();
         }

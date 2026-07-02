@@ -53,7 +53,7 @@ public class CallbackTestPanel extends ToolPanel {
     private boolean isRunning = false;
 
     public CallbackTestPanel() {
-        super("开发工具", "回调接口测试",
+        super("dev", "callback.mock",
                 "回调", "接口测试", "Mock", "Webhook", "Server", "服务器", "HTTP Mock");
     }
 

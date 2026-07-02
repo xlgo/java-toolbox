@@ -13,7 +13,7 @@ import java.util.Arrays;
 public class SearchPanel extends ToolPanel {
 
     public SearchPanel() {
-        super("算法", "查找算法",
+        super("algo", "search.algorithm",
                 "二分查找", "Binary Search", "线性查找", "Linear Search",
                 "搜索算法", "查找");
     }

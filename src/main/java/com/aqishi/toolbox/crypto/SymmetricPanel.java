@@ -26,7 +26,7 @@ public class SymmetricPanel extends ToolPanel {
     private JTextArea outputArea;
 
     public SymmetricPanel() {
-        super("加密", "对称加密",
+        super("crypto", "symmetric.crypto",
                 "AES", "DES", "3DES", "SM4", "国密",
                 "ECB", "CBC", "PKCS5", "密钥", "加密", "解密",
                 "对称");

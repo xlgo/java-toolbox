@@ -32,7 +32,7 @@ public class TextDiffPanel extends ToolPanel {
     }
 
     public TextDiffPanel() {
-        super("开发工具", "文本对比",
+        super("dev", "text.diff",
                 "Diff", "差异", "对比", "文本差异",
                 "差异比较", "LCS", "比较");
     }

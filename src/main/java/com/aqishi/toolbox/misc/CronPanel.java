@@ -16,7 +16,7 @@ import java.util.List;
 public class CronPanel extends ToolPanel {
 
     public CronPanel() {
-        super("开发工具", "Cron 表达式解析",
+        super("dev", "cron.parser",
                 "Cron", "定时", "调度", "表达式",
                 "Cron表达式", "定时任务", "crontab");
     }

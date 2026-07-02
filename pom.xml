@@ -75,6 +75,12 @@
             <artifactId>jackson-dataformat-xml</artifactId>
             <version>2.15.2</version>
         </dependency>
+        <!-- Jedis Redis Client -->
+        <dependency>
+            <groupId>redis.clients</groupId>
+            <artifactId>jedis</artifactId>
+            <version>3.8.0</version>
+        </dependency>
     </dependencies>
 
     <build>

@@ -52,38 +52,43 @@ public class MainFrame extends JFrame {
     private final Map<String, JList<String>> groupListMap = new java.util.HashMap<>();
     private final Map<String, CardLayout> groupCardMap = new java.util.HashMap<>();
     private final Map<String, JPanel> groupContentMap = new java.util.HashMap<>();
+    private javax.swing.Timer statusTimer;
     
-    private final ToolPanel[] tools = {
-            new CryptoPanel(),
-            new SymmetricPanel(),
-            new AsymmetricPanel(),
-            new ConvertPanel(),
-            new TimePanel(),
-            new Base64ImagePanel(),
-            new FormatConvertPanel(),
-            new JsonPanel(),
-            new XmlPanel(),
-            new SqlPanel(),
-            new RegexPanel(),
-            new JwtPanel(),
-            new CronPanel(),
-            new TextDiffPanel(),
-            new DockerComposePanel(),
-            new SubnetPanel(),
-            new HttpTestPanel(),
-            new CallbackTestPanel(),
-            new ColorPanel(),
-            new CertPanel(),
-            new K8sPanel(),
-            new UuidPanel(),
-            new PasswordPanel(),
-            new CalculatorPanel(),
-            new StatisticsPanel(),
-            new SortPanel(),
-            new SearchPanel(),
-            new HanoiPanel(),
-            new VideoMonitorPanel(),
-    };
+    private ToolPanel[] tools = createTools();
+
+    private static ToolPanel[] createTools() {
+        return new ToolPanel[]{
+                new CryptoPanel(),
+                new SymmetricPanel(),
+                new AsymmetricPanel(),
+                new ConvertPanel(),
+                new TimePanel(),
+                new Base64ImagePanel(),
+                new FormatConvertPanel(),
+                new JsonPanel(),
+                new XmlPanel(),
+                new SqlPanel(),
+                new RegexPanel(),
+                new JwtPanel(),
+                new CronPanel(),
+                new TextDiffPanel(),
+                new DockerComposePanel(),
+                new SubnetPanel(),
+                new HttpTestPanel(),
+                new CallbackTestPanel(),
+                new ColorPanel(),
+                new CertPanel(),
+                new K8sPanel(),
+                new UuidPanel(),
+                new PasswordPanel(),
+                new CalculatorPanel(),
+                new StatisticsPanel(),
+                new SortPanel(),
+                new SearchPanel(),
+                new HanoiPanel(),
+                new VideoMonitorPanel(),
+        };
+    }
 
     public MainFrame() {
         super(I18n.get("app.title"));
@@ -254,12 +259,27 @@ public class MainFrame extends JFrame {
         ConfigManager.setInt("y", p.y);
         ConfigManager.save();
 
-        currentFrame.dispose();
-
         SwingUtilities.invokeLater(() -> {
-            MainFrame frame = new MainFrame();
-            frame.setVisible(true);
+            currentFrame.reloadInPlace();
         });
+    }
+
+    /** 原地刷新界面文案，避免语言切换时销毁并重建窗口导致闪烁/消失。 */
+    private void reloadInPlace() {
+        if (statusTimer != null) {
+            statusTimer.stop();
+        }
+
+        setTitle(I18n.get("app.title"));
+        groupListMap.clear();
+        groupCardMap.clear();
+        groupContentMap.clear();
+        tools = createTools();
+
+        getContentPane().removeAll();
+        initUI();
+        revalidate();
+        repaint();
     }
 
     /** 智能跳转选中特定的工具 */
@@ -348,9 +368,9 @@ public class MainFrame extends JFrame {
                 new EmptyBorder(4, 8, 4, 8)));
 
         // 每秒刷新内存/CPU 信息
-        javax.swing.Timer timer = new javax.swing.Timer(2000, e -> updateStatusBar());
-        timer.setInitialDelay(0);
-        timer.start();
+        statusTimer = new javax.swing.Timer(2000, e -> updateStatusBar());
+        statusTimer.setInitialDelay(0);
+        statusTimer.start();
 
         return statusLabel;
     }

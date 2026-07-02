@@ -29,6 +29,7 @@ import com.aqishi.toolbox.misc.SubnetPanel;
 import com.aqishi.toolbox.misc.HttpTestPanel;
 import com.aqishi.toolbox.misc.CallbackTestPanel;
 import com.aqishi.toolbox.monitor.VideoMonitorPanel;
+import com.aqishi.toolbox.misc.RedisPanel;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.I18n;
@@ -91,6 +92,7 @@ public class MainFrame extends JFrame {
                 new SearchPanel(),
                 new HanoiPanel(),
                 new VideoMonitorPanel(),
+                new RedisPanel(),
         };
     }
 

@@ -92,10 +92,14 @@ public class RedisPanel extends ToolPanel {
     private JTextField consoleInput;
 
     private Jedis jedis;
+    private String connHost;
+    private int connPort;
+    private String connPassword;
+    private int connDb;
     private String currentSelectedKey = null;
 
     public RedisPanel() {
-        super("dev", "redis.manager",
+        super("dev", "redis.management",
                 "Redis", "缓存", "NoSQL", "Key-Value", "数据库", "命令行", "Console");
     }
 
@@ -381,10 +385,7 @@ public class RedisPanel extends ToolPanel {
             keyTypeLabel.setText("none");
             ttlField.setText("");
             valueCardLayout.show(valueCardPanel, "NONE");
-            if (jedis != null) {
-                try { jedis.close(); } catch (Exception ignored) {}
-                jedis = null;
-            }
+            closeJedis();
         }
     }
 
@@ -511,17 +512,47 @@ public class RedisPanel extends ToolPanel {
         loadProfilesFromPrefs();
     }
 
-    private void connectRedis() {
-        String host = hostField.getText().trim();
-        int port;
+    /** 检查连接是否有效，无效则自动重连 */
+    private boolean checkConnection() {
+        if (jedis == null) return false;
         try {
-            port = Integer.parseInt(portField.getText().trim());
+            jedis.ping();
+            return true;
+        } catch (Exception e) {
+            // 连接已断开，自动重连
+            closeJedis();
+            try {
+                Jedis client = new Jedis(connHost, connPort, 5000);
+                if (!connPassword.isEmpty()) client.auth(connPassword);
+                client.select(connDb);
+                client.ping();
+                jedis = client;
+                consoleOutput.append("自动重连成功\n");
+                return true;
+            } catch (Exception ex) {
+                jedis = null;
+                return false;
+            }
+        }
+    }
+
+    private void closeJedis() {
+        if (jedis != null) {
+            try { jedis.close(); } catch (Exception ignored) {}
+            jedis = null;
+        }
+    }
+
+    private void connectRedis() {
+        connHost = hostField.getText().trim();
+        try {
+            connPort = Integer.parseInt(portField.getText().trim());
         } catch (NumberFormatException ex) {
             UIUtils.error(connBtn, "端口格式不正确");
             return;
         }
-        String password = new String(passField.getPassword());
-        int db = (Integer) dbCombo.getSelectedItem();
+        connPassword = new String(passField.getPassword());
+        connDb = (Integer) dbCombo.getSelectedItem();
 
         connBtn.setEnabled(false);
         connBtn.setText("连接中...");
@@ -529,11 +560,11 @@ public class RedisPanel extends ToolPanel {
         new SwingWorker<Jedis, Void>() {
             @Override
             protected Jedis doInBackground() throws Exception {
-                Jedis client = new Jedis(host, port, 5000);
-                if (!password.isEmpty()) {
-                    client.auth(password);
+                Jedis client = new Jedis(connHost, connPort, 5000);
+                if (!connPassword.isEmpty()) {
+                    client.auth(connPassword);
                 }
-                client.select(db);
+                client.select(connDb);
                 client.ping(); // test connection
                 return client;
             }
@@ -544,7 +575,7 @@ public class RedisPanel extends ToolPanel {
                     jedis = get();
                     toggleState(true);
                     refreshKeys();
-                    consoleOutput.append("成功连接至 Redis 服务器: " + host + ":" + port + ", DB: " + db + "\n");
+                    consoleOutput.append("成功连接至 Redis 服务器: " + connHost + ":" + connPort + ", DB: " + connDb + "\n");
                 } catch (Exception ex) {
                     toggleState(false);
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
@@ -563,6 +594,7 @@ public class RedisPanel extends ToolPanel {
         new SwingWorker<Set<String>, Void>() {
             @Override
             protected Set<String> doInBackground() {
+                if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
                 return jedis.keys(finalPattern);
             }
 
@@ -603,6 +635,7 @@ public class RedisPanel extends ToolPanel {
         new SwingWorker<Map<String, Object>, Void>() {
             @Override
             protected Map<String, Object> doInBackground() {
+                if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
                 Map<String, Object> res = new HashMap<>();
                 String type = jedis.type(key);
                 long ttl = jedis.ttl(key);
@@ -706,6 +739,7 @@ public class RedisPanel extends ToolPanel {
             new SwingWorker<Void, Void>() {
                 @Override
                 protected Void doInBackground() {
+                    if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
                     if (jedis.exists(key)) {
                         throw new RuntimeException("该键已存在");
                     }
@@ -749,6 +783,7 @@ public class RedisPanel extends ToolPanel {
             new SwingWorker<Void, Void>() {
                 @Override
                 protected Void doInBackground() {
+                    if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
                     jedis.del(currentSelectedKey);
                     return null;
                 }
@@ -780,6 +815,7 @@ public class RedisPanel extends ToolPanel {
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
+                if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
                 if (ttl < 0) {
                     jedis.persist(currentSelectedKey);
                 } else {
@@ -815,6 +851,7 @@ public class RedisPanel extends ToolPanel {
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
+                if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
                 // Remove first to rewrite list/set/zset
                 if (!"string".equals(type) && !"hash".equals(type)) {
                     jedis.del(currentSelectedKey);
@@ -894,6 +931,7 @@ public class RedisPanel extends ToolPanel {
             @Override
             protected String doInBackground() {
                 try {
+                    if (!checkConnection()) return "ERROR: Redis 连接已断开";
                     // Execute simple arbitrary Redis commands
                     String cmd = args[0].toUpperCase();
                     if ("PING".equals(cmd)) {

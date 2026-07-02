@@ -14,7 +14,7 @@ import java.util.Arrays;
 public class StatisticsPanel extends ToolPanel {
 
     public StatisticsPanel() {
-        super("计算", "统计计算",
+        super("calc", "statistics",
                 "均值", "中位数", "标准差", "方差", "Variance",
                 "统计", "平均值", "极差", "总和", "最大", "最小");
     }

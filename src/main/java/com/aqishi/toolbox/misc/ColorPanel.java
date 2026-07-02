@@ -12,7 +12,7 @@ import java.awt.*;
 public class ColorPanel extends ToolPanel {
 
     public ColorPanel() {
-        super("开发工具", "颜色转换",
+        super("dev", "color.convert",
                 "HEX", "RGB", "HSL", "调色板", "Color",
                 "颜色", "颜色选择", "色值");
     }

@@ -1,7 +1,8 @@
 package com.aqishi.toolbox.ui;
 
+import com.aqishi.toolbox.util.I18n;
+
 import javax.swing.*;
-import java.util.Arrays;
 
 /**
  * 工具面板基类。每个具体工具继承此类并实现 {@link #build()}。
@@ -33,14 +34,22 @@ public abstract class ToolPanel {
         return searchKeywords;
     }
 
+    public String getGroupLabel() {
+        return I18n.get("group." + group);
+    }
+
+    public String getLabel() {
+        return I18n.get("tool." + name);
+    }
+
     /**
      * 判断当前工具是否与搜索查询匹配（大小写不敏感）。
      * 匹配来源：名称、分组名、搜索关键词。
      */
     public boolean matchesSearch(String query) {
         String q = query.toLowerCase();
-        if (name.toLowerCase().contains(q)) return true;
-        if (group.toLowerCase().contains(q)) return true;
+        if (name.toLowerCase().contains(q) || getLabel().toLowerCase().contains(q)) return true;
+        if (group.toLowerCase().contains(q) || getGroupLabel().toLowerCase().contains(q)) return true;
         for (String kw : searchKeywords) {
             if (kw.toLowerCase().contains(q)) return true;
         }

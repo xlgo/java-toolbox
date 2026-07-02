@@ -1,12 +1,15 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -18,17 +21,107 @@ public class K8sPanel extends ToolPanel {
     // ==================== 模板 ====================
     private static final Map<String, String[]> BUILTIN = new LinkedHashMap<>();
     private static final Map<String, String[]> CUSTOM = new LinkedHashMap<>();
+    private static final String TEMPLATE_PREFIX = "k8s.template.";
+    private static final String CUSTOM_TEMPLATE_NAMES_KEY = TEMPLATE_PREFIX + "custom.names";
 
     static {
-        BUILTIN.put("Web服务 (Nginx)",     a("web-app","nginx:latest","2","80","80","ClusterIP","100m","500m","128Mi","256Mi","","",""));
-        BUILTIN.put("Java / Spring Boot",  a("java-app","openjdk:17-jdk-slim","2","8080","8080","ClusterIP","500m","1000m","512Mi","1Gi","JAVA_OPTS=-Xmx512m\nSPRING_PROFILES_ACTIVE=prod","liveness: /actuator/health\nreadiness: /actuator/health",""));
-        BUILTIN.put("Node.js",             a("node-app","node:18-alpine","2","3000","3000","ClusterIP","200m","500m","256Mi","512Mi","NODE_ENV=production","",""));
-        BUILTIN.put("前端 (Nginx SPA)",    a("frontend","nginx:alpine","2","80","80","ClusterIP","50m","200m","64Mi","128Mi","","",""));
-        BUILTIN.put("MySQL",               a("mysql","mysql:8.0","1","3306","3306","ClusterIP","500m","1000m","512Mi","1Gi","MYSQL_ROOT_PASSWORD=changeme\nMYSQL_DATABASE=appdb","",""));
-        BUILTIN.put("Redis",               a("redis","redis:7-alpine","1","6379","6379","ClusterIP","200m","500m","128Mi","256Mi","","",""));
+        boolean changed = false;
+        changed |= registerBuiltinTemplate("nginx", "Web服务 (Nginx)", a("web-app","nginx:latest","2","80","80","ClusterIP","100m","500m","128Mi","256Mi","","",""));
+        changed |= registerBuiltinTemplate("java-spring-boot", "Java / Spring Boot", a("java-app","openjdk:17-jdk-slim","2","8080","8080","ClusterIP","500m","1000m","512Mi","1Gi","JAVA_OPTS=-Xmx512m\nSPRING_PROFILES_ACTIVE=prod","liveness: /actuator/health\nreadiness: /actuator/health",""));
+        changed |= registerBuiltinTemplate("nodejs", "Node.js", a("node-app","node:18-alpine","2","3000","3000","ClusterIP","200m","500m","256Mi","512Mi","NODE_ENV=production","",""));
+        changed |= registerBuiltinTemplate("frontend-nginx-spa", "前端 (Nginx SPA)", a("frontend","nginx:alpine","2","80","80","ClusterIP","50m","200m","64Mi","128Mi","","",""));
+        changed |= registerBuiltinTemplate("mysql", "MySQL", a("mysql","mysql:8.0","1","3306","3306","ClusterIP","500m","1000m","512Mi","1Gi","MYSQL_ROOT_PASSWORD=changeme\nMYSQL_DATABASE=appdb","",""));
+        changed |= registerBuiltinTemplate("redis", "Redis", a("redis","redis:7-alpine","1","6379","6379","ClusterIP","200m","500m","128Mi","256Mi","","",""));
+        loadCustomTemplates();
+        if (changed) {
+            ConfigManager.save();
+        }
     }
 
     private static String[] a(String... v) { return v; }
+
+    private static boolean registerBuiltinTemplate(String id, String defaultName, String[] defaultValues) {
+        String nameKey = TEMPLATE_PREFIX + "builtin." + id + ".name";
+        String valuesKey = TEMPLATE_PREFIX + "builtin." + id + ".values";
+        boolean changed = false;
+
+        if (ConfigManager.get(nameKey, null) == null) {
+            ConfigManager.set(nameKey, defaultName);
+            changed = true;
+        }
+        if (ConfigManager.get(valuesKey, null) == null) {
+            ConfigManager.set(valuesKey, encodeTemplate(defaultValues));
+            changed = true;
+        }
+
+        String name = ConfigManager.get(nameKey, defaultName);
+        String[] values = decodeTemplate(ConfigManager.get(valuesKey, encodeTemplate(defaultValues)), defaultValues);
+        BUILTIN.put(name, values);
+        return changed;
+    }
+
+    private static void loadCustomTemplates() {
+        CUSTOM.clear();
+        String names = ConfigManager.get(CUSTOM_TEMPLATE_NAMES_KEY, "");
+        if (names.trim().isEmpty()) return;
+
+        for (String encodedName : names.split(",")) {
+            if (encodedName.trim().isEmpty()) continue;
+            String name = decodeText(encodedName);
+            String values = ConfigManager.get(TEMPLATE_PREFIX + "custom." + encodedName + ".values", null);
+            if (name != null && values != null) {
+                CUSTOM.put(name, decodeTemplate(values, a("", "", "", "", "", "ClusterIP", "", "", "", "", "", "", "")));
+            }
+        }
+    }
+
+    private static void saveCustomTemplates() {
+        StringBuilder names = new StringBuilder();
+        for (Map.Entry<String, String[]> entry : CUSTOM.entrySet()) {
+            String encodedName = encodeText(entry.getKey());
+            if (names.length() > 0) names.append(',');
+            names.append(encodedName);
+            ConfigManager.set(TEMPLATE_PREFIX + "custom." + encodedName + ".values", encodeTemplate(entry.getValue()));
+        }
+        ConfigManager.set(CUSTOM_TEMPLATE_NAMES_KEY, names.toString());
+        ConfigManager.save();
+    }
+
+    private static String encodeTemplate(String[] values) {
+        StringBuilder sb = new StringBuilder();
+        for (String value : values) {
+            if (sb.length() > 0) sb.append('|');
+            sb.append(encodeText(value == null ? "" : value));
+        }
+        return sb.toString();
+    }
+
+    private static String[] decodeTemplate(String data, String[] fallback) {
+        try {
+            String[] parts = data.split("\\|", -1);
+            String[] values = new String[13];
+            for (int i = 0; i < values.length; i++) {
+                String value = i < parts.length ? decodeText(parts[i]) : "";
+                values[i] = value == null ? "" : value;
+            }
+            return values;
+        } catch (Exception ex) {
+            return fallback;
+        }
+    }
+
+    private static String encodeText(String text) {
+        return Base64.getUrlEncoder().withoutPadding()
+                .encodeToString((text == null ? "" : text).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String decodeText(String text) {
+        try {
+            return new String(Base64.getUrlDecoder().decode(text), StandardCharsets.UTF_8);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
 
     // ====== 共享 ======
     private JComboBox<String> templateCombo;
@@ -68,7 +161,7 @@ public class K8sPanel extends ToolPanel {
     private JTextArea outputArea;
 
     public K8sPanel() {
-        super("开发工具", "K8s 部署生成",
+        super("dev", "k8s.deployment",
                 "K8s", "Kubernetes", "部署", "YAML", "容器",
                 "Deployment", "Service", "Ingress", "ConfigMap", "编排");
     }
@@ -443,6 +536,7 @@ public class K8sPanel extends ToolPanel {
             return;
         }
         CUSTOM.put(key, collectForm());
+        saveCustomTemplates();
         refreshCombo();
         templateCombo.setSelectedItem(key);
     }
@@ -454,6 +548,7 @@ public class K8sPanel extends ToolPanel {
             return;
         }
         CUSTOM.remove(sel);
+        saveCustomTemplates();
         refreshCombo();
     }
 

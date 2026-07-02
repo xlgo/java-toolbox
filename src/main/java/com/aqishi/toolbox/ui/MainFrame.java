@@ -38,6 +38,8 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
 import java.awt.*;
+import java.awt.event.InputMethodEvent;
+import java.awt.event.InputMethodListener;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -58,6 +60,8 @@ public class MainFrame extends JFrame {
     private final Map<String, CardLayout> groupCardMap = new java.util.HashMap<>();
     private final Map<String, JPanel> groupContentMap = new java.util.HashMap<>();
     private javax.swing.Timer statusTimer;
+    private javax.swing.Timer searchUpdateTimer;
+    private boolean searchInputComposing;
     
     private ToolPanel[] tools = createTools();
 
@@ -184,36 +188,28 @@ public class MainFrame extends JFrame {
         bar.add(searchBox, BorderLayout.CENTER);
 
         JPopupMenu searchPopup = new JPopupMenu();
-        searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            public void insertUpdate(javax.swing.event.DocumentEvent e) { updateSearch(); }
-            public void removeUpdate(javax.swing.event.DocumentEvent e) { updateSearch(); }
-            public void changedUpdate(javax.swing.event.DocumentEvent e) { updateSearch(); }
-
-            private void updateSearch() {
-                String q = searchField.getText().trim().toLowerCase();
-                searchPopup.setVisible(false);
-                searchPopup.removeAll();
-                if (q.isEmpty()) return;
-
-                int count = 0;
-                for (ToolPanel t : tools) {
-                    if (t.matchesSearch(q)) {
-                        JMenuItem item = new JMenuItem(t.getGroupLabel() + " > " + t.getLabel());
-                        item.setFont(UIUtils.plainFont());
-                        item.addActionListener(ev -> {
-                            selectTool(t);
-                            SwingUtilities.invokeLater(() -> searchField.setText(""));
-                        });
-                        searchPopup.add(item);
-                        count++;
-                        if (count >= 10) break;
-                    }
-                }
-                if (count > 0) {
-                    searchPopup.show(searchField, 0, searchField.getHeight());
-                    searchField.requestFocusInWindow();
+        searchPopup.setFocusable(false);
+        searchUpdateTimer = new javax.swing.Timer(120, e -> updateSearchPopup(searchPopup));
+        searchUpdateTimer.setRepeats(false);
+        searchField.addInputMethodListener(new InputMethodListener() {
+            @Override
+            public void inputMethodTextChanged(InputMethodEvent event) {
+                int textLength = event.getText() == null ? 0 : event.getText().getEndIndex() - event.getText().getBeginIndex();
+                searchInputComposing = textLength > event.getCommittedCharacterCount();
+                if (!searchInputComposing) {
+                    scheduleSearchPopupUpdate();
                 }
             }
+
+            @Override
+            public void caretPositionChanged(InputMethodEvent event) {
+                // No-op.
+            }
+        });
+        searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { scheduleSearchPopupUpdate(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { scheduleSearchPopupUpdate(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { scheduleSearchPopupUpdate(); }
         });
 
         // 右侧区：主题切换 + 语言切换
@@ -255,6 +251,43 @@ public class MainFrame extends JFrame {
         bar.add(right, BorderLayout.EAST);
 
         return bar;
+    }
+
+    private void scheduleSearchPopupUpdate() {
+        if (searchUpdateTimer == null || searchInputComposing) {
+            return;
+        }
+        searchUpdateTimer.restart();
+    }
+
+    private void updateSearchPopup(JPopupMenu searchPopup) {
+        if (searchInputComposing) {
+            return;
+        }
+
+        String q = searchField.getText().trim().toLowerCase();
+        searchPopup.setVisible(false);
+        searchPopup.removeAll();
+        if (q.isEmpty()) return;
+
+        int count = 0;
+        for (ToolPanel t : tools) {
+            if (t.matchesSearch(q)) {
+                JMenuItem item = new JMenuItem(t.getGroupLabel() + " > " + t.getLabel());
+                item.setFont(UIUtils.plainFont());
+                item.setFocusable(false);
+                item.addActionListener(ev -> {
+                    selectTool(t);
+                    SwingUtilities.invokeLater(() -> searchField.setText(""));
+                });
+                searchPopup.add(item);
+                count++;
+                if (count >= 10) break;
+            }
+        }
+        if (count > 0 && searchField.isShowing() && searchField.hasFocus()) {
+            searchPopup.show(searchField, 0, searchField.getHeight());
+        }
     }
 
     private static void reload(MainFrame currentFrame) {

@@ -36,7 +36,7 @@ public class HttpTestPanel extends ToolPanel {
     private JButton copyRespBtn;
 
     public HttpTestPanel() {
-        super("开发工具", "HTTP接口测试",
+        super("dev", "http.client",
                 "HTTP", "接口测试", "API", "Request", "Postman", "Curl");
     }
 

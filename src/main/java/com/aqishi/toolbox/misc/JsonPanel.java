@@ -12,7 +12,7 @@ import java.awt.*;
 public class JsonPanel extends ToolPanel {
 
     public JsonPanel() {
-        super("格式化", "JSON 格式化",
+        super("format", "json.format",
                 "JSON", "美化", "压缩", "格式化",
                 "Json美化", "Json压缩", "格式化JSON");
     }

@@ -51,7 +51,7 @@ public class VideoMonitorPanel extends ToolPanel {
     private final List<String> savedNames = new ArrayList<>();
 
     public VideoMonitorPanel() {
-        super("开发工具", "视频监控",
+        super("monitor", "video.monitor",
                 "视频", "监控", "摄像头", "Video", "camera", "RTSP", "分屏", "合并", "直播");
     }
 

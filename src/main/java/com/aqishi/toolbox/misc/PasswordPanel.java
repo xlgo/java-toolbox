@@ -31,7 +31,7 @@ public class PasswordPanel extends ToolPanel {
     private static final String DEFAULT_SPECIAL = "!@#$%^&*_+-=|";
 
     public PasswordPanel() {
-        super("生成", "密码生成器",
+        super("generate", "password.generator",
                 "密码", "Password", "随机密码", "强密码",
                 "密码强度", "口令", "密码生成");
     }

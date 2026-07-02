@@ -68,7 +68,7 @@ public class K8sPanel extends ToolPanel {
     private JTextArea outputArea;
 
     public K8sPanel() {
-        super("开发工具", "K8s 部署生成",
+        super("dev", "k8s.deployment",
                 "K8s", "Kubernetes", "部署", "YAML", "容器",
                 "Deployment", "Service", "Ingress", "ConfigMap", "编排");
     }

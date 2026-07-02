@@ -39,7 +39,7 @@ public class Base64ImagePanel extends ToolPanel {
     private byte[] decodedImageBytes;
 
     public Base64ImagePanel() {
-        super("转换", "Base64 图片转换",
+        super("convert", "base64.image",
                 "Base64", "图片", "Image", "DataURI", "Data URI",
                 "图片编码", "图片解码", "图片转换");
     }

@@ -44,7 +44,7 @@ public class JwtPanel extends ToolPanel {
     }
 
     public JwtPanel() {
-        super("开发工具", "JWT 编解码",
+        super("dev", "jwt.codec",
                 "JWT", "Token", "HS256", "签名", "JWT解码",
                 "JWT编码", "Json Web Token", "JWT验证", "令牌");
     }

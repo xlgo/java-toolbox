@@ -61,18 +61,11 @@ public class MainFrame extends JFrame {
             new TimePanel(),
             new Base64ImagePanel(),
             new FormatConvertPanel(),
-            new SortPanel(),
-            new SearchPanel(),
-            new HanoiPanel(),
-            new CalculatorPanel(),
-            new StatisticsPanel(),
-            new RegexPanel(),
-            new UuidPanel(),
-            new PasswordPanel(),
-            new JwtPanel(),
             new JsonPanel(),
             new XmlPanel(),
             new SqlPanel(),
+            new RegexPanel(),
+            new JwtPanel(),
             new CronPanel(),
             new TextDiffPanel(),
             new DockerComposePanel(),
@@ -82,6 +75,13 @@ public class MainFrame extends JFrame {
             new ColorPanel(),
             new CertPanel(),
             new K8sPanel(),
+            new UuidPanel(),
+            new PasswordPanel(),
+            new CalculatorPanel(),
+            new StatisticsPanel(),
+            new SortPanel(),
+            new SearchPanel(),
+            new HanoiPanel(),
             new VideoMonitorPanel(),
     };
 
@@ -187,7 +187,7 @@ public class MainFrame extends JFrame {
                 int count = 0;
                 for (ToolPanel t : tools) {
                     if (t.matchesSearch(q)) {
-                        JMenuItem item = new JMenuItem(I18n.get("group." + t.getGroup()) + " > " + I18n.get("tool." + t.getName()));
+                        JMenuItem item = new JMenuItem(t.getGroupLabel() + " > " + t.getLabel());
                         item.setFont(UIUtils.plainFont());
                         item.addActionListener(ev -> {
                             selectTool(t);
@@ -265,7 +265,7 @@ public class MainFrame extends JFrame {
     /** 智能跳转选中特定的工具 */
     private void selectTool(ToolPanel targetTool) {
         String group = targetTool.getGroup();
-        String groupTranslated = I18n.get("group." + group);
+        String groupTranslated = targetTool.getGroupLabel();
         int tabCount = tabs.getTabCount();
         for (int i = 0; i < tabCount; i++) {
             if (tabs.getTitleAt(i).equals(groupTranslated)) {
@@ -274,8 +274,8 @@ public class MainFrame extends JFrame {
                 CardLayout cards = groupCardMap.get(group);
                 JPanel content = groupContentMap.get(group);
                 if (list != null && cards != null && content != null) {
-                    list.setSelectedValue(I18n.get("tool." + targetTool.getName()), true);
-                    cards.show(content, I18n.get("tool." + targetTool.getName()));
+                    list.setSelectedValue(targetTool.getLabel(), true);
+                    cards.show(content, targetTool.getName());
                 }
                 break;
             }
@@ -303,7 +303,7 @@ public class MainFrame extends JFrame {
         JPanel holder = new JPanel(new BorderLayout(0, 0));
 
         DefaultListModel<String> listModel = new DefaultListModel<>();
-        for (ToolPanel t : toolsList) listModel.addElement(I18n.get("tool." + t.getName()));
+        for (ToolPanel t : toolsList) listModel.addElement(t.getLabel());
         JList<String> list = new JList<>(listModel);
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         list.setSelectedIndex(0);
@@ -322,16 +322,16 @@ public class MainFrame extends JFrame {
         CardLayout cards = new CardLayout();
         JPanel content = new JPanel(cards);
         content.setBorder(new EmptyBorder(2, 8, 4, 4));
-        for (ToolPanel t : toolsList) content.add(t.getView(), I18n.get("tool." + t.getName()));
-        cards.show(content, I18n.get("tool." + toolsList.get(0).getName()));
+        for (ToolPanel t : toolsList) content.add(t.getView(), t.getName());
+        cards.show(content, toolsList.get(0).getName());
         
         groupCardMap.put(groupName, cards);
         groupContentMap.put(groupName, content);
 
         list.addListSelectionListener(e -> {
             if (e.getValueIsAdjusting()) return;
-            String sel = list.getSelectedValue();
-            if (sel != null) cards.show(content, sel);
+            int selectedIndex = list.getSelectedIndex();
+            if (selectedIndex >= 0) cards.show(content, toolsList.get(selectedIndex).getName());
         });
 
         holder.add(listScroll, BorderLayout.WEST);

@@ -48,6 +48,10 @@ import java.util.Map;
 public class MainFrame extends JFrame {
 
     private JLabel statusLabel;
+    private JLabel topTitleLabel;
+    private JLabel topThemeLabel;
+    private JLabel topLangLabel;
+    private JTextField searchField;
     private JTabbedPane tabs;
     private final Map<String, JList<String>> groupListMap = new java.util.HashMap<>();
     private final Map<String, CardLayout> groupCardMap = new java.util.HashMap<>();
@@ -162,15 +166,15 @@ public class MainFrame extends JFrame {
                 new MatteBorder(0, 0, 1, 0, UIManager.getColor("Component.borderColor")),
                 new EmptyBorder(8, 14, 8, 14)));
 
-        JLabel title = new JLabel(I18n.get("top.title"));
-        title.setFont(UIUtils.titleFont().deriveFont(16f));
+        topTitleLabel = new JLabel(I18n.get("top.title"));
+        topTitleLabel.setFont(UIUtils.titleFont().deriveFont(16f));
         JPanel titleBox = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        titleBox.add(title);
+        titleBox.add(topTitleLabel);
         bar.add(titleBox, BorderLayout.WEST);
 
         // ===== 搜索框 =====
         JPanel searchBox = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
-        JTextField searchField = new JTextField();
+        searchField = new JTextField();
         searchField.setPreferredSize(new Dimension(240, 30));
         searchField.putClientProperty("JTextField.placeholderText", I18n.get("top.search.placeholder"));
         searchField.putClientProperty("JTextField.showClearButton", true);
@@ -213,8 +217,8 @@ public class MainFrame extends JFrame {
         // 右侧区：主题切换 + 语言切换
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         
-        JLabel themeLabel = new JLabel(I18n.get("top.theme"));
-        themeLabel.setFont(UIUtils.plainFont());
+        topThemeLabel = new JLabel(I18n.get("top.theme"));
+        topThemeLabel.setFont(UIUtils.plainFont());
         JComboBox<String> themeBox = new JComboBox<>(ThemeManager.names());
         themeBox.setSelectedItem(ThemeManager.current().name);
         themeBox.setPreferredSize(new Dimension(160, 30));
@@ -222,13 +226,13 @@ public class MainFrame extends JFrame {
             String sel = (String) themeBox.getSelectedItem();
             ThemeManager.apply(sel);
         });
-        right.add(themeLabel);
+        right.add(topThemeLabel);
         right.add(themeBox);
 
         // 语言选择
         right.add(new JLabel("  ")); // Spacer
-        JLabel langLabel = new JLabel(I18n.get("top.lang"));
-        langLabel.setFont(UIUtils.plainFont());
+        topLangLabel = new JLabel(I18n.get("top.lang"));
+        topLangLabel.setFont(UIUtils.plainFont());
         String currentLang = ConfigManager.get("locale", "zh_CN");
         JComboBox<String> langBox = new JComboBox<>(new String[]{"简体中文", "English"});
         langBox.setSelectedIndex("en_US".equals(currentLang) ? 1 : 0);
@@ -243,7 +247,7 @@ public class MainFrame extends JFrame {
                 reload(this);
             }
         });
-        right.add(langLabel);
+        right.add(topLangLabel);
         right.add(langBox);
 
         bar.add(right, BorderLayout.EAST);
@@ -266,20 +270,47 @@ public class MainFrame extends JFrame {
 
     /** 原地刷新界面文案，避免语言切换时销毁并重建窗口导致闪烁/消失。 */
     private void reloadInPlace() {
-        if (statusTimer != null) {
-            statusTimer.stop();
+        setTitle(I18n.get("app.title"));
+        if (topTitleLabel != null) topTitleLabel.setText(I18n.get("top.title"));
+        if (topThemeLabel != null) topThemeLabel.setText(I18n.get("top.theme"));
+        if (topLangLabel != null) topLangLabel.setText(I18n.get("top.lang"));
+        if (searchField != null) {
+            searchField.putClientProperty("JTextField.placeholderText", I18n.get("top.search.placeholder"));
         }
 
-        setTitle(I18n.get("app.title"));
-        groupListMap.clear();
-        groupCardMap.clear();
-        groupContentMap.clear();
-        tools = createTools();
-
-        getContentPane().removeAll();
-        initUI();
+        refreshNavigationLabels();
         revalidate();
         repaint();
+    }
+
+    private void refreshNavigationLabels() {
+        if (tabs == null) return;
+
+        Map<String, java.util.List<ToolPanel>> grouped = new LinkedHashMap<>();
+        for (ToolPanel t : tools) {
+            grouped.computeIfAbsent(t.getGroup(), k -> new java.util.ArrayList<>()).add(t);
+        }
+
+        int tabIndex = 0;
+        for (Map.Entry<String, java.util.List<ToolPanel>> entry : grouped.entrySet()) {
+            if (tabIndex < tabs.getTabCount()) {
+                tabs.setTitleAt(tabIndex, I18n.get("group." + entry.getKey()));
+            }
+
+            JList<String> list = groupListMap.get(entry.getKey());
+            if (list != null) {
+                int selectedIndex = list.getSelectedIndex();
+                DefaultListModel<String> model = new DefaultListModel<>();
+                for (ToolPanel tool : entry.getValue()) {
+                    model.addElement(tool.getLabel());
+                }
+                list.setModel(model);
+                if (selectedIndex >= 0 && selectedIndex < model.size()) {
+                    list.setSelectedIndex(selectedIndex);
+                }
+            }
+            tabIndex++;
+        }
     }
 
     /** 智能跳转选中特定的工具 */

@@ -143,12 +143,29 @@ public class K8sPanel extends ToolPanel {
     // ====== Deployment ======
     private JTextField depImgField, depReplicas, depPort, depCpuR, depCpuL, depMemR, depMemL;
     private JComboBox<String> depPullCombo;
-    private JTextArea depEnvArea, depLabelArea, depProbeArea;
+    private JTextArea depEnvArea, depLabelArea;
+
+    // ====== Probes (健康检查) ======
+    private JCheckBox livenessEnabledCheck;
+    private JComboBox<String> livenessTypeCombo;
+    private JTextField livenessValueField;
+    private JTextField livenessDelayField, livenessPeriodField, livenessTimeoutField;
+
+    private JCheckBox readinessEnabledCheck;
+    private JComboBox<String> readinessTypeCombo;
+    private JTextField readinessValueField;
+    private JTextField readinessDelayField, readinessPeriodField, readinessTimeoutField;
+
+    private JCheckBox startupEnabledCheck;
+    private JComboBox<String> startupTypeCombo;
+    private JTextField startupValueField;
+    private JTextField startupDelayField, startupPeriodField, startupTimeoutField;
 
     // ====== Service ======
-    private JTextField svcPortField, svcTargetField, svcNodePortField;
     private JComboBox<String> svcTypeCombo;
-    private JLabel svcNodePortLabel;
+    private JPanel svcPortsContainer;
+    private final java.util.List<SvcPortRow> svcPortRows = new java.util.ArrayList<>();
+    private JButton addPortBtn;
 
     // ====== Ingress ======
     private JTextField ingHostField;
@@ -306,12 +323,29 @@ public class K8sPanel extends ToolPanel {
             depMemL.setText("256Mi");
             depLabelArea.setText("");
             depEnvArea.setText("");
-            depProbeArea.setText("");
+            livenessEnabledCheck.setSelected(false);
+            livenessTypeCombo.setSelectedIndex(0);
+            livenessValueField.setText("/health");
+            livenessDelayField.setText("10");
+            livenessPeriodField.setText("15");
+            livenessTimeoutField.setText("5");
 
-            svcPortField.setText("80");
-            svcTargetField.setText("80");
-            svcNodePortField.setText("");
+            readinessEnabledCheck.setSelected(false);
+            readinessTypeCombo.setSelectedIndex(0);
+            readinessValueField.setText("/health");
+            readinessDelayField.setText("10");
+            readinessPeriodField.setText("15");
+            readinessTimeoutField.setText("5");
+
+            startupEnabledCheck.setSelected(false);
+            startupTypeCombo.setSelectedIndex(0);
+            startupValueField.setText("/health");
+            startupDelayField.setText("10");
+            startupPeriodField.setText("15");
+            startupTimeoutField.setText("5");
+
             svcTypeCombo.setSelectedIndex(0);
+            deserializeSvcPorts("TCP:http:80:80:");
 
             ingHostField.setText("app.example.com");
             ingTlsCheck.setSelected(false);
@@ -356,10 +390,75 @@ public class K8sPanel extends ToolPanel {
 
         row = addSection(depInnerPanel, c, row, "额外标签 (每行 key=value，可选)", depLabelArea = new JTextArea(2, 20));
         row = addSection(depInnerPanel, c, row, "环境变量 (每行 KEY=VALUE，如 TZ=Asia/Shanghai)", depEnvArea = new JTextArea(3, 20));
-        row = addSection(depInnerPanel, c, row, "健康检查 (liveness:/health 或 tcp:$PORT)", depProbeArea = new JTextArea(2, 20));
+
+        // ===== 3 种健康检查探针配置 =====
+        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weightx = 0;
+        JLabel probeLabel = new JLabel("健康检查探针配置 (Liveness, Readiness, Startup)");
+        probeLabel.setFont(UIUtils.plainFont().deriveFont(Font.BOLD));
+        probeLabel.setBorder(BorderFactory.createEmptyBorder(6, 0, 4, 0));
+        depInnerPanel.add(probeLabel, c);
+        row++;
+
+        // 1. Liveness Probe
+        livenessEnabledCheck = new JCheckBox("启用存活探针 (Liveness)", false);
+        livenessTypeCombo = new JComboBox<>(new String[]{"HTTP GET", "TCP Socket", "Exec Command"});
+        livenessValueField = new JTextField("/health");
+        livenessDelayField = new JTextField("10"); livenessDelayField.setColumns(3);
+        livenessPeriodField = new JTextField("15"); livenessPeriodField.setColumns(3);
+        livenessTimeoutField = new JTextField("5"); livenessTimeoutField.setColumns(3);
+        row = addProbeConfig(depInnerPanel, c, row, livenessEnabledCheck, livenessTypeCombo, livenessValueField,
+                             livenessDelayField, livenessPeriodField, livenessTimeoutField);
+
+        // 2. Readiness Probe
+        readinessEnabledCheck = new JCheckBox("启用就绪探针 (Readiness)", false);
+        readinessTypeCombo = new JComboBox<>(new String[]{"HTTP GET", "TCP Socket", "Exec Command"});
+        readinessValueField = new JTextField("/health");
+        readinessDelayField = new JTextField("10"); readinessDelayField.setColumns(3);
+        readinessPeriodField = new JTextField("15"); readinessPeriodField.setColumns(3);
+        readinessTimeoutField = new JTextField("5"); readinessTimeoutField.setColumns(3);
+        row = addProbeConfig(depInnerPanel, c, row, readinessEnabledCheck, readinessTypeCombo, readinessValueField,
+                             readinessDelayField, readinessPeriodField, readinessTimeoutField);
+
+        // 3. Startup Probe
+        startupEnabledCheck = new JCheckBox("启用启动探针 (Startup)", false);
+        startupTypeCombo = new JComboBox<>(new String[]{"HTTP GET", "TCP Socket", "Exec Command"});
+        startupValueField = new JTextField("/health");
+        startupDelayField = new JTextField("10"); startupDelayField.setColumns(3);
+        startupPeriodField = new JTextField("15"); startupPeriodField.setColumns(3);
+        startupTimeoutField = new JTextField("5"); startupTimeoutField.setColumns(3);
+        row = addProbeConfig(depInnerPanel, c, row, startupEnabledCheck, startupTypeCombo, startupValueField,
+                             startupDelayField, startupPeriodField, startupTimeoutField);
 
         wrapper.add(new JScrollPane(depInnerPanel), BorderLayout.CENTER);
         return wrapper;
+    }
+
+    private int addProbeConfig(JPanel p, GridBagConstraints c, int row,
+                               JCheckBox enabledCheck, JComboBox<String> typeCombo, JTextField valField,
+                               JTextField delayField, JTextField periodField, JTextField timeoutField) {
+        c.gridx = 0; c.gridy = row; c.gridwidth = 1; c.weightx = 0;
+        p.add(enabledCheck, c);
+        
+        c.gridx = 1; c.weightx = 1.0;
+        JPanel row1 = new JPanel(new BorderLayout(4, 0));
+        row1.add(typeCombo, BorderLayout.WEST);
+        row1.add(valField, BorderLayout.CENTER);
+        p.add(row1, c);
+        
+        row++;
+        
+        c.gridx = 1; c.gridy = row; c.weightx = 1.0;
+        JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        row2.add(new JLabel("延迟:"));
+        row2.add(delayField);
+        row2.add(new JLabel("s 间隔:"));
+        row2.add(periodField);
+        row2.add(new JLabel("s 超时:"));
+        row2.add(timeoutField);
+        row2.add(new JLabel("s"));
+        p.add(row2, c);
+        
+        return row + 1;
     }
 
     // ==================== Service 标签页 ====================
@@ -370,26 +469,108 @@ public class K8sPanel extends ToolPanel {
         enableSvcCheck = new JCheckBox("启用 Service 服务配置", true);
         wrapper.add(enableSvcCheck, BorderLayout.NORTH);
 
-        svcInnerPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints c = new GridBagConstraints();
-        c.fill = GridBagConstraints.HORIZONTAL;
-        c.insets = new Insets(4, 6, 4, 6);
+        svcInnerPanel = new JPanel(new BorderLayout(4, 4));
 
-        addF(svcInnerPanel, c, 0, "Service 端口：", svcPortField = new JTextField("80"));
-        addF(svcInnerPanel, c, 1, "后端目标端口：", svcTargetField = new JTextField("80"));
-        addF(svcInnerPanel, c, 2, "服务类型 (Type)：", svcTypeCombo = new JComboBox<>(new String[]{"ClusterIP", "NodePort", "LoadBalancer"}));
+        JPanel topRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
+        topRow.add(new JLabel("服务类型 (Type)："));
+        svcTypeCombo = new JComboBox<>(new String[]{"ClusterIP", "NodePort", "LoadBalancer"});
+        topRow.add(svcTypeCombo);
+        
+        addPortBtn = new JButton("添加端口组");
+        addPortBtn.addActionListener(e -> {
+            addPortRow("TCP", "http-" + (svcPortRows.size() + 1), "", "", "");
+            updateNodePortVisibility();
+            svcPortsContainer.revalidate();
+            svcPortsContainer.repaint();
+            triggerGenerate();
+        });
+        topRow.add(addPortBtn);
+        
+        svcInnerPanel.add(topRow, BorderLayout.NORTH);
 
-        svcNodePortLabel = new JLabel("NodePort 端口 (可选)：");
-        svcNodePortField = new JTextField("");
-        c.gridx = 0; c.gridy = 3; c.weightx = 0; c.gridwidth = 1;
-        svcInnerPanel.add(svcNodePortLabel, c);
-        c.gridx = 1; c.weightx = 1.0;
-        svcInnerPanel.add(svcNodePortField, c);
-
-        updateNodePortVisibility();
+        svcPortsContainer = new JPanel();
+        svcPortsContainer.setLayout(new BoxLayout(svcPortsContainer, BoxLayout.Y_AXIS));
+        
+        // 初始注入第一组端口配置
+        addPortRow("TCP", "http", "80", "80", "");
+        
+        svcInnerPanel.add(new JScrollPane(svcPortsContainer), BorderLayout.CENTER);
 
         wrapper.add(svcInnerPanel, BorderLayout.CENTER);
         return wrapper;
+    }
+
+    private void addPortRow(String protocol, String name, String port, String targetPort, String nodePort) {
+        SvcPortRow row = new SvcPortRow(protocol, name, port, targetPort, nodePort);
+        svcPortRows.add(row);
+        svcPortsContainer.add(row.panel);
+    }
+
+    private class SvcPortRow {
+        JPanel panel;
+        JComboBox<String> protocolCombo;
+        JTextField nameField;
+        JTextField portField;
+        JTextField targetPortField;
+        JTextField nodePortField;
+        JButton deleteBtn;
+        
+        SvcPortRow(String protocol, String name, String port, String targetPort, String nodePort) {
+            panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+            protocolCombo = new JComboBox<>(new String[]{"TCP", "UDP"});
+            protocolCombo.setSelectedItem(protocol);
+            
+            nameField = new JTextField(name, 5);
+            nameField.setToolTipText("端口名称");
+            
+            portField = new JTextField(port, 4);
+            portField.setToolTipText("服务端口 (port)");
+            
+            targetPortField = new JTextField(targetPort, 4);
+            targetPortField.setToolTipText("后端端口 (targetPort)");
+            
+            nodePortField = new JTextField(nodePort, 5);
+            nodePortField.setToolTipText("NodePort (可选)");
+            nodePortField.setEnabled(svcTypeCombo != null && "NodePort".equals(svcTypeCombo.getSelectedItem()));
+            
+            deleteBtn = new JButton("×");
+            deleteBtn.setMargin(new Insets(2, 4, 2, 4));
+            deleteBtn.setToolTipText("删除此端口组");
+            deleteBtn.addActionListener(e -> {
+                if (svcPortRows.size() > 1) {
+                    svcPortRows.remove(this);
+                    svcPortsContainer.remove(panel);
+                    svcPortsContainer.revalidate();
+                    svcPortsContainer.repaint();
+                    triggerGenerate();
+                } else {
+                    UIUtils.info(deleteBtn, "至少保留一组端口配置。");
+                }
+            });
+            
+            // 实时变化监听
+            DocumentListener dl = new DocumentListener() {
+                public void insertUpdate(DocumentEvent e) { triggerGenerate(); }
+                public void removeUpdate(DocumentEvent e) { triggerGenerate(); }
+                public void changedUpdate(DocumentEvent e) { triggerGenerate(); }
+            };
+            nameField.getDocument().addDocumentListener(dl);
+            portField.getDocument().addDocumentListener(dl);
+            targetPortField.getDocument().addDocumentListener(dl);
+            nodePortField.getDocument().addDocumentListener(dl);
+            protocolCombo.addActionListener(e -> triggerGenerate());
+
+            panel.add(new JLabel("名称:"));
+            panel.add(nameField);
+            panel.add(protocolCombo);
+            panel.add(new JLabel("Port:"));
+            panel.add(portField);
+            panel.add(new JLabel("Target:"));
+            panel.add(targetPortField);
+            panel.add(new JLabel("NodePort:"));
+            panel.add(nodePortField);
+            panel.add(deleteBtn);
+        }
     }
 
     // ==================== Ingress 标签页 ====================
@@ -454,7 +635,7 @@ public class K8sPanel extends ToolPanel {
         c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weightx = 0;
         p.add(new JLabel(label), c);
         row++;
-        c.gridwidth = 2; c.weightx = 1.0;
+        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weightx = 1.0;
         area.setFont(UIUtils.monoFont());
         p.add(new JScrollPane(area), c);
         return row + 1;
@@ -494,15 +675,14 @@ public class K8sPanel extends ToolPanel {
         depImgField.setText(v[1]);
         depReplicas.setText(v[2]);
         depPort.setText(v[3]);
-        svcPortField.setText(v[4]);
-        svcTargetField.setText(v[4]);
+        deserializeSvcPorts(v[4]);
         svcTypeCombo.setSelectedItem(v[5]);
         depCpuR.setText(v[6]);
         depCpuL.setText(v[7]);
         depMemR.setText(v[8]);
         depMemL.setText(v[9]);
         depEnvArea.setText(v[10]);
-        depProbeArea.setText(v[11]);
+        deserializeProbes(v[11]);
         cmArea.setText(v[12]);
 
         // 自动勾选并激活对应的资源
@@ -520,7 +700,6 @@ public class K8sPanel extends ToolPanel {
         enableCmCheck.setSelected(hasCm);
         setContainerEnabled(cmInnerPanel, hasCm);
 
-        svcNodePortField.setText("");
         ignoreEvents = false;
         updateNodePortVisibility();
         triggerGenerate();
@@ -554,9 +733,139 @@ public class K8sPanel extends ToolPanel {
 
     private String[] collectForm() {
         return a(val(nameField), val(depImgField), val(depReplicas), val(depPort),
-                val(svcPortField), (String) svcTypeCombo.getSelectedItem(),
+                serializeSvcPorts(), (String) svcTypeCombo.getSelectedItem(),
                 val(depCpuR), val(depCpuL), val(depMemR), val(depMemL),
-                depEnvArea.getText().trim(), depProbeArea.getText().trim(), cmArea.getText().trim());
+                depEnvArea.getText().trim(), serializeProbes(), cmArea.getText().trim());
+    }
+
+    private String serializeSvcPorts() {
+        StringBuilder sb = new StringBuilder();
+        for (SvcPortRow row : svcPortRows) {
+            if (sb.length() > 0) sb.append(",");
+            sb.append(row.protocolCombo.getSelectedItem()).append(":")
+              .append(row.nameField.getText().trim().isEmpty() ? "port" : row.nameField.getText().trim()).append(":")
+              .append(row.portField.getText().trim()).append(":")
+              .append(row.targetPortField.getText().trim()).append(":")
+              .append(row.nodePortField.getText().trim());
+        }
+        return sb.toString();
+    }
+
+    private void deserializeSvcPorts(String data) {
+        svcPortRows.clear();
+        svcPortsContainer.removeAll();
+
+        if (data == null || data.trim().isEmpty()) {
+            addPortRow("TCP", "http", "80", "80", "");
+            return;
+        }
+
+        String[] items = data.split(",");
+        for (String item : items) {
+            String[] parts = item.split(":", 5);
+            if (parts.length < 3) {
+                // 向后兼容旧格式（单数字端口，例如 "80" 或 "3306"）
+                String port = item.trim();
+                if (port.matches("\\d+")) {
+                    addPortRow("TCP", "http", port, port, "");
+                }
+                continue;
+            }
+            String protocol = parts[0];
+            String name = parts[1];
+            String port = parts[2];
+            String targetPort = parts.length > 3 ? parts[3] : port;
+            String nodePort = parts.length > 4 ? parts[4] : "";
+            addPortRow(protocol, name, port, targetPort, nodePort);
+        }
+
+        if (svcPortRows.isEmpty()) {
+            addPortRow("TCP", "http", "80", "80", "");
+        }
+        svcPortsContainer.revalidate();
+        svcPortsContainer.repaint();
+    }
+
+    private String serializeProbes() {
+        StringBuilder sb = new StringBuilder();
+        if (livenessEnabledCheck.isSelected()) {
+            sb.append("liveness:").append(livenessTypeCombo.getSelectedItem()).append(":")
+              .append(livenessValueField.getText().trim()).append(":")
+              .append(livenessDelayField.getText().trim()).append(":")
+              .append(livenessPeriodField.getText().trim()).append(":")
+              .append(livenessTimeoutField.getText().trim()).append("\n");
+        }
+        if (readinessEnabledCheck.isSelected()) {
+            sb.append("readiness:").append(readinessTypeCombo.getSelectedItem()).append(":")
+              .append(readinessValueField.getText().trim()).append(":")
+              .append(readinessDelayField.getText().trim()).append(":")
+              .append(readinessPeriodField.getText().trim()).append(":")
+              .append(readinessTimeoutField.getText().trim()).append("\n");
+        }
+        if (startupEnabledCheck.isSelected()) {
+            sb.append("startup:").append(startupTypeCombo.getSelectedItem()).append(":")
+              .append(startupValueField.getText().trim()).append(":")
+              .append(startupDelayField.getText().trim()).append(":")
+              .append(startupPeriodField.getText().trim()).append(":")
+              .append(startupTimeoutField.getText().trim()).append("\n");
+        }
+        return sb.toString().trim();
+    }
+
+    private void deserializeProbes(String probeStr) {
+        livenessEnabledCheck.setSelected(false);
+        readinessEnabledCheck.setSelected(false);
+        startupEnabledCheck.setSelected(false);
+        livenessValueField.setText("");
+        readinessValueField.setText("");
+        startupValueField.setText("");
+
+        if (probeStr == null || probeStr.isEmpty()) return;
+        for (String line : probeStr.split("\n")) {
+            String[] parts = line.split(":", 6);
+            if (parts.length < 3) {
+                // 向后兼容旧格式
+                if (line.contains("liveness")) {
+                    livenessEnabledCheck.setSelected(true);
+                    livenessTypeCombo.setSelectedItem("HTTP GET");
+                    livenessValueField.setText(afterColon(line));
+                } else if (line.contains("readiness")) {
+                    readinessEnabledCheck.setSelected(true);
+                    readinessTypeCombo.setSelectedItem("HTTP GET");
+                    readinessValueField.setText(afterColon(line));
+                }
+                continue;
+            }
+            String probeType = parts[0].trim();
+            String actionType = parts[1].trim();
+            String value = parts[2].trim();
+            String delay = parts.length > 3 ? parts[3].trim() : "10";
+            String period = parts.length > 4 ? parts[4].trim() : "15";
+            String timeout = parts.length > 5 ? parts[5].trim() : "5";
+
+            if ("liveness".equals(probeType)) {
+                livenessEnabledCheck.setSelected(true);
+                livenessTypeCombo.setSelectedItem(actionType);
+                livenessValueField.setText(value);
+                livenessDelayField.setText(delay);
+                livenessPeriodField.setText(period);
+                livenessTimeoutField.setText(timeout);
+            } else if ("readiness".equals(probeType)) {
+                readinessEnabledCheck.setSelected(true);
+                readinessTypeCombo.setSelectedItem(actionType);
+                readinessValueField.setText(value);
+                readinessDelayField.setText(delay);
+                readinessPeriodField.setText(period);
+                readinessTimeoutField.setText(timeout);
+            } else if ("startup".equals(probeType)) {
+                startupEnabledCheck.setSelected(true);
+                startupTypeCombo.setSelectedItem(actionType);
+                startupValueField.setText(value);
+                startupDelayField.setText(delay);
+                startupPeriodField.setText(period);
+                startupTimeoutField.setText(timeout);
+            }
+        }
     }
 
     // ==================== 实时监听绑定 ====================
@@ -579,15 +888,32 @@ public class K8sPanel extends ToolPanel {
         depMemL.getDocument().addDocumentListener(dl);
         depEnvArea.getDocument().addDocumentListener(dl);
         depLabelArea.getDocument().addDocumentListener(dl);
-        depProbeArea.getDocument().addDocumentListener(dl);
-        svcPortField.getDocument().addDocumentListener(dl);
-        svcTargetField.getDocument().addDocumentListener(dl);
-        svcNodePortField.getDocument().addDocumentListener(dl);
+        livenessValueField.getDocument().addDocumentListener(dl);
+        livenessDelayField.getDocument().addDocumentListener(dl);
+        livenessPeriodField.getDocument().addDocumentListener(dl);
+        livenessTimeoutField.getDocument().addDocumentListener(dl);
+        
+        readinessValueField.getDocument().addDocumentListener(dl);
+        readinessDelayField.getDocument().addDocumentListener(dl);
+        readinessPeriodField.getDocument().addDocumentListener(dl);
+        readinessTimeoutField.getDocument().addDocumentListener(dl);
+
+        startupValueField.getDocument().addDocumentListener(dl);
+        startupDelayField.getDocument().addDocumentListener(dl);
+        startupPeriodField.getDocument().addDocumentListener(dl);
+        startupTimeoutField.getDocument().addDocumentListener(dl);
+
         ingHostField.getDocument().addDocumentListener(dl);
         cmArea.getDocument().addDocumentListener(dl);
 
         // ActionListeners
         depPullCombo.addActionListener(e -> triggerGenerate());
+        livenessEnabledCheck.addActionListener(e -> triggerGenerate());
+        livenessTypeCombo.addActionListener(e -> triggerGenerate());
+        readinessEnabledCheck.addActionListener(e -> triggerGenerate());
+        readinessTypeCombo.addActionListener(e -> triggerGenerate());
+        startupEnabledCheck.addActionListener(e -> triggerGenerate());
+        startupTypeCombo.addActionListener(e -> triggerGenerate());
         svcTypeCombo.addActionListener(e -> {
             updateNodePortVisibility();
             triggerGenerate();
@@ -632,24 +958,38 @@ public class K8sPanel extends ToolPanel {
         }
 
         if (enableSvcCheck.isSelected()) {
-            try {
-                int p = Integer.parseInt(val(svcPortField));
-                if (p <= 0 || p > 65535) errors.add("Service 端口范围必须在 1 ~ 65535 之间");
-            } catch (NumberFormatException ex) {
-                errors.add("Service 端口必须是有效整数");
-            }
-            try {
-                int p = Integer.parseInt(val(svcTargetField));
-                if (p <= 0 || p > 65535) errors.add("后端目标端口范围必须在 1 ~ 65535 之间");
-            } catch (NumberFormatException ex) {
-                errors.add("后端目标端口必须是有效整数");
-            }
-            if ("NodePort".equals(svcTypeCombo.getSelectedItem()) && !val(svcNodePortField).isEmpty()) {
-                try {
-                    int p = Integer.parseInt(val(svcNodePortField));
-                    if (p <= 0 || p > 65535) errors.add("NodePort 端口范围必须在 1 ~ 65535 之间");
-                } catch (NumberFormatException ex) {
-                    errors.add("NodePort 端口必须是有效整数");
+            for (SvcPortRow row : svcPortRows) {
+                String portStr = row.portField.getText().trim();
+                String targetPortStr = row.targetPortField.getText().trim();
+                String nodePortStr = row.nodePortField.getText().trim();
+
+                if (portStr.isEmpty()) {
+                    errors.add("Service 端口不能为空");
+                } else {
+                    try {
+                        int p = Integer.parseInt(portStr);
+                        if (p <= 0 || p > 65535) errors.add("Service 端口 " + portStr + " 范围必须在 1 ~ 65535 之间");
+                    } catch (NumberFormatException ex) {
+                        errors.add("Service 端口必须是有效整数: " + portStr);
+                    }
+                }
+
+                if (!targetPortStr.isEmpty()) {
+                    try {
+                        int p = Integer.parseInt(targetPortStr);
+                        if (p <= 0 || p > 65535) errors.add("后端目标端口 " + targetPortStr + " 范围必须在 1 ~ 65535 之间");
+                    } catch (NumberFormatException ex) {
+                        errors.add("后端目标端口必须是有效整数: " + targetPortStr);
+                    }
+                }
+
+                if ("NodePort".equals(svcTypeCombo.getSelectedItem()) && !nodePortStr.isEmpty()) {
+                    try {
+                        int p = Integer.parseInt(nodePortStr);
+                        if (p <= 0 || p > 65535) errors.add("NodePort 端口 " + nodePortStr + " 范围必须在 1 ~ 65535 之间");
+                    } catch (NumberFormatException ex) {
+                        errors.add("NodePort 端口必须是有效整数: " + nodePortStr);
+                    }
                 }
             }
         }
@@ -760,15 +1100,9 @@ public class K8sPanel extends ToolPanel {
         y.append("        ports:\n        - containerPort: ").append(val(depPort)).append("\n");
 
         // 健康检查
-        for (String ln : lines(depProbeArea)) {
-            if (ln.startsWith("liveness:") || ln.startsWith("liveness：")) {
-                y.append("        livenessProbe:\n");
-                appendProbe(y, afterColon(ln), val(depPort));
-            } else if (ln.startsWith("readiness:") || ln.startsWith("readiness：")) {
-                y.append("        readinessProbe:\n");
-                appendProbe(y, afterColon(ln), val(depPort));
-            }
-        }
+        appendProbeYaml(y, "livenessProbe", livenessEnabledCheck, livenessTypeCombo, livenessValueField, livenessDelayField, livenessPeriodField, livenessTimeoutField);
+        appendProbeYaml(y, "readinessProbe", readinessEnabledCheck, readinessTypeCombo, readinessValueField, readinessDelayField, readinessPeriodField, readinessTimeoutField);
+        appendProbeYaml(y, "startupProbe", startupEnabledCheck, startupTypeCombo, startupValueField, startupDelayField, startupPeriodField, startupTimeoutField);
 
         // 资源限制
         if (notEmpty(val(depCpuR)) || notEmpty(val(depCpuL)) || notEmpty(val(depMemR)) || notEmpty(val(depMemL))) {
@@ -803,20 +1137,33 @@ public class K8sPanel extends ToolPanel {
         y.append("  labels:\n    app: ").append(name).append("\n");
         y.append("spec:\n  type: ").append(svcTypeCombo.getSelectedItem()).append("\n");
         y.append("  selector:\n    app: ").append(name).append("\n");
-        y.append("  ports:\n  - port: ").append(val(svcPortField)).append("\n");
-        y.append("    targetPort: ").append(val(svcTargetField)).append("\n");
-        if ("NodePort".equals(svcTypeCombo.getSelectedItem()) && !val(svcNodePortField).isEmpty()) {
-            y.append("    nodePort: ").append(val(svcNodePortField)).append("\n");
+        y.append("  ports:\n");
+        for (SvcPortRow row : svcPortRows) {
+            String pName = row.nameField.getText().trim();
+            String port = row.portField.getText().trim();
+            String target = row.targetPortField.getText().trim();
+            String node = row.nodePortField.getText().trim();
+            String proto = (String) row.protocolCombo.getSelectedItem();
+            
+            y.append("  - name: ").append(pName.isEmpty() ? "port" : pName).append("\n");
+            y.append("    port: ").append(port).append("\n");
+            y.append("    targetPort: ").append(target.isEmpty() ? port : target).append("\n");
+            if ("NodePort".equals(svcTypeCombo.getSelectedItem()) && !node.isEmpty()) {
+                y.append("    nodePort: ").append(node).append("\n");
+            }
+            y.append("    protocol: ").append(proto).append("\n");
         }
-        y.append("    protocol: TCP\n    name: http\n");
         return y.toString();
     }
 
     private void updateNodePortVisibility() {
         boolean isNodePort = svcTypeCombo != null && "NodePort".equals(svcTypeCombo.getSelectedItem());
         boolean parentEnabled = enableSvcCheck == null || enableSvcCheck.isSelected();
-        if (svcNodePortLabel != null) svcNodePortLabel.setEnabled(parentEnabled && isNodePort);
-        if (svcNodePortField != null) svcNodePortField.setEnabled(parentEnabled && isNodePort);
+        if (svcPortRows != null) {
+            for (SvcPortRow row : svcPortRows) {
+                row.nodePortField.setEnabled(parentEnabled && isNodePort);
+            }
+        }
     }
 
     private String buildIngress(String name, String ns) {
@@ -833,7 +1180,7 @@ public class K8sPanel extends ToolPanel {
         y.append("  rules:\n  - host: ").append(host).append("\n");
         y.append("    http:\n      paths:\n      - path: /\n        pathType: Prefix\n");
         y.append("        backend:\n          service:\n            name: ").append(name).append("-svc\n");
-        y.append("            port:\n              number: ").append(val(svcPortField)).append("\n");
+        y.append("            port:\n              number: ").append(svcPortRows.isEmpty() ? "80" : svcPortRows.get(0).portField.getText().trim()).append("\n");
         return y.toString();
     }
 
@@ -850,13 +1197,36 @@ public class K8sPanel extends ToolPanel {
         }
     }
 
-    private static void appendProbe(StringBuilder y, String path, String port) {
-        if (path.startsWith("tcp") || path.startsWith("TCP")) {
-            y.append("          tcpSocket:\n            port: ").append(port).append("\n");
-        } else {
-            y.append("          httpGet:\n            path: ").append(path).append("\n            port: ").append(port).append("\n");
+    private void appendProbeYaml(StringBuilder y, String probeName, JCheckBox enabledCheck, JComboBox<String> typeCombo, JTextField valField,
+                                 JTextField delayField, JTextField periodField, JTextField timeoutField) {
+        if (!enabledCheck.isSelected()) return;
+        y.append("        ").append(probeName).append(":\n");
+        String actionType = (String) typeCombo.getSelectedItem();
+        String val = valField.getText().trim();
+        String port = val(depPort);
+
+        if ("HTTP GET".equals(actionType)) {
+            y.append("          httpGet:\n");
+            y.append("            path: ").append(val.isEmpty() ? "/health" : val).append("\n");
+            y.append("            port: ").append(port).append("\n");
+        } else if ("TCP Socket".equals(actionType)) {
+            y.append("          tcpSocket:\n");
+            y.append("            port: ").append(val.isEmpty() ? port : val).append("\n");
+        } else if ("Exec Command".equals(actionType)) {
+            y.append("          exec:\n");
+            y.append("            command:\n");
+            if (val.isEmpty()) {
+                y.append("            - cat\n            - /tmp/healthy\n");
+            } else {
+                for (String arg : val.split("\\s+")) {
+                    y.append("            - ").append(arg).append("\n");
+                }
+            }
         }
-        y.append("          initialDelaySeconds: 10\n          periodSeconds: 15\n");
+
+        if (notEmpty(val(delayField))) y.append("          initialDelaySeconds: ").append(val(delayField)).append("\n");
+        if (notEmpty(val(periodField))) y.append("          periodSeconds: ").append(val(periodField)).append("\n");
+        if (notEmpty(val(timeoutField))) y.append("          timeoutSeconds: ").append(val(timeoutField)).append("\n");
     }
 
     private static String yamlQuote(String val) {

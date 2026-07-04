@@ -1,7 +1,7 @@
 package com.aqishi.toolbox.crypto;
 
-import org.bouncycastle.asn1.ASN1InputStream;
-import org.bouncycastle.asn1.ASN1Primitive;
+import org.bouncycastle.asn1.*;
+import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.X500NameBuilder;
 import org.bouncycastle.asn1.x500.style.BCStyle;
@@ -10,7 +10,6 @@ import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
-import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.openssl.PEMKeyPair;
 import org.bouncycastle.openssl.PEMParser;
 import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
@@ -21,6 +20,7 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import javax.security.auth.x500.X500Principal;
 import java.io.*;
 import java.math.BigInteger;
+import java.net.InetAddress;
 import java.security.*;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -128,13 +128,36 @@ public class CertUtils {
         builder.addExtension(Extension.authorityKeyIdentifier, false,
                 createAuthorityKeyId(caCert));
 
-        // SAN
+        // SAN —— 支持 DNS:, IP:, EMAIL:, URI: 前缀，无前缀时自动识别 IP 地址
         if (sanDns != null && !sanDns.trim().isEmpty()) {
-            String[] dnsList = sanDns.split("[,\\s]+");
+            String[] items = sanDns.split("[,\\s]+");
             List<GeneralName> nameList = new ArrayList<>();
-            for (String dns : dnsList) {
-                String d = dns.trim();
-                if (!d.isEmpty()) {
+            for (String item : items) {
+                String d = item.trim();
+                if (d.isEmpty()) continue;
+
+                String lower = d.toLowerCase(Locale.ROOT);
+                try {
+                    if (lower.startsWith("dns:")) {
+                        nameList.add(new GeneralName(GeneralName.dNSName, d.substring(4)));
+                    } else if (lower.startsWith("ip:")) {
+                        byte[] addr = InetAddress.getByName(d.substring(3)).getAddress();
+                        nameList.add(new GeneralName(GeneralName.iPAddress, new DEROctetString(addr)));
+                    } else if (lower.startsWith("email:")) {
+                        nameList.add(new GeneralName(GeneralName.rfc822Name, d.substring(6)));
+                    } else if (lower.startsWith("uri:")) {
+                        nameList.add(new GeneralName(GeneralName.uniformResourceIdentifier, d.substring(4)));
+                    } else {
+                        // 无前缀：自动判断是 IP 还是域名
+                        if (isLikelyIpAddress(d)) {
+                            byte[] addr = InetAddress.getByName(d).getAddress();
+                            nameList.add(new GeneralName(GeneralName.iPAddress, new DEROctetString(addr)));
+                        } else {
+                            nameList.add(new GeneralName(GeneralName.dNSName, d));
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // 解析失败时退化为 dNSName
                     nameList.add(new GeneralName(GeneralName.dNSName, d));
                 }
             }
@@ -151,6 +174,25 @@ public class CertUtils {
                 .getCertificate(holder);
 
         return new CertResult(cert, keyPair.getPrivate());
+    }
+
+    /** 判断字符串是否可能是 IP 地址（IPv4 / IPv6） */
+    private static boolean isLikelyIpAddress(String s) {
+        if (s == null || s.isEmpty()) return false;
+        // IPv6 包含冒号
+        if (s.contains(":")) return true;
+        // IPv4：简单判断四段数字格式
+        String[] parts = s.split("\\.");
+        if (parts.length != 4) return false;
+        for (String p : parts) {
+            try {
+                int v = Integer.parseInt(p);
+                if (v < 0 || v > 255) return false;
+            } catch (NumberFormatException e) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // ===========================================================

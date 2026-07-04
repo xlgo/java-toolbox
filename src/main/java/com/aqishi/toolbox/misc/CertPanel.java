@@ -5,12 +5,16 @@ import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
+import java.io.File;
+import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
 /**
- * 证书管理面板：根证书创建、证书签发、证书解析。
+ * 证书管理面板：根证书创建、证书签发、证书解析。<br>
+ * 每个输出区均配套下载按钮，支持 .pem / .key / .txt 文件保存。
  */
 public class CertPanel extends ToolPanel {
 
@@ -137,17 +141,24 @@ public class CertPanel extends ToolPanel {
         btnPanel.add(clearBtn);
         configPanel.add(btnPanel, gbc);
 
-        // ---- 输出区 ----
-        JPanel outPanel = new JPanel(new GridLayout(2, 1, 0, 6));
+        // ---- 输出区（带下载按钮） ----
         rootCertOut = new JTextArea();
         rootCertOut.setFont(UIUtils.monoFont());
         rootCertOut.setEditable(false);
-        outPanel.add(UIUtils.scrollText(rootCertOut, "证书 (Certificate PEM)"));
+        JButton rootCertDlBtn = UIUtils.button("下载证书 (.pem)", 110);
+        rootCertDlBtn.addActionListener(e -> downloadPem(rootCertOut.getText(), "root-ca.crt"));
 
         rootKeyOut = new JTextArea();
         rootKeyOut.setFont(UIUtils.monoFont());
         rootKeyOut.setEditable(false);
-        outPanel.add(UIUtils.scrollText(rootKeyOut, "私钥 (Private Key PEM)  ⚠️ 请妥善保管"));
+        JButton rootKeyDlBtn = UIUtils.button("下载私钥 (.pem)", 110);
+        rootKeyDlBtn.addActionListener(e -> downloadPem(rootKeyOut.getText(), "root-ca.key"));
+
+        JPanel outPanel = new JPanel(new GridLayout(2, 1, 0, 6));
+        outPanel.add(wrapWithDownload(
+                UIUtils.scrollText(rootCertOut, "证书 (Certificate PEM)"), rootCertDlBtn));
+        outPanel.add(wrapWithDownload(
+                UIUtils.scrollText(rootKeyOut, "私钥 (Private Key PEM)  ⚠️ 请妥善保管"), rootKeyDlBtn));
 
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
                 new JScrollPane(configPanel), outPanel);
@@ -174,12 +185,12 @@ public class CertPanel extends ToolPanel {
         JPanel leftPanel = new JPanel(new BorderLayout(4, 4));
         leftPanel.setBorder(BorderFactory.createTitledBorder("CA 凭证"));
 
-        signCaCertArea = new JTextArea(8, 30);
+        signCaCertArea = new JTextArea(6, 30);
         signCaCertArea.setFont(UIUtils.monoFont());
         signCaCertArea.setLineWrap(true);
         leftPanel.add(UIUtils.scrollText(signCaCertArea, "CA 证书 (PEM)"), BorderLayout.NORTH);
 
-        signCaKeyArea = new JTextArea(8, 30);
+        signCaKeyArea = new JTextArea(6, 30);
         signCaKeyArea.setFont(UIUtils.monoFont());
         signCaKeyArea.setLineWrap(true);
         leftPanel.add(UIUtils.scrollText(signCaKeyArea, "CA 私钥 (PEM)"), BorderLayout.CENTER);
@@ -246,11 +257,11 @@ public class CertPanel extends ToolPanel {
 
         row++;
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.gridwidth = 2;
-        rightPanel.add(new JLabel("SAN (域名, 多个用逗号分隔)："), gbc);
+        rightPanel.add(new JLabel("SAN (DNS:xxx, IP:xxx, 多个用逗号分隔)："), gbc);
         row++; gbc.gridy = row; gbc.gridwidth = 1;
         gbc.gridx = 0; gbc.weightx = 0;
         gbc.gridx = 1; gbc.weightx = 1.0;
-        signSanField = new JTextField("example.com, www.example.com");
+        signSanField = new JTextField("DNS:example.com, DNS:*.example.com, IP:192.168.1.1");
         rightPanel.add(signSanField, gbc);
 
         row++;
@@ -268,17 +279,24 @@ public class CertPanel extends ToolPanel {
         btnPanel.add(signBtn);
         rightPanel.add(btnPanel, gbc);
 
-        // ---- 输出区 ----
+        // ---- 输出区（带下载按钮） ----
         signCertOut = new JTextArea();
         signCertOut.setFont(UIUtils.monoFont());
         signCertOut.setEditable(false);
+        JButton signCertDlBtn = UIUtils.button("下载证书 (.pem)", 110);
+        signCertDlBtn.addActionListener(e -> downloadPem(signCertOut.getText(), "server.crt"));
+
         signKeyOut = new JTextArea();
         signKeyOut.setFont(UIUtils.monoFont());
         signKeyOut.setEditable(false);
+        JButton signKeyDlBtn = UIUtils.button("下载私钥 (.pem)", 110);
+        signKeyDlBtn.addActionListener(e -> downloadPem(signKeyOut.getText(), "server.key"));
 
         JPanel outPanel = new JPanel(new GridLayout(2, 1, 0, 4));
-        outPanel.add(UIUtils.scrollText(signCertOut, "签发证书 (Certificate PEM)"));
-        outPanel.add(UIUtils.scrollText(signKeyOut, "新证书私钥 (Private Key PEM)  ⚠️ 请妥善保管"));
+        outPanel.add(wrapWithDownload(
+                UIUtils.scrollText(signCertOut, "签发证书 (Certificate PEM)"), signCertDlBtn));
+        outPanel.add(wrapWithDownload(
+                UIUtils.scrollText(signKeyOut, "新证书私钥 (Private Key PEM)  ⚠️ 请妥善保管"), signKeyDlBtn));
 
         // ---- 布局 ----
         JSplitPane topSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
@@ -318,13 +336,18 @@ public class CertPanel extends ToolPanel {
         inputPanel.add(UIUtils.scrollText(parseInputArea, "粘贴 PEM 格式证书内容"), BorderLayout.CENTER);
         inputPanel.add(btnRow, BorderLayout.SOUTH);
 
-        // 输出
+        // 输出（带下载按钮）
         parseOutputArea = new JTextArea();
         parseOutputArea.setFont(UIUtils.monoFont());
         parseOutputArea.setEditable(false);
-        JScrollPane outputScroll = UIUtils.scrollText(parseOutputArea, "解析结果");
 
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, inputPanel, outputScroll);
+        JButton parseDlBtn = UIUtils.button("下载报告 (.txt)", 110);
+        parseDlBtn.addActionListener(e -> downloadText(parseOutputArea.getText(), "cert-report.txt"));
+
+        JPanel outputPanel = wrapWithDownload(
+                UIUtils.scrollText(parseOutputArea, "解析结果"), parseDlBtn);
+
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, inputPanel, outputPanel);
         split.setResizeWeight(0.35);
         p.add(split, BorderLayout.CENTER);
 
@@ -443,6 +466,62 @@ public class CertPanel extends ToolPanel {
             doParse();
         } catch (Exception ignored) {
             parseInputArea.setText("// 无法自动生成示例");
+        }
+    }
+
+    // ================================================================
+    //  下载相关工具方法
+    // ================================================================
+
+    /** 给 JScrollPane 底部挂载一行下载按钮 */
+    private static JPanel wrapWithDownload(Component scrollPane, JButton btn) {
+        JPanel p = new JPanel(new BorderLayout(4, 2));
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
+        btnRow.add(btn);
+        p.add(scrollPane, BorderLayout.CENTER);
+        p.add(btnRow, BorderLayout.SOUTH);
+        return p;
+    }
+
+    /** 下载 PEM 格式文本到 .pem / .key 文件 */
+    private void downloadPem(String content, String defaultName) {
+        if (content == null || content.isBlank()) {
+            UIUtils.error(getView(), "没有可下载的内容，请先生成证书");
+            return;
+        }
+        JFileChooser chooser = new JFileChooser();
+        chooser.setSelectedFile(new File(defaultName));
+        chooser.setDialogTitle("下载证书文件");
+        chooser.setFileFilter(new FileNameExtensionFilter(
+                "PEM 文件 (*.pem, *.crt, *.key)", "pem", "crt", "key"));
+        if (chooser.showSaveDialog(getView()) == JFileChooser.APPROVE_OPTION) {
+            saveToFile(chooser.getSelectedFile(), content);
+        }
+    }
+
+    /** 下载纯文本到文件 */
+    private void downloadText(String content, String defaultName) {
+        if (content == null || content.isBlank()) {
+            UIUtils.error(getView(), "没有可下载的内容");
+            return;
+        }
+        JFileChooser chooser = new JFileChooser();
+        chooser.setSelectedFile(new File(defaultName));
+        chooser.setDialogTitle("下载报告");
+        chooser.setFileFilter(new FileNameExtensionFilter(
+                "文本文件 (*.txt)", "txt"));
+        if (chooser.showSaveDialog(getView()) == JFileChooser.APPROVE_OPTION) {
+            saveToFile(chooser.getSelectedFile(), content);
+        }
+    }
+
+    /** 写内容到文件，统一异常处理 */
+    private void saveToFile(File file, String content) {
+        try {
+            Files.writeString(file.toPath(), content, java.nio.charset.StandardCharsets.UTF_8);
+            UIUtils.info(getView(), "下载成功：" + file.getName());
+        } catch (Exception ex) {
+            UIUtils.error(getView(), "下载失败：" + ex.getMessage());
         }
     }
 }

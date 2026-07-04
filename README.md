@@ -80,6 +80,15 @@ mvn clean package -DskipTests
 # 产物：target/java-toolbox.jar
 ```
 
+## 开发
+
+```bash
+# 推送代码（本地已缓存 GitHub 凭据）
+git push
+```
+
+基于 GitHub MCP 进行开发，提交后直接 `git push` 即可推送代码到远程。
+
 ## 技术栈
 
 - Java Swing（GUI）

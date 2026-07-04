@@ -18,6 +18,7 @@ import com.aqishi.toolbox.misc.K8sPanel;
 import com.aqishi.toolbox.misc.JsonPanel;
 import com.aqishi.toolbox.misc.JwtPanel;
 import com.aqishi.toolbox.misc.PasswordPanel;
+import com.aqishi.toolbox.misc.RandomNumberPanel;
 import com.aqishi.toolbox.misc.RegexPanel;
 import com.aqishi.toolbox.misc.UuidPanel;
 import com.aqishi.toolbox.misc.XmlPanel;
@@ -93,6 +94,7 @@ public class MainFrame extends JFrame {
                 new K8sPanel(),
                 new UuidPanel(),
                 new PasswordPanel(),
+                new RandomNumberPanel(),
                 new CalculatorPanel(),
                 new StatisticsPanel(),
                 new SortPanel(),

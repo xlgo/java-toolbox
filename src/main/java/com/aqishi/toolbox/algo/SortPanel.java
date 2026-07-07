@@ -310,13 +310,24 @@ public class SortPanel extends ToolPanel {
             int max = 1;
             for (int v : array) max = Math.max(max, v);
 
+            // 动态获取当前主题关联的颜色
+            Color regularColor = UIManager.getColor("Component.accentColor");
+            if (regularColor == null) regularColor = UIManager.getColor("Component.infoColor");
+            if (regularColor == null) regularColor = new Color(66, 133, 244); // 默认蓝色
+
+            Color compareColor = UIManager.getColor("Component.warningColor");
+            if (compareColor == null) compareColor = new Color(244, 180, 0); // 默认黄色
+
+            Color swapColor = UIManager.getColor("Component.errorColor");
+            if (swapColor == null) swapColor = new Color(219, 68, 85); // 默认红色
+
             // 绘制数据柱形图
             for (int i = 0; i < array.length; i++) {
                 int bh = (int) ((double) array[i] / max * (h - 45));
                 if (i == index1 || i == index2) {
-                    g.setColor(isSwap ? new Color(219, 68, 85) : new Color(244, 180, 0)); // 红色交换/移动，黄色比较
+                    g.setColor(isSwap ? swapColor : compareColor); // 交换/移动颜色，比较颜色
                 } else {
-                    g.setColor(new Color(66, 133, 244)); // 默认蓝色
+                    g.setColor(regularColor); // 常规元素颜色
                 }
                 int x = i * (bw + gap);
                 g.fillRect(x, h - bh - 5, bw, bh);
@@ -326,17 +337,17 @@ public class SortPanel extends ToolPanel {
             g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
             int legendY = 15;
             
-            g.setColor(new Color(66, 133, 244));
+            g.setColor(regularColor);
             g.fillRect(15, legendY, 12, 12);
             g.setColor(getForeground());
             g.drawString("常规元素", 32, legendY + 11);
 
-            g.setColor(new Color(244, 180, 0));
+            g.setColor(compareColor);
             g.fillRect(105, legendY, 12, 12);
             g.setColor(getForeground());
             g.drawString("对比中", 122, legendY + 11);
 
-            g.setColor(new Color(219, 68, 85));
+            g.setColor(swapColor);
             g.fillRect(185, legendY, 12, 12);
             g.setColor(getForeground());
             g.drawString("交换/移动", 202, legendY + 11);

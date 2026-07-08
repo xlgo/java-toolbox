@@ -48,8 +48,12 @@ public class K8sManagerPanel extends ToolPanel {
 
     private javax.swing.table.TableRowSorter<DefaultTableModel> podSorter;
     private javax.swing.table.TableRowSorter<DefaultTableModel> deploySorter;
+    private javax.swing.table.TableRowSorter<DefaultTableModel> statefulSetSorter;
+    private javax.swing.table.TableRowSorter<DefaultTableModel> daemonSetSorter;
+    private javax.swing.table.TableRowSorter<DefaultTableModel> cronJobSorter;
     private javax.swing.table.TableRowSorter<DefaultTableModel> svcSorter;
     private javax.swing.table.TableRowSorter<DefaultTableModel> cmSorter;
+    private javax.swing.table.TableRowSorter<DefaultTableModel> secretSorter;
     private javax.swing.table.TableRowSorter<DefaultTableModel> nodeSorter;
 
     private JTabbedPane resourceTabs;
@@ -59,10 +63,18 @@ public class K8sManagerPanel extends ToolPanel {
     private DefaultTableModel podModel;
     private JTable deployTable;
     private DefaultTableModel deployModel;
+    private JTable statefulSetTable;
+    private DefaultTableModel statefulSetModel;
+    private JTable daemonSetTable;
+    private DefaultTableModel daemonSetModel;
+    private JTable cronJobTable;
+    private DefaultTableModel cronJobModel;
     private JTable svcTable;
     private DefaultTableModel svcModel;
     private JTable cmTable;
     private DefaultTableModel cmModel;
+    private JTable secretTable;
+    private DefaultTableModel secretModel;
     private JTable nodeTable;
     private DefaultTableModel nodeModel;
 
@@ -71,6 +83,9 @@ public class K8sManagerPanel extends ToolPanel {
     private String activeServerUrl = "";
     private String activeToken = "";
     private boolean activeSkipTls = true;
+    private String activeClientCert = null;
+    private String activeClientKey = null;
+    private javax.net.ssl.SSLSocketFactory activeSocketFactory = null;
     private final Map<String, K8sProfile> profiles = new LinkedHashMap<>();
     private final Preferences prefs = Preferences.userNodeForPackage(K8sManagerPanel.class);
     private final ObjectMapper mapper = new ObjectMapper();
@@ -173,8 +188,12 @@ public class K8sManagerPanel extends ToolPanel {
                 }
                 if (podSorter != null) podSorter.setRowFilter(filter);
                 if (deploySorter != null) deploySorter.setRowFilter(filter);
+                if (statefulSetSorter != null) statefulSetSorter.setRowFilter(filter);
+                if (daemonSetSorter != null) daemonSetSorter.setRowFilter(filter);
+                if (cronJobSorter != null) cronJobSorter.setRowFilter(filter);
                 if (svcSorter != null) svcSorter.setRowFilter(filter);
                 if (cmSorter != null) cmSorter.setRowFilter(filter);
+                if (secretSorter != null) secretSorter.setRowFilter(filter);
                 if (nodeSorter != null) nodeSorter.setRowFilter(filter);
             }
         });
@@ -205,10 +224,12 @@ public class K8sManagerPanel extends ToolPanel {
         JButton refreshPodBtn = new JButton("刷新");
         JButton yamlPodBtn = new JButton("查看 YAML");
         JButton logPodBtn = new JButton("查看日志");
+        JButton execPodBtn = new JButton("控制台 (Exec)");
         JButton delPodBtn = new JButton("删除 Pod");
         podBtnRow.add(refreshPodBtn);
         podBtnRow.add(yamlPodBtn);
         podBtnRow.add(logPodBtn);
+        podBtnRow.add(execPodBtn);
         podBtnRow.add(delPodBtn);
         podTab.add(podBtnRow, BorderLayout.SOUTH);
         resourceTabs.addTab("Pods", podTab);
@@ -236,7 +257,72 @@ public class K8sManagerPanel extends ToolPanel {
         deployTab.add(deployBtnRow, BorderLayout.SOUTH);
         resourceTabs.addTab("Deployments", deployTab);
 
-        // Tab C: Services
+        // Tab C: StatefulSets
+        JPanel statefulSetTab = new JPanel(new BorderLayout(6, 6));
+        statefulSetModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "就绪状态 (Ready)", "当前副本 (Current)", "存活时间 (Age)"}, 0) {
+            @Override
+            public boolean isCellEditable(int r, int c) { return false; }
+        };
+        statefulSetTable = new JTable(statefulSetModel);
+        statefulSetTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        statefulSetSorter = new javax.swing.table.TableRowSorter<>(statefulSetModel);
+        statefulSetTable.setRowSorter(statefulSetSorter);
+        statefulSetTab.add(new JScrollPane(statefulSetTable), BorderLayout.CENTER);
+        JPanel statefulSetBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        JButton refreshStatefulSetBtn = new JButton("刷新");
+        JButton yamlStatefulSetBtn = new JButton("查看 YAML");
+        JButton scaleStatefulSetBtn = new JButton("修改副本数 (Scale)");
+        JButton delStatefulSetBtn = new JButton("删除 StatefulSet");
+        statefulSetBtnRow.add(refreshStatefulSetBtn);
+        statefulSetBtnRow.add(yamlStatefulSetBtn);
+        statefulSetBtnRow.add(scaleStatefulSetBtn);
+        statefulSetBtnRow.add(delStatefulSetBtn);
+        statefulSetTab.add(statefulSetBtnRow, BorderLayout.SOUTH);
+        resourceTabs.addTab("StatefulSets", statefulSetTab);
+
+        // Tab D: DaemonSets
+        JPanel daemonSetTab = new JPanel(new BorderLayout(6, 6));
+        daemonSetModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "期望副本 (Desired)", "当前副本 (Current)", "就绪副本 (Ready)", "最新副本 (Up-to-date)", "存活时间 (Age)"}, 0) {
+            @Override
+            public boolean isCellEditable(int r, int c) { return false; }
+        };
+        daemonSetTable = new JTable(daemonSetModel);
+        daemonSetTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        daemonSetSorter = new javax.swing.table.TableRowSorter<>(daemonSetModel);
+        daemonSetTable.setRowSorter(daemonSetSorter);
+        daemonSetTab.add(new JScrollPane(daemonSetTable), BorderLayout.CENTER);
+        JPanel daemonSetBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        JButton refreshDaemonSetBtn = new JButton("刷新");
+        JButton yamlDaemonSetBtn = new JButton("查看 YAML");
+        JButton delDaemonSetBtn = new JButton("删除 DaemonSet");
+        daemonSetBtnRow.add(refreshDaemonSetBtn);
+        daemonSetBtnRow.add(yamlDaemonSetBtn);
+        daemonSetBtnRow.add(delDaemonSetBtn);
+        daemonSetTab.add(daemonSetBtnRow, BorderLayout.SOUTH);
+        resourceTabs.addTab("DaemonSets", daemonSetTab);
+
+        // Tab E: CronJobs
+        JPanel cronJobTab = new JPanel(new BorderLayout(6, 6));
+        cronJobModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "调度计划 (Schedule)", "暂停 (Suspend)", "活跃数 (Active)", "上次执行时间 (Last Schedule)", "存活时间 (Age)"}, 0) {
+            @Override
+            public boolean isCellEditable(int r, int c) { return false; }
+        };
+        cronJobTable = new JTable(cronJobModel);
+        cronJobTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        cronJobSorter = new javax.swing.table.TableRowSorter<>(cronJobModel);
+        cronJobTable.setRowSorter(cronJobSorter);
+        cronJobTab.add(new JScrollPane(cronJobTable), BorderLayout.CENTER);
+        JPanel cronJobBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        JButton refreshCronJobBtn = new JButton("刷新");
+        JButton yamlCronJobBtn = new JButton("查看 YAML");
+        JButton delCronJobBtn = new JButton("删除 CronJob");
+        cronJobBtnRow.add(refreshCronJobBtn);
+        cronJobBtnRow.add(yamlCronJobBtn);
+        cronJobBtnRow.add(delCronJobBtn);
+        cronJobTab.add(cronJobBtnRow, BorderLayout.SOUTH);
+        resourceTabs.addTab("CronJobs", cronJobTab);
+
+        // Tab F: Services
         JPanel svcTab = new JPanel(new BorderLayout(6, 6));
         svcModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "类型 (Type)", "集群 IP (Cluster-IP)", "外部 IP (External-IP)", "端口 (Ports)", "存活时间 (Age)"}, 0) {
             @Override
@@ -257,7 +343,7 @@ public class K8sManagerPanel extends ToolPanel {
         svcTab.add(svcBtnRow, BorderLayout.SOUTH);
         resourceTabs.addTab("Services", svcTab);
 
-        // Tab D: ConfigMaps
+        // Tab G: ConfigMaps
         JPanel cmTab = new JPanel(new BorderLayout(6, 6));
         cmModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "键数量 (Keys)", "存活时间 (Age)"}, 0) {
             @Override
@@ -278,7 +364,28 @@ public class K8sManagerPanel extends ToolPanel {
         cmTab.add(cmBtnRow, BorderLayout.SOUTH);
         resourceTabs.addTab("ConfigMaps", cmTab);
 
-        // Tab E: Nodes
+        // Tab H: Secrets
+        JPanel secretTab = new JPanel(new BorderLayout(6, 6));
+        secretModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "类型 (Type)", "数据键数 (Data)", "存活时间 (Age)"}, 0) {
+            @Override
+            public boolean isCellEditable(int r, int c) { return false; }
+        };
+        secretTable = new JTable(secretModel);
+        secretTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        secretSorter = new javax.swing.table.TableRowSorter<>(secretModel);
+        secretTable.setRowSorter(secretSorter);
+        secretTab.add(new JScrollPane(secretTable), BorderLayout.CENTER);
+        JPanel secretBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        JButton refreshSecretBtn = new JButton("刷新");
+        JButton yamlSecretBtn = new JButton("查看 YAML");
+        JButton delSecretBtn = new JButton("删除 Secret");
+        secretBtnRow.add(refreshSecretBtn);
+        secretBtnRow.add(yamlSecretBtn);
+        secretBtnRow.add(delSecretBtn);
+        secretTab.add(secretBtnRow, BorderLayout.SOUTH);
+        resourceTabs.addTab("Secrets", secretTab);
+
+        // Tab I: Nodes
         JPanel nodeTab = new JPanel(new BorderLayout(6, 6));
         nodeModel = new DefaultTableModel(new Object[]{"节点名称 (Name)", "状态 (Status)", "角色 (Roles)", "版本 (Version)", "系统版本 (OS)", "运行时间 (Age)"}, 0) {
             @Override
@@ -301,10 +408,14 @@ public class K8sManagerPanel extends ToolPanel {
         root.add(centerPanel, BorderLayout.CENTER);
 
         // Actions registration
-        initActions(refreshPodBtn, yamlPodBtn, logPodBtn, delPodBtn,
+        initActions(refreshPodBtn, yamlPodBtn, logPodBtn, delPodBtn, execPodBtn,
                 refreshDeployBtn, yamlDeployBtn, scaleDeployBtn, delDeployBtn,
+                refreshStatefulSetBtn, yamlStatefulSetBtn, scaleStatefulSetBtn, delStatefulSetBtn,
+                refreshDaemonSetBtn, yamlDaemonSetBtn, delDaemonSetBtn,
+                refreshCronJobBtn, yamlCronJobBtn, delCronJobBtn,
                 refreshSvcBtn, yamlSvcBtn, delSvcBtn,
                 refreshCmBtn, yamlCmBtn, delCmBtn,
+                refreshSecretBtn, yamlSecretBtn, delSecretBtn,
                 refreshNodeBtn, yamlNodeBtn);
 
         toggleState(false);
@@ -336,21 +447,30 @@ public class K8sManagerPanel extends ToolPanel {
         if (!connected) {
             nsCombo.removeAllItems();
             clearAllTables();
+            activeSocketFactory = null;
         }
     }
 
     private void clearAllTables() {
         podModel.setRowCount(0);
         deployModel.setRowCount(0);
+        statefulSetModel.setRowCount(0);
+        daemonSetModel.setRowCount(0);
+        cronJobModel.setRowCount(0);
         svcModel.setRowCount(0);
         cmModel.setRowCount(0);
+        secretModel.setRowCount(0);
         nodeModel.setRowCount(0);
     }
 
-    private void initActions(JButton refreshPodBtn, JButton yamlPodBtn, JButton logPodBtn, JButton delPodBtn,
+    private void initActions(JButton refreshPodBtn, JButton yamlPodBtn, JButton logPodBtn, JButton delPodBtn, JButton execPodBtn,
                              JButton refreshDeployBtn, JButton yamlDeployBtn, JButton scaleDeployBtn, JButton delDeployBtn,
+                             JButton refreshStatefulSetBtn, JButton yamlStatefulSetBtn, JButton scaleStatefulSetBtn, JButton delStatefulSetBtn,
+                             JButton refreshDaemonSetBtn, JButton yamlDaemonSetBtn, JButton delDaemonSetBtn,
+                             JButton refreshCronJobBtn, JButton yamlCronJobBtn, JButton delCronJobBtn,
                              JButton refreshSvcBtn, JButton yamlSvcBtn, JButton delSvcBtn,
                              JButton refreshCmBtn, JButton yamlCmBtn, JButton delCmBtn,
+                             JButton refreshSecretBtn, JButton yamlSecretBtn, JButton delSecretBtn,
                              JButton refreshNodeBtn, JButton yamlNodeBtn) {
 
         // Profile Selection
@@ -362,6 +482,8 @@ public class K8sManagerPanel extends ToolPanel {
                 serverField.setText(p.serverUrl);
                 tokenField.setText(p.token);
                 skipTlsCheck.setSelected(p.skipTls);
+                activeClientCert = p.clientCertData;
+                activeClientKey = p.clientKeyData;
             }
         });
 
@@ -374,7 +496,9 @@ public class K8sManagerPanel extends ToolPanel {
                     name,
                     serverField.getText().trim(),
                     new String(tokenField.getPassword()),
-                    skipTlsCheck.isSelected()
+                    skipTlsCheck.isSelected(),
+                    activeClientCert,
+                    activeClientKey
             );
             profiles.put(name, p);
             saveProfilesToPrefs();
@@ -428,13 +552,30 @@ public class K8sManagerPanel extends ToolPanel {
         refreshPodBtn.addActionListener(e -> loadPods());
         yamlPodBtn.addActionListener(e -> viewResourceYaml("pods", podTable));
         logPodBtn.addActionListener(e -> viewPodLogs());
+        execPodBtn.addActionListener(e -> execPod());
         delPodBtn.addActionListener(e -> deleteResource("pods", podTable, () -> loadPods()));
 
         // Deployment Buttons
         refreshDeployBtn.addActionListener(e -> loadDeployments());
         yamlDeployBtn.addActionListener(e -> viewResourceYaml("deployments", deployTable));
-        scaleDeployBtn.addActionListener(e -> scaleDeployment());
+        scaleDeployBtn.addActionListener(e -> scaleDeployment("deployments", deployTable));
         delDeployBtn.addActionListener(e -> deleteResource("deployments", deployTable, () -> loadDeployments()));
+
+        // StatefulSet Buttons
+        refreshStatefulSetBtn.addActionListener(e -> loadStatefulSets());
+        yamlStatefulSetBtn.addActionListener(e -> viewResourceYaml("statefulsets", statefulSetTable));
+        scaleStatefulSetBtn.addActionListener(e -> scaleDeployment("statefulsets", statefulSetTable));
+        delStatefulSetBtn.addActionListener(e -> deleteResource("statefulsets", statefulSetTable, () -> loadStatefulSets()));
+
+        // DaemonSet Buttons
+        refreshDaemonSetBtn.addActionListener(e -> loadDaemonSets());
+        yamlDaemonSetBtn.addActionListener(e -> viewResourceYaml("daemonsets", daemonSetTable));
+        delDaemonSetBtn.addActionListener(e -> deleteResource("daemonsets", daemonSetTable, () -> loadDaemonSets()));
+
+        // CronJob Buttons
+        refreshCronJobBtn.addActionListener(e -> loadCronJobs());
+        yamlCronJobBtn.addActionListener(e -> viewResourceYaml("cronjobs", cronJobTable));
+        delCronJobBtn.addActionListener(e -> deleteResource("cronjobs", cronJobTable, () -> loadCronJobs()));
 
         // Service Buttons
         refreshSvcBtn.addActionListener(e -> loadServices());
@@ -446,6 +587,11 @@ public class K8sManagerPanel extends ToolPanel {
         yamlCmBtn.addActionListener(e -> viewResourceYaml("configmaps", cmTable));
         delCmBtn.addActionListener(e -> deleteResource("configmaps", cmTable, () -> loadConfigMaps()));
 
+        // Secret Buttons
+        refreshSecretBtn.addActionListener(e -> loadSecrets());
+        yamlSecretBtn.addActionListener(e -> viewResourceYaml("secrets", secretTable));
+        delSecretBtn.addActionListener(e -> deleteResource("secrets", secretTable, () -> loadSecrets()));
+
         // Node Buttons
         refreshNodeBtn.addActionListener(e -> loadNodes());
         yamlNodeBtn.addActionListener(e -> viewResourceYaml("nodes", nodeTable));
@@ -456,9 +602,13 @@ public class K8sManagerPanel extends ToolPanel {
         switch (idx) {
             case 0: loadPods(); break;
             case 1: loadDeployments(); break;
-            case 2: loadServices(); break;
-            case 3: loadConfigMaps(); break;
-            case 4: loadNodes(); break;
+            case 2: loadStatefulSets(); break;
+            case 3: loadDaemonSets(); break;
+            case 4: loadCronJobs(); break;
+            case 5: loadServices(); break;
+            case 6: loadConfigMaps(); break;
+            case 7: loadSecrets(); break;
+            case 8: loadNodes(); break;
         }
     }
 
@@ -478,12 +628,7 @@ public class K8sManagerPanel extends ToolPanel {
         new SwingWorker<Boolean, Void>() {
             @Override
             protected Boolean doInBackground() throws Exception {
-                if (activeSkipTls) {
-                    try {
-                        HttpsURLConnection.setDefaultSSLSocketFactory(getTrustAllSocketFactory());
-                        HttpsURLConnection.setDefaultHostnameVerifier((h, s) -> true);
-                    } catch (Exception ignored) {}
-                }
+                activeSocketFactory = buildSSLSocketFactory(activeSkipTls, activeClientCert, activeClientKey);
                 // Test connectivity by querying API version info or namespaces
                 executeRequest("GET", "/api/v1/namespaces", null, activeSkipTls);
                 return true;
@@ -497,6 +642,7 @@ public class K8sManagerPanel extends ToolPanel {
                     loadNamespaces();
                 } catch (Exception ex) {
                     toggleState(false);
+                    activeSocketFactory = null;
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                     UIUtils.error(connBtn, "连接失败: " + cause.getMessage());
                 }
@@ -760,6 +906,172 @@ public class K8sManagerPanel extends ToolPanel {
         }.execute();
     }
 
+    // Load StatefulSets
+    private void loadStatefulSets() {
+        String ns = getSelectedNamespace();
+        String path = ns.equals("all") ? "/apis/apps/v1/statefulsets" : "/apis/apps/v1/namespaces/" + ns + "/statefulsets";
+
+        statefulSetModel.setRowCount(0);
+        new SwingWorker<List<Object[]>, Void>() {
+            @Override
+            protected List<Object[]> doInBackground() throws Exception {
+                String resp = executeRequest("GET", path, null, activeSkipTls);
+                JsonNode root = mapper.readTree(resp);
+                List<Object[]> rows = new ArrayList<>();
+                JsonNode items = root.path("items");
+                if (items.isArray()) {
+                    for (JsonNode item : items) {
+                        String namespace = item.path("metadata").path("namespace").asText();
+                        String name = item.path("metadata").path("name").asText();
+                        int specReplicas = item.path("spec").path("replicas").asInt(0);
+                        int readyReplicas = item.path("status").path("readyReplicas").asInt(0);
+                        String ready = readyReplicas + "/" + specReplicas;
+                        int currentReplicas = item.path("status").path("currentReplicas").asInt(0);
+                        String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
+
+                        rows.add(new Object[]{namespace, name, ready, currentReplicas, age});
+                    }
+                }
+                return rows;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    for (Object[] r : get()) {
+                        statefulSetModel.addRow(r);
+                    }
+                } catch (Exception ex) {
+                    UIUtils.error(null, "加载 StatefulSets 失败: " + ex.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    // Load DaemonSets
+    private void loadDaemonSets() {
+        String ns = getSelectedNamespace();
+        String path = ns.equals("all") ? "/apis/apps/v1/daemonsets" : "/apis/apps/v1/namespaces/" + ns + "/daemonsets";
+
+        daemonSetModel.setRowCount(0);
+        new SwingWorker<List<Object[]>, Void>() {
+            @Override
+            protected List<Object[]> doInBackground() throws Exception {
+                String resp = executeRequest("GET", path, null, activeSkipTls);
+                JsonNode root = mapper.readTree(resp);
+                List<Object[]> rows = new ArrayList<>();
+                JsonNode items = root.path("items");
+                if (items.isArray()) {
+                    for (JsonNode item : items) {
+                        String namespace = item.path("metadata").path("namespace").asText();
+                        String name = item.path("metadata").path("name").asText();
+                        int desired = item.path("status").path("desiredNumberScheduled").asInt(0);
+                        int current = item.path("status").path("currentNumberScheduled").asInt(0);
+                        int ready = item.path("status").path("numberReady").asInt(0);
+                        int updated = item.path("status").path("updatedNumberScheduled").asInt(0);
+                        String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
+
+                        rows.add(new Object[]{namespace, name, desired, current, ready, updated, age});
+                    }
+                }
+                return rows;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    for (Object[] r : get()) {
+                        daemonSetModel.addRow(r);
+                    }
+                } catch (Exception ex) {
+                    UIUtils.error(null, "加载 DaemonSets 失败: " + ex.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    // Load CronJobs
+    private void loadCronJobs() {
+        String ns = getSelectedNamespace();
+        String path = ns.equals("all") ? "/apis/batch/v1/cronjobs" : "/apis/batch/v1/namespaces/" + ns + "/cronjobs";
+
+        cronJobModel.setRowCount(0);
+        new SwingWorker<List<Object[]>, Void>() {
+            @Override
+            protected List<Object[]> doInBackground() throws Exception {
+                String resp = executeRequest("GET", path, null, activeSkipTls);
+                JsonNode root = mapper.readTree(resp);
+                List<Object[]> rows = new ArrayList<>();
+                JsonNode items = root.path("items");
+                if (items.isArray()) {
+                    for (JsonNode item : items) {
+                        String namespace = item.path("metadata").path("namespace").asText();
+                        String name = item.path("metadata").path("name").asText();
+                        String schedule = item.path("spec").path("schedule").asText("-");
+                        boolean suspend = item.path("spec").path("suspend").asBoolean(false);
+                        int active = item.path("status").path("active").size();
+                        String lastSchedule = item.path("status").path("lastScheduleTime").asText("-");
+                        String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
+
+                        rows.add(new Object[]{namespace, name, schedule, suspend, active, lastSchedule, age});
+                    }
+                }
+                return rows;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    for (Object[] r : get()) {
+                        cronJobModel.addRow(r);
+                    }
+                } catch (Exception ex) {
+                    UIUtils.error(null, "加载 CronJobs 失败: " + ex.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    // Load Secrets
+    private void loadSecrets() {
+        String ns = getSelectedNamespace();
+        String path = ns.equals("all") ? "/api/v1/secrets" : "/api/v1/namespaces/" + ns + "/secrets";
+
+        secretModel.setRowCount(0);
+        new SwingWorker<List<Object[]>, Void>() {
+            @Override
+            protected List<Object[]> doInBackground() throws Exception {
+                String resp = executeRequest("GET", path, null, activeSkipTls);
+                JsonNode root = mapper.readTree(resp);
+                List<Object[]> rows = new ArrayList<>();
+                JsonNode items = root.path("items");
+                if (items.isArray()) {
+                    for (JsonNode item : items) {
+                        String namespace = item.path("metadata").path("namespace").asText();
+                        String name = item.path("metadata").path("name").asText();
+                        String type = item.path("type").asText();
+                        int keys = item.path("data").size();
+                        String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
+
+                        rows.add(new Object[]{namespace, name, type, keys, age});
+                    }
+                }
+                return rows;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    for (Object[] r : get()) {
+                        secretModel.addRow(r);
+                    }
+                } catch (Exception ex) {
+                    UIUtils.error(null, "加载 Secrets 失败: " + ex.getMessage());
+                }
+            }
+        }.execute();
+    }
+
     // Load Nodes
     private void loadNodes() {
         nodeModel.setRowCount(0);
@@ -844,12 +1156,14 @@ public class K8sManagerPanel extends ToolPanel {
         }
 
         String path = "";
-        if (resourceType.equals("deployments")) {
-            path = "/apis/apps/v1/namespaces/" + ns + "/deployments/" + name;
+        if (resourceType.equals("deployments") || resourceType.equals("statefulsets") || resourceType.equals("daemonsets")) {
+            path = "/apis/apps/v1/namespaces/" + ns + "/" + resourceType + "/" + name;
+        } else if (resourceType.equals("cronjobs")) {
+            path = "/apis/batch/v1/namespaces/" + ns + "/cronjobs/" + name;
         } else if (resourceType.equals("nodes")) {
             path = "/api/v1/nodes/" + name;
         } else {
-            // pods, services, configmaps
+            // pods, services, configmaps, secrets
             path = "/api/v1/namespaces/" + ns + "/" + resourceType + "/" + name;
         }
 
@@ -953,6 +1267,625 @@ public class K8sManagerPanel extends ToolPanel {
 
         dialog.add(tabs, BorderLayout.CENTER);
         dialog.add(bottom, BorderLayout.SOUTH);
+        dialog.setVisible(true);
+    }
+
+    private void execPod() {
+        int row = podTable.getSelectedRow();
+        if (row == -1) {
+            UIUtils.info(null, "请先选择需要打开控制台的 Pod");
+            return;
+        }
+        String ns = podTable.getValueAt(row, 0).toString();
+        String name = podTable.getValueAt(row, 1).toString();
+
+        new SwingWorker<List<String>, Void>() {
+            @Override
+            protected List<String> doInBackground() throws Exception {
+                String path = "/api/v1/namespaces/" + ns + "/pods/" + name;
+                String resp = executeRequest("GET", path, null, activeSkipTls);
+                JsonNode root = mapper.readTree(resp);
+                List<String> list = new ArrayList<>();
+                JsonNode specs = root.path("spec").path("containers");
+                if (specs.isArray()) {
+                    for (JsonNode c : specs) {
+                        list.add(c.path("name").asText());
+                    }
+                }
+                return list;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<String> containers = get();
+                    if (containers.isEmpty()) {
+                        UIUtils.error(null, "找不到容器配置！");
+                        return;
+                    }
+                    if (containers.size() == 1) {
+                        showTerminalDialog(ns, name, containers.get(0));
+                    } else {
+                        String[] arr = containers.toArray(new String[0]);
+                        String choice = (String) JOptionPane.showInputDialog(
+                                null,
+                                "Pod 中包含多个容器，请选择要进入的容器：",
+                                "选择容器",
+                                JOptionPane.QUESTION_MESSAGE,
+                                null,
+                                arr,
+                                arr[0]
+                        );
+                        if (choice != null) {
+                            showTerminalDialog(ns, name, choice);
+                        }
+                    }
+                } catch (Exception ex) {
+                    UIUtils.error(null, "获取 Pod 详情失败: " + ex.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    private void sendStdinToContainer(org.java_websocket.client.WebSocketClient client, String text) {
+        try {
+            byte[] data = text.getBytes(StandardCharsets.UTF_8);
+            byte[] frame = new byte[data.length + 1];
+            frame[0] = 0; 
+            System.arraycopy(data, 0, frame, 1, data.length);
+            client.send(frame);
+        } catch (Exception ex) {
+            // ignore
+        }
+    }
+
+    /**
+     * VT100 屏幕缓冲区 — 用二维字符网格模拟真实终端屏幕，
+     * 支持绝对光标定位、行覆盖重绘、区域清除和自动滚动，
+     * 使 top、vi 等全屏终端程序能够正常显示。
+     */
+    private static class ScreenBuffer {
+        final int rows, cols;
+        final char[][] screen;
+        int cursorRow, cursorCol;
+
+        ScreenBuffer(int rows, int cols) {
+            this.rows = rows;
+            this.cols = cols;
+            this.screen = new char[rows][cols];
+            clearScreen();
+        }
+
+        /** 清空整个屏幕 */
+        void clearScreen() {
+            for (int r = 0; r < rows; r++) {
+                java.util.Arrays.fill(screen[r], ' ');
+            }
+            cursorRow = 0;
+            cursorCol = 0;
+        }
+
+        /** 清除光标到行尾 */
+        void clearToEndOfLine() {
+            for (int c = cursorCol; c < cols; c++) {
+                screen[cursorRow][c] = ' ';
+            }
+        }
+
+        /** 清除光标到屏幕末尾 */
+        void clearToEndOfScreen() {
+            clearToEndOfLine();
+            for (int r = cursorRow + 1; r < rows; r++) {
+                java.util.Arrays.fill(screen[r], ' ');
+            }
+        }
+
+        /** 整屏上滚一行 */
+        void scrollUp() {
+            System.arraycopy(screen, 1, screen, 0, rows - 1);
+            java.util.Arrays.fill(screen[rows - 1], ' ');
+        }
+
+        /** 在当前光标位置写入一个字符 */
+        void writeChar(char c) {
+            if (cursorRow >= rows) {
+                cursorRow = rows - 1;
+                scrollUp();
+            }
+            if (cursorCol >= cols) {
+                cursorCol = 0;
+                cursorRow++;
+                if (cursorRow >= rows) {
+                    cursorRow = rows - 1;
+                    scrollUp();
+                }
+            }
+            screen[cursorRow][cursorCol] = c;
+            cursorCol++;
+        }
+
+        /** 解析输入流中的字符和 ANSI 转义序列 */
+        void processText(String text) {
+            int len = text.length();
+            for (int i = 0; i < len; i++) {
+                char c = text.charAt(i);
+
+                // ESC 转义序列
+                if (c == 27) {
+                    if (i + 1 < len && text.charAt(i + 1) == '[') {
+                        // CSI 序列: ESC [ params finalByte
+                        int j = i + 2;
+                        while (j < len) {
+                            char ch = text.charAt(j);
+                            if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) {
+                                String params = text.substring(i + 2, j);
+                                handleCsi(ch, params);
+                                i = j;
+                                break;
+                            }
+                            j++;
+                        }
+                        if (j >= len) {
+                            i = len; // 不完整序列，跳过
+                        }
+                    } else if (i + 1 < len && text.charAt(i + 1) == '(') {
+                        i += 2; // 跳过字符集切换序列 ESC ( X
+                    }
+                    // 跳过其他未知 ESC 序列
+                    continue;
+                }
+
+                // 换行
+                if (c == '\n') {
+                    cursorRow++;
+                    if (cursorRow >= rows) {
+                        cursorRow = rows - 1;
+                        scrollUp();
+                    }
+                    continue;
+                }
+
+                // 回车：光标回到行首
+                if (c == '\r') {
+                    cursorCol = 0;
+                    continue;
+                }
+
+                // 退格
+                if (c == '\b') {
+                    if (cursorCol > 0) cursorCol--;
+                    continue;
+                }
+
+                // Tab
+                if (c == '\t') {
+                    int next = (cursorCol / 8 + 1) * 8;
+                    cursorCol = Math.min(next, cols - 1);
+                    continue;
+                }
+
+                // 过滤不可打印控制字符
+                if (c < 32) {
+                    continue;
+                }
+
+                // DEL
+                if (c == 127) {
+                    if (cursorCol > 0) cursorCol--;
+                    continue;
+                }
+
+                // 普通可打印字符
+                writeChar(c);
+            }
+        }
+
+        /** 处理 CSI 序列 */
+        private void handleCsi(char finalByte, String params) {
+            switch (finalByte) {
+                case 'H': // 光标绝对定位 ESC[row;colH
+                case 'f': // 同 H
+                    moveCursorTo(params);
+                    break;
+                case 'A': // 光标上移
+                    cursorRow -= parseParam(params, 1);
+                    if (cursorRow < 0) cursorRow = 0;
+                    break;
+                case 'B': // 光标下移
+                    cursorRow += parseParam(params, 1);
+                    if (cursorRow >= rows) cursorRow = rows - 1;
+                    break;
+                case 'C': // 光标右移
+                    cursorCol += parseParam(params, 1);
+                    if (cursorCol >= cols) cursorCol = cols - 1;
+                    break;
+                case 'D': // 光标左移
+                    cursorCol -= parseParam(params, 1);
+                    if (cursorCol < 0) cursorCol = 0;
+                    break;
+                case 'J': // 清除屏幕
+                    handleEraseDisplay(parseParam(params, 0));
+                    break;
+                case 'K': // 清除行
+                    handleEraseLine(parseParam(params, 0));
+                    break;
+                case 'm': // SGR 颜色/样式 — 安全忽略
+                    break;
+                case 'r': // 设置滚动区域 — 简化忽略
+                    break;
+                case 'h': // 设置模式 — 忽略
+                case 'l': // 重置模式 — 忽略
+                    break;
+                case 'G': // 光标移到指定列
+                    cursorCol = parseParam(params, 1) - 1;
+                    if (cursorCol < 0) cursorCol = 0;
+                    if (cursorCol >= cols) cursorCol = cols - 1;
+                    break;
+                case 'd': // 光标移到指定行
+                    cursorRow = parseParam(params, 1) - 1;
+                    if (cursorRow < 0) cursorRow = 0;
+                    if (cursorRow >= rows) cursorRow = rows - 1;
+                    break;
+                case 'P': // 删除字符
+                    int delCount = parseParam(params, 1);
+                    for (int c = cursorCol; c < cols; c++) {
+                        screen[cursorRow][c] = (c + delCount < cols) ? screen[cursorRow][c + delCount] : ' ';
+                    }
+                    break;
+                case 'X': // 擦除字符
+                    int eraseCount = parseParam(params, 1);
+                    for (int c = cursorCol; c < Math.min(cursorCol + eraseCount, cols); c++) {
+                        screen[cursorRow][c] = ' ';
+                    }
+                    break;
+                case 'L': // 插入行
+                    int insertLines = parseParam(params, 1);
+                    for (int n = 0; n < insertLines && cursorRow + n < rows; n++) {
+                        // 向下推移
+                        for (int r = rows - 1; r > cursorRow + n; r--) {
+                            System.arraycopy(screen[r - 1], 0, screen[r], 0, cols);
+                        }
+                        java.util.Arrays.fill(screen[cursorRow + n], ' ');
+                    }
+                    break;
+                case 'M': // 删除行
+                    int deleteLines = parseParam(params, 1);
+                    for (int n = 0; n < deleteLines; n++) {
+                        for (int r = cursorRow; r < rows - 1; r++) {
+                            System.arraycopy(screen[r + 1], 0, screen[r], 0, cols);
+                        }
+                        java.util.Arrays.fill(screen[rows - 1], ' ');
+                    }
+                    break;
+                default:
+                    // 未知序列，安全忽略
+                    break;
+            }
+        }
+
+        /** 解析光标定位参数 */
+        private void moveCursorTo(String params) {
+            if (params.isEmpty()) {
+                cursorRow = 0;
+                cursorCol = 0;
+                return;
+            }
+            String[] parts = params.split(";");
+            int row = 0, col = 0;
+            try {
+                if (parts.length >= 1 && !parts[0].isEmpty()) row = Integer.parseInt(parts[0]) - 1;
+                if (parts.length >= 2 && !parts[1].isEmpty()) col = Integer.parseInt(parts[1]) - 1;
+            } catch (NumberFormatException e) {
+                // 解析失败归零
+            }
+            cursorRow = Math.max(0, Math.min(row, rows - 1));
+            cursorCol = Math.max(0, Math.min(col, cols - 1));
+        }
+
+        /** 解析单个数值参数（默认值 defaultVal） */
+        private int parseParam(String params, int defaultVal) {
+            if (params.isEmpty()) return defaultVal;
+            try {
+                return Integer.parseInt(params.split(";")[0]);
+            } catch (NumberFormatException e) {
+                return defaultVal;
+            }
+        }
+
+        /** 处理 ESC[nJ 清屏 */
+        private void handleEraseDisplay(int mode) {
+            switch (mode) {
+                case 0: // 清除光标到屏幕末尾
+                    clearToEndOfScreen();
+                    break;
+                case 1: // 清除屏幕开头到光标
+                    for (int r = 0; r < cursorRow; r++) {
+                        java.util.Arrays.fill(screen[r], ' ');
+                    }
+                    for (int c = 0; c <= cursorCol && c < cols; c++) {
+                        screen[cursorRow][c] = ' ';
+                    }
+                    break;
+                case 2: // 清除整个屏幕
+                case 3:
+                    for (int r = 0; r < rows; r++) {
+                        java.util.Arrays.fill(screen[r], ' ');
+                    }
+                    break;
+            }
+        }
+
+        /** 处理 ESC[nK 清行 */
+        private void handleEraseLine(int mode) {
+            switch (mode) {
+                case 0: // 清除光标到行尾
+                    clearToEndOfLine();
+                    break;
+                case 1: // 清除行首到光标
+                    for (int c = 0; c <= cursorCol && c < cols; c++) {
+                        screen[cursorRow][c] = ' ';
+                    }
+                    break;
+                case 2: // 清除整行
+                    java.util.Arrays.fill(screen[cursorRow], ' ');
+                    break;
+            }
+        }
+
+        /** 将屏幕网格渲染为纯文本，去除尾部空行和每行尾部空白 */
+        String render() {
+            // 先找到最后一个有内容的行（含光标所在行）
+            int lastRow = Math.max(cursorRow, 0);
+            for (int r = rows - 1; r > lastRow; r--) {
+                boolean empty = true;
+                for (int c = 0; c < cols; c++) {
+                    if (screen[r][c] != ' ') { empty = false; break; }
+                }
+                if (!empty) { lastRow = r; break; }
+            }
+
+            StringBuilder sb = new StringBuilder((lastRow + 1) * (cols + 1));
+            for (int r = 0; r <= lastRow; r++) {
+                // 找到每行最后一个非空白字符
+                int lastNonSpace = cols - 1;
+                while (lastNonSpace >= 0 && screen[r][lastNonSpace] == ' ') {
+                    lastNonSpace--;
+                }
+                sb.append(screen[r], 0, lastNonSpace + 1);
+                if (r < lastRow) sb.append('\n');
+            }
+            return sb.toString();
+        }
+    }
+
+    /** 将终端数据流通过 VT100 屏幕缓冲区解析并渲染到 JTextArea */
+    private void renderTerminal(ScreenBuffer buffer, JTextArea area, String text) {
+        SwingUtilities.invokeLater(() -> {
+            buffer.processText(text);
+            area.setText(buffer.render());
+            area.setCaretPosition(area.getDocument().getLength());
+            area.requestFocusInWindow();
+            area.getCaret().setVisible(true);
+        });
+    }
+
+    private void showTerminalDialog(String ns, String podName, String containerName) {
+        Window ancestor = SwingUtilities.getWindowAncestor(podTable);
+        JDialog dialog = new JDialog(ancestor instanceof Frame ? (Frame) ancestor : (Frame) null, "容器控制台 (Exec) - " + podName + " / " + containerName, true);
+        dialog.setSize(800, 500);
+        dialog.setLocationRelativeTo(ancestor);
+
+        JLabel statusLabel = new JLabel("正在连接 API Server...");
+        statusLabel.setBorder(new javax.swing.border.EmptyBorder(6, 10, 6, 10));
+
+        // 初始化 VT100 屏幕缓冲区（24行×80列）
+        ScreenBuffer screenBuffer = new ScreenBuffer(24, 80);
+
+        JTextArea terminalArea = new JTextArea();
+        terminalArea.setEditable(false);
+        terminalArea.setBackground(new Color(25, 25, 25));
+        terminalArea.setForeground(new Color(64, 224, 208)); 
+        terminalArea.setFont(new Font("Consolas", Font.PLAIN, 14));
+        terminalArea.setLineWrap(false);
+        terminalArea.setMargin(new Insets(8, 8, 8, 8));
+        JScrollPane sp = new JScrollPane(terminalArea);
+
+        // 禁用 Tab 切换焦点
+        terminalArea.setFocusTraversalKeysEnabled(false);
+
+        // 强行显示闪烁光标，还原 Terminal 视感
+        terminalArea.getCaret().setVisible(true);
+        terminalArea.getCaret().setBlinkRate(500);
+        terminalArea.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusGained(java.awt.event.FocusEvent e) {
+                terminalArea.getCaret().setVisible(true);
+            }
+        });
+
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 4));
+        bottom.setBorder(new javax.swing.border.EmptyBorder(4, 10, 6, 10));
+        JButton clearBtn = new JButton("清屏");
+        bottom.add(clearBtn);
+        
+        dialog.add(statusLabel, BorderLayout.NORTH);
+        dialog.add(sp, BorderLayout.CENTER);
+        dialog.add(bottom, BorderLayout.SOUTH);
+
+        String wsUrl = activeServerUrl;
+        if (wsUrl.startsWith("https://")) {
+            wsUrl = "wss://" + wsUrl.substring(8);
+        } else if (wsUrl.startsWith("http://")) {
+            wsUrl = "ws://" + wsUrl.substring(7);
+        }
+        
+        try {
+            // 启用 tty=true
+            String fullPath = wsUrl + "/api/v1/namespaces/" + ns + "/pods/" + podName + "/exec"
+                    + "?container=" + containerName
+                    + "&stdin=true&stdout=true&stderr=true&tty=true" 
+                    + "&command=sh"; 
+
+            java.net.URI uri = new java.net.URI(fullPath);
+            
+            Map<String, String> headers = new HashMap<>();
+            if (activeToken != null && !activeToken.isEmpty()) {
+                headers.put("Authorization", "Bearer " + activeToken);
+            }
+            headers.put("Sec-WebSocket-Protocol", "v4.channel.k8s.io");
+
+            org.java_websocket.client.WebSocketClient client = new org.java_websocket.client.WebSocketClient(uri, headers) {
+                @Override
+                public void onOpen(org.java_websocket.handshake.ServerHandshake handshakedata) {
+                    SwingUtilities.invokeLater(() -> {
+                        statusLabel.setText("连接成功 (容器: " + containerName + ")");
+                        terminalArea.requestFocusInWindow();
+                        terminalArea.getCaret().setVisible(true);
+                        terminalArea.getCaret().setBlinkRate(500);
+                        terminalArea.setText(""); // 连上后清空状态文案，直接迎接容器的回显
+                    });
+                }
+
+                @Override
+                public void onMessage(String message) {
+                    renderTerminal(screenBuffer, terminalArea, message);
+                }
+
+                @Override
+                public void onMessage(java.nio.ByteBuffer bytes) {
+                    if (bytes.remaining() > 0) {
+                        byte channel = bytes.get(); 
+                        if (channel == 1 || channel == 2) {
+                            byte[] data = new byte[bytes.remaining()];
+                            bytes.get(data);
+                            String text = new String(data, StandardCharsets.UTF_8);
+                            renderTerminal(screenBuffer, terminalArea, text);
+                        } else if (channel == 3) {
+                            byte[] data = new byte[bytes.remaining()];
+                            bytes.get(data);
+                            String err = new String(data, StandardCharsets.UTF_8);
+                            renderTerminal(screenBuffer, terminalArea, "\n[K8s 错误]: " + err + "\n");
+                        }
+                    }
+                }
+
+                @Override
+                public void onClose(int code, String reason, boolean remote) {
+                    SwingUtilities.invokeLater(() -> {
+                        statusLabel.setText("连接已断开 (" + reason + ")");
+                        terminalArea.append("\n=== 连接已断开 ===\n");
+                    });
+                }
+
+                @Override
+                public void onError(Exception ex) {
+                    SwingUtilities.invokeLater(() -> {
+                        terminalArea.append("\n[连接异常]: " + ex.getMessage() + "\n");
+                    });
+                }
+            };
+
+            if (activeServerUrl.startsWith("https://") && activeSocketFactory != null) {
+                client.setSocketFactory(activeSocketFactory);
+            }
+
+            // 接管 terminalArea 的原生键盘输入
+            terminalArea.addKeyListener(new java.awt.event.KeyAdapter() {
+                @Override
+                public void keyTyped(java.awt.event.KeyEvent e) {
+                    char c = e.getKeyChar();
+                    // 忽略控制按键，这些在 keyPressed 中接管发送
+                    if (c != java.awt.event.KeyEvent.CHAR_UNDEFINED && c != '\n' && c != '\r' && c != '\t' && c != '\b' && c != 127) {
+                        if (!e.isControlDown()) {
+                            sendStdinToContainer(client, String.valueOf(c));
+                        }
+                    }
+                    e.consume(); // 拦截 Swing 默认字符上屏行为，交由容器终端回显
+                }
+
+                @Override
+                public void keyPressed(java.awt.event.KeyEvent e) {
+                    int code = e.getKeyCode();
+                    
+                    if (e.isControlDown()) {
+                        if (code == java.awt.event.KeyEvent.VK_C) {
+                            sendStdinToContainer(client, "\u0003"); // Ctrl+C
+                            e.consume();
+                            return;
+                        }
+                        if (code == java.awt.event.KeyEvent.VK_R) {
+                            sendStdinToContainer(client, "\u0012"); // Ctrl+R
+                            e.consume();
+                            return;
+                        }
+                        if (code == java.awt.event.KeyEvent.VK_D) {
+                            sendStdinToContainer(client, "\u0004"); // Ctrl+D
+                            e.consume();
+                            return;
+                        }
+                        if (code == java.awt.event.KeyEvent.VK_L) {
+                            screenBuffer.clearScreen();
+                            terminalArea.setText("");
+                            sendStdinToContainer(client, "\u000c"); // Ctrl+L (清屏)
+                            e.consume();
+                            return;
+                        }
+                    }
+
+                    switch (code) {
+                        case java.awt.event.KeyEvent.VK_ENTER:
+                            sendStdinToContainer(client, "\r"); 
+                            e.consume();
+                            break;
+                        case java.awt.event.KeyEvent.VK_BACK_SPACE:
+                            sendStdinToContainer(client, "\u007f"); 
+                            e.consume();
+                            break;
+                        case java.awt.event.KeyEvent.VK_TAB:
+                            sendStdinToContainer(client, "\t"); 
+                            e.consume();
+                            break;
+                        case java.awt.event.KeyEvent.VK_UP:
+                            sendStdinToContainer(client, "\u001b[A"); 
+                            e.consume();
+                            break;
+                        case java.awt.event.KeyEvent.VK_DOWN:
+                            sendStdinToContainer(client, "\u001b[B"); 
+                            e.consume();
+                            break;
+                        case java.awt.event.KeyEvent.VK_LEFT:
+                            sendStdinToContainer(client, "\u001b[D"); 
+                            e.consume();
+                            break;
+                        case java.awt.event.KeyEvent.VK_RIGHT:
+                            sendStdinToContainer(client, "\u001b[C"); 
+                            e.consume();
+                            break;
+                    }
+                }
+            });
+
+            clearBtn.addActionListener(e -> {
+                screenBuffer.clearScreen();
+                terminalArea.setText("");
+                terminalArea.requestFocusInWindow();
+            });
+
+            dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+                @Override
+                public void windowClosing(java.awt.event.WindowEvent e) {
+                    client.close();
+                }
+            });
+
+            client.connect();
+
+        } catch (Exception ex) {
+            UIUtils.error(null, "建立控制台连接失败: " + ex.getMessage());
+            dialog.dispose();
+            return;
+        }
+
         dialog.setVisible(true);
     }
 
@@ -1070,10 +2003,16 @@ public class K8sManagerPanel extends ToolPanel {
                     }
                     conn.setRequestProperty("Accept", "application/json");
 
-                    if (conn instanceof HttpsURLConnection && activeSkipTls) {
+                    if (conn instanceof HttpsURLConnection) {
                         HttpsURLConnection httpsConn = (HttpsURLConnection) conn;
-                        httpsConn.setSSLSocketFactory(getTrustAllSocketFactory());
-                        httpsConn.setHostnameVerifier((h, s) -> true);
+                        if (activeSocketFactory != null) {
+                            httpsConn.setSSLSocketFactory(activeSocketFactory);
+                        } else if (activeSkipTls) {
+                            httpsConn.setSSLSocketFactory(getTrustAllSocketFactory());
+                        }
+                        if (activeSkipTls) {
+                            httpsConn.setHostnameVerifier((h, s) -> true);
+                        }
                     }
 
                     activeConn[0] = conn;
@@ -1234,14 +2173,14 @@ public class K8sManagerPanel extends ToolPanel {
         dialog.setVisible(true);
     }
 
-    private void scaleDeployment() {
-        int row = deployTable.getSelectedRow();
+    private void scaleDeployment(String resourceType, JTable table) {
+        int row = table.getSelectedRow();
         if (row == -1) {
-            UIUtils.info(null, "请先选择需要修改副本数的 Deployment");
+            UIUtils.info(null, "请先选择需要修改副本数的 " + resourceType);
             return;
         }
-        String ns = deployTable.getValueAt(row, 0).toString();
-        String name = deployTable.getValueAt(row, 1).toString();
+        String ns = table.getValueAt(row, 0).toString();
+        String name = table.getValueAt(row, 1).toString();
 
         String input = UIUtils.input(null, "请输入目标 Replicas 副本数：", "2");
         if (input == null || input.trim().isEmpty()) return;
@@ -1258,8 +2197,7 @@ public class K8sManagerPanel extends ToolPanel {
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() throws Exception {
-                // We use standard PUT on the scale subresource
-                String path = "/apis/apps/v1/namespaces/" + ns + "/deployments/" + name + "/scale";
+                String path = "/apis/apps/v1/namespaces/" + ns + "/" + resourceType + "/" + name + "/scale";
                 String scaleJson = String.format("{\"metadata\":{\"name\":\"%s\",\"namespace\":\"%s\"},\"spec\":{\"replicas\":%d}}", name, ns, targetReplicas);
                 executeRequest("PUT", path, scaleJson, activeSkipTls);
                 return null;
@@ -1270,7 +2208,11 @@ public class K8sManagerPanel extends ToolPanel {
                 try {
                     get();
                     UIUtils.info(null, "副本数已成功更新为 " + targetReplicas);
-                    loadDeployments();
+                    if (resourceType.equals("deployments")) {
+                        loadDeployments();
+                    } else if (resourceType.equals("statefulsets")) {
+                        loadStatefulSets();
+                    }
                 } catch (Exception ex) {
                     UIUtils.error(null, "更新副本数失败: " + ex.getMessage());
                 }
@@ -1293,8 +2235,10 @@ public class K8sManagerPanel extends ToolPanel {
                 @Override
                 protected Void doInBackground() throws Exception {
                     String path = "";
-                    if (resourceType.equals("deployments")) {
-                        path = "/apis/apps/v1/namespaces/" + ns + "/deployments/" + name;
+                    if (resourceType.equals("deployments") || resourceType.equals("statefulsets") || resourceType.equals("daemonsets")) {
+                        path = "/apis/apps/v1/namespaces/" + ns + "/" + resourceType + "/" + name;
+                    } else if (resourceType.equals("cronjobs")) {
+                        path = "/apis/batch/v1/namespaces/" + ns + "/cronjobs/" + name;
                     } else {
                         path = "/api/v1/namespaces/" + ns + "/" + resourceType + "/" + name;
                     }
@@ -1317,10 +2261,130 @@ public class K8sManagerPanel extends ToolPanel {
     }
 
     private void importKubeconfig() {
+        String[] options = {"从文件导入", "粘贴文本导入", "取消"};
+        int choice = JOptionPane.showOptionDialog(
+                null,
+                "请选择导入 Kubeconfig 的方式：",
+                "导入 Kubeconfig",
+                JOptionPane.DEFAULT_OPTION,
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                options,
+                options[0]
+        );
+
+        if (choice == 0) {
+            importKubeconfigFromFile();
+        } else if (choice == 1) {
+            importKubeconfigFromText();
+        }
+    }
+
+    private void handleImportSuccess(K8sProfile p) {
+        serverField.setText(p.serverUrl);
+        tokenField.setText(p.token);
+        skipTlsCheck.setSelected(p.skipTls);
+        
+        activeClientCert = p.clientCertData;
+        activeClientKey = p.clientKeyData;
+        
+        String baseName = p.name;
+        String finalName = baseName;
+        int count = 1;
+        while (profiles.containsKey(finalName)) {
+            finalName = baseName + "_" + count;
+            count++;
+        }
+        p.name = finalName;
+        profiles.put(p.name, p);
+        saveProfilesToPrefs();
+        refreshProfilesCombo(p.name);
+    }
+
+    private K8sProfile parseKubeconfig(String yamlText, File baseDir, String sourceName) throws Exception {
+        ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
+        JsonNode root = yamlMapper.readTree(yamlText);
+        
+        // 1. 获取当前 Context
+        String currentContext = root.path("current-context").asText();
+        
+        // 2. 解析 clusters 和 users
+        String serverUrl = "https://127.0.0.1:6443";
+        String token = "";
+        String clientCertData = null;
+        String clientKeyData = null;
+        
+        JsonNode contexts = root.path("contexts");
+        String clusterName = "";
+        String userName = "";
+        
+        if (contexts.isArray() && contexts.size() > 0) {
+            for (JsonNode ctx : contexts) {
+                String cName = ctx.path("name").asText();
+                if (cName.equals(currentContext) || clusterName.isEmpty()) {
+                    clusterName = ctx.path("context").path("cluster").asText();
+                    userName = ctx.path("context").path("user").asText();
+                }
+            }
+        }
+
+        // 获取集群 API 地址
+        JsonNode clusters = root.path("clusters");
+        if (clusters.isArray()) {
+            for (JsonNode c : clusters) {
+                if (c.path("name").asText().equals(clusterName) || clusters.size() == 1) {
+                    serverUrl = c.path("cluster").path("server").asText();
+                    break;
+                }
+            }
+        }
+
+        // 获取用户信息（Token 或是客户端证书）
+        JsonNode users = root.path("users");
+        if (users.isArray()) {
+            for (JsonNode u : users) {
+                if (u.path("name").asText().equals(userName) || users.size() == 1) {
+                    token = u.path("user").path("token").asText("");
+                    
+                    // 解析 inline 的 Base64 证书或文件路径引用的证书
+                    if (u.path("user").has("client-certificate-data")) {
+                        byte[] bytes = Base64.getDecoder().decode(u.path("user").path("client-certificate-data").asText().trim());
+                        clientCertData = new String(bytes, StandardCharsets.UTF_8);
+                    } else if (u.path("user").has("client-certificate") && baseDir != null) {
+                        String pathStr = u.path("user").path("client-certificate").asText();
+                        File f = resolveFile(baseDir, pathStr);
+                        if (f != null && f.exists()) {
+                            clientCertData = new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+                        }
+                    }
+                    
+                    // 解析 inline 的 Base64 私钥或文件路径引用的私钥
+                    if (u.path("user").has("client-key-data")) {
+                        byte[] bytes = Base64.getDecoder().decode(u.path("user").path("client-key-data").asText().trim());
+                        clientKeyData = new String(bytes, StandardCharsets.UTF_8);
+                    } else if (u.path("user").has("client-key") && baseDir != null) {
+                        String pathStr = u.path("user").path("client-key").asText();
+                        File f = resolveFile(baseDir, pathStr);
+                        if (f != null && f.exists()) {
+                            clientKeyData = new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (serverUrl.isEmpty()) {
+            throw new Exception("在 Kubeconfig 中无法解析出 API Server 地址。");
+        }
+
+        return new K8sProfile(serverUrl, serverUrl, token, true, clientCertData, clientKeyData);
+    }
+
+    private void importKubeconfigFromFile() {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("选择 Kubeconfig 配置文件");
         
-        // Default to ~/.kube
         String userHome = System.getProperty("user.home");
         if (userHome != null) {
             File kubeDir = new File(userHome, ".kube");
@@ -1335,74 +2399,81 @@ public class K8sManagerPanel extends ToolPanel {
             new SwingWorker<K8sProfile, Void>() {
                 @Override
                 protected K8sProfile doInBackground() throws Exception {
-                    ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
-                    JsonNode root = yamlMapper.readTree(selectedFile);
-                    
-                    // 1. Get current-context
-                    String currentContext = root.path("current-context").asText();
-                    
-                    // 2. Locate clusters and users
-                    String serverUrl = "https://127.0.0.1:6443";
-                    String token = "";
-                    
-                    // If currentContext is empty, pick the first one
-                    JsonNode contexts = root.path("contexts");
-                    String clusterName = "";
-                    String userName = "";
-                    
-                    if (contexts.isArray() && contexts.size() > 0) {
-                        for (JsonNode ctx : contexts) {
-                            String cName = ctx.path("name").asText();
-                            if (cName.equals(currentContext) || clusterName.isEmpty()) {
-                                clusterName = ctx.path("context").path("cluster").asText();
-                                userName = ctx.path("context").path("user").asText();
-                            }
-                        }
-                    }
-
-                    // Get cluster server
-                    JsonNode clusters = root.path("clusters");
-                    if (clusters.isArray()) {
-                        for (JsonNode c : clusters) {
-                            if (c.path("name").asText().equals(clusterName) || clusters.size() == 1) {
-                                serverUrl = c.path("cluster").path("server").asText();
-                                break;
-                            }
-                        }
-                    }
-
-                    // Get user token
-                    JsonNode users = root.path("users");
-                    if (users.isArray()) {
-                        for (JsonNode u : users) {
-                            if (u.path("name").asText().equals(userName) || users.size() == 1) {
-                                token = u.path("user").path("token").asText();
-                                break;
-                            }
-                        }
-                    }
-
-                    if (serverUrl.isEmpty()) {
-                        throw new Exception("在 Kubeconfig 中无法解析出 API Server 地址。");
-                    }
-
-                    return new K8sProfile("Kubeconfig_" + selectedFile.getName(), serverUrl, token, true);
+                    String content = new String(java.nio.file.Files.readAllBytes(selectedFile.toPath()), StandardCharsets.UTF_8);
+                    return parseKubeconfig(content, selectedFile.getParentFile(), selectedFile.getName());
                 }
 
                 @Override
                 protected void done() {
                     try {
                         K8sProfile p = get();
-                        serverField.setText(p.serverUrl);
-                        tokenField.setText(p.token);
-                        skipTlsCheck.setSelected(p.skipTls);
-                        UIUtils.info(null, "解析 Kubeconfig 成功！您可以点击“保存配置”以存入已存列表。");
+                        handleImportSuccess(p);
+                        UIUtils.info(null, "解析并导入 Kubeconfig 成功！配置已自动保存并选中。");
                     } catch (Exception ex) {
                         UIUtils.error(null, "解析 Kubeconfig 失败: " + ex.getMessage());
                     }
                 }
             }.execute();
         }
+    }
+
+    private void importKubeconfigFromText() {
+        JDialog dialog = new JDialog((Frame) null, "粘贴 Kubeconfig 配置文本", true);
+        dialog.setSize(600, 450);
+        dialog.setLocationRelativeTo(null);
+
+        JTextArea area = new JTextArea();
+        area.setFont(UIUtils.monoFont());
+        JScrollPane sp = UIUtils.scrollText(area, "请在此处粘贴 Kubeconfig 的 YAML 文本内容");
+
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton importBtn = new JButton("确认导入");
+        importBtn.addActionListener(e -> {
+            String text = area.getText().trim();
+            if (text.isEmpty()) {
+                UIUtils.info(dialog, "配置内容不能为空！");
+                return;
+            }
+            importBtn.setEnabled(false);
+            new SwingWorker<K8sProfile, Void>() {
+                @Override
+                protected K8sProfile doInBackground() throws Exception {
+                    String timeStr = String.valueOf(System.currentTimeMillis() % 100000);
+                    return parseKubeconfig(text, null, "Text_" + timeStr);
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        K8sProfile p = get();
+                        handleImportSuccess(p);
+                        UIUtils.info(dialog, "解析并导入 Kubeconfig 成功！配置已自动保存。");
+                        dialog.dispose();
+                    } catch (Exception ex) {
+                        importBtn.setEnabled(true);
+                        UIUtils.error(dialog, "解析 Kubeconfig 失败: " + ex.getMessage());
+                    }
+                }
+            }.execute();
+        });
+
+        JButton closeBtn = new JButton("关闭");
+        closeBtn.addActionListener(e -> dialog.dispose());
+
+        bottom.add(importBtn);
+        bottom.add(closeBtn);
+
+        dialog.add(sp, BorderLayout.CENTER);
+        dialog.add(bottom, BorderLayout.SOUTH);
+        dialog.setVisible(true);
+    }
+
+    private File resolveFile(File baseDir, String pathStr) {
+        File f = new File(pathStr);
+        if (f.isAbsolute()) {
+            return f;
+        }
+        return new File(baseDir, pathStr);
     }
 
     private void saveProfilesToPrefs() {
@@ -1436,13 +2507,25 @@ public class K8sManagerPanel extends ToolPanel {
         }
         if (selectName != null) {
             profileCombo.setSelectedItem(selectName);
+            K8sProfile p = profiles.get(selectName);
+            if (p != null) {
+                activeClientCert = p.clientCertData;
+                activeClientKey = p.clientKeyData;
+            }
         } else if (profileCombo.getItemCount() > 0) {
             profileCombo.setSelectedIndex(0);
             String first = profileCombo.getItemAt(0);
             K8sProfile p = profiles.get(first);
-            serverField.setText(p.serverUrl);
-            tokenField.setText(p.token);
-            skipTlsCheck.setSelected(p.skipTls);
+            if (p != null) {
+                serverField.setText(p.serverUrl);
+                tokenField.setText(p.token);
+                skipTlsCheck.setSelected(p.skipTls);
+                activeClientCert = p.clientCertData;
+                activeClientKey = p.clientKeyData;
+            }
+        } else {
+            activeClientCert = null;
+            activeClientKey = null;
         }
         ignoreProfileEvents = false;
     }
@@ -1475,6 +2558,62 @@ public class K8sManagerPanel extends ToolPanel {
         return trustAllSocketFactory;
     }
 
+    private javax.net.ssl.SSLSocketFactory buildSSLSocketFactory(boolean skipTls, String certPem, String keyPem) throws Exception {
+        javax.net.ssl.KeyManager[] keyManagers = null;
+        if (certPem != null && !certPem.trim().isEmpty() && keyPem != null && !keyPem.trim().isEmpty()) {
+            java.security.cert.X509Certificate cert = parseCertificate(certPem);
+            java.security.PrivateKey privateKey = parsePrivateKey(keyPem);
+            
+            char[] password = "changeit".toCharArray();
+            java.security.KeyStore keyStore = java.security.KeyStore.getInstance("PKCS12");
+            keyStore.load(null, null);
+            keyStore.setKeyEntry("client", privateKey, password, new java.security.cert.Certificate[]{cert});
+            
+            javax.net.ssl.KeyManagerFactory kmf = javax.net.ssl.KeyManagerFactory.getInstance(javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm());
+            kmf.init(keyStore, password);
+            keyManagers = kmf.getKeyManagers();
+        }
+
+        javax.net.ssl.TrustManager[] trustManagers = null;
+        if (skipTls) {
+            trustManagers = new javax.net.ssl.TrustManager[] {
+                new javax.net.ssl.X509TrustManager() {
+                    public java.security.cert.X509Certificate[] getAcceptedIssuers() { return null; }
+                    public void checkClientTrusted(java.security.cert.X509Certificate[] certs, String authType) {}
+                    public void checkServerTrusted(java.security.cert.X509Certificate[] certs, String authType) {}
+                }
+            };
+        }
+
+        javax.net.ssl.SSLContext sc = javax.net.ssl.SSLContext.getInstance("TLS");
+        sc.init(keyManagers, trustManagers, new java.security.SecureRandom());
+        return sc.getSocketFactory();
+    }
+
+    private java.security.cert.X509Certificate parseCertificate(String pemStr) throws Exception {
+        java.security.cert.CertificateFactory cf = java.security.cert.CertificateFactory.getInstance("X.509");
+        try (java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(pemStr.getBytes(StandardCharsets.UTF_8))) {
+            return (java.security.cert.X509Certificate) cf.generateCertificate(bis);
+        }
+    }
+
+    private java.security.PrivateKey parsePrivateKey(String pemStr) throws Exception {
+        try (org.bouncycastle.openssl.PEMParser pemParser = new org.bouncycastle.openssl.PEMParser(new java.io.StringReader(pemStr))) {
+            Object object = pemParser.readObject();
+            org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter converter = new org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter();
+            if (object instanceof org.bouncycastle.openssl.PEMKeyPair) {
+                java.security.KeyPair kp = converter.getKeyPair((org.bouncycastle.openssl.PEMKeyPair) object);
+                return kp.getPrivate();
+            } else if (object instanceof org.bouncycastle.asn1.pkcs.PrivateKeyInfo) {
+                return converter.getPrivateKey((org.bouncycastle.asn1.pkcs.PrivateKeyInfo) object);
+            } else if (object instanceof org.bouncycastle.openssl.PEMEncryptedKeyPair) {
+                throw new Exception("不支持加密的私钥文件，请使用未加密的私钥。");
+            } else {
+                throw new Exception("无法解析的私钥格式: " + (object == null ? "null" : object.getClass().getName()));
+            }
+        }
+    }
+
     private String executeRequest(String method, String apiPath, String body, boolean skipTls) throws Exception {
         URL url = new URL(activeServerUrl.replaceAll("/+$", "") + apiPath);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -1494,10 +2633,16 @@ public class K8sManagerPanel extends ToolPanel {
             }
         }
 
-        if (conn instanceof HttpsURLConnection && skipTls) {
+        if (conn instanceof HttpsURLConnection) {
             HttpsURLConnection httpsConn = (HttpsURLConnection) conn;
-            httpsConn.setSSLSocketFactory(getTrustAllSocketFactory());
-            httpsConn.setHostnameVerifier((h, s) -> true);
+            if (activeSocketFactory != null) {
+                httpsConn.setSSLSocketFactory(activeSocketFactory);
+            } else if (skipTls) {
+                httpsConn.setSSLSocketFactory(getTrustAllSocketFactory());
+            }
+            if (skipTls) {
+                httpsConn.setHostnameVerifier((h, s) -> true);
+            }
         }
 
         int code = conn.getResponseCode();
@@ -1532,14 +2677,22 @@ public class K8sManagerPanel extends ToolPanel {
         public String serverUrl;
         public String token;
         public boolean skipTls;
+        public String clientCertData;
+        public String clientKeyData;
 
         public K8sProfile() {}
 
         public K8sProfile(String name, String serverUrl, String token, boolean skipTls) {
+            this(name, serverUrl, token, skipTls, null, null);
+        }
+
+        public K8sProfile(String name, String serverUrl, String token, boolean skipTls, String clientCertData, String clientKeyData) {
             this.name = name;
             this.serverUrl = serverUrl;
             this.token = token;
             this.skipTls = skipTls;
+            this.clientCertData = clientCertData;
+            this.clientKeyData = clientKeyData;
         }
     }
 

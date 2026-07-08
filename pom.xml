@@ -81,6 +81,12 @@
             <artifactId>jedis</artifactId>
             <version>3.8.0</version>
         </dependency>
+        <!-- Java-WebSocket：用于 K8s 容器 Exec 的 WebSocket 连接 -->
+        <dependency>
+            <groupId>org.java-websocket</groupId>
+            <artifactId>Java-WebSocket</artifactId>
+            <version>1.5.4</version>
+        </dependency>
     </dependencies>
 
     <build>

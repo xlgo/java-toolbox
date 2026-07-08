@@ -67,52 +67,37 @@ public class MainFrame extends JFrame {
     private javax.swing.Timer searchUpdateTimer;
     private boolean searchInputComposing;
     
-    private ToolPanel[] tools = createTools();
+    private ToolPanel[] tools;
 
-    private static ToolPanel[] createTools() {
-        return new ToolPanel[]{
-                new CryptoPanel(),
-                new SymmetricPanel(),
-                new AsymmetricPanel(),
-                new AccountManagerPanel(),
-                new ConvertPanel(),
-                new TimePanel(),
-                new Base64ImagePanel(),
-                new FormatConvertPanel(),
-                new JsonPanel(),
-                new XmlPanel(),
-                new SqlPanel(),
-                new RegexPanel(),
-                new JwtPanel(),
-                new CronPanel(),
-                new TextDiffPanel(),
-                new DockerComposePanel(),
-                new SubnetPanel(),
-                new HttpTestPanel(),
-                new CallbackTestPanel(),
-                new ColorPanel(),
-                new CertPanel(),
-                new K8sPanel(),
-                new K8sManagerPanel(),
-                new UuidPanel(),
-                new PasswordPanel(),
-                new RandomNumberPanel(),
-                new CalculatorPanel(),
-                new StatisticsPanel(),
-                new SortPanel(),
-                new SearchPanel(),
-                new HanoiPanel(),
-                new VideoMonitorPanel(),
-                new RedisPanel(),
-                new BpmnPanel(),
+    private void createTools() {
+        java.util.function.Supplier<ToolPanel>[] creators = new java.util.function.Supplier[]{
+            CryptoPanel::new, SymmetricPanel::new, AsymmetricPanel::new, AccountManagerPanel::new,
+            ConvertPanel::new, TimePanel::new, Base64ImagePanel::new, FormatConvertPanel::new,
+            JsonPanel::new, XmlPanel::new, SqlPanel::new, RegexPanel::new, JwtPanel::new,
+            CronPanel::new, TextDiffPanel::new, DockerComposePanel::new, SubnetPanel::new,
+            HttpTestPanel::new, CallbackTestPanel::new, ColorPanel::new, CertPanel::new,
+            K8sPanel::new, K8sManagerPanel::new, UuidPanel::new, PasswordPanel::new,
+            RandomNumberPanel::new, CalculatorPanel::new, StatisticsPanel::new, SortPanel::new,
+            SearchPanel::new, HanoiPanel::new, VideoMonitorPanel::new, RedisPanel::new, BpmnPanel::new
         };
+        
+        tools = new ToolPanel[creators.length];
+        for (int i = 0; i < creators.length; i++) {
+            tools[i] = creators[i].get();
+            if (com.aqishi.toolbox.Main.startupProgressUpdater != null) {
+                int percent = 40 + (int) (60.0 * (i + 1) / creators.length);
+                String name = tools[i].getClass().getSimpleName().replace("Panel", "");
+                com.aqishi.toolbox.Main.startupProgressUpdater.accept(percent, "正在载入工具组件: " + name);
+            }
+        }
     }
 
     public MainFrame() {
         super(I18n.get("app.title"));
+        createTools();
         
         try {
-            java.net.URL iconUrl = MainFrame.class.getResource("/icon.png");
+            java.net.URL iconUrl = MainFrame.class.getResource("icon.png");
             if (iconUrl != null) {
                 setIconImage(new ImageIcon(iconUrl).getImage());
             }

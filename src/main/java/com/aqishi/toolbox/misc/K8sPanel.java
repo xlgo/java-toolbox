@@ -1059,9 +1059,14 @@ public class K8sPanel extends ToolPanel {
 
     private void appendSep(StringBuilder y, String content) {
         if (content == null || content.isEmpty()) return;
-        if (y.length() > 0 && !y.toString().endsWith("\n\n")) {
-            if (y.toString().endsWith("\n")) y.append("\n");
-            else y.append("\n\n");
+        if (y.length() > 0) {
+            String current = y.toString();
+            if (current.contains("apiVersion:")) {
+                if (!current.endsWith("\n")) {
+                    y.append("\n");
+                }
+                y.append("---\n");
+            }
         }
         y.append(content);
     }

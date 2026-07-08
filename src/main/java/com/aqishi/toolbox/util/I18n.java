@@ -36,12 +36,12 @@ public final class I18n {
         String resourceName = "messages_" + lang + ".properties";
         
         // 尝试加载语言对应的资源文件
-        try (InputStream is = I18n.class.getClassLoader().getResourceAsStream(resourceName)) {
+        try (InputStream is = I18n.class.getResourceAsStream(resourceName)) {
             if (is != null) {
                 props.load(new InputStreamReader(is, StandardCharsets.UTF_8));
             } else {
                 // 回退到 messages.properties
-                try (InputStream defIs = I18n.class.getClassLoader().getResourceAsStream("messages.properties")) {
+                try (InputStream defIs = I18n.class.getResourceAsStream("messages.properties")) {
                     if (defIs != null) {
                         props.load(new InputStreamReader(defIs, StandardCharsets.UTF_8));
                     }

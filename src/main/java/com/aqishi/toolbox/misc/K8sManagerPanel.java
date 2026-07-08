@@ -44,6 +44,13 @@ public class K8sManagerPanel extends ToolPanel {
     private JComboBox<String> nsCombo;
     private JButton refreshNsBtn;
     private JButton applyYamlBtn;
+    private JTextField searchField;
+
+    private javax.swing.table.TableRowSorter<DefaultTableModel> podSorter;
+    private javax.swing.table.TableRowSorter<DefaultTableModel> deploySorter;
+    private javax.swing.table.TableRowSorter<DefaultTableModel> svcSorter;
+    private javax.swing.table.TableRowSorter<DefaultTableModel> cmSorter;
+    private javax.swing.table.TableRowSorter<DefaultTableModel> nodeSorter;
 
     private JTabbedPane resourceTabs;
     
@@ -150,10 +157,35 @@ public class K8sManagerPanel extends ToolPanel {
             showApplyYamlDialog();
         });
 
+        searchField = new JTextField();
+        searchField.setPreferredSize(new Dimension(180, 30));
+        searchField.putClientProperty("JTextField.placeholderText", "过滤检索当前列表...");
+        searchField.putClientProperty("JTextField.showClearButton", true);
+        searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+            private void filter() {
+                String text = searchField.getText().trim();
+                javax.swing.RowFilter<Object, Object> filter = null;
+                if (!text.isEmpty()) {
+                    filter = javax.swing.RowFilter.regexFilter("(?i)" + text);
+                }
+                if (podSorter != null) podSorter.setRowFilter(filter);
+                if (deploySorter != null) deploySorter.setRowFilter(filter);
+                if (svcSorter != null) svcSorter.setRowFilter(filter);
+                if (cmSorter != null) cmSorter.setRowFilter(filter);
+                if (nodeSorter != null) nodeSorter.setRowFilter(filter);
+            }
+        });
+
         nsRow.add(new JLabel("命名空间 (Namespace):"));
         nsRow.add(nsCombo);
         nsRow.add(refreshNsBtn);
         nsRow.add(applyYamlBtn);
+        nsRow.add(new JLabel("  |  "));
+        nsRow.add(new JLabel("检索 (Filter):"));
+        nsRow.add(searchField);
         centerPanel.add(nsRow, BorderLayout.NORTH);
 
         resourceTabs = new JTabbedPane();
@@ -166,6 +198,8 @@ public class K8sManagerPanel extends ToolPanel {
         };
         podTable = new JTable(podModel);
         podTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        podSorter = new javax.swing.table.TableRowSorter<>(podModel);
+        podTable.setRowSorter(podSorter);
         podTab.add(new JScrollPane(podTable), BorderLayout.CENTER);
         JPanel podBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         JButton refreshPodBtn = new JButton("刷新");
@@ -187,6 +221,8 @@ public class K8sManagerPanel extends ToolPanel {
         };
         deployTable = new JTable(deployModel);
         deployTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        deploySorter = new javax.swing.table.TableRowSorter<>(deployModel);
+        deployTable.setRowSorter(deploySorter);
         deployTab.add(new JScrollPane(deployTable), BorderLayout.CENTER);
         JPanel deployBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         JButton refreshDeployBtn = new JButton("刷新");
@@ -208,6 +244,8 @@ public class K8sManagerPanel extends ToolPanel {
         };
         svcTable = new JTable(svcModel);
         svcTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        svcSorter = new javax.swing.table.TableRowSorter<>(svcModel);
+        svcTable.setRowSorter(svcSorter);
         svcTab.add(new JScrollPane(svcTable), BorderLayout.CENTER);
         JPanel svcBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         JButton refreshSvcBtn = new JButton("刷新");
@@ -227,6 +265,8 @@ public class K8sManagerPanel extends ToolPanel {
         };
         cmTable = new JTable(cmModel);
         cmTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        cmSorter = new javax.swing.table.TableRowSorter<>(cmModel);
+        cmTable.setRowSorter(cmSorter);
         cmTab.add(new JScrollPane(cmTable), BorderLayout.CENTER);
         JPanel cmBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         JButton refreshCmBtn = new JButton("刷新");
@@ -246,6 +286,8 @@ public class K8sManagerPanel extends ToolPanel {
         };
         nodeTable = new JTable(nodeModel);
         nodeTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        nodeSorter = new javax.swing.table.TableRowSorter<>(nodeModel);
+        nodeTable.setRowSorter(nodeSorter);
         nodeTab.add(new JScrollPane(nodeTable), BorderLayout.CENTER);
         JPanel nodeBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         JButton refreshNodeBtn = new JButton("刷新");
@@ -288,6 +330,7 @@ public class K8sManagerPanel extends ToolPanel {
         nsCombo.setEnabled(connected);
         refreshNsBtn.setEnabled(connected);
         applyYamlBtn.setEnabled(connected);
+        searchField.setEnabled(connected);
         resourceTabs.setEnabled(connected);
 
         if (!connected) {

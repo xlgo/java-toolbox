@@ -110,6 +110,16 @@ public class MainFrame extends JFrame {
 
     public MainFrame() {
         super(I18n.get("app.title"));
+        
+        try {
+            java.net.URL iconUrl = MainFrame.class.getResource("/icon.png");
+            if (iconUrl != null) {
+                setIconImage(new ImageIcon(iconUrl).getImage());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         
         int width = ConfigManager.getInt("width", 1024);

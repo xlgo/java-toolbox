@@ -43,6 +43,7 @@ public class K8sManagerPanel extends ToolPanel {
 
     private JComboBox<String> nsCombo;
     private JButton refreshNsBtn;
+    private JButton applyYamlBtn;
 
     private JTabbedPane resourceTabs;
     
@@ -140,16 +141,26 @@ public class K8sManagerPanel extends ToolPanel {
         nsCombo = new JComboBox<>();
         nsCombo.setPreferredSize(new Dimension(180, 30));
         refreshNsBtn = new JButton("刷新空间列表");
+        applyYamlBtn = new JButton("发布资源 (Apply YAML)");
+        applyYamlBtn.addActionListener(e -> {
+            if (!isConnected) {
+                UIUtils.info(null, "请先连接 K8s 集群！");
+                return;
+            }
+            showApplyYamlDialog();
+        });
+
         nsRow.add(new JLabel("命名空间 (Namespace):"));
         nsRow.add(nsCombo);
         nsRow.add(refreshNsBtn);
+        nsRow.add(applyYamlBtn);
         centerPanel.add(nsRow, BorderLayout.NORTH);
 
         resourceTabs = new JTabbedPane();
         
         // Tab A: Pods
         JPanel podTab = new JPanel(new BorderLayout(6, 6));
-        podModel = new DefaultTableModel(new Object[]{"名称 (Name)", "状态 (Status)", "重启次数 (Restarts)", "Pod IP", "节点 (Node)", "存活时间 (Age)"}, 0) {
+        podModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "状态 (Status)", "重启次数 (Restarts)", "Pod IP", "节点 (Node)", "存活时间 (Age)"}, 0) {
             @Override
             public boolean isCellEditable(int r, int c) { return false; }
         };
@@ -170,7 +181,7 @@ public class K8sManagerPanel extends ToolPanel {
 
         // Tab B: Deployments
         JPanel deployTab = new JPanel(new BorderLayout(6, 6));
-        deployModel = new DefaultTableModel(new Object[]{"名称 (Name)", "就绪状态 (Ready)", "最新副本 (Up-to-date)", "可用副本 (Available)", "存活时间 (Age)"}, 0) {
+        deployModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "就绪状态 (Ready)", "最新副本 (Up-to-date)", "可用副本 (Available)", "存活时间 (Age)"}, 0) {
             @Override
             public boolean isCellEditable(int r, int c) { return false; }
         };
@@ -191,7 +202,7 @@ public class K8sManagerPanel extends ToolPanel {
 
         // Tab C: Services
         JPanel svcTab = new JPanel(new BorderLayout(6, 6));
-        svcModel = new DefaultTableModel(new Object[]{"名称 (Name)", "类型 (Type)", "集群 IP (Cluster-IP)", "外部 IP (External-IP)", "端口 (Ports)", "存活时间 (Age)"}, 0) {
+        svcModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "类型 (Type)", "集群 IP (Cluster-IP)", "外部 IP (External-IP)", "端口 (Ports)", "存活时间 (Age)"}, 0) {
             @Override
             public boolean isCellEditable(int r, int c) { return false; }
         };
@@ -210,7 +221,7 @@ public class K8sManagerPanel extends ToolPanel {
 
         // Tab D: ConfigMaps
         JPanel cmTab = new JPanel(new BorderLayout(6, 6));
-        cmModel = new DefaultTableModel(new Object[]{"名称 (Name)", "键数量 (Keys)", "存活时间 (Age)"}, 0) {
+        cmModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "键数量 (Keys)", "存活时间 (Age)"}, 0) {
             @Override
             public boolean isCellEditable(int r, int c) { return false; }
         };
@@ -276,6 +287,7 @@ public class K8sManagerPanel extends ToolPanel {
 
         nsCombo.setEnabled(connected);
         refreshNsBtn.setEnabled(connected);
+        applyYamlBtn.setEnabled(connected);
         resourceTabs.setEnabled(connected);
 
         if (!connected) {
@@ -423,6 +435,12 @@ public class K8sManagerPanel extends ToolPanel {
         new SwingWorker<Boolean, Void>() {
             @Override
             protected Boolean doInBackground() throws Exception {
+                if (activeSkipTls) {
+                    try {
+                        HttpsURLConnection.setDefaultSSLSocketFactory(getTrustAllSocketFactory());
+                        HttpsURLConnection.setDefaultHostnameVerifier((h, s) -> true);
+                    } catch (Exception ignored) {}
+                }
                 // Test connectivity by querying API version info or namespaces
                 executeRequest("GET", "/api/v1/namespaces", null, activeSkipTls);
                 return true;
@@ -434,7 +452,6 @@ public class K8sManagerPanel extends ToolPanel {
                     get();
                     toggleState(true);
                     loadNamespaces();
-                    UIUtils.info(connBtn, "连接成功！");
                 } catch (Exception ex) {
                     toggleState(false);
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
@@ -520,6 +537,7 @@ public class K8sManagerPanel extends ToolPanel {
                 JsonNode items = root.path("items");
                 if (items.isArray()) {
                     for (JsonNode item : items) {
+                        String namespace = item.path("metadata").path("namespace").asText();
                         String name = item.path("metadata").path("name").asText();
                         String status = item.path("status").path("phase").asText();
                         
@@ -535,7 +553,7 @@ public class K8sManagerPanel extends ToolPanel {
                         String node = item.path("spec").path("nodeName").asText("-");
                         String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
                         
-                        rows.add(new Object[]{name, status, restarts, ip, node, age});
+                        rows.add(new Object[]{namespace, name, status, restarts, ip, node, age});
                     }
                 }
                 return rows;
@@ -569,6 +587,7 @@ public class K8sManagerPanel extends ToolPanel {
                 JsonNode items = root.path("items");
                 if (items.isArray()) {
                     for (JsonNode item : items) {
+                        String namespace = item.path("metadata").path("namespace").asText();
                         String name = item.path("metadata").path("name").asText();
                         int specReplicas = item.path("spec").path("replicas").asInt(0);
                         int readyReplicas = item.path("status").path("readyReplicas").asInt(0);
@@ -578,7 +597,7 @@ public class K8sManagerPanel extends ToolPanel {
                         int available = item.path("status").path("availableReplicas").asInt(0);
                         String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
 
-                        rows.add(new Object[]{name, ready, updated, available, age});
+                        rows.add(new Object[]{namespace, name, ready, updated, available, age});
                     }
                 }
                 return rows;
@@ -600,11 +619,7 @@ public class K8sManagerPanel extends ToolPanel {
     // Load Services
     private void loadServices() {
         String ns = getSelectedNamespace();
-        if (ns.equals("all")) {
-            UIUtils.info(null, "为了列表展示性能，请先选择具体的命名空间以展示 Services 列表");
-            return;
-        }
-        String path = "/api/v1/namespaces/" + ns + "/services";
+        String path = ns.equals("all") ? "/api/v1/services" : "/api/v1/namespaces/" + ns + "/services";
 
         svcModel.setRowCount(0);
         new SwingWorker<List<Object[]>, Void>() {
@@ -616,6 +631,7 @@ public class K8sManagerPanel extends ToolPanel {
                 JsonNode items = root.path("items");
                 if (items.isArray()) {
                     for (JsonNode item : items) {
+                        String namespace = item.path("metadata").path("namespace").asText();
                         String name = item.path("metadata").path("name").asText();
                         String type = item.path("spec").path("type").asText();
                         String clusterIp = item.path("spec").path("clusterIP").asText();
@@ -643,7 +659,7 @@ public class K8sManagerPanel extends ToolPanel {
                         }
                         String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
 
-                        rows.add(new Object[]{name, type, clusterIp, extIp.toString(), ports.toString(), age});
+                        rows.add(new Object[]{namespace, name, type, clusterIp, extIp.toString(), ports.toString(), age});
                     }
                 }
                 return rows;
@@ -665,11 +681,7 @@ public class K8sManagerPanel extends ToolPanel {
     // Load ConfigMaps
     private void loadConfigMaps() {
         String ns = getSelectedNamespace();
-        if (ns.equals("all")) {
-            UIUtils.info(null, "请先选择具体的命名空间以展示 ConfigMaps 列表");
-            return;
-        }
-        String path = "/api/v1/namespaces/" + ns + "/configmaps";
+        String path = ns.equals("all") ? "/api/v1/configmaps" : "/api/v1/namespaces/" + ns + "/configmaps";
 
         cmModel.setRowCount(0);
         new SwingWorker<List<Object[]>, Void>() {
@@ -681,11 +693,12 @@ public class K8sManagerPanel extends ToolPanel {
                 JsonNode items = root.path("items");
                 if (items.isArray()) {
                     for (JsonNode item : items) {
+                        String namespace = item.path("metadata").path("namespace").asText();
                         String name = item.path("metadata").path("name").asText();
                         int keys = item.path("data").size();
                         String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
 
-                        rows.add(new Object[]{name, keys, age});
+                        rows.add(new Object[]{namespace, name, keys, age});
                     }
                 }
                 return rows;
@@ -776,35 +789,44 @@ public class K8sManagerPanel extends ToolPanel {
             UIUtils.info(null, "请先选择需要查看的一行。");
             return;
         }
-        String name = table.getValueAt(row, 0).toString();
-        String ns = getSelectedNamespace();
+        
+        String name;
+        String ns;
         if (resourceType.equals("nodes")) {
-            ns = "all"; // Nodes are cluster-wide
+            name = table.getValueAt(row, 0).toString();
+            ns = "all";
+        } else {
+            ns = table.getValueAt(row, 0).toString();
+            name = table.getValueAt(row, 1).toString();
         }
 
         String path = "";
         if (resourceType.equals("deployments")) {
-            path = ns.equals("all") ? "/apis/apps/v1/deployments/" + name : "/apis/apps/v1/namespaces/" + ns + "/deployments/" + name;
+            path = "/apis/apps/v1/namespaces/" + ns + "/deployments/" + name;
         } else if (resourceType.equals("nodes")) {
             path = "/api/v1/nodes/" + name;
         } else {
             // pods, services, configmaps
-            path = ns.equals("all") ? "/api/v1/pods/" + name : "/api/v1/namespaces/" + ns + "/" + resourceType + "/" + name;
+            path = "/api/v1/namespaces/" + ns + "/" + resourceType + "/" + name;
         }
 
         final String reqPath = path;
-        new SwingWorker<String, Void>() {
+        new SwingWorker<Object[], Void>() {
             @Override
-            protected String doInBackground() throws Exception {
+            protected Object[] doInBackground() throws Exception {
                 String resp = executeRequest("GET", reqPath, null, activeSkipTls);
-                return convertJsonToYaml(resp);
+                String yaml = convertJsonToYaml(resp);
+                JsonNode jsonNode = mapper.readTree(resp);
+                return new Object[]{yaml, jsonNode};
             }
 
             @Override
             protected void done() {
                 try {
-                    String yaml = get();
-                    showYamlDialog(name, yaml);
+                    Object[] res = get();
+                    String yaml = (String) res[0];
+                    JsonNode jsonNode = (JsonNode) res[1];
+                    showYamlDialog(name, yaml, jsonNode);
                 } catch (Exception ex) {
                     UIUtils.error(null, "获取 YAML 失败: " + ex.getMessage());
                 }
@@ -812,17 +834,71 @@ public class K8sManagerPanel extends ToolPanel {
         }.execute();
     }
 
-    private void showYamlDialog(String resourceName, String yaml) {
-        JDialog dialog = new JDialog((Frame) null, "查看 YAML: " + resourceName, true);
-        dialog.setSize(680, 520);
+    private void showYamlDialog(String resourceName, String yaml, JsonNode jsonNode) {
+        JDialog dialog = new JDialog((Frame) null, "查看: " + resourceName, true);
+        dialog.setSize(750, 580);
         dialog.setLocationRelativeTo(null);
 
+        JTabbedPane tabs = new JTabbedPane();
+
+        // Tab 1: 折叠树视图
+        JTree tree = new JTree(new javax.swing.tree.DefaultMutableTreeNode("Resource"));
+        tree.setFont(UIUtils.monoFont());
+        tree.putClientProperty("JTree.lineStyle", "None");
+        tree.setRootVisible(true);
+        tree.setShowsRootHandles(true);
+        tree.setRowHeight(20);
+
+        javax.swing.tree.DefaultTreeCellRenderer renderer = new javax.swing.tree.DefaultTreeCellRenderer() {
+            @Override
+            public Component getTreeCellRendererComponent(JTree t, Object value, boolean sel,
+                                                          boolean expanded, boolean leaf, int r, boolean hasFocus) {
+                super.getTreeCellRendererComponent(t, value, sel, expanded, leaf, r, hasFocus);
+                if (value instanceof javax.swing.tree.DefaultMutableTreeNode) {
+                    Object userObj = ((javax.swing.tree.DefaultMutableTreeNode) value).getUserObject();
+                    if (userObj instanceof YamlFolderNode) {
+                        YamlFolderNode node = (YamlFolderNode) userObj;
+                        if (expanded) {
+                            setText(node.openText);
+                        } else {
+                            setText(node.closeText);
+                        }
+                    }
+                }
+                if (sel) {
+                    setBackground(UIManager.getColor("List.selectionBackground"));
+                    setForeground(UIManager.getColor("List.selectionForeground"));
+                } else {
+                    setBackground(null);
+                    setForeground(null);
+                }
+                return this;
+            }
+        };
+        renderer.setOpenIcon(null);
+        renderer.setClosedIcon(null);
+        renderer.setLeafIcon(null);
+        tree.setCellRenderer(renderer);
+
+        if (jsonNode != null) {
+            javax.swing.tree.DefaultMutableTreeNode rootTreeNode = convertJsonNodeToTreeNode(jsonNode, resourceName, 0, true);
+            tree.setModel(new javax.swing.tree.DefaultTreeModel(rootTreeNode));
+            // 默认展开前几层
+            for (int i = 0; i < Math.min(tree.getRowCount(), 25); i++) {
+                tree.expandRow(i);
+            }
+        }
+
+        JScrollPane treeScroll = new JScrollPane(tree);
+        tabs.addTab("折叠树视图 (Collapsible Tree)", treeScroll);
+
+        // Tab 2: 原始 YAML 文本
         JTextArea area = new JTextArea(yaml);
         area.setEditable(false);
-        JScrollPane sp = UIUtils.scrollText(area, "YAML / JSON 内容");
+        tabs.addTab("YAML 文本 (Raw YAML)", UIUtils.scrollText(area, "YAML / JSON 内容"));
 
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton copyBtn = new JButton("复制到剪贴板");
+        JButton copyBtn = new JButton("复制 YAML");
         copyBtn.addActionListener(e -> {
             UIUtils.copyToClipboard(yaml);
             UIUtils.info(dialog, "已成功复制到剪贴板！");
@@ -832,7 +908,7 @@ public class K8sManagerPanel extends ToolPanel {
         bottom.add(copyBtn);
         bottom.add(closeBtn);
 
-        dialog.add(sp, BorderLayout.CENTER);
+        dialog.add(tabs, BorderLayout.CENTER);
         dialog.add(bottom, BorderLayout.SOUTH);
         dialog.setVisible(true);
     }
@@ -843,12 +919,8 @@ public class K8sManagerPanel extends ToolPanel {
             UIUtils.info(null, "请先选择需要查看日志的 Pod");
             return;
         }
-        String name = podTable.getValueAt(row, 0).toString();
-        String ns = getSelectedNamespace();
-        if (ns.equals("all")) {
-            UIUtils.info(null, "为了精准获取 Pod 详情，请在上方选择具体的 Namespace（非'全部'），然后再试。");
-            return;
-        }
+        String ns = podTable.getValueAt(row, 0).toString();
+        String name = podTable.getValueAt(row, 1).toString();
 
         // We need to retrieve container names for this pod
         new SwingWorker<List<String>, Void>() {
@@ -884,7 +956,7 @@ public class K8sManagerPanel extends ToolPanel {
     }
 
     private void showLogDialog(String ns, String podName, List<String> containers) {
-        JDialog dialog = new JDialog((Frame) null, "Pod 日志: " + podName, true);
+        JDialog dialog = new JDialog((Frame) null, "Pod 日志: " + podName, false);
         dialog.setSize(800, 550);
         dialog.setLocationRelativeTo(null);
 
@@ -896,36 +968,195 @@ public class K8sManagerPanel extends ToolPanel {
         top.add(new JLabel("选择容器 (Container):"));
         top.add(containerCombo);
 
+        JCheckBox followCheck = new JCheckBox("追踪更新 (Follow)", false);
+        top.add(followCheck);
+
+        JButton loadMoreBtn = new JButton("加载前500行");
+        loadMoreBtn.setEnabled(false);
+        top.add(loadMoreBtn);
+
         JTextArea area = new JTextArea();
         area.setEditable(false);
-        JScrollPane sp = UIUtils.scrollText(area, "日志输出 (最后 1000 行)");
+        JScrollPane sp = UIUtils.scrollText(area, "日志输出");
+
+        final int[] currentTailLines = {1000};
+        final HttpURLConnection[] activeConn = new HttpURLConnection[1];
+        final Thread[] activeThread = new Thread[1];
+
+        JScrollBar verticalBar = sp.getVerticalScrollBar();
+        verticalBar.addAdjustmentListener(e -> {
+            boolean atTop = (verticalBar.getValue() == 0 && area.getDocument().getLength() > 0);
+            loadMoreBtn.setEnabled(atTop && !followCheck.isSelected());
+        });
+
+        Runnable stopFollowing = () -> {
+            final Thread t = activeThread[0];
+            final HttpURLConnection conn = activeConn[0];
+            activeThread[0] = null;
+            activeConn[0] = null;
+
+            if (t != null || conn != null) {
+                new Thread(() -> {
+                    if (t != null) {
+                        t.interrupt();
+                    }
+                    if (conn != null) {
+                        try {
+                            conn.disconnect();
+                        } catch (Exception ex) {}
+                    }
+                }).start();
+            }
+        };
+
+        Runnable startFollowing = () -> {
+            String c = (String) containerCombo.getSelectedItem();
+            if (c == null) return;
+            area.setText("正在开启追踪日志...\n");
+            Thread t = new Thread(() -> {
+                HttpURLConnection conn = null;
+                try {
+                    String path = "/api/v1/namespaces/" + ns + "/pods/" + podName + "/log?container=" + c + "&follow=true&tailLines=200";
+                    URL url = new URL(activeServerUrl.replaceAll("/+$", "") + path);
+                    conn = (HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(6000);
+                    conn.setReadTimeout(0); // Infinite read timeout
+                    conn.setRequestMethod("GET");
+                    if (activeToken != null && !activeToken.trim().isEmpty()) {
+                        conn.setRequestProperty("Authorization", "Bearer " + activeToken);
+                    }
+                    conn.setRequestProperty("Accept", "application/json");
+
+                    if (conn instanceof HttpsURLConnection && activeSkipTls) {
+                        HttpsURLConnection httpsConn = (HttpsURLConnection) conn;
+                        httpsConn.setSSLSocketFactory(getTrustAllSocketFactory());
+                        httpsConn.setHostnameVerifier((h, s) -> true);
+                    }
+
+                    activeConn[0] = conn;
+                    int code = conn.getResponseCode();
+                    if (code >= 200 && code < 300) {
+                        SwingUtilities.invokeLater(() -> area.setText(""));
+                        try (InputStream is = conn.getInputStream();
+                             java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is, StandardCharsets.UTF_8))) {
+                            String line;
+                            while (!Thread.currentThread().isInterrupted() && (line = reader.readLine()) != null) {
+                                final String finalLine = line;
+                                SwingUtilities.invokeLater(() -> {
+                                    area.append(finalLine + "\n");
+                                    area.setCaretPosition(area.getDocument().getLength());
+                                });
+                            }
+                        }
+                    } else {
+                        try (InputStream es = conn.getErrorStream();
+                             ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+                            String err = "";
+                            if (es != null) {
+                                byte[] buf = new byte[4096];
+                                int len;
+                                while ((len = es.read(buf)) != -1) {
+                                    bos.write(buf, 0, len);
+                                }
+                                err = bos.toString("UTF-8");
+                            }
+                            final String errMsg = "HTTP " + code + (err.isEmpty() ? "" : ": " + err);
+                            SwingUtilities.invokeLater(() -> area.setText("无法追踪日志: " + errMsg));
+                        }
+                    }
+                } catch (Exception ex) {
+                    if (!Thread.currentThread().isInterrupted()) {
+                        SwingUtilities.invokeLater(() -> area.append("\n[追踪日志断开]: " + ex.getMessage() + "\n"));
+                    }
+                } finally {
+                    if (conn != null) {
+                        conn.disconnect();
+                    }
+                }
+            });
+            activeThread[0] = t;
+            t.setDaemon(true);
+            t.start();
+        };
 
         Runnable logFetcher = () -> {
             String c = (String) containerCombo.getSelectedItem();
             if (c == null) return;
-            area.setText("正在加载日志，请稍候...");
+            
+            stopFollowing.run();
+            if (followCheck.isSelected()) {
+                startFollowing.run();
+            } else {
+                area.setText("正在加载日志，请稍候...");
+                new SwingWorker<String, Void>() {
+                    @Override
+                    protected String doInBackground() throws Exception {
+                        String path = "/api/v1/namespaces/" + ns + "/pods/" + podName + "/log?container=" + c + "&tailLines=" + currentTailLines[0];
+                        return executeRequest("GET", path, null, activeSkipTls);
+                    }
+
+                    @Override
+                    protected void done() {
+                        try {
+                            area.setText(get());
+                        } catch (Exception ex) {
+                            area.setText("加载日志失败: " + ex.getMessage());
+                        }
+                    }
+                }.execute();
+            }
+        };
+
+        loadMoreBtn.addActionListener(e -> {
+            String c = (String) containerCombo.getSelectedItem();
+            if (c == null) return;
+
+            loadMoreBtn.setEnabled(false);
+            currentTailLines[0] += 500;
+            area.insert("正在加载历史日志...\n", 0);
+
             new SwingWorker<String, Void>() {
                 @Override
                 protected String doInBackground() throws Exception {
-                    String path = "/api/v1/namespaces/" + ns + "/pods/" + podName + "/log?container=" + c + "&tailLines=1000";
+                    String path = "/api/v1/namespaces/" + ns + "/pods/" + podName + "/log?container=" + c + "&tailLines=" + currentTailLines[0];
                     return executeRequest("GET", path, null, activeSkipTls);
                 }
 
                 @Override
                 protected void done() {
                     try {
-                        area.setText(get());
+                        String logs = get();
+                        int oldLineCount = area.getLineCount();
+                        area.setText(logs);
+                        int newLineCount = area.getLineCount();
+                        int addedLines = newLineCount - oldLineCount;
+                        if (addedLines > 0) {
+                            try {
+                                int offset = area.getLineStartOffset(addedLines);
+                                area.setCaretPosition(offset);
+                            } catch (Exception ignored) {}
+                        }
                     } catch (Exception ex) {
-                        area.setText("加载日志失败: " + ex.getMessage());
+                        UIUtils.error(dialog, "加载更多日志失败: " + ex.getMessage());
                     }
                 }
             }.execute();
-        };
+        });
 
-        containerCombo.addActionListener(e -> logFetcher.run());
+        containerCombo.addActionListener(e -> {
+            currentTailLines[0] = 1000;
+            logFetcher.run();
+        });
+        followCheck.addActionListener(e -> {
+            currentTailLines[0] = 1000;
+            logFetcher.run();
+        });
 
         JButton refreshBtn = new JButton("刷新日志");
-        refreshBtn.addActionListener(e -> logFetcher.run());
+        refreshBtn.addActionListener(e -> {
+            currentTailLines[0] = 1000;
+            logFetcher.run();
+        });
         top.add(refreshBtn);
 
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -943,6 +1174,17 @@ public class K8sManagerPanel extends ToolPanel {
         dialog.add(sp, BorderLayout.CENTER);
         dialog.add(bottom, BorderLayout.SOUTH);
 
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                stopFollowing.run();
+            }
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                stopFollowing.run();
+            }
+        });
+
         // Fetch logs initially
         logFetcher.run();
 
@@ -955,12 +1197,8 @@ public class K8sManagerPanel extends ToolPanel {
             UIUtils.info(null, "请先选择需要修改副本数的 Deployment");
             return;
         }
-        String name = deployTable.getValueAt(row, 0).toString();
-        String ns = getSelectedNamespace();
-        if (ns.equals("all")) {
-            UIUtils.info(null, "请先选择具体的命名空间（非'全部'），然后再试");
-            return;
-        }
+        String ns = deployTable.getValueAt(row, 0).toString();
+        String name = deployTable.getValueAt(row, 1).toString();
 
         String input = UIUtils.input(null, "请输入目标 Replicas 副本数：", "2");
         if (input == null || input.trim().isEmpty()) return;
@@ -1003,12 +1241,8 @@ public class K8sManagerPanel extends ToolPanel {
             UIUtils.info(null, "请选择要删除的资源");
             return;
         }
-        String name = table.getValueAt(row, 0).toString();
-        String ns = getSelectedNamespace();
-        if (ns.equals("all")) {
-            UIUtils.info(null, "请先在上方选择具体的命名空间（非'全部'），然后再试");
-            return;
-        }
+        String ns = table.getValueAt(row, 0).toString();
+        String name = table.getValueAt(row, 1).toString();
 
         int opt = JOptionPane.showConfirmDialog(null, "确认要从集群中删除 " + resourceType + " \"" + name + "\"? 此操作无法撤销！", "安全警告", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (opt == JOptionPane.YES_OPTION) {
@@ -1263,6 +1497,233 @@ public class K8sManagerPanel extends ToolPanel {
             this.serverUrl = serverUrl;
             this.token = token;
             this.skipTls = skipTls;
+        }
+    }
+
+    static class YamlFolderNode {
+        String openText;
+        String closeText;
+
+        YamlFolderNode(String openText, String closeText) {
+            this.openText = openText;
+            this.closeText = closeText;
+        }
+
+        @Override
+        public String toString() {
+            return openText;
+        }
+    }
+
+    private static final String[] BRACKET_COLORS = {
+            "#C768DB", "#2D9CDB", "#F2C94C", "#6FCF97"
+    };
+
+    private javax.swing.tree.DefaultMutableTreeNode convertJsonNodeToTreeNode(JsonNode node, String keyName, int depth, boolean isLast) {
+        String keyHtml = keyName.isEmpty() ? "" : "<span style='color:#e06c75'>\"" + keyName + "\"</span>: ";
+        String comma = isLast ? "" : "<span style='color:#abb2bf'>,</span>";
+        String color = BRACKET_COLORS[depth % BRACKET_COLORS.length];
+
+        if (node.isObject()) {
+            String open = "<html>" + keyHtml + "<span style='color:" + color + "'><b>{</b></span></html>";
+            String close = "<html>" + keyHtml + "<span style='color:" + color + "'><b>{ ... }</b></span>" + comma + "</html>";
+            
+            javax.swing.tree.DefaultMutableTreeNode container = new javax.swing.tree.DefaultMutableTreeNode(new YamlFolderNode(open, close));
+            
+            java.util.Iterator<java.util.Map.Entry<String, JsonNode>> fields = node.fields();
+            java.util.List<java.util.Map.Entry<String, JsonNode>> list = new java.util.ArrayList<>();
+            while (fields.hasNext()) {
+                list.add(fields.next());
+            }
+            
+            for (int i = 0; i < list.size(); i++) {
+                java.util.Map.Entry<String, JsonNode> field = list.get(i);
+                boolean lastField = (i == list.size() - 1);
+                container.add(convertJsonNodeToTreeNode(field.getValue(), field.getKey(), depth + 1, lastField));
+            }
+            
+            String endText = "<html><span style='color:" + color + "'><b>}</b></span>" + comma + "</html>";
+            container.add(new javax.swing.tree.DefaultMutableTreeNode(new YamlFolderNode(endText, endText)));
+            return container;
+            
+        } else if (node.isArray()) {
+            String open = "<html>" + keyHtml + "<span style='color:" + color + "'><b>[</b></span></html>";
+            String close = "<html>" + keyHtml + "<span style='color:" + color + "'><b>[ ... ]</b></span>" + comma + "</html>";
+            
+            javax.swing.tree.DefaultMutableTreeNode container = new javax.swing.tree.DefaultMutableTreeNode(new YamlFolderNode(open, close));
+            
+            for (int i = 0; i < node.size(); i++) {
+                boolean lastField = (i == node.size() - 1);
+                container.add(convertJsonNodeToTreeNode(node.get(i), "", depth + 1, lastField));
+            }
+            
+            String endText = "<html><span style='color:" + color + "'><b>]</b></span>" + comma + "</html>";
+            container.add(new javax.swing.tree.DefaultMutableTreeNode(new YamlFolderNode(endText, endText)));
+            return container;
+        } else {
+            String valHtml = "";
+            if (node.isTextual()) {
+                valHtml = "<span style='color:#98c311'>\"" + escapeHtmlForTree(node.asText()) + "\"</span>";
+            } else if (node.isNumber()) {
+                valHtml = "<span style='color:#d19a66'>" + node.toString() + "</span>";
+            } else if (node.isBoolean()) {
+                valHtml = "<span style='color:#d19a66'><b>" + node.toString() + "</b></span>";
+            } else {
+                valHtml = "<span style='color:#abb2bf'>null</span>";
+            }
+            
+            String text = "<html>" + keyHtml + valHtml + comma + "</html>";
+            return new javax.swing.tree.DefaultMutableTreeNode(new YamlFolderNode(text, text));
+        }
+    }
+
+    private String escapeHtmlForTree(String text) {
+        if (text == null) return "";
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&apos;");
+    }
+
+    private void showApplyYamlDialog() {
+        JDialog dialog = new JDialog((Frame) null, "发布 K8s 资源 (Apply YAML)", true);
+        dialog.setSize(680, 520);
+        dialog.setLocationRelativeTo(null);
+
+        JTextArea area = new JTextArea();
+        area.setFont(UIUtils.monoFont());
+        JScrollPane sp = UIUtils.scrollText(area, "请在此处粘贴 YAML 配置文件内容");
+
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton deployBtn = new JButton("确认发布");
+        deployBtn.addActionListener(e -> {
+            String yaml = area.getText().trim();
+            if (yaml.isEmpty()) {
+                UIUtils.info(dialog, "内容不能为空！");
+                return;
+            }
+            deployBtn.setEnabled(false);
+            new SwingWorker<Void, Void>() {
+                @Override
+                protected Void doInBackground() throws Exception {
+                    applyResourceYaml(yaml);
+                    return null;
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        get();
+                        UIUtils.info(dialog, "发布成功！已在集群中应用该资源。");
+                        dialog.dispose();
+                        // 刷新当前列表
+                        loadPods();
+                        loadDeployments();
+                        loadServices();
+                        loadConfigMaps();
+                    } catch (Exception ex) {
+                        deployBtn.setEnabled(true);
+                        UIUtils.error(dialog, "发布失败: " + ex.getMessage());
+                    }
+                }
+            }.execute();
+        });
+
+        JButton closeBtn = new JButton("关闭");
+        closeBtn.addActionListener(e -> dialog.dispose());
+
+        bottom.add(deployBtn);
+        bottom.add(closeBtn);
+
+        dialog.add(sp, BorderLayout.CENTER);
+        dialog.add(bottom, BorderLayout.SOUTH);
+        dialog.setVisible(true);
+    }
+
+    private void applyResourceYaml(String yamlText) throws Exception {
+        ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
+        JsonNode node = yamlMapper.readTree(yamlText);
+        String kind = node.path("kind").asText();
+        String name = node.path("metadata").path("name").asText();
+        if (name.isEmpty() || kind.isEmpty()) {
+            throw new Exception("YAML 格式错误：未找到 kind 或 metadata.name");
+        }
+        
+        String namespace = node.path("metadata").path("namespace").asText();
+        if (namespace.isEmpty()) {
+            String selNs = getSelectedNamespace();
+            namespace = selNs.equals("all") ? "default" : selNs;
+        }
+
+        String plural = "";
+        String groupPrefix = "";
+        boolean isNamespaced = true;
+
+        switch (kind) {
+            case "Pod":
+                plural = "pods"; groupPrefix = "/api/v1"; break;
+            case "Service":
+                plural = "services"; groupPrefix = "/api/v1"; break;
+            case "ConfigMap":
+                plural = "configmaps"; groupPrefix = "/api/v1"; break;
+            case "Secret":
+                plural = "secrets"; groupPrefix = "/api/v1"; break;
+            case "Namespace":
+                plural = "namespaces"; groupPrefix = "/api/v1"; isNamespaced = false; break;
+            case "Node":
+                plural = "nodes"; groupPrefix = "/api/v1"; isNamespaced = false; break;
+            case "Deployment":
+                plural = "deployments"; groupPrefix = "/apis/apps/v1"; break;
+            case "StatefulSet":
+                plural = "statefulsets"; groupPrefix = "/apis/apps/v1"; break;
+            case "DaemonSet":
+                plural = "daemonsets"; groupPrefix = "/apis/apps/v1"; break;
+            case "Ingress":
+                plural = "ingresses"; groupPrefix = "/apis/networking.k8s.io/v1"; break;
+            default:
+                String apiVersion = node.path("apiVersion").asText();
+                if (apiVersion.contains("/")) {
+                    groupPrefix = "/apis/" + apiVersion;
+                } else {
+                    groupPrefix = "/api/" + apiVersion;
+                }
+                plural = kind.toLowerCase() + "s";
+                break;
+        }
+
+        ObjectMapper jsonMapper = new ObjectMapper();
+        String jsonBody = jsonMapper.writeValueAsString(node);
+
+        String collectionPath = isNamespaced 
+            ? groupPrefix + "/namespaces/" + namespace + "/" + plural
+            : groupPrefix + "/" + plural;
+            
+        String resourcePath = collectionPath + "/" + name;
+
+        boolean exists = false;
+        try {
+            executeRequest("GET", resourcePath, null, activeSkipTls);
+            exists = true;
+        } catch (Exception ex) {
+            if (ex.getMessage() != null && ex.getMessage().contains("HTTP 404")) {
+                exists = false;
+            } else {
+                throw ex;
+            }
+        }
+
+        if (exists) {
+            String existingJson = executeRequest("GET", resourcePath, null, activeSkipTls);
+            JsonNode existingNode = mapper.readTree(existingJson);
+            String resourceVersion = existingNode.path("metadata").path("resourceVersion").asText();
+            
+            ((com.fasterxml.jackson.databind.node.ObjectNode) node.path("metadata")).put("resourceVersion", resourceVersion);
+            String putBody = jsonMapper.writeValueAsString(node);
+            
+            executeRequest("PUT", resourcePath, putBody, activeSkipTls);
+        } else {
+            executeRequest("POST", collectionPath, jsonBody, activeSkipTls);
         }
     }
 }

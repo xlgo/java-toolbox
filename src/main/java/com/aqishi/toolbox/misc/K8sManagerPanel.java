@@ -23,6 +23,12 @@ import java.time.Duration;
 import java.util.*;
 import java.util.List;
 import java.util.prefs.Preferences;
+import com.jediterm.terminal.TtyConnector;
+import com.jediterm.terminal.ui.JediTermWidget;
+import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
+import java.io.PipedReader;
+import java.io.PipedWriter;
+import java.io.IOException;
 
 /**
  * Kubernetes 服务器集群管理工具：
@@ -1339,378 +1345,20 @@ public class K8sManagerPanel extends ToolPanel {
         }
     }
 
-    /**
-     * VT100 屏幕缓冲区 — 用二维字符网格模拟真实终端屏幕，
-     * 支持绝对光标定位、行覆盖重绘、区域清除和自动滚动，
-     * 使 top、vi 等全屏终端程序能够正常显示。
-     */
-    private static class ScreenBuffer {
-        final int rows, cols;
-        final char[][] screen;
-        int cursorRow, cursorCol;
 
-        ScreenBuffer(int rows, int cols) {
-            this.rows = rows;
-            this.cols = cols;
-            this.screen = new char[rows][cols];
-            clearScreen();
-        }
-
-        /** 清空整个屏幕 */
-        void clearScreen() {
-            for (int r = 0; r < rows; r++) {
-                java.util.Arrays.fill(screen[r], ' ');
-            }
-            cursorRow = 0;
-            cursorCol = 0;
-        }
-
-        /** 清除光标到行尾 */
-        void clearToEndOfLine() {
-            for (int c = cursorCol; c < cols; c++) {
-                screen[cursorRow][c] = ' ';
-            }
-        }
-
-        /** 清除光标到屏幕末尾 */
-        void clearToEndOfScreen() {
-            clearToEndOfLine();
-            for (int r = cursorRow + 1; r < rows; r++) {
-                java.util.Arrays.fill(screen[r], ' ');
-            }
-        }
-
-        /** 整屏上滚一行 */
-        void scrollUp() {
-            System.arraycopy(screen, 1, screen, 0, rows - 1);
-            java.util.Arrays.fill(screen[rows - 1], ' ');
-        }
-
-        /** 在当前光标位置写入一个字符 */
-        void writeChar(char c) {
-            if (cursorRow >= rows) {
-                cursorRow = rows - 1;
-                scrollUp();
-            }
-            if (cursorCol >= cols) {
-                cursorCol = 0;
-                cursorRow++;
-                if (cursorRow >= rows) {
-                    cursorRow = rows - 1;
-                    scrollUp();
-                }
-            }
-            screen[cursorRow][cursorCol] = c;
-            cursorCol++;
-        }
-
-        /** 解析输入流中的字符和 ANSI 转义序列 */
-        void processText(String text) {
-            int len = text.length();
-            for (int i = 0; i < len; i++) {
-                char c = text.charAt(i);
-
-                // ESC 转义序列
-                if (c == 27) {
-                    if (i + 1 < len && text.charAt(i + 1) == '[') {
-                        // CSI 序列: ESC [ params finalByte
-                        int j = i + 2;
-                        while (j < len) {
-                            char ch = text.charAt(j);
-                            if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) {
-                                String params = text.substring(i + 2, j);
-                                handleCsi(ch, params);
-                                i = j;
-                                break;
-                            }
-                            j++;
-                        }
-                        if (j >= len) {
-                            i = len; // 不完整序列，跳过
-                        }
-                    } else if (i + 1 < len && text.charAt(i + 1) == '(') {
-                        i += 2; // 跳过字符集切换序列 ESC ( X
-                    }
-                    // 跳过其他未知 ESC 序列
-                    continue;
-                }
-
-                // 换行
-                if (c == '\n') {
-                    cursorRow++;
-                    if (cursorRow >= rows) {
-                        cursorRow = rows - 1;
-                        scrollUp();
-                    }
-                    continue;
-                }
-
-                // 回车：光标回到行首
-                if (c == '\r') {
-                    cursorCol = 0;
-                    continue;
-                }
-
-                // 退格
-                if (c == '\b') {
-                    if (cursorCol > 0) cursorCol--;
-                    continue;
-                }
-
-                // Tab
-                if (c == '\t') {
-                    int next = (cursorCol / 8 + 1) * 8;
-                    cursorCol = Math.min(next, cols - 1);
-                    continue;
-                }
-
-                // 过滤不可打印控制字符
-                if (c < 32) {
-                    continue;
-                }
-
-                // DEL
-                if (c == 127) {
-                    if (cursorCol > 0) cursorCol--;
-                    continue;
-                }
-
-                // 普通可打印字符
-                writeChar(c);
-            }
-        }
-
-        /** 处理 CSI 序列 */
-        private void handleCsi(char finalByte, String params) {
-            switch (finalByte) {
-                case 'H': // 光标绝对定位 ESC[row;colH
-                case 'f': // 同 H
-                    moveCursorTo(params);
-                    break;
-                case 'A': // 光标上移
-                    cursorRow -= parseParam(params, 1);
-                    if (cursorRow < 0) cursorRow = 0;
-                    break;
-                case 'B': // 光标下移
-                    cursorRow += parseParam(params, 1);
-                    if (cursorRow >= rows) cursorRow = rows - 1;
-                    break;
-                case 'C': // 光标右移
-                    cursorCol += parseParam(params, 1);
-                    if (cursorCol >= cols) cursorCol = cols - 1;
-                    break;
-                case 'D': // 光标左移
-                    cursorCol -= parseParam(params, 1);
-                    if (cursorCol < 0) cursorCol = 0;
-                    break;
-                case 'J': // 清除屏幕
-                    handleEraseDisplay(parseParam(params, 0));
-                    break;
-                case 'K': // 清除行
-                    handleEraseLine(parseParam(params, 0));
-                    break;
-                case 'm': // SGR 颜色/样式 — 安全忽略
-                    break;
-                case 'r': // 设置滚动区域 — 简化忽略
-                    break;
-                case 'h': // 设置模式 — 忽略
-                case 'l': // 重置模式 — 忽略
-                    break;
-                case 'G': // 光标移到指定列
-                    cursorCol = parseParam(params, 1) - 1;
-                    if (cursorCol < 0) cursorCol = 0;
-                    if (cursorCol >= cols) cursorCol = cols - 1;
-                    break;
-                case 'd': // 光标移到指定行
-                    cursorRow = parseParam(params, 1) - 1;
-                    if (cursorRow < 0) cursorRow = 0;
-                    if (cursorRow >= rows) cursorRow = rows - 1;
-                    break;
-                case 'P': // 删除字符
-                    int delCount = parseParam(params, 1);
-                    for (int c = cursorCol; c < cols; c++) {
-                        screen[cursorRow][c] = (c + delCount < cols) ? screen[cursorRow][c + delCount] : ' ';
-                    }
-                    break;
-                case 'X': // 擦除字符
-                    int eraseCount = parseParam(params, 1);
-                    for (int c = cursorCol; c < Math.min(cursorCol + eraseCount, cols); c++) {
-                        screen[cursorRow][c] = ' ';
-                    }
-                    break;
-                case 'L': // 插入行
-                    int insertLines = parseParam(params, 1);
-                    for (int n = 0; n < insertLines && cursorRow + n < rows; n++) {
-                        // 向下推移
-                        for (int r = rows - 1; r > cursorRow + n; r--) {
-                            System.arraycopy(screen[r - 1], 0, screen[r], 0, cols);
-                        }
-                        java.util.Arrays.fill(screen[cursorRow + n], ' ');
-                    }
-                    break;
-                case 'M': // 删除行
-                    int deleteLines = parseParam(params, 1);
-                    for (int n = 0; n < deleteLines; n++) {
-                        for (int r = cursorRow; r < rows - 1; r++) {
-                            System.arraycopy(screen[r + 1], 0, screen[r], 0, cols);
-                        }
-                        java.util.Arrays.fill(screen[rows - 1], ' ');
-                    }
-                    break;
-                default:
-                    // 未知序列，安全忽略
-                    break;
-            }
-        }
-
-        /** 解析光标定位参数 */
-        private void moveCursorTo(String params) {
-            if (params.isEmpty()) {
-                cursorRow = 0;
-                cursorCol = 0;
-                return;
-            }
-            String[] parts = params.split(";");
-            int row = 0, col = 0;
-            try {
-                if (parts.length >= 1 && !parts[0].isEmpty()) row = Integer.parseInt(parts[0]) - 1;
-                if (parts.length >= 2 && !parts[1].isEmpty()) col = Integer.parseInt(parts[1]) - 1;
-            } catch (NumberFormatException e) {
-                // 解析失败归零
-            }
-            cursorRow = Math.max(0, Math.min(row, rows - 1));
-            cursorCol = Math.max(0, Math.min(col, cols - 1));
-        }
-
-        /** 解析单个数值参数（默认值 defaultVal） */
-        private int parseParam(String params, int defaultVal) {
-            if (params.isEmpty()) return defaultVal;
-            try {
-                return Integer.parseInt(params.split(";")[0]);
-            } catch (NumberFormatException e) {
-                return defaultVal;
-            }
-        }
-
-        /** 处理 ESC[nJ 清屏 */
-        private void handleEraseDisplay(int mode) {
-            switch (mode) {
-                case 0: // 清除光标到屏幕末尾
-                    clearToEndOfScreen();
-                    break;
-                case 1: // 清除屏幕开头到光标
-                    for (int r = 0; r < cursorRow; r++) {
-                        java.util.Arrays.fill(screen[r], ' ');
-                    }
-                    for (int c = 0; c <= cursorCol && c < cols; c++) {
-                        screen[cursorRow][c] = ' ';
-                    }
-                    break;
-                case 2: // 清除整个屏幕
-                case 3:
-                    for (int r = 0; r < rows; r++) {
-                        java.util.Arrays.fill(screen[r], ' ');
-                    }
-                    break;
-            }
-        }
-
-        /** 处理 ESC[nK 清行 */
-        private void handleEraseLine(int mode) {
-            switch (mode) {
-                case 0: // 清除光标到行尾
-                    clearToEndOfLine();
-                    break;
-                case 1: // 清除行首到光标
-                    for (int c = 0; c <= cursorCol && c < cols; c++) {
-                        screen[cursorRow][c] = ' ';
-                    }
-                    break;
-                case 2: // 清除整行
-                    java.util.Arrays.fill(screen[cursorRow], ' ');
-                    break;
-            }
-        }
-
-        /** 将屏幕网格渲染为纯文本，去除尾部空行和每行尾部空白 */
-        String render() {
-            // 先找到最后一个有内容的行（含光标所在行）
-            int lastRow = Math.max(cursorRow, 0);
-            for (int r = rows - 1; r > lastRow; r--) {
-                boolean empty = true;
-                for (int c = 0; c < cols; c++) {
-                    if (screen[r][c] != ' ') { empty = false; break; }
-                }
-                if (!empty) { lastRow = r; break; }
-            }
-
-            StringBuilder sb = new StringBuilder((lastRow + 1) * (cols + 1));
-            for (int r = 0; r <= lastRow; r++) {
-                // 找到每行最后一个非空白字符
-                int lastNonSpace = cols - 1;
-                while (lastNonSpace >= 0 && screen[r][lastNonSpace] == ' ') {
-                    lastNonSpace--;
-                }
-                sb.append(screen[r], 0, lastNonSpace + 1);
-                if (r < lastRow) sb.append('\n');
-            }
-            return sb.toString();
-        }
-    }
-
-    /** 将终端数据流通过 VT100 屏幕缓冲区解析并渲染到 JTextArea */
-    private void renderTerminal(ScreenBuffer buffer, JTextArea area, String text) {
-        SwingUtilities.invokeLater(() -> {
-            buffer.processText(text);
-            area.setText(buffer.render());
-            area.setCaretPosition(area.getDocument().getLength());
-            area.requestFocusInWindow();
-            area.getCaret().setVisible(true);
-        });
-    }
 
     private void showTerminalDialog(String ns, String podName, String containerName) {
         Window ancestor = SwingUtilities.getWindowAncestor(podTable);
         JDialog dialog = new JDialog(ancestor instanceof Frame ? (Frame) ancestor : (Frame) null, "容器控制台 (Exec) - " + podName + " / " + containerName, true);
-        dialog.setSize(800, 500);
+        dialog.setSize(850, 520);
         dialog.setLocationRelativeTo(ancestor);
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
         JLabel statusLabel = new JLabel("正在连接 API Server...");
         statusLabel.setBorder(new javax.swing.border.EmptyBorder(6, 10, 6, 10));
 
-        // 初始化 VT100 屏幕缓冲区（24行×80列）
-        ScreenBuffer screenBuffer = new ScreenBuffer(24, 80);
-
-        JTextArea terminalArea = new JTextArea();
-        terminalArea.setEditable(false);
-        terminalArea.setBackground(new Color(25, 25, 25));
-        terminalArea.setForeground(new Color(64, 224, 208)); 
-        terminalArea.setFont(new Font("Consolas", Font.PLAIN, 14));
-        terminalArea.setLineWrap(false);
-        terminalArea.setMargin(new Insets(8, 8, 8, 8));
-        JScrollPane sp = new JScrollPane(terminalArea);
-
-        // 禁用 Tab 切换焦点
-        terminalArea.setFocusTraversalKeysEnabled(false);
-
-        // 强行显示闪烁光标，还原 Terminal 视感
-        terminalArea.getCaret().setVisible(true);
-        terminalArea.getCaret().setBlinkRate(500);
-        terminalArea.addFocusListener(new java.awt.event.FocusAdapter() {
-            @Override
-            public void focusGained(java.awt.event.FocusEvent e) {
-                terminalArea.getCaret().setVisible(true);
-            }
-        });
-
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 4));
-        bottom.setBorder(new javax.swing.border.EmptyBorder(4, 10, 6, 10));
-        JButton clearBtn = new JButton("清屏");
-        bottom.add(clearBtn);
-        
-        dialog.add(statusLabel, BorderLayout.NORTH);
-        dialog.add(sp, BorderLayout.CENTER);
-        dialog.add(bottom, BorderLayout.SOUTH);
+        java.util.concurrent.LinkedBlockingQueue<String> readQueue = new java.util.concurrent.LinkedBlockingQueue<>();
+        StringBuilder readBuffer = new StringBuilder();
 
         String wsUrl = activeServerUrl;
         if (wsUrl.startsWith("https://")) {
@@ -1718,13 +1366,153 @@ public class K8sManagerPanel extends ToolPanel {
         } else if (wsUrl.startsWith("http://")) {
             wsUrl = "ws://" + wsUrl.substring(7);
         }
-        
+
+        org.java_websocket.client.WebSocketClient[] clientHolder = new org.java_websocket.client.WebSocketClient[1];
+
+        TtyConnector connector = new TtyConnector() {
+            private boolean closed = false;
+
+            @Override
+            public String getName() {
+                return "K8s Container Terminal";
+            }
+
+            @Override
+            public boolean init(com.jediterm.terminal.Questioner q) {
+                return true;
+            }
+
+            @Override
+            public void write(byte[] bytes) throws IOException {
+                org.java_websocket.client.WebSocketClient client = clientHolder[0];
+                if (bytes != null && bytes.length > 0 && client != null && client.isOpen()) {
+                    try {
+                        byte[] frame = new byte[bytes.length + 1];
+                        frame[0] = 0; // channel 0 (stdin)
+                        System.arraycopy(bytes, 0, frame, 1, bytes.length);
+                        client.send(frame);
+                    } catch (Exception e) {
+                        // ignore
+                    }
+                }
+            }
+
+            @Override
+            public void write(String s) throws IOException {
+                if (s != null) {
+                    write(s.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+
+            @Override
+            public int read(char[] buf, int offset, int len) throws IOException {
+                if (len <= 0) return 0;
+                synchronized (readBuffer) {
+                    while (readBuffer.length() == 0) {
+                        if (closed) return -1;
+                        try {
+                            String s = readQueue.take();
+                            if (closed) return -1;
+                            readBuffer.append(s);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return -1;
+                        }
+                    }
+                    int count = Math.min(len, readBuffer.length());
+                    readBuffer.getChars(0, count, buf, offset);
+                    readBuffer.delete(0, count);
+                    return count;
+                }
+            }
+
+            @Override
+            public void close() {
+                closed = true;
+                try {
+                    if (clientHolder[0] != null) {
+                        clientHolder[0].close();
+                    }
+                } catch (Exception e) {}
+                readQueue.offer(""); // Unblock read thread if any
+            }
+
+            @Override
+            public void resize(Dimension winSize) {
+                org.java_websocket.client.WebSocketClient client = clientHolder[0];
+                if (client != null && client.isOpen()) {
+                    try {
+                        String resizeJson = String.format("{\"Width\":%d,\"Height\":%d}", winSize.width, winSize.height);
+                        byte[] data = resizeJson.getBytes(StandardCharsets.UTF_8);
+                        byte[] frame = new byte[data.length + 1];
+                        frame[0] = 4; // channel 4 (resize)
+                        System.arraycopy(data, 0, frame, 1, data.length);
+                        client.send(frame);
+                    } catch (Exception e) {
+                        // ignore
+                    }
+                }
+            }
+
+            @Override
+            public void resize(Dimension winSize, Dimension pixelSize) {
+                resize(winSize);
+            }
+
+            @Override
+            public void resize(com.jediterm.core.util.TermSize termSize) {
+                if (termSize != null) {
+                    resize(new Dimension(termSize.getColumns(), termSize.getRows()));
+                }
+            }
+
+            @Override
+            public int waitFor() throws InterruptedException {
+                return 0;
+            }
+
+            @Override
+            public boolean isConnected() {
+                return !closed;
+            }
+
+            @Override
+            public boolean ready() {
+                return !closed;
+            }
+        };
+
+        DefaultSettingsProvider settingsProvider = new DefaultSettingsProvider() {
+            @Override
+            public Font getTerminalFont() {
+                return new Font("Monospaced", Font.PLAIN, 14);
+            }
+
+            @Override
+            public float getTerminalFontSize() {
+                return 14.0f;
+            }
+
+            @Override
+            public com.jediterm.terminal.HyperlinkStyle.HighlightMode getHyperlinkHighlightingMode() {
+                return com.jediterm.terminal.HyperlinkStyle.HighlightMode.NEVER;
+            }
+        };
+
+        JediTermWidget terminalWidget = new JediTermWidget(settingsProvider);
+        terminalWidget.createTerminalSession(connector);
+        terminalWidget.start();
+
+        dialog.add(statusLabel, BorderLayout.NORTH);
+        dialog.add(terminalWidget, BorderLayout.CENTER);
+
         try {
-            // 启用 tty=true
             String fullPath = wsUrl + "/api/v1/namespaces/" + ns + "/pods/" + podName + "/exec"
                     + "?container=" + containerName
                     + "&stdin=true&stdout=true&stderr=true&tty=true" 
-                    + "&command=sh"; 
+                    + "&command=sh"
+                    + "&command=-c"
+                    + "&command=export%20LANG%3DC.UTF-8%20%7C%7C%20export%20LANG%3Den_US.UTF-8%3B%20if%20%5B%20-x%20%2Fbin%2Fbash%20%5D%20%7C%7C%20which%20bash%20%3E%2Fdev%2Fnull%202%3E%261%3B%20then%20exec%20bash%3B%20else%20exec%20sh%3B%20fi"; 
 
             java.net.URI uri = new java.net.URI(fullPath);
             
@@ -1739,16 +1527,21 @@ public class K8sManagerPanel extends ToolPanel {
                 public void onOpen(org.java_websocket.handshake.ServerHandshake handshakedata) {
                     SwingUtilities.invokeLater(() -> {
                         statusLabel.setText("连接成功 (容器: " + containerName + ")");
-                        terminalArea.requestFocusInWindow();
-                        terminalArea.getCaret().setVisible(true);
-                        terminalArea.getCaret().setBlinkRate(500);
-                        terminalArea.setText(""); // 连上后清空状态文案，直接迎接容器的回显
+                        javax.swing.JComponent pref = terminalWidget.getPreferredFocusableComponent();
+                        if (pref != null) {
+                            pref.requestFocusInWindow();
+                            pref.requestFocus();
+                        } else {
+                            terminalWidget.requestFocusInWindow();
+                        }
                     });
                 }
 
                 @Override
                 public void onMessage(String message) {
-                    renderTerminal(screenBuffer, terminalArea, message);
+                    if (message != null) {
+                        readQueue.offer(message);
+                    }
                 }
 
                 @Override
@@ -1759,12 +1552,14 @@ public class K8sManagerPanel extends ToolPanel {
                             byte[] data = new byte[bytes.remaining()];
                             bytes.get(data);
                             String text = new String(data, StandardCharsets.UTF_8);
-                            renderTerminal(screenBuffer, terminalArea, text);
+                            readQueue.offer(text);
                         } else if (channel == 3) {
                             byte[] data = new byte[bytes.remaining()];
                             bytes.get(data);
                             String err = new String(data, StandardCharsets.UTF_8);
-                            renderTerminal(screenBuffer, terminalArea, "\n[K8s 错误]: " + err + "\n");
+                            if (err != null && !err.trim().startsWith("{")) {
+                                readQueue.offer("\n[K8s 错误]: " + err + "\n");
+                            }
                         }
                     }
                 }
@@ -1773,108 +1568,32 @@ public class K8sManagerPanel extends ToolPanel {
                 public void onClose(int code, String reason, boolean remote) {
                     SwingUtilities.invokeLater(() -> {
                         statusLabel.setText("连接已断开 (" + reason + ")");
-                        terminalArea.append("\n=== 连接已断开 ===\n");
+                        readQueue.offer("\n=== 连接已断开 ===\n");
+                        javax.swing.Timer timer = new javax.swing.Timer(1500, e -> dialog.dispose());
+                        timer.setRepeats(false);
+                        timer.start();
                     });
                 }
 
                 @Override
                 public void onError(Exception ex) {
                     SwingUtilities.invokeLater(() -> {
-                        terminalArea.append("\n[连接异常]: " + ex.getMessage() + "\n");
+                        readQueue.offer("\n[连接异常]: " + ex.getMessage() + "\n");
                     });
                 }
             };
+
+            clientHolder[0] = client;
 
             if (activeServerUrl.startsWith("https://") && activeSocketFactory != null) {
                 client.setSocketFactory(activeSocketFactory);
             }
 
-            // 接管 terminalArea 的原生键盘输入
-            terminalArea.addKeyListener(new java.awt.event.KeyAdapter() {
-                @Override
-                public void keyTyped(java.awt.event.KeyEvent e) {
-                    char c = e.getKeyChar();
-                    // 忽略控制按键，这些在 keyPressed 中接管发送
-                    if (c != java.awt.event.KeyEvent.CHAR_UNDEFINED && c != '\n' && c != '\r' && c != '\t' && c != '\b' && c != 127) {
-                        if (!e.isControlDown()) {
-                            sendStdinToContainer(client, String.valueOf(c));
-                        }
-                    }
-                    e.consume(); // 拦截 Swing 默认字符上屏行为，交由容器终端回显
-                }
-
-                @Override
-                public void keyPressed(java.awt.event.KeyEvent e) {
-                    int code = e.getKeyCode();
-                    
-                    if (e.isControlDown()) {
-                        if (code == java.awt.event.KeyEvent.VK_C) {
-                            sendStdinToContainer(client, "\u0003"); // Ctrl+C
-                            e.consume();
-                            return;
-                        }
-                        if (code == java.awt.event.KeyEvent.VK_R) {
-                            sendStdinToContainer(client, "\u0012"); // Ctrl+R
-                            e.consume();
-                            return;
-                        }
-                        if (code == java.awt.event.KeyEvent.VK_D) {
-                            sendStdinToContainer(client, "\u0004"); // Ctrl+D
-                            e.consume();
-                            return;
-                        }
-                        if (code == java.awt.event.KeyEvent.VK_L) {
-                            screenBuffer.clearScreen();
-                            terminalArea.setText("");
-                            sendStdinToContainer(client, "\u000c"); // Ctrl+L (清屏)
-                            e.consume();
-                            return;
-                        }
-                    }
-
-                    switch (code) {
-                        case java.awt.event.KeyEvent.VK_ENTER:
-                            sendStdinToContainer(client, "\r"); 
-                            e.consume();
-                            break;
-                        case java.awt.event.KeyEvent.VK_BACK_SPACE:
-                            sendStdinToContainer(client, "\u007f"); 
-                            e.consume();
-                            break;
-                        case java.awt.event.KeyEvent.VK_TAB:
-                            sendStdinToContainer(client, "\t"); 
-                            e.consume();
-                            break;
-                        case java.awt.event.KeyEvent.VK_UP:
-                            sendStdinToContainer(client, "\u001b[A"); 
-                            e.consume();
-                            break;
-                        case java.awt.event.KeyEvent.VK_DOWN:
-                            sendStdinToContainer(client, "\u001b[B"); 
-                            e.consume();
-                            break;
-                        case java.awt.event.KeyEvent.VK_LEFT:
-                            sendStdinToContainer(client, "\u001b[D"); 
-                            e.consume();
-                            break;
-                        case java.awt.event.KeyEvent.VK_RIGHT:
-                            sendStdinToContainer(client, "\u001b[C"); 
-                            e.consume();
-                            break;
-                    }
-                }
-            });
-
-            clearBtn.addActionListener(e -> {
-                screenBuffer.clearScreen();
-                terminalArea.setText("");
-                terminalArea.requestFocusInWindow();
-            });
-
             dialog.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
-                public void windowClosing(java.awt.event.WindowEvent e) {
-                    client.close();
+                public void windowClosed(java.awt.event.WindowEvent e) {
+                    connector.close();
+                    terminalWidget.stop();
                 }
             });
 

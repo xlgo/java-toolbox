@@ -119,10 +119,17 @@ public final class Main {
         }
 
         public void setProgress(int val, String message) {
-            SwingUtilities.invokeLater(() -> {
+            Runnable r = () -> {
                 progressBar.setValue(val);
                 statusLabel.setText(message);
-            });
+                progressBar.paintImmediately(0, 0, progressBar.getWidth(), progressBar.getHeight());
+                statusLabel.paintImmediately(0, 0, statusLabel.getWidth(), statusLabel.getHeight());
+            };
+            if (SwingUtilities.isEventDispatchThread()) {
+                r.run();
+            } else {
+                SwingUtilities.invokeLater(r);
+            }
         }
     }
 }

@@ -19,6 +19,13 @@
         <flatlaf.version>3.5.4</flatlaf.version>
     </properties>
 
+    <repositories>
+        <repository>
+            <id>jetbrains-intellij-dependencies</id>
+            <url>https://packages.jetbrains.team/maven/p/ij/intellij-dependencies</url>
+        </repository>
+    </repositories>
+
     <dependencies>
         <!-- FlatLaf 外观包：现代扁平风格，自带 Light/Dark/IntelliJ/Darcula/macOS 等核心主题 -->
         <dependency>
@@ -87,6 +94,33 @@
             <artifactId>Java-WebSocket</artifactId>
             <version>1.5.4</version>
         </dependency>
+        <!-- JediTerm Terminal Emulator -->
+        <dependency>
+            <groupId>org.jetbrains.jediterm</groupId>
+            <artifactId>jediterm-core</artifactId>
+            <version>3.72</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains.jediterm</groupId>
+            <artifactId>jediterm-ui</artifactId>
+            <version>3.72</version>
+        </dependency>
+        <!-- Database Drivers -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>8.0.33</version>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.6.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc8</artifactId>
+            <version>19.18.0.0</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -110,8 +144,6 @@
                         <phase>package</phase>
                         <goals><goal>shade</goal></goals>
                         <configuration>
-                            <!-- 排除 BouncyCastle 等依赖 JAR 的签名文件，避免打包后
-                                 "Invalid signature file digest" 错误 -->
                             <filters>
                                 <filter>
                                     <artifact>*:*</artifact>
@@ -127,6 +159,31 @@
                                     <mainClass>com.aqishi.toolbox.Main</mainClass>
                                 </transformer>
                             </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- 使用 antrun 插件在打包后强行将资源 properties 和图片写入最终的 JAR，彻底解决打包丢失的问题 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <echo message="[Antrun] Injecting properties and image resources into final JAR..."/>
+                                <jar destfile="${project.build.directory}/${project.build.finalName}.jar" update="true">
+                                    <fileset dir="${project.build.outputDirectory}">
+                                        <include name="**/*.properties"/>
+                                        <include name="**/*.png"/>
+                                    </fileset>
+                                </jar>
+                            </target>
                         </configuration>
                     </execution>
                 </executions>

@@ -363,4 +363,190 @@ public class WeChatContactReader {
         if (name == null) return "";
         return name.replaceAll("[\\\\/:*?\"<>|\\s]", "_");
     }
+
+    /**
+     * 从 Excel 中读取联系人列表
+     */
+    public static List<ContactInfo> readContactsFromExcel(File excelFile) throws Exception {
+        List<ContactInfo> contacts = new ArrayList<>();
+        try (InputStream is = new FileInputStream(excelFile);
+             Workbook workbook = new XSSFWorkbook(is)) {
+            Sheet sheet = workbook.getSheetAt(0);
+            int rowCount = sheet.getLastRowNum();
+            if (rowCount < 0) return contacts;
+
+            // 1. 尝试从第一行读取表头进行列对齐
+            Row headerRow = sheet.getRow(0);
+            int nickCol = 0, wechatCol = 1, remarkCol = 2, genderCol = 3;
+            boolean hasHeader = false;
+            if (headerRow != null) {
+                for (int c = 0; c < headerRow.getLastCellNum(); c++) {
+                    Cell cell = headerRow.getCell(c);
+                    if (cell != null) {
+                        try {
+                            String val = cell.getStringCellValue().trim();
+                            if (val.contains("昵称") || val.equalsIgnoreCase("nickname")) { nickCol = c; hasHeader = true; }
+                            else if (val.contains("微信") || val.equalsIgnoreCase("alias") || val.equalsIgnoreCase("wechat") || val.contains("账号") || val.contains("ID")) { wechatCol = c; hasHeader = true; }
+                            else if (val.contains("备注") || val.equalsIgnoreCase("remark")) { remarkCol = c; hasHeader = true; }
+                            else if (val.contains("性别") || val.equalsIgnoreCase("gender") || val.equalsIgnoreCase("sex")) { genderCol = c; hasHeader = true; }
+                        } catch (Exception ignored) {}
+                    }
+                }
+            }
+
+            int startRow = hasHeader ? 1 : 0;
+            for (int r = startRow; r <= rowCount; r++) {
+                Row row = sheet.getRow(r);
+                if (row == null) continue;
+
+                ContactInfo info = new ContactInfo();
+                info.nickname = getRowCellValue(row, nickCol);
+                info.alias = getRowCellValue(row, wechatCol);
+                info.username = info.alias != null && !info.alias.isEmpty() ? info.alias : UUID.randomUUID().toString();
+                info.remark = getRowCellValue(row, remarkCol);
+
+                String genderVal = getRowCellValue(row, genderCol);
+                if (genderVal.contains("男") || genderVal.equals("1")) info.gender = 1;
+                else if (genderVal.contains("女") || genderVal.equals("2")) info.gender = 2;
+                else info.gender = 0;
+
+                info.type = 1;
+                if (info.nickname.isEmpty() && info.alias.isEmpty() && info.remark.isEmpty()) continue;
+                contacts.add(info);
+            }
+        }
+        return contacts;
+    }
+
+    private static String getRowCellValue(Row row, int colIdx) {
+        if (colIdx < 0 || colIdx >= row.getLastCellNum()) return "";
+        Cell cell = row.getCell(colIdx);
+        if (cell == null) return "";
+        try {
+            switch (cell.getCellType()) {
+                case STRING: return cell.getStringCellValue().trim();
+                case NUMERIC:
+                    double d = cell.getNumericCellValue();
+                    if (d == (long)d) return String.valueOf((long)d);
+                    return String.valueOf(d);
+                case BOOLEAN: return String.valueOf(cell.getBooleanCellValue());
+                default: return "";
+            }
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /**
+     * 从 CSV / TXT 文件中读取联系人列表
+     */
+    public static List<ContactInfo> readContactsFromTextFile(File file) throws Exception {
+        List<ContactInfo> contacts = new ArrayList<>();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"))) {
+            String line;
+            boolean firstLine = true;
+            int nickCol = 0, wechatCol = 1, remarkCol = 2, genderCol = 3;
+            boolean hasHeader = false;
+            String delimiter = null;
+
+            while ((line = reader.readLine()) != null) {
+                if (line.trim().isEmpty()) continue;
+                if (delimiter == null) {
+                    if (line.contains("\t")) delimiter = "\t";
+                    else if (line.contains(",")) delimiter = ",";
+                    else if (line.contains(";")) delimiter = ";";
+                    else delimiter = "\\s+";
+                }
+
+                String[] parts = line.split(delimiter);
+                if (firstLine) {
+                    firstLine = false;
+                    boolean matchHeader = false;
+                    for (int c = 0; c < parts.length; c++) {
+                        String val = parts[c].trim();
+                        if (val.contains("昵称") || val.equalsIgnoreCase("nickname")) { nickCol = c; matchHeader = true; }
+                        else if (val.contains("微信") || val.equalsIgnoreCase("alias") || val.equalsIgnoreCase("wechat") || val.contains("账号") || val.contains("ID")) { wechatCol = c; matchHeader = true; }
+                        else if (val.contains("备注") || val.equalsIgnoreCase("remark")) { remarkCol = c; matchHeader = true; }
+                        else if (val.contains("性别") || val.equalsIgnoreCase("gender") || val.equalsIgnoreCase("sex")) { genderCol = c; matchHeader = true; }
+                    }
+                    if (matchHeader) {
+                        hasHeader = true;
+                        continue;
+                    }
+                }
+
+                ContactInfo info = new ContactInfo();
+                info.nickname = parts.length > nickCol ? parts[nickCol].trim() : "";
+                info.alias = parts.length > wechatCol ? parts[wechatCol].trim() : "";
+                info.username = info.alias != null && !info.alias.isEmpty() ? info.alias : UUID.randomUUID().toString();
+                info.remark = parts.length > remarkCol ? parts[remarkCol].trim() : "";
+
+                String genderVal = parts.length > genderCol ? parts[genderCol].trim() : "";
+                if (genderVal.contains("男") || genderVal.equals("1")) info.gender = 1;
+                else if (genderVal.contains("女") || genderVal.equals("2")) info.gender = 2;
+                else info.gender = 0;
+
+                info.type = 1;
+                if (info.nickname.isEmpty() && info.alias.isEmpty() && info.remark.isEmpty()) continue;
+                contacts.add(info);
+            }
+        }
+        return contacts;
+    }
+
+    /**
+     * 从剪贴板/纯文本中解析联系人列表
+     */
+    public static List<ContactInfo> parseContactsFromText(String text) {
+        List<ContactInfo> contacts = new ArrayList<>();
+        if (text == null || text.trim().isEmpty()) return contacts;
+        String[] lines = text.split("\\r?\\n");
+        String delimiter = null;
+        boolean firstLine = true;
+        int nickCol = 0, wechatCol = 1, remarkCol = 2, genderCol = 3;
+        boolean hasHeader = false;
+
+        for (String line : lines) {
+            if (line.trim().isEmpty()) continue;
+            if (delimiter == null) {
+                if (line.contains("\t")) delimiter = "\t";
+                else if (line.contains(",")) delimiter = ",";
+                else if (line.contains(";")) delimiter = ";";
+                else delimiter = "\\s+";
+            }
+
+            String[] parts = line.split(delimiter);
+            if (firstLine) {
+                firstLine = false;
+                boolean matchHeader = false;
+                for (int c = 0; c < parts.length; c++) {
+                    String val = parts[c].trim();
+                    if (val.contains("昵称") || val.equalsIgnoreCase("nickname")) { nickCol = c; matchHeader = true; }
+                    else if (val.contains("微信") || val.equalsIgnoreCase("alias") || val.equalsIgnoreCase("wechat") || val.contains("账号") || val.contains("ID")) { wechatCol = c; matchHeader = true; }
+                    else if (val.contains("备注") || val.equalsIgnoreCase("remark")) { remarkCol = c; matchHeader = true; }
+                    else if (val.contains("性别") || val.equalsIgnoreCase("gender") || val.equalsIgnoreCase("sex")) { genderCol = c; matchHeader = true; }
+                }
+                if (matchHeader) {
+                    hasHeader = true;
+                    continue;
+                }
+            }
+
+            ContactInfo info = new ContactInfo();
+            info.nickname = parts.length > nickCol ? parts[nickCol].trim() : "";
+            info.alias = parts.length > wechatCol ? parts[wechatCol].trim() : "";
+            info.username = info.alias != null && !info.alias.isEmpty() ? info.alias : UUID.randomUUID().toString();
+            info.remark = parts.length > remarkCol ? parts[remarkCol].trim() : "";
+
+            String genderVal = parts.length > genderCol ? parts[genderCol].trim() : "";
+            if (genderVal.contains("男") || genderVal.equals("1")) info.gender = 1;
+            else if (genderVal.contains("女") || genderVal.equals("2")) info.gender = 2;
+            else info.gender = 0;
+
+            info.type = 1;
+            if (info.nickname.isEmpty() && info.alias.isEmpty() && info.remark.isEmpty()) continue;
+            contacts.add(info);
+        }
+        return contacts;
+    }
 }

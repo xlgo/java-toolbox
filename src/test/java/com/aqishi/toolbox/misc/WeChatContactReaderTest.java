@@ -148,4 +148,33 @@ public class WeChatContactReaderTest {
         assertTrue(excelFile.length() > 0);
         excelFile.delete();
     }
+
+    @Test
+    public void testParseContactsFromText() {
+        String text = "昵称\t微信号\t备注\t性别\n" +
+                "张三\tzhangsan\t小张\t男\n" +
+                "李四\tlisi\t小李\t女\n" +
+                "王五\t\t老王\t未知";
+        List<WeChatContactReader.ContactInfo> contacts = WeChatContactReader.parseContactsFromText(text);
+        assertNotNull(contacts);
+        assertEquals(3, contacts.size());
+
+        WeChatContactReader.ContactInfo zhangsan = contacts.get(0);
+        assertEquals("张三", zhangsan.nickname);
+        assertEquals("zhangsan", zhangsan.alias);
+        assertEquals("小张", zhangsan.remark);
+        assertEquals(1, zhangsan.gender);
+
+        WeChatContactReader.ContactInfo lisi = contacts.get(1);
+        assertEquals("李四", lisi.nickname);
+        assertEquals("lisi", lisi.alias);
+        assertEquals("小李", lisi.remark);
+        assertEquals(2, lisi.gender);
+
+        WeChatContactReader.ContactInfo wangwu = contacts.get(2);
+        assertEquals("王五", wangwu.nickname);
+        assertEquals("", wangwu.alias);
+        assertEquals("老王", wangwu.remark);
+        assertEquals(0, wangwu.gender);
+    }
 }

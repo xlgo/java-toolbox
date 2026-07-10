@@ -273,27 +273,21 @@ public class WeChatPanel extends ToolPanel {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.insets = new Insets(6, 8, 6, 8);
 
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        topPanel.add(new JLabel("解密后的数据库 (.db) 文件:"), gbc);
+        wxcDbPathField = new JTextField(); // Keep initialized to avoid NPE
+        
+        JPanel importBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        wxcBrowseBtn = new JButton("导入外部通讯录文件 (Excel/CSV/TXT)...");
+        wxcLoadBtn = new JButton("从剪贴板/文本批量导入...");
+        importBtnRow.add(wxcBrowseBtn);
+        importBtnRow.add(wxcLoadBtn);
 
-        wxcDbPathField = new JTextField();
-        wxcDbPathField.setPreferredSize(new Dimension(250, 26));
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        topPanel.add(wxcDbPathField, gbc);
-
-        wxcBrowseBtn = new JButton("浏览...");
-        wxcBrowseBtn.setPreferredSize(new Dimension(80, 26));
-        gbc.gridx = 2; gbc.weightx = 0;
-        topPanel.add(wxcBrowseBtn, gbc);
-
-        wxcLoadBtn = UIUtils.button("读取通讯录", 100);
-        gbc.gridx = 3;
-        topPanel.add(wxcLoadBtn, gbc);
+        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 4; gbc.weightx = 1.0;
+        topPanel.add(importBtnRow, gbc);
 
         // Usage Tip Label
-        JLabel tipLabel = new JLabel("<html><b>使用说明：</b>微信本地数据库默认加密，请先使用 <b>PyWxDump</b> 等解密工具将微信的 <b>MicroMsg.db</b> 或 <b>contact.db</b> 解密为标准的 SQLite 文件，再在此导入。</html>");
+        JLabel tipLabel = new JLabel("<html><b>使用说明：</b>此处用于直接导入外部通讯录列表。您可以使用任何工具导出通讯录为 Excel、CSV 或 TXT 文件后在此导入，或者直接在弹窗中从剪贴板复制粘贴通讯录文本列表。支持字段自适应匹配（如昵称、微信号、备注、性别）。</html>");
         tipLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
-        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 4; gbc.weightx = 1.0;
+        gbc.gridy = 1;
         topPanel.add(tipLabel, gbc);
 
         panel.add(topPanel, BorderLayout.NORTH);
@@ -392,67 +386,43 @@ public class WeChatPanel extends ToolPanel {
     private void setupContactListeners() {
         wxcBrowseBtn.addActionListener(e -> {
             JFileChooser chooser = new JFileChooser();
-            chooser.setFileFilter(new FileNameExtensionFilter("SQLite 数据库文件 (*.db; *.sqlite)", "db", "sqlite"));
+            chooser.setFileFilter(new FileNameExtensionFilter("通讯录文件 (*.xlsx; *.xls; *.csv; *.txt)", "xlsx", "xls", "csv", "txt"));
             if (chooser.showOpenDialog(getView()) == JFileChooser.APPROVE_OPTION) {
-                wxcDbPathField.setText(chooser.getSelectedFile().getAbsolutePath());
-            }
-        });
+                File file = chooser.getSelectedFile();
+                wxcProgressBar.setValue(0);
+                wxcProgressBar.setString("正在解析通讯录文件...");
+                wxcProgressBar.setIndeterminate(true);
+                wxcProgressBar.setVisible(true);
 
-        wxcLoadBtn.addActionListener(e -> {
-            String path = wxcDbPathField.getText().trim();
-            if (path.isEmpty()) {
-                UIUtils.error(getView(), "请先选择或输入解密后的数据库文件路径！");
-                return;
-            }
-            File file = new File(path);
-            if (!file.exists()) {
-                UIUtils.error(getView(), "数据库文件不存在，请检查路径！");
-                return;
-            }
-
-            wxcLoadBtn.setEnabled(false);
-            wxcProgressBar.setValue(0);
-            wxcProgressBar.setString("正在读取数据库...");
-            wxcProgressBar.setIndeterminate(true);
-            wxcProgressBar.setVisible(true);
-
-            new SwingWorker<java.util.List<WeChatContactReader.ContactInfo>, Void>() {
-                @Override
-                protected java.util.List<WeChatContactReader.ContactInfo> doInBackground() throws Exception {
-                    return WeChatContactReader.readContacts(file);
-                }
-
-                @Override
-                protected void done() {
-                    wxcLoadBtn.setEnabled(true);
-                    wxcProgressBar.setVisible(false);
-                    wxcProgressBar.setIndeterminate(false);
-                    try {
-                        allContacts = get();
-                        wxcTableModel.setRowCount(0);
-                        for (WeChatContactReader.ContactInfo c : allContacts) {
-                            String genderStr = "未知";
-                            if (c.gender == 1) genderStr = "男";
-                            else if (c.gender == 2) genderStr = "女";
-                            wxcTableModel.addRow(new Object[]{
-                                    false,
-                                    c.nickname != null ? c.nickname : "",
-                                    c.alias != null ? c.alias : "",
-                                    c.remark != null ? c.remark : "",
-                                    genderStr,
-                                    c.avatarUrl != null ? c.avatarUrl : "",
-                                    c.username
-                            });
+                new SwingWorker<java.util.List<WeChatContactReader.ContactInfo>, Void>() {
+                    @Override
+                    protected java.util.List<WeChatContactReader.ContactInfo> doInBackground() throws Exception {
+                        String name = file.getName().toLowerCase();
+                        if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+                            return WeChatContactReader.readContactsFromExcel(file);
+                        } else {
+                            return WeChatContactReader.readContactsFromTextFile(file);
                         }
-                        filterWxcTable();
-                        UIUtils.info(getView(), "读取成功！共加载了 " + allContacts.size() + " 个联系人。");
-                    } catch (Exception ex) {
-                        UIUtils.error(getView(), "读取通讯录失败:\n" + ex.getMessage());
-                        ex.printStackTrace();
                     }
-                }
-            }.execute();
+
+                    @Override
+                    protected void done() {
+                        wxcProgressBar.setVisible(false);
+                        wxcProgressBar.setIndeterminate(false);
+                        try {
+                            java.util.List<WeChatContactReader.ContactInfo> loaded = get();
+                            allContacts.addAll(loaded);
+                            refreshContactTable();
+                            UIUtils.info(getView(), "导入成功！共加载了 " + loaded.size() + " 个联系人。");
+                        } catch (Exception ex) {
+                            UIUtils.error(getView(), "解析通讯录文件失败:\n" + ex.getMessage());
+                        }
+                    }
+                }.execute();
+            }
         });
+
+        wxcLoadBtn.addActionListener(e -> showClipboardImportDialog());
 
         wxcSearchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             @Override
@@ -711,6 +681,76 @@ public class WeChatPanel extends ToolPanel {
             }
         }
         return null;
+    }
+
+    private void refreshContactTable() {
+        wxcTableModel.setRowCount(0);
+        for (WeChatContactReader.ContactInfo c : allContacts) {
+            String genderStr = "未知";
+            if (c.gender == 1) genderStr = "男";
+            else if (c.gender == 2) genderStr = "女";
+            wxcTableModel.addRow(new Object[]{
+                    c.selected,
+                    c.nickname != null ? c.nickname : "",
+                    c.alias != null ? c.alias : "",
+                    c.remark != null ? c.remark : "",
+                    genderStr,
+                    c.avatarUrl != null ? c.avatarUrl : "",
+                    c.username
+            });
+        }
+        filterWxcTable();
+    }
+
+    private void showClipboardImportDialog() {
+        Window ancestor = SwingUtilities.getWindowAncestor(this.getView());
+        JDialog dialog = new JDialog(ancestor instanceof Frame ? (Frame) ancestor : null, "从剪贴板/文本批量导入", true);
+        dialog.setSize(550, 420);
+        dialog.setLocationRelativeTo(ancestor);
+        dialog.setLayout(new BorderLayout(8, 8));
+
+        JPanel top = new JPanel(new BorderLayout(4, 4));
+        top.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        top.add(new JLabel("请将包含联系人信息的文本粘贴在下方输入框中："), BorderLayout.NORTH);
+        JLabel formatTip = new JLabel("<html>格式支持：<b>昵称 [制表符/逗号/空格] 微信号 [备注] [性别]</b>。每行对应一个联系人。</html>");
+        formatTip.setForeground(UIManager.getColor("Label.disabledForeground"));
+        top.add(formatTip, BorderLayout.SOUTH);
+        dialog.add(top, BorderLayout.NORTH);
+
+        JTextArea textArea = new JTextArea();
+        textArea.setFont(UIUtils.monoFont());
+        dialog.add(new JScrollPane(textArea), BorderLayout.CENTER);
+
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
+        JButton okBtn = new JButton("确定导入");
+        JButton cancelBtn = new JButton("取消");
+        bottom.add(okBtn);
+        bottom.add(cancelBtn);
+        dialog.add(bottom, BorderLayout.SOUTH);
+
+        cancelBtn.addActionListener(e -> dialog.dispose());
+        okBtn.addActionListener(e -> {
+            String text = textArea.getText();
+            if (text == null || text.trim().isEmpty()) {
+                UIUtils.error(dialog, "粘贴的内容不能为空！");
+                return;
+            }
+            try {
+                java.util.List<WeChatContactReader.ContactInfo> parsed = WeChatContactReader.parseContactsFromText(text);
+                if (parsed.isEmpty()) {
+                    UIUtils.error(dialog, "未解析到有效的联系人信息！");
+                    return;
+                }
+                allContacts.addAll(parsed);
+                refreshContactTable();
+                dialog.dispose();
+                UIUtils.info(getView(), "导入成功！共导入了 " + parsed.size() + " 个联系人。");
+            } catch (Exception ex) {
+                UIUtils.error(dialog, "解析失败: " + ex.getMessage());
+            }
+        });
+
+        dialog.setVisible(true);
     }
 
     private void setupListeners() {

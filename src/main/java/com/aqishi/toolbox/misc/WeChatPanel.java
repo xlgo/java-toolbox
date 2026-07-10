@@ -42,6 +42,7 @@ public class WeChatPanel extends ToolPanel {
     private JTextField searchDelayField;
     private JTextField intervalField;
     private JComboBox<String> sendKeyCombo;
+    private JCheckBox confirmBeforeSendCb;
 
     private volatile boolean stopRequested = false;
     private Thread sendThread = null;
@@ -104,6 +105,20 @@ public class WeChatPanel extends ToolPanel {
         intervalField = new JTextField("2000");
         gbc.gridx = 5; gbc.weightx = 0.2;
         settingsPanel.add(intervalField, gbc);
+
+        // Row 3 Settings: Safety options
+        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 1; gbc.weightx = 0;
+        settingsPanel.add(new JLabel("安全模式:"), gbc);
+
+        confirmBeforeSendCb = new JCheckBox("发送前人工确认 (防错发/防失效)");
+        confirmBeforeSendCb.setSelected(false);
+        gbc.gridx = 1; gbc.gridwidth = 3; gbc.weightx = 0.5;
+        settingsPanel.add(confirmBeforeSendCb, gbc);
+
+        JLabel tipsLabel = new JLabel("<html><b>防错提示：</b>强烈建议使用微信唯一备注名！若搜索不到弹窗，本工具会自动发送 Esc 关闭恢复。</html>");
+        tipsLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        gbc.gridx = 4; gbc.gridwidth = 2; gbc.weightx = 0.5;
+        settingsPanel.add(tipsLabel, gbc);
 
         root.add(settingsPanel, BorderLayout.NORTH);
 
@@ -354,6 +369,7 @@ public class WeChatPanel extends ToolPanel {
         }
 
         final String sendKey = (String) sendKeyCombo.getSelectedItem();
+        final boolean confirmBeforeSend = confirmBeforeSendCb.isSelected();
 
         startBtn.setEnabled(false);
         stopBtn.setEnabled(true);
@@ -398,11 +414,19 @@ public class WeChatPanel extends ToolPanel {
                     updateRowStatus(i, "发送中", "");
 
                     try {
-                        // 1. Wakeup WeChat (Ctrl + Alt + W)
+                        // 1. Press Escape twice to clear any left-over search popups, image views, or search-history windows
+                        robot.keyPress(KeyEvent.VK_ESCAPE);
+                        robot.keyRelease(KeyEvent.VK_ESCAPE);
+                        robot.delay(100);
+                        robot.keyPress(KeyEvent.VK_ESCAPE);
+                        robot.keyRelease(KeyEvent.VK_ESCAPE);
+                        robot.delay(200);
+
+                        // 2. Wakeup WeChat (Ctrl + Alt + W)
                         simulateKeyCombo(robot, KeyEvent.VK_CONTROL, KeyEvent.VK_ALT, KeyEvent.VK_W);
                         robot.delay(delayWakeup);
 
-                        // 2. Search contact (Ctrl + F)
+                        // 3. Search contact (Ctrl + F)
                         simulateKeyCombo(robot, KeyEvent.VK_CONTROL, KeyEvent.VK_F);
                         robot.delay(200);
 
@@ -422,6 +446,68 @@ public class WeChatPanel extends ToolPanel {
                         robot.keyPress(KeyEvent.VK_ENTER);
                         robot.keyRelease(KeyEvent.VK_ENTER);
                         robot.delay(500);
+
+                        // If confirmation mode is enabled
+                        if (confirmBeforeSend) {
+                            final int[] confirmResult = new int[]{-1};
+                            final String finalMsg = msg;
+                            final String finalName = name;
+                            SwingUtilities.invokeAndWait(() -> {
+                                JDialog dialog = new JDialog((Frame) SwingUtilities.getWindowAncestor(getView()), "群发确认 - 请核对微信聊天窗口", true);
+                                dialog.setAlwaysOnTop(true);
+                                dialog.setSize(400, 180);
+                                dialog.setLocationRelativeTo(null);
+                                dialog.setLayout(new BorderLayout(8, 8));
+                                
+                                JPanel msgPanel = new JPanel(new GridLayout(3, 1, 4, 4));
+                                msgPanel.setBorder(new EmptyBorder(12, 16, 12, 16));
+                                JLabel l1 = new JLabel("<html>当前微信窗口是否已打开目标联系人：<b><font color='red'>" + finalName + "</font></b>？</html>");
+                                l1.setFont(new java.awt.Font(l1.getFont().getName(), java.awt.Font.BOLD, 14));
+                                JLabel l2 = new JLabel("待发消息: " + (finalMsg.length() > 30 ? finalMsg.substring(0, 30) + "..." : finalMsg));
+                                JLabel l3 = new JLabel("快捷键: Enter (确认发送) | Esc (跳过此人)");
+                                l3.setForeground(java.awt.Color.GRAY);
+                                msgPanel.add(l1);
+                                msgPanel.add(l2);
+                                msgPanel.add(l3);
+                                dialog.add(msgPanel, BorderLayout.CENTER);
+                                
+                                JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 8));
+                                JButton yesBtn = new JButton("确认发送 (Enter)");
+                                JButton noBtn = new JButton("跳过此人 (Esc)");
+                                btnPanel.add(yesBtn);
+                                btnPanel.add(noBtn);
+                                dialog.add(btnPanel, BorderLayout.SOUTH);
+                                
+                                yesBtn.addActionListener(ev -> {
+                                    confirmResult[0] = JOptionPane.YES_OPTION;
+                                    dialog.dispose();
+                                });
+                                noBtn.addActionListener(ev -> {
+                                    confirmResult[0] = JOptionPane.NO_OPTION;
+                                    dialog.dispose();
+                                });
+                                
+                                dialog.getRootPane().setDefaultButton(yesBtn);
+                                dialog.getRootPane().registerKeyboardAction(ev -> {
+                                    confirmResult[0] = JOptionPane.NO_OPTION;
+                                    dialog.dispose();
+                                }, KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
+                                
+                                dialog.setVisible(true);
+                            });
+                            
+                            if (confirmResult[0] != JOptionPane.YES_OPTION) {
+                                updateRowStatus(i, "已跳过", "");
+                                log("已跳过向 [" + name + "] 发送消息。");
+                                // Clear search box or any active popup by pressing Esc twice
+                                robot.keyPress(KeyEvent.VK_ESCAPE);
+                                robot.keyRelease(KeyEvent.VK_ESCAPE);
+                                robot.delay(100);
+                                robot.keyPress(KeyEvent.VK_ESCAPE);
+                                robot.keyRelease(KeyEvent.VK_ESCAPE);
+                                continue;
+                            }
+                        }
 
                         // Copy message to clipboard & Paste
                         setClipboardText(msg);
@@ -446,6 +532,12 @@ public class WeChatPanel extends ToolPanel {
                         String timeStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
                         updateRowStatus(i, "失败", timeStr);
                         log("发送失败: [" + name + "], 异常: " + ex.getMessage());
+                        // Try to clean up WeChat state
+                        robot.keyPress(KeyEvent.VK_ESCAPE);
+                        robot.keyRelease(KeyEvent.VK_ESCAPE);
+                        robot.delay(100);
+                        robot.keyPress(KeyEvent.VK_ESCAPE);
+                        robot.keyRelease(KeyEvent.VK_ESCAPE);
                     }
 
                     progressBar.setValue(i + 1);

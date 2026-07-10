@@ -100,6 +100,14 @@ public class KafkaPanel extends ToolPanel {
     private JButton produceSendBtn;
     private JLabel produceStatusLabel;
 
+    // Tab 4: Topic Subscribers
+    private JTable subscriberGroupTable;
+    private DefaultTableModel subscriberGroupTableModel;
+    private JTable subscriberMemberTable;
+    private DefaultTableModel subscriberMemberTableModel;
+    private JLabel subscribersStatusLabel;
+    private final Map<String, List<MemberDescription>> groupTopicActiveMembers = new HashMap<>();
+
     // Logging / Console Tab
     private JTextArea consoleOutput;
 
@@ -323,6 +331,42 @@ public class KafkaPanel extends ToolPanel {
 
         rightTabbedPane.addTab("发送消息模拟", producerPanel);
 
+        // Right Tab 4: Topic Subscribers
+        JPanel subscribersPanel = new JPanel(new BorderLayout(6, 6));
+        subscribersPanel.setBorder(new EmptyBorder(6, 6, 6, 6));
+
+        JSplitPane subSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        subSplit.setDividerLocation(140);
+
+        JPanel subGroupPanel = new JPanel(new BorderLayout(4, 4));
+        subGroupPanel.setBorder(BorderFactory.createTitledBorder("订阅了该主题的消费组"));
+        subscriberGroupTableModel = new DefaultTableModel(new String[]{"消费组 ID", "状态 (State)", "订阅类型", "当前总成员数"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) { return false; }
+        };
+        subscriberGroupTable = new JTable(subscriberGroupTableModel);
+        subscriberGroupTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        subGroupPanel.add(new JScrollPane(subscriberGroupTable), BorderLayout.CENTER);
+        subSplit.setTopComponent(subGroupPanel);
+
+        JPanel subMemberPanel = new JPanel(new BorderLayout(4, 4));
+        subMemberPanel.setBorder(BorderFactory.createTitledBorder("选中消费组的活跃消费者成员 (分配了该主题分区)"));
+        subscriberMemberTableModel = new DefaultTableModel(new String[]{"消费者成员 ID", "客户端 ID (ClientId)", "主机 (Host)", "分配的分区"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) { return false; }
+        };
+        subscriberMemberTable = new JTable(subscriberMemberTableModel);
+        subscriberMemberTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        subMemberPanel.add(new JScrollPane(subscriberMemberTable), BorderLayout.CENTER);
+        subSplit.setBottomComponent(subMemberPanel);
+
+        subscribersPanel.add(subSplit, BorderLayout.CENTER);
+
+        subscribersStatusLabel = new JLabel("在左侧选择主题以查询订阅者详情。");
+        subscribersPanel.add(subscribersStatusLabel, BorderLayout.SOUTH);
+
+        rightTabbedPane.addTab("主题订阅者", subscribersPanel);
+
         rightSplit.setTopComponent(rightTabbedPane);
 
         // Bottom Console Logs
@@ -398,6 +442,34 @@ public class KafkaPanel extends ToolPanel {
                 String val = fetchedRecords.get(idx).value();
                 messageDetailArea.setText(tryFormatJson(val));
                 messageDetailArea.setCaretPosition(0);
+            }
+        });
+
+        // Topic Subscribers Group Table Selection -> Refresh Member Table
+        subscriberGroupTable.getSelectionModel().addListSelectionListener(e -> {
+            if (e.getValueIsAdjusting()) return;
+            int row = subscriberGroupTable.getSelectedRow();
+            subscriberMemberTableModel.setRowCount(0);
+            if (row >= 0) {
+                String groupId = (String) subscriberGroupTable.getValueAt(row, 0);
+                java.util.List<MemberDescription> members = groupTopicActiveMembers.get(groupId);
+                if (members != null) {
+                    String selectedTopic = topicList.getSelectedValue();
+                    for (MemberDescription m : members) {
+                        java.util.List<Integer> partitions = new java.util.ArrayList<>();
+                        for (TopicPartition tp : m.assignment().topicPartitions()) {
+                            if (tp.topic().equals(selectedTopic)) {
+                                partitions.add(tp.partition());
+                            }
+                        }
+                        java.util.Collections.sort(partitions);
+                        String partitionStr = partitions.toString();
+
+                        subscriberMemberTableModel.addRow(new Object[]{
+                                m.consumerId(), m.clientId(), m.host(), partitionStr
+                        });
+                    }
+                }
             }
         });
 
@@ -585,6 +657,11 @@ public class KafkaPanel extends ToolPanel {
         messageDetailArea.setText("");
         fetchedRecords.clear();
         fetchStatusLabel.setText("连接断开。");
+
+        subscriberGroupTableModel.setRowCount(0);
+        subscriberMemberTableModel.setRowCount(0);
+        subscribersStatusLabel.setText("连接断开。");
+        groupTopicActiveMembers.clear();
     }
 
     private void loadTopicsList() {
@@ -660,6 +737,10 @@ public class KafkaPanel extends ToolPanel {
         rightTabbedPane.setSelectedIndex(1); // Switch to Message Viewer
         fetchStatusLabel.setText("当前选定主题: " + topicName);
         produceStatusLabel.setText("发布至主题: " + topicName);
+        subscribersStatusLabel.setText("正在查询主题 '" + topicName + "' 的订阅者...");
+        subscriberGroupTableModel.setRowCount(0);
+        subscriberMemberTableModel.setRowCount(0);
+        groupTopicActiveMembers.clear();
 
         // Load partitions into partitionCombo
         new SwingWorker<List<Integer>, Void>() {
@@ -684,6 +765,8 @@ public class KafkaPanel extends ToolPanel {
                 }
             }
         }.execute();
+
+        loadTopicSubscribers(topicName);
     }
 
     private void onGroupSelected(String groupId) {
@@ -1057,5 +1140,131 @@ public class KafkaPanel extends ToolPanel {
 
         public String getTopic() { return topic; }
         public int getPartition() { return partition; }
+    }
+
+    private void loadTopicSubscribers(String topicName) {
+        if (!isConnected || adminClient == null) return;
+
+        new SwingWorker<java.util.List<SubscriberGroupInfo>, Void>() {
+            @Override
+            protected java.util.List<SubscriberGroupInfo> doInBackground() throws Exception {
+                java.util.List<SubscriberGroupInfo> subscribers = new java.util.ArrayList<>();
+
+                // 1. List all consumer groups
+                Collection<ConsumerGroupListing> groups = adminClient.listConsumerGroups().all().get();
+                java.util.List<String> groupIds = groups.stream().map(ConsumerGroupListing::groupId).collect(Collectors.toList());
+                if (groupIds.isEmpty()) return subscribers;
+
+                // 2. Describe consumer groups in batch
+                Map<String, ConsumerGroupDescription> descriptions = adminClient.describeConsumerGroups(groupIds).all().get();
+
+                // 3. Find active subscribers
+                Set<String> activeGroups = new HashSet<>();
+                for (Map.Entry<String, ConsumerGroupDescription> entry : descriptions.entrySet()) {
+                    String groupId = entry.getKey();
+                    ConsumerGroupDescription desc = entry.getValue();
+                    java.util.List<MemberDescription> activeMembers = new java.util.ArrayList<>();
+
+                    for (MemberDescription member : desc.members()) {
+                        boolean assignedToTopic = false;
+                        for (TopicPartition tp : member.assignment().topicPartitions()) {
+                            if (tp.topic().equals(topicName)) {
+                                assignedToTopic = true;
+                                break;
+                            }
+                        }
+                        if (assignedToTopic) {
+                            activeMembers.add(member);
+                        }
+                    }
+
+                    if (!activeMembers.isEmpty()) {
+                        activeGroups.add(groupId);
+                        groupTopicActiveMembers.put(groupId, activeMembers);
+                    }
+                }
+
+                // 4. Find historical/offset subscribers in batch
+                Set<String> offsetGroups = new HashSet<>();
+                try {
+                    Map<String, ListConsumerGroupOffsetsSpec> groupSpecs = new HashMap<>();
+                    for (String gid : groupIds) {
+                        groupSpecs.put(gid, new ListConsumerGroupOffsetsSpec());
+                    }
+                    Map<String, Map<TopicPartition, OffsetAndMetadata>> allOffsets =
+                            adminClient.listConsumerGroupOffsets(groupSpecs).all().get();
+
+                    for (Map.Entry<String, Map<TopicPartition, OffsetAndMetadata>> entry : allOffsets.entrySet()) {
+                        String groupId = entry.getKey();
+                        Map<TopicPartition, OffsetAndMetadata> offsets = entry.getValue();
+                        if (offsets != null) {
+                            for (TopicPartition tp : offsets.keySet()) {
+                                if (tp.topic().equals(topicName)) {
+                                    offsetGroups.add(groupId);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception ex) {
+                    consoleLog("批量查询消费组 Offset 失败 (可能是 Broker 版本不支持，将只根据活动成员匹配)，错误: " + ex.getMessage());
+                }
+
+                // Combine active and offset-only subscribers
+                Set<String> allSubs = new HashSet<>();
+                allSubs.addAll(activeGroups);
+                allSubs.addAll(offsetGroups);
+
+                for (String gid : allSubs) {
+                    boolean active = activeGroups.contains(gid);
+                    ConsumerGroupDescription desc = descriptions.get(gid);
+                    String state = desc != null ? desc.state().toString() : "UNKNOWN";
+                    int totalMembers = desc != null ? desc.members().size() : 0;
+                    String typeStr = active ? "活动中 (Active)" : "历史/仅含Offset (Inactive)";
+                    subscribers.add(new SubscriberGroupInfo(gid, state, typeStr, totalMembers));
+                }
+
+                subscribers.sort(Comparator.comparing(SubscriberGroupInfo::getGroupId));
+                return subscribers;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    java.util.List<SubscriberGroupInfo> list = get();
+                    subscriberGroupTableModel.setRowCount(0);
+                    subscriberMemberTableModel.setRowCount(0);
+
+                    for (SubscriberGroupInfo s : list) {
+                        subscriberGroupTableModel.addRow(new Object[]{
+                                s.groupId, s.state, s.subType, s.totalMembers
+                        });
+                    }
+
+                    subscribersStatusLabel.setText("主题 '" + topicName + "' 订阅者查询成功，找到 " + list.size() + " 个订阅消费组。");
+                } catch (Exception ex) {
+                    Throwable c = ex.getCause() != null ? ex.getCause() : ex;
+                    subscribersStatusLabel.setText("查询订阅者失败: " + c.getMessage());
+                    consoleLog("查询主题订阅者失败: " + c.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    // SubscriberGroupInfo DTO
+    private static class SubscriberGroupInfo {
+        public String groupId;
+        public String state;
+        public String subType;
+        public int totalMembers;
+
+        public SubscriberGroupInfo(String groupId, String state, String subType, int totalMembers) {
+            this.groupId = groupId;
+            this.state = state;
+            this.subType = subType;
+            this.totalMembers = totalMembers;
+        }
+
+        public String getGroupId() { return groupId; }
     }
 }

@@ -231,11 +231,15 @@ public class K8sManagerPanel extends ToolPanel {
         JButton yamlPodBtn = new JButton("查看 YAML");
         JButton logPodBtn = new JButton("查看日志");
         JButton execPodBtn = new JButton("控制台 (Exec)");
+        JButton downloadPodFileBtn = new JButton("下载文件");
+        JButton uploadPodFileBtn = new JButton("上传文件");
         JButton delPodBtn = new JButton("删除 Pod");
         podBtnRow.add(refreshPodBtn);
         podBtnRow.add(yamlPodBtn);
         podBtnRow.add(logPodBtn);
         podBtnRow.add(execPodBtn);
+        podBtnRow.add(downloadPodFileBtn);
+        podBtnRow.add(uploadPodFileBtn);
         podBtnRow.add(delPodBtn);
         podTab.add(podBtnRow, BorderLayout.SOUTH);
         resourceTabs.addTab("Pods", podTab);
@@ -422,7 +426,8 @@ public class K8sManagerPanel extends ToolPanel {
                 refreshSvcBtn, yamlSvcBtn, delSvcBtn,
                 refreshCmBtn, yamlCmBtn, delCmBtn,
                 refreshSecretBtn, yamlSecretBtn, delSecretBtn,
-                refreshNodeBtn, yamlNodeBtn);
+                refreshNodeBtn, yamlNodeBtn,
+                downloadPodFileBtn, uploadPodFileBtn);
 
         toggleState(false);
         loadProfilesFromPrefs();
@@ -477,7 +482,8 @@ public class K8sManagerPanel extends ToolPanel {
                              JButton refreshSvcBtn, JButton yamlSvcBtn, JButton delSvcBtn,
                              JButton refreshCmBtn, JButton yamlCmBtn, JButton delCmBtn,
                              JButton refreshSecretBtn, JButton yamlSecretBtn, JButton delSecretBtn,
-                             JButton refreshNodeBtn, JButton yamlNodeBtn) {
+                             JButton refreshNodeBtn, JButton yamlNodeBtn,
+                             JButton downloadPodFileBtn, JButton uploadPodFileBtn) {
 
         // Profile Selection
         profileCombo.addActionListener(e -> {
@@ -559,6 +565,8 @@ public class K8sManagerPanel extends ToolPanel {
         yamlPodBtn.addActionListener(e -> viewResourceYaml("pods", podTable));
         logPodBtn.addActionListener(e -> viewPodLogs());
         execPodBtn.addActionListener(e -> execPod());
+        downloadPodFileBtn.addActionListener(e -> startFileDownload());
+        uploadPodFileBtn.addActionListener(e -> startFileUpload());
         delPodBtn.addActionListener(e -> deleteResource("pods", podTable, () -> loadPods()));
 
         // Deployment Buttons
@@ -1331,6 +1339,385 @@ public class K8sManagerPanel extends ToolPanel {
                 }
             }
         }.execute();
+    }
+
+    private void startFileDownload() {
+        int row = podTable.getSelectedRow();
+        if (row == -1) {
+            UIUtils.info(null, "请先选择需要下载文件的 Pod");
+            return;
+        }
+        String ns = podTable.getValueAt(row, 0).toString();
+        String name = podTable.getValueAt(row, 1).toString();
+
+        new SwingWorker<List<String>, Void>() {
+            @Override
+            protected List<String> doInBackground() throws Exception {
+                String path = "/api/v1/namespaces/" + ns + "/pods/" + name;
+                String resp = executeRequest("GET", path, null, activeSkipTls);
+                JsonNode root = mapper.readTree(resp);
+                List<String> list = new ArrayList<>();
+                JsonNode specs = root.path("spec").path("containers");
+                if (specs.isArray()) {
+                    for (JsonNode c : specs) {
+                        list.add(c.path("name").asText());
+                    }
+                }
+                return list;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<String> containers = get();
+                    if (containers.isEmpty()) {
+                        UIUtils.error(null, "找不到容器配置！");
+                        return;
+                    }
+                    if (containers.size() == 1) {
+                        promptAndDownloadFile(ns, name, containers.get(0));
+                    } else {
+                        String[] arr = containers.toArray(new String[0]);
+                        String choice = (String) JOptionPane.showInputDialog(
+                                null,
+                                "Pod 中包含多个容器，请选择容器：",
+                                "选择容器",
+                                JOptionPane.QUESTION_MESSAGE,
+                                null,
+                                arr,
+                                arr[0]
+                        );
+                        if (choice != null) {
+                            promptAndDownloadFile(ns, name, choice);
+                        }
+                    }
+                } catch (Exception ex) {
+                    UIUtils.error(null, "获取 Pod 详情失败: " + ex.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    private void startFileUpload() {
+        int row = podTable.getSelectedRow();
+        if (row == -1) {
+            UIUtils.info(null, "请先选择需要上传文件的 Pod");
+            return;
+        }
+        String ns = podTable.getValueAt(row, 0).toString();
+        String name = podTable.getValueAt(row, 1).toString();
+
+        new SwingWorker<List<String>, Void>() {
+            @Override
+            protected List<String> doInBackground() throws Exception {
+                String path = "/api/v1/namespaces/" + ns + "/pods/" + name;
+                String resp = executeRequest("GET", path, null, activeSkipTls);
+                JsonNode root = mapper.readTree(resp);
+                List<String> list = new ArrayList<>();
+                JsonNode specs = root.path("spec").path("containers");
+                if (specs.isArray()) {
+                    for (JsonNode c : specs) {
+                        list.add(c.path("name").asText());
+                    }
+                }
+                return list;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<String> containers = get();
+                    if (containers.isEmpty()) {
+                        UIUtils.error(null, "找不到容器配置！");
+                        return;
+                    }
+                    if (containers.size() == 1) {
+                        promptAndUploadFile(ns, name, containers.get(0));
+                    } else {
+                        String[] arr = containers.toArray(new String[0]);
+                        String choice = (String) JOptionPane.showInputDialog(
+                                null,
+                                "Pod 中包含多个容器，请选择容器：",
+                                "选择容器",
+                                JOptionPane.QUESTION_MESSAGE,
+                                null,
+                                arr,
+                                arr[0]
+                        );
+                        if (choice != null) {
+                            promptAndUploadFile(ns, name, choice);
+                        }
+                    }
+                } catch (Exception ex) {
+                    UIUtils.error(null, "获取 Pod 详情失败: " + ex.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    private void promptAndDownloadFile(String ns, String podName, String containerName) {
+        String containerPath = UIUtils.input(null, "请输入容器内要下载的文件路径（绝对路径）：", "/etc/hosts");
+        if (containerPath == null || containerPath.trim().isEmpty()) return;
+        final String finalContainerPath = containerPath.trim();
+
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("选择保存的本地文件路径");
+        String defaultFileName = new File(finalContainerPath).getName();
+        chooser.setSelectedFile(new File(defaultFileName));
+        int ret = chooser.showSaveDialog(this.getView());
+        if (ret != JFileChooser.APPROVE_OPTION) return;
+        File localFile = chooser.getSelectedFile();
+
+        JDialog progressDialog = new JDialog((Frame) null, "正在下载文件", true);
+        progressDialog.setSize(300, 100);
+        progressDialog.setLocationRelativeTo(this.getView());
+        progressDialog.setLayout(new BorderLayout(8, 8));
+        JLabel statusLabel = new JLabel("正在连接 API Server...", SwingConstants.CENTER);
+        progressDialog.add(statusLabel, BorderLayout.CENTER);
+
+        new Thread(() -> {
+            boolean success = false;
+            String errorMsg = "";
+            java.io.FileOutputStream fos = null;
+            org.java_websocket.client.WebSocketClient client = null;
+            try {
+                fos = new java.io.FileOutputStream(localFile);
+                final java.io.FileOutputStream finalFos = fos;
+                final StringBuilder stderr = new StringBuilder();
+
+                String wsUrl = activeServerUrl;
+                if (wsUrl.startsWith("https://")) {
+                    wsUrl = "wss://" + wsUrl.substring(8);
+                } else if (wsUrl.startsWith("http://")) {
+                    wsUrl = "ws://" + wsUrl.substring(7);
+                }
+
+                String fullPath = wsUrl + "/api/v1/namespaces/" + ns + "/pods/" + podName + "/exec"
+                        + "?container=" + containerName
+                        + "&stdin=false&stdout=true&stderr=true&tty=false"
+                        + "&command=cat"
+                        + "&command=" + java.net.URLEncoder.encode(finalContainerPath, "UTF-8");
+
+                java.net.URI uri = new java.net.URI(fullPath);
+                Map<String, String> headers = new HashMap<>();
+                if (activeToken != null && !activeToken.isEmpty()) {
+                    headers.put("Authorization", "Bearer " + activeToken);
+                }
+                headers.put("Sec-WebSocket-Protocol", "v4.channel.k8s.io");
+
+                java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+
+                client = new org.java_websocket.client.WebSocketClient(uri, headers) {
+                    @Override
+                    public void onOpen(org.java_websocket.handshake.ServerHandshake handshakedata) {
+                        SwingUtilities.invokeLater(() -> statusLabel.setText("正在传输数据..."));
+                    }
+
+                    @Override
+                    public void onMessage(String message) {}
+
+                    @Override
+                    public void onMessage(java.nio.ByteBuffer bytes) {
+                        if (bytes.remaining() > 0) {
+                            byte channel = bytes.get();
+                            byte[] data = new byte[bytes.remaining()];
+                            bytes.get(data);
+                            if (channel == 1) { // stdout
+                                try {
+                                    finalFos.write(data);
+                                } catch (IOException e) {
+                                    // ignore
+                                }
+                            } else if (channel == 2 || channel == 3) { // stderr/error
+                                stderr.append(new String(data, StandardCharsets.UTF_8));
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void onClose(int code, String reason, boolean remote) {
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void onError(Exception ex) {
+                        stderr.append(ex.getMessage());
+                        latch.countDown();
+                    }
+                };
+
+                if (activeServerUrl.startsWith("https://") && activeSocketFactory != null) {
+                    client.setSocketFactory(activeSocketFactory);
+                } else if (activeSkipTls) {
+                    client.setSocketFactory(getTrustAllSocketFactory());
+                }
+
+                client.connect();
+                latch.await();
+
+                if (stderr.length() > 0) {
+                    errorMsg = stderr.toString();
+                } else {
+                    success = true;
+                }
+            } catch (Exception ex) {
+                errorMsg = ex.getMessage();
+            } finally {
+                if (fos != null) {
+                    try { fos.close(); } catch (Exception e) {}
+                }
+                if (client != null) {
+                    try { client.close(); } catch (Exception e) {}
+                }
+            }
+
+            final boolean finalSuccess = success;
+            final String finalError = errorMsg;
+            SwingUtilities.invokeLater(() -> {
+                progressDialog.dispose();
+                if (finalSuccess) {
+                    UIUtils.info(null, "文件下载成功！");
+                } else {
+                    try { localFile.delete(); } catch (Exception e) {}
+                    UIUtils.error(null, "文件下载失败: " + finalError);
+                }
+            });
+        }).start();
+
+        progressDialog.setVisible(true);
+    }
+
+    private void promptAndUploadFile(String ns, String podName, String containerName) {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("选择要上传的本地文件");
+        int ret = chooser.showOpenDialog(this.getView());
+        if (ret != JFileChooser.APPROVE_OPTION) return;
+        File localFile = chooser.getSelectedFile();
+
+        String containerPath = UIUtils.input(null, "请输入要上传到容器的文件保存路径（绝对路径）：", "/tmp/" + localFile.getName());
+        if (containerPath == null || containerPath.trim().isEmpty()) return;
+        final String finalContainerPath = containerPath.trim();
+
+        JDialog progressDialog = new JDialog((Frame) null, "正在上传文件", true);
+        progressDialog.setSize(300, 100);
+        progressDialog.setLocationRelativeTo(this.getView());
+        progressDialog.setLayout(new BorderLayout(8, 8));
+        JLabel statusLabel = new JLabel("正在连接 API Server...", SwingConstants.CENTER);
+        progressDialog.add(statusLabel, BorderLayout.CENTER);
+
+        new Thread(() -> {
+            boolean success = false;
+            String errorMsg = "";
+            org.java_websocket.client.WebSocketClient client = null;
+            try {
+                final StringBuilder stderr = new StringBuilder();
+
+                String wsUrl = activeServerUrl;
+                if (wsUrl.startsWith("https://")) {
+                    wsUrl = "wss://" + wsUrl.substring(8);
+                } else if (wsUrl.startsWith("http://")) {
+                    wsUrl = "ws://" + wsUrl.substring(7);
+                }
+
+                String escapedPath = finalContainerPath.replace("'", "'\\''");
+                String commandStr = "cat > '" + escapedPath + "'";
+                String fullPath = wsUrl + "/api/v1/namespaces/" + ns + "/pods/" + podName + "/exec"
+                        + "?container=" + containerName
+                        + "&stdin=true&stdout=true&stderr=true&tty=false"
+                        + "&command=sh"
+                        + "&command=-c"
+                        + "&command=" + java.net.URLEncoder.encode(commandStr, "UTF-8");
+
+                java.net.URI uri = new java.net.URI(fullPath);
+                Map<String, String> headers = new HashMap<>();
+                if (activeToken != null && !activeToken.isEmpty()) {
+                    headers.put("Authorization", "Bearer " + activeToken);
+                }
+                headers.put("Sec-WebSocket-Protocol", "v4.channel.k8s.io");
+
+                java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+
+                client = new org.java_websocket.client.WebSocketClient(uri, headers) {
+                    @Override
+                    public void onOpen(org.java_websocket.handshake.ServerHandshake handshakedata) {
+                        SwingUtilities.invokeLater(() -> statusLabel.setText("正在上传数据..."));
+                        new Thread(() -> {
+                            try (java.io.FileInputStream fis = new java.io.FileInputStream(localFile)) {
+                                byte[] buffer = new byte[8192];
+                                int read;
+                                while ((read = fis.read(buffer)) != -1) {
+                                    byte[] frame = new byte[read + 1];
+                                    frame[0] = 0; // channel 0 (stdin)
+                                    System.arraycopy(buffer, 0, frame, 1, read);
+                                    send(frame);
+                                }
+                                Thread.sleep(800);
+                            } catch (Exception e) {
+                                stderr.append(e.getMessage());
+                            } finally {
+                                close();
+                            }
+                        }).start();
+                    }
+
+                    @Override
+                    public void onMessage(String message) {}
+
+                    @Override
+                    public void onMessage(java.nio.ByteBuffer bytes) {
+                        if (bytes.remaining() > 0) {
+                            byte channel = bytes.get();
+                            byte[] data = new byte[bytes.remaining()];
+                            bytes.get(data);
+                            if (channel == 2 || channel == 3) { // stderr/error
+                                stderr.append(new String(data, StandardCharsets.UTF_8));
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void onClose(int code, String reason, boolean remote) {
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void onError(Exception ex) {
+                        stderr.append(ex.getMessage());
+                        latch.countDown();
+                    }
+                };
+
+                if (activeServerUrl.startsWith("https://") && activeSocketFactory != null) {
+                    client.setSocketFactory(activeSocketFactory);
+                } else if (activeSkipTls) {
+                    client.setSocketFactory(getTrustAllSocketFactory());
+                }
+
+                client.connect();
+                latch.await();
+
+                if (stderr.length() > 0) {
+                    errorMsg = stderr.toString();
+                } else {
+                    success = true;
+                }
+            } catch (Exception ex) {
+                errorMsg = ex.getMessage();
+            }
+
+            final boolean finalSuccess = success;
+            final String finalError = errorMsg;
+            SwingUtilities.invokeLater(() -> {
+                progressDialog.dispose();
+                if (finalSuccess) {
+                    UIUtils.info(null, "文件上传成功！");
+                } else {
+                    UIUtils.error(null, "文件上传失败: " + finalError);
+                }
+            });
+        }).start();
+
+        progressDialog.setVisible(true);
     }
 
     private void sendStdinToContainer(org.java_websocket.client.WebSocketClient client, String text) {

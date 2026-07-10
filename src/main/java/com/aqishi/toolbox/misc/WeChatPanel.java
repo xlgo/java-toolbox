@@ -10,6 +10,8 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableRowSorter;
+import javax.swing.RowFilter;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
@@ -51,6 +53,23 @@ public class WeChatPanel extends ToolPanel {
     private JButton delGlobalImgBtn;
     private JButton clearGlobalImgBtn;
 
+    // 通讯录管理新增字段
+    private JTabbedPane tabbedPane;
+    private JTable wxcTable;
+    private DefaultTableModel wxcTableModel;
+    private JTextField wxcDbPathField;
+    private JButton wxcBrowseBtn;
+    private JButton wxcLoadBtn;
+    private JTextField wxcSearchField;
+    private JComboBox<String> wxcFilterCombo;
+    private JButton wxcAddToSendBtn;
+    private JButton wxcExportBtn;
+    private JButton wxcDownloadAvatarBtn;
+    private JButton wxcSelectAllBtn;
+    private JLabel wxcStatsLabel;
+    private JProgressBar wxcProgressBar;
+    private java.util.List<WeChatContactReader.ContactInfo> allContacts = new java.util.ArrayList<>();
+
     private volatile boolean stopRequested = false;
     private Thread sendThread = null;
 
@@ -61,6 +80,21 @@ public class WeChatPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
+        tabbedPane = new JTabbedPane();
+
+        JPanel sendPanel = buildSendPanel();
+        JPanel contactPanel = buildContactPanel();
+
+        tabbedPane.addTab("群发助手", sendPanel);
+        tabbedPane.addTab("通讯录管理", contactPanel);
+
+        setupListeners();
+        setupContactListeners();
+
+        return tabbedPane;
+    }
+
+    private JPanel buildSendPanel() {
         JPanel root = new JPanel(new BorderLayout(8, 8));
         root.setBorder(UIUtils.CONTENT_PADDING);
 
@@ -225,9 +259,458 @@ public class WeChatPanel extends ToolPanel {
                 "5. 微信发送按键请与微信电脑端设置一致（可在微信设置中查看是 Enter 还是 Ctrl+Enter）。\n" +
                 "6. 建议将发送间隔设置为 2000 毫秒以上，避免发送过快导致微信接口限制。\n\n");
 
-        setupListeners();
-
         return root;
+    }
+
+    private JPanel buildContactPanel() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(UIUtils.CONTENT_PADDING);
+
+        // 1. Top Panel: Database File Selector & Load
+        JPanel topPanel = new JPanel(new GridBagLayout());
+        topPanel.setBorder(BorderFactory.createTitledBorder("数据导入与说明"));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(6, 8, 6, 8);
+
+        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
+        topPanel.add(new JLabel("解密后的数据库 (.db) 文件:"), gbc);
+
+        wxcDbPathField = new JTextField();
+        wxcDbPathField.setPreferredSize(new Dimension(250, 26));
+        gbc.gridx = 1; gbc.weightx = 1.0;
+        topPanel.add(wxcDbPathField, gbc);
+
+        wxcBrowseBtn = new JButton("浏览...");
+        wxcBrowseBtn.setPreferredSize(new Dimension(80, 26));
+        gbc.gridx = 2; gbc.weightx = 0;
+        topPanel.add(wxcBrowseBtn, gbc);
+
+        wxcLoadBtn = UIUtils.button("读取通讯录", 100);
+        gbc.gridx = 3;
+        topPanel.add(wxcLoadBtn, gbc);
+
+        // Usage Tip Label
+        JLabel tipLabel = new JLabel("<html><b>使用说明：</b>微信本地数据库默认加密，请先使用 <b>PyWxDump</b> 等解密工具将微信的 <b>MicroMsg.db</b> 或 <b>contact.db</b> 解密为标准的 SQLite 文件，再在此导入。</html>");
+        tipLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 4; gbc.weightx = 1.0;
+        topPanel.add(tipLabel, gbc);
+
+        panel.add(topPanel, BorderLayout.NORTH);
+
+        // 2. Center Panel: Filters & Table
+        JPanel centerPanel = new JPanel(new BorderLayout(6, 6));
+
+        // Filter bar
+        JPanel filterBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        filterBar.add(new JLabel("搜索(昵称/备注/微信号):"));
+        wxcSearchField = new JTextField(15);
+        wxcSearchField.setPreferredSize(new Dimension(150, 26));
+        filterBar.add(wxcSearchField);
+
+        filterBar.add(new JLabel("关系分类:"));
+        wxcFilterCombo = new JComboBox<>(new String[]{"全部联系人", "仅限好友", "仅限群聊", "仅限公众号"});
+        wxcFilterCombo.setPreferredSize(new Dimension(110, 26));
+        filterBar.add(wxcFilterCombo);
+
+        wxcSelectAllBtn = new JButton("全选/反选");
+        wxcSelectAllBtn.setPreferredSize(new Dimension(95, 26));
+        filterBar.add(wxcSelectAllBtn);
+
+        wxcStatsLabel = new JLabel("当前显示: 0 | 已选择: 0");
+        wxcStatsLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        filterBar.add(wxcStatsLabel);
+
+        centerPanel.add(filterBar, BorderLayout.NORTH);
+
+        // Table
+        wxcTableModel = new DefaultTableModel(new Object[]{"选择", "昵称", "微信号", "备注名", "性别", "头像链接", "原始ID (UserName)"}, 0) {
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                if (columnIndex == 0) return Boolean.class;
+                return super.getColumnClass(columnIndex);
+            }
+
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return column == 0;
+            }
+        };
+
+        wxcTable = new JTable(wxcTableModel);
+        wxcTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        wxcTable.getTableHeader().setReorderingAllowed(false);
+
+        // Setup table sorter and filtering
+        TableRowSorter<DefaultTableModel> sorter = new TableRowSorter<>(wxcTableModel);
+        wxcTable.setRowSorter(sorter);
+
+        // Set column widths
+        wxcTable.getColumnModel().getColumn(0).setPreferredWidth(45);
+        wxcTable.getColumnModel().getColumn(0).setMaxWidth(60);
+        wxcTable.getColumnModel().getColumn(1).setPreferredWidth(120);
+        wxcTable.getColumnModel().getColumn(2).setPreferredWidth(120);
+        wxcTable.getColumnModel().getColumn(3).setPreferredWidth(120);
+        wxcTable.getColumnModel().getColumn(4).setPreferredWidth(50);
+        wxcTable.getColumnModel().getColumn(5).setPreferredWidth(180);
+        wxcTable.getColumnModel().getColumn(6).setPreferredWidth(150);
+
+        JScrollPane tableScroll = new JScrollPane(wxcTable);
+        centerPanel.add(tableScroll, BorderLayout.CENTER);
+
+        panel.add(centerPanel, BorderLayout.CENTER);
+
+        // 3. Bottom Panel: Actions & Progress
+        JPanel bottomPanel = new JPanel(new BorderLayout(6, 6));
+
+        JPanel actionBtnLeftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        wxcAddToSendBtn = UIUtils.button("添加到群发列表", 140);
+        actionBtnLeftPanel.add(wxcAddToSendBtn);
+
+        JPanel actionBtnRightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
+        wxcExportBtn = new JButton("导出通讯录 Excel");
+        wxcDownloadAvatarBtn = new JButton("批量下载头像");
+        actionBtnRightPanel.add(wxcExportBtn);
+        actionBtnRightPanel.add(wxcDownloadAvatarBtn);
+
+        JPanel actionBtnContainer = new JPanel(new BorderLayout());
+        actionBtnContainer.add(actionBtnLeftPanel, BorderLayout.WEST);
+        actionBtnContainer.add(actionBtnRightPanel, BorderLayout.EAST);
+        bottomPanel.add(actionBtnContainer, BorderLayout.NORTH);
+
+        wxcProgressBar = new JProgressBar();
+        wxcProgressBar.setStringPainted(true);
+        wxcProgressBar.setPreferredSize(new Dimension(200, 24));
+        wxcProgressBar.setVisible(false);
+        bottomPanel.add(wxcProgressBar, BorderLayout.SOUTH);
+
+        panel.add(bottomPanel, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    private void setupContactListeners() {
+        wxcBrowseBtn.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setFileFilter(new FileNameExtensionFilter("SQLite 数据库文件 (*.db; *.sqlite)", "db", "sqlite"));
+            if (chooser.showOpenDialog(getView()) == JFileChooser.APPROVE_OPTION) {
+                wxcDbPathField.setText(chooser.getSelectedFile().getAbsolutePath());
+            }
+        });
+
+        wxcLoadBtn.addActionListener(e -> {
+            String path = wxcDbPathField.getText().trim();
+            if (path.isEmpty()) {
+                UIUtils.error(getView(), "请先选择或输入解密后的数据库文件路径！");
+                return;
+            }
+            File file = new File(path);
+            if (!file.exists()) {
+                UIUtils.error(getView(), "数据库文件不存在，请检查路径！");
+                return;
+            }
+
+            wxcLoadBtn.setEnabled(false);
+            wxcProgressBar.setValue(0);
+            wxcProgressBar.setString("正在读取数据库...");
+            wxcProgressBar.setIndeterminate(true);
+            wxcProgressBar.setVisible(true);
+
+            new SwingWorker<java.util.List<WeChatContactReader.ContactInfo>, Void>() {
+                @Override
+                protected java.util.List<WeChatContactReader.ContactInfo> doInBackground() throws Exception {
+                    return WeChatContactReader.readContacts(file);
+                }
+
+                @Override
+                protected void done() {
+                    wxcLoadBtn.setEnabled(true);
+                    wxcProgressBar.setVisible(false);
+                    wxcProgressBar.setIndeterminate(false);
+                    try {
+                        allContacts = get();
+                        wxcTableModel.setRowCount(0);
+                        for (WeChatContactReader.ContactInfo c : allContacts) {
+                            String genderStr = "未知";
+                            if (c.gender == 1) genderStr = "男";
+                            else if (c.gender == 2) genderStr = "女";
+                            wxcTableModel.addRow(new Object[]{
+                                    false,
+                                    c.nickname != null ? c.nickname : "",
+                                    c.alias != null ? c.alias : "",
+                                    c.remark != null ? c.remark : "",
+                                    genderStr,
+                                    c.avatarUrl != null ? c.avatarUrl : "",
+                                    c.username
+                            });
+                        }
+                        filterWxcTable();
+                        UIUtils.info(getView(), "读取成功！共加载了 " + allContacts.size() + " 个联系人。");
+                    } catch (Exception ex) {
+                        UIUtils.error(getView(), "读取通讯录失败:\n" + ex.getMessage());
+                        ex.printStackTrace();
+                    }
+                }
+            }.execute();
+        });
+
+        wxcSearchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { filterWxcTable(); }
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { filterWxcTable(); }
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { filterWxcTable(); }
+        });
+
+        wxcFilterCombo.addActionListener(e -> filterWxcTable());
+
+        wxcSelectAllBtn.addActionListener(e -> {
+            int rowCount = wxcTable.getRowCount();
+            if (rowCount == 0) return;
+            boolean anyUnchecked = false;
+            for (int i = 0; i < rowCount; i++) {
+                int modelRow = wxcTable.convertRowIndexToModel(i);
+                Boolean val = (Boolean) wxcTableModel.getValueAt(modelRow, 0);
+                if (val == null || !val) {
+                    anyUnchecked = true;
+                    break;
+                }
+            }
+            for (int i = 0; i < rowCount; i++) {
+                int modelRow = wxcTable.convertRowIndexToModel(i);
+                wxcTableModel.setValueAt(anyUnchecked, modelRow, 0);
+            }
+            updateWxcStats();
+        });
+
+        wxcTableModel.addTableModelListener(e -> {
+            if (e.getColumn() == 0) {
+                updateWxcStats();
+            }
+        });
+
+        wxcAddToSendBtn.addActionListener(e -> {
+            int added = 0;
+            for (int i = 0; i < wxcTableModel.getRowCount(); i++) {
+                Boolean val = (Boolean) wxcTableModel.getValueAt(i, 0);
+                if (val != null && val) {
+                    String nickname = (String) wxcTableModel.getValueAt(i, 1);
+                    String alias = (String) wxcTableModel.getValueAt(i, 2);
+                    String remark = (String) wxcTableModel.getValueAt(i, 3);
+                    String username = (String) wxcTableModel.getValueAt(i, 6);
+
+                    String targetName = remark;
+                    if (targetName == null || targetName.trim().isEmpty()) {
+                        targetName = nickname;
+                    }
+                    if (targetName == null || targetName.trim().isEmpty()) {
+                        targetName = alias;
+                    }
+                    if (targetName == null || targetName.trim().isEmpty()) {
+                        targetName = username;
+                    }
+
+                    int id = tableModel.getRowCount() + 1;
+                    tableModel.addRow(new Object[]{id, targetName, "", "待发送", ""});
+                    added++;
+                }
+            }
+            if (added == 0) {
+                UIUtils.info(getView(), "请先在通讯录表格中勾选要添加的联系人！");
+            } else {
+                UIUtils.info(getView(), "成功添加 " + added + " 个联系人到群发列表！");
+                tabbedPane.setSelectedIndex(0);
+            }
+        });
+
+        wxcExportBtn.addActionListener(e -> {
+            if (allContacts.isEmpty()) {
+                UIUtils.error(getView(), "当前无联系人数据，请先读取数据库！");
+                return;
+            }
+
+            JFileChooser chooser = new JFileChooser();
+            chooser.setSelectedFile(new File("微信通讯录导出.xlsx"));
+            chooser.setFileFilter(new FileNameExtensionFilter("Excel 2007 文件 (*.xlsx)", "xlsx"));
+            if (chooser.showSaveDialog(getView()) == JFileChooser.APPROVE_OPTION) {
+                File file = chooser.getSelectedFile();
+
+                java.util.List<WeChatContactReader.ContactInfo> toExport = new java.util.ArrayList<>();
+                for (int i = 0; i < wxcTableModel.getRowCount(); i++) {
+                    Boolean val = (Boolean) wxcTableModel.getValueAt(i, 0);
+                    if (val != null && val) {
+                        String username = (String) wxcTableModel.getValueAt(i, 6);
+                        WeChatContactReader.ContactInfo info = findContactByUsername(username);
+                        if (info != null) toExport.add(info);
+                    }
+                }
+
+                if (toExport.isEmpty()) {
+                    toExport = allContacts;
+                }
+
+                final java.util.List<WeChatContactReader.ContactInfo> finalToExport = toExport;
+                wxcProgressBar.setIndeterminate(true);
+                wxcProgressBar.setString("正在导出 Excel...");
+                wxcProgressBar.setVisible(true);
+
+                new SwingWorker<Void, Void>() {
+                    @Override
+                    protected Void doInBackground() throws Exception {
+                        WeChatContactReader.exportContactsToExcel(finalToExport, file);
+                        return null;
+                    }
+
+                    @Override
+                    protected void done() {
+                        wxcProgressBar.setVisible(false);
+                        wxcProgressBar.setIndeterminate(false);
+                        try {
+                            get();
+                            UIUtils.info(getView(), "通讯录导出成功！");
+                        } catch (Exception ex) {
+                            UIUtils.error(getView(), "导出失败:\n" + ex.getMessage());
+                            ex.printStackTrace();
+                        }
+                    }
+                }.execute();
+            }
+        });
+
+        wxcDownloadAvatarBtn.addActionListener(e -> {
+            java.util.List<WeChatContactReader.ContactInfo> selected = new java.util.ArrayList<>();
+            for (int i = 0; i < wxcTableModel.getRowCount(); i++) {
+                Boolean val = (Boolean) wxcTableModel.getValueAt(i, 0);
+                if (val != null && val) {
+                    String username = (String) wxcTableModel.getValueAt(i, 6);
+                    WeChatContactReader.ContactInfo info = findContactByUsername(username);
+                    if (info != null) selected.add(info);
+                }
+            }
+
+            if (selected.isEmpty()) {
+                UIUtils.error(getView(), "请先勾选需要下载头像的联系人！");
+                return;
+            }
+
+            JFileChooser chooser = new JFileChooser();
+            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            chooser.setDialogTitle("选择头像保存文件夹");
+            if (chooser.showOpenDialog(getView()) == JFileChooser.APPROVE_OPTION) {
+                File dir = chooser.getSelectedFile();
+
+                wxcDownloadAvatarBtn.setEnabled(false);
+                wxcProgressBar.setIndeterminate(false);
+                wxcProgressBar.setMaximum(selected.size());
+                wxcProgressBar.setValue(0);
+                wxcProgressBar.setString("正在准备下载...");
+                wxcProgressBar.setVisible(true);
+
+                new SwingWorker<Void, String>() {
+                    @Override
+                    protected Void doInBackground() throws Exception {
+                        WeChatContactReader.downloadAvatars(selected, dir, (current, total, status) -> {
+                            publish(current + "," + total + "," + status);
+                        });
+                        return null;
+                    }
+
+                    @Override
+                    protected void process(java.util.List<String> chunks) {
+                        if (!chunks.isEmpty()) {
+                            String last = chunks.get(chunks.size() - 1);
+                            String[] parts = last.split(",", 3);
+                            int cur = Integer.parseInt(parts[0]);
+                            int tot = Integer.parseInt(parts[1]);
+                            String msg = parts[2];
+
+                            wxcProgressBar.setValue(cur);
+                            wxcProgressBar.setString(String.format("正在下载头像 (%d/%d): %s", cur, tot, msg));
+                        }
+                    }
+
+                    @Override
+                    protected void done() {
+                        wxcDownloadAvatarBtn.setEnabled(true);
+                        wxcProgressBar.setVisible(false);
+                        try {
+                            get();
+                            UIUtils.info(getView(), "头像下载完成！保存目录为：" + dir.getAbsolutePath());
+                        } catch (Exception ex) {
+                            UIUtils.error(getView(), "下载异常终止:\n" + ex.getMessage());
+                        }
+                    }
+                }.execute();
+            }
+        });
+    }
+
+    private void filterWxcTable() {
+        String text = wxcSearchField.getText().trim();
+        String filterType = (String) wxcFilterCombo.getSelectedItem();
+        TableRowSorter<DefaultTableModel> sorter = (TableRowSorter<DefaultTableModel>) wxcTable.getRowSorter();
+
+        RowFilter<DefaultTableModel, Object> rf = new RowFilter<DefaultTableModel, Object>() {
+            @Override
+            public boolean include(Entry<? extends DefaultTableModel, ?> entry) {
+                boolean matchesSearch = false;
+                String searchStr = text.toLowerCase();
+                if (searchStr.isEmpty()) {
+                    matchesSearch = true;
+                } else {
+                    for (int i = 1; i < entry.getValueCount(); i++) {
+                        Object val = entry.getValue(i);
+                        if (val != null && val.toString().toLowerCase().contains(searchStr)) {
+                            matchesSearch = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!matchesSearch) return false;
+
+                String username = (String) entry.getValue(6);
+                WeChatContactReader.ContactInfo info = findContactByUsername(username);
+                if (info == null) return true;
+
+                if ("仅限好友".equals(filterType)) {
+                    if (username.endsWith("@chatroom")) return false;
+                    if (username.startsWith("gh_")) return false;
+                    return (info.type & 2) != 0 || (info.type & 1) != 0 || (info.type == 3) || (info.type == 11) || (info.type == 35);
+                } else if ("仅限群聊".equals(filterType)) {
+                    return username.endsWith("@chatroom");
+                } else if ("仅限公众号".equals(filterType)) {
+                    return username.startsWith("gh_");
+                }
+
+                return true;
+            }
+        };
+        sorter.setRowFilter(rf);
+        updateWxcStats();
+    }
+
+    private void updateWxcStats() {
+        int total = wxcTable.getRowCount();
+        int selected = 0;
+        for (int i = 0; i < wxcTableModel.getRowCount(); i++) {
+            Boolean val = (Boolean) wxcTableModel.getValueAt(i, 0);
+            if (val != null && val) {
+                selected++;
+            }
+        }
+        wxcStatsLabel.setText(String.format("当前显示: %d | 已选择: %d", total, selected));
+    }
+
+    private WeChatContactReader.ContactInfo findContactByUsername(String username) {
+        if (username == null) return null;
+        for (WeChatContactReader.ContactInfo c : allContacts) {
+            if (username.equals(c.username)) {
+                return c;
+            }
+        }
+        return null;
     }
 
     private void setupListeners() {

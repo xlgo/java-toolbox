@@ -41,6 +41,9 @@
 | 生成 | UUID 生成 | 批量生成、去横线、大写、一键复制 |
 | 生成 | 密码生成器 | 基于 SecureRandom 的离线强密码生成与实时强度评估 |
 | 监控 | 视频监控 | 视频监控面板，支持多路画面分屏布局、格子合并拆分与设备树管理 |
+| 运维 | Kafka 管理 | 管理 Kafka 集群，浏览主题与消费组，查看 Lag 详情，消息拉取/发布，以及**实时查看主题的订阅消费组与活跃成员分区分配** |
+| 运维 | K8s 集群管理 | 多集群管理，Kubeconfig 导入与 Namespace 切换，浏览 Pod/Deployment/Service/ConfigMap/Node，日志追踪，Exec 容器终端，以及**容器文件上传与下载** |
+| 其它 | 微信群发与通讯录 | 微信群发，以及自适应读取微信 SQLite 通讯录（展示昵称、备注、微信号、头像，支持 Excel 导出、一键追加群发、头像批量下载） |
 
 ## 主题与体验优化
 
@@ -140,10 +143,14 @@ src/main/java/com/aqishi/toolbox/
 │   ├── ColorPanel.java    # 颜色转换
 │   ├── CertPanel.java     # 证书管理
 │   ├── K8sPanel.java      # K8s 部署生成
+│   ├── K8sManagerPanel.java # K8s 集群管理（终端、日志、文件上传下载）
+│   ├── KafkaPanel.java    # Kafka 管理（含主题订阅者视图）
 │   ├── RedisPanel.java    # Redis 管理
 │   ├── BpmnPanel.java     # BPMN 流程图设计
 │   ├── UuidPanel.java     # UUID 生成
-│   └── PasswordPanel.java # 密码生成器
+│   ├── PasswordPanel.java # 密码生成器
+│   ├── WeChatPanel.java   # 微信工具（群发与通讯录读取）
+│   └── WeChatContactReader.java # 微信数据库解析工具
 ├── monitor/               # 监控
 │   └── VideoMonitorPanel.java # 视频监控
 └── util/UIUtils.java      # UI 辅助

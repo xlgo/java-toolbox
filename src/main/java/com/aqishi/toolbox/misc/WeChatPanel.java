@@ -34,6 +34,7 @@ public class WeChatPanel extends ToolPanel {
     private JButton importBtn;
     private JButton exportTplBtn;
     private JButton addRowBtn;
+    private JButton addImgRowBtn;
     private JButton clearBtn;
     private JProgressBar progressBar;
 
@@ -142,10 +143,12 @@ public class WeChatPanel extends ToolPanel {
         // Table actions
         JPanel tableActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         addRowBtn = new JButton("添加一行");
+        addImgRowBtn = new JButton("添加图片行");
         clearBtn = new JButton("清空表格");
         importBtn = new JButton("导入 Excel");
         exportTplBtn = new JButton("导出模板");
         tableActions.add(addRowBtn);
+        tableActions.add(addImgRowBtn);
         tableActions.add(clearBtn);
         tableActions.add(importBtn);
         tableActions.add(exportTplBtn);
@@ -183,10 +186,11 @@ public class WeChatPanel extends ToolPanel {
         // Print initial warning logs
         logArea.setText("【使用说明与注意事项】\n" +
                 "1. 本工具利用 Java Robot 模拟键盘按键唤醒微信，微信窗口需要能被 Ctrl+Alt+W 唤醒（或提前点击打开微信置于最前）。\n" +
-                "2. 发送前，请确保微信中已有这些联系人（支持完整昵称、备注或精准的微信号），名字不要有错别字。\n" +
-                "3. 发送期间请不要移动鼠标或操作键盘，以免干扰模拟焦点导致消息错乱。\n" +
-                "4. 微信发送按键请与微信电脑端设置一致（可在微信设置中查看是 Enter 还是 Ctrl+Enter）。\n" +
-                "5. 建议将发送间隔设置为 2000 毫秒以上，避免发送过快导致微信接口限制。\n\n");
+                "2. 支持发送【文本】与【图片】：若发送内容为本地图片的绝对路径（如 D:\\pic.png，支持 png/jpg/jpeg/gif/bmp），将自动读取并作为图片发送。可点击“添加图片行”快速选择本地图片。\n" +
+                "3. 发送前，请确保微信中已有这些联系人（支持完整昵称、备注或精准的微信号），名字不要有错别字。\n" +
+                "4. 发送期间请不要移动鼠标或操作键盘，以免干扰模拟焦点导致消息错乱。\n" +
+                "5. 微信发送按键请与微信电脑端设置一致（可在微信设置中查看是 Enter 还是 Ctrl+Enter）。\n" +
+                "6. 建议将发送间隔设置为 2000 毫秒以上，避免发送过快导致微信接口限制。\n\n");
 
         setupListeners();
 
@@ -198,6 +202,8 @@ public class WeChatPanel extends ToolPanel {
             int id = tableModel.getRowCount() + 1;
             tableModel.addRow(new Object[]{id, "输入联系人名称", "输入发送内容", "待发送", ""});
         });
+
+        addImgRowBtn.addActionListener(e -> addImageRow());
 
         clearBtn.addActionListener(e -> {
             if (tableModel.getRowCount() > 0) {
@@ -213,6 +219,16 @@ public class WeChatPanel extends ToolPanel {
 
         startBtn.addActionListener(e -> startBulkSend());
         stopBtn.addActionListener(e -> stopBulkSend());
+    }
+
+    private void addImageRow() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setFileFilter(new FileNameExtensionFilter("图片文件 (*.png; *.jpg; *.jpeg; *.gif; *.bmp)", "png", "jpg", "jpeg", "gif", "bmp"));
+        if (chooser.showOpenDialog(getView()) == JFileChooser.APPROVE_OPTION) {
+            File file = chooser.getSelectedFile();
+            int id = tableModel.getRowCount() + 1;
+            tableModel.addRow(new Object[]{id, "输入联系人名称", file.getAbsolutePath(), "待发送", ""});
+        }
     }
 
     private void log(String msg) {
@@ -376,6 +392,7 @@ public class WeChatPanel extends ToolPanel {
         importBtn.setEnabled(false);
         clearBtn.setEnabled(false);
         addRowBtn.setEnabled(false);
+        addImgRowBtn.setEnabled(false);
         stopRequested = false;
 
         progressBar.setMaximum(rowCount);
@@ -509,8 +526,16 @@ public class WeChatPanel extends ToolPanel {
                             }
                         }
 
-                        // Copy message to clipboard & Paste
-                        setClipboardText(msg);
+                        // Copy message to clipboard & Paste (Text or Image)
+                        if (isImagePath(msg)) {
+                            java.awt.Image img = javax.imageio.ImageIO.read(new File(msg.trim()));
+                            if (img == null) {
+                                throw new Exception("无法解析图片文件，格式不支持或已损坏");
+                            }
+                            setClipboardImage(img);
+                        } else {
+                            setClipboardText(msg);
+                        }
                         simulateKeyCombo(robot, KeyEvent.VK_CONTROL, KeyEvent.VK_V);
                         robot.delay(200);
 
@@ -559,6 +584,7 @@ public class WeChatPanel extends ToolPanel {
                     importBtn.setEnabled(true);
                     clearBtn.setEnabled(true);
                     addRowBtn.setEnabled(true);
+                    addImgRowBtn.setEnabled(true);
                 });
             }
         });
@@ -590,5 +616,49 @@ public class WeChatPanel extends ToolPanel {
         StringSelection selection = new StringSelection(text);
         Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
         clipboard.setContents(selection, null);
+    }
+
+    private void setClipboardImage(Image img) {
+        ImageTransferable transferable = new ImageTransferable(img);
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(transferable, null);
+    }
+
+    private boolean isImagePath(String text) {
+        if (text == null || text.trim().isEmpty()) return false;
+        String t = text.trim().toLowerCase();
+        if (t.endsWith(".png") || t.endsWith(".jpg") || t.endsWith(".jpeg") || t.endsWith(".gif") || t.endsWith(".bmp")) {
+            try {
+                File file = new File(text.trim());
+                return file.exists() && file.isFile();
+            } catch (Exception ignored) {}
+        }
+        return false;
+    }
+
+    public static class ImageTransferable implements java.awt.datatransfer.Transferable {
+        private final Image image;
+
+        public ImageTransferable(Image image) {
+            this.image = image;
+        }
+
+        @Override
+        public java.awt.datatransfer.DataFlavor[] getTransferDataFlavors() {
+            return new java.awt.datatransfer.DataFlavor[]{java.awt.datatransfer.DataFlavor.imageFlavor};
+        }
+
+        @Override
+        public boolean isDataFlavorSupported(java.awt.datatransfer.DataFlavor flavor) {
+            return java.awt.datatransfer.DataFlavor.imageFlavor.equals(flavor);
+        }
+
+        @Override
+        public Object getTransferData(java.awt.datatransfer.DataFlavor flavor) throws java.awt.datatransfer.UnsupportedFlavorException {
+            if (java.awt.datatransfer.DataFlavor.imageFlavor.equals(flavor)) {
+                return image;
+            } else {
+                throw new java.awt.datatransfer.UnsupportedFlavorException(flavor);
+            }
+        }
     }
 }

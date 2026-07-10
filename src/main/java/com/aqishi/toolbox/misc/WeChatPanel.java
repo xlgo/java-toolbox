@@ -44,6 +44,12 @@ public class WeChatPanel extends ToolPanel {
     private JTextField intervalField;
     private JComboBox<String> sendKeyCombo;
     private JCheckBox confirmBeforeSendCb;
+    private JCheckBox enableGlobalImgCb;
+    private DefaultListModel<String> globalImgListModel;
+    private JList<String> globalImgList;
+    private JButton addGlobalImgBtn;
+    private JButton delGlobalImgBtn;
+    private JButton clearGlobalImgBtn;
 
     private volatile boolean stopRequested = false;
     private Thread sendThread = null;
@@ -121,7 +127,34 @@ public class WeChatPanel extends ToolPanel {
         gbc.gridx = 4; gbc.gridwidth = 2; gbc.weightx = 0.5;
         settingsPanel.add(tipsLabel, gbc);
 
-        root.add(settingsPanel, BorderLayout.NORTH);
+        // 全局图片附件面板
+        JPanel globalImgPanel = new JPanel(new BorderLayout(6, 6));
+        globalImgPanel.setBorder(BorderFactory.createTitledBorder("全局附加图片 (发送时将连同文本依次发送)"));
+
+        JPanel ctrlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        enableGlobalImgCb = new JCheckBox("启用全局图片附件");
+        addGlobalImgBtn = new JButton("添加图片");
+        delGlobalImgBtn = new JButton("删除");
+        clearGlobalImgBtn = new JButton("清空");
+        ctrlPanel.add(enableGlobalImgCb);
+        ctrlPanel.add(addGlobalImgBtn);
+        ctrlPanel.add(delGlobalImgBtn);
+        ctrlPanel.add(clearGlobalImgBtn);
+        globalImgPanel.add(ctrlPanel, BorderLayout.NORTH);
+
+        globalImgListModel = new DefaultListModel<>();
+        globalImgList = new JList<>(globalImgListModel);
+        globalImgList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        JScrollPane scrollList = new JScrollPane(globalImgList);
+        scrollList.setPreferredSize(new Dimension(0, 65)); // 紧凑高度
+        globalImgPanel.add(scrollList, BorderLayout.CENTER);
+
+        // 组合 settingsPanel 和 globalImgPanel
+        JPanel northPanel = new JPanel(new BorderLayout(4, 4));
+        northPanel.add(settingsPanel, BorderLayout.NORTH);
+        northPanel.add(globalImgPanel, BorderLayout.SOUTH);
+
+        root.add(northPanel, BorderLayout.NORTH);
 
         // 2. Middle Split: Contacts Table & Logs
         JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
@@ -219,6 +252,27 @@ public class WeChatPanel extends ToolPanel {
 
         startBtn.addActionListener(e -> startBulkSend());
         stopBtn.addActionListener(e -> stopBulkSend());
+
+        addGlobalImgBtn.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setMultiSelectionEnabled(true);
+            chooser.setFileFilter(new FileNameExtensionFilter("图片文件 (*.png; *.jpg; *.jpeg; *.gif; *.bmp)", "png", "jpg", "jpeg", "gif", "bmp"));
+            if (chooser.showOpenDialog(getView()) == JFileChooser.APPROVE_OPTION) {
+                File[] files = chooser.getSelectedFiles();
+                for (File f : files) {
+                    globalImgListModel.addElement(f.getAbsolutePath());
+                }
+            }
+        });
+
+        delGlobalImgBtn.addActionListener(e -> {
+            int idx = globalImgList.getSelectedIndex();
+            if (idx >= 0) {
+                globalImgListModel.remove(idx);
+            }
+        });
+
+        clearGlobalImgBtn.addActionListener(e -> globalImgListModel.clear());
     }
 
     private void addImageRow() {
@@ -386,6 +440,11 @@ public class WeChatPanel extends ToolPanel {
 
         final String sendKey = (String) sendKeyCombo.getSelectedItem();
         final boolean confirmBeforeSend = confirmBeforeSendCb.isSelected();
+        final boolean sendGlobalImgs = enableGlobalImgCb.isSelected();
+        final java.util.List<String> globalImgsList = new java.util.ArrayList<>();
+        for (int i = 0; i < globalImgListModel.getSize(); i++) {
+            globalImgsList.add(globalImgListModel.getElementAt(i));
+        }
 
         startBtn.setEnabled(false);
         stopBtn.setEnabled(true);
@@ -393,6 +452,10 @@ public class WeChatPanel extends ToolPanel {
         clearBtn.setEnabled(false);
         addRowBtn.setEnabled(false);
         addImgRowBtn.setEnabled(false);
+        addGlobalImgBtn.setEnabled(false);
+        delGlobalImgBtn.setEnabled(false);
+        clearGlobalImgBtn.setEnabled(false);
+        enableGlobalImgCb.setEnabled(false);
         stopRequested = false;
 
         progressBar.setMaximum(rowCount);
@@ -526,25 +589,51 @@ public class WeChatPanel extends ToolPanel {
                             }
                         }
 
-                        // Copy message to clipboard & Paste (Text or Image)
-                        if (isImagePath(msg)) {
-                            java.awt.Image img = javax.imageio.ImageIO.read(new File(msg.trim()));
-                            if (img == null) {
-                                throw new Exception("无法解析图片文件，格式不支持或已损坏");
+                        if (msg != null && !msg.trim().isEmpty()) {
+                            // Copy message to clipboard & Paste (Text or Image)
+                            if (isImagePath(msg)) {
+                                java.awt.Image img = javax.imageio.ImageIO.read(new File(msg.trim()));
+                                if (img == null) {
+                                    throw new Exception("无法解析图片文件，格式不支持或已损坏");
+                                }
+                                setClipboardImage(img);
+                            } else {
+                                setClipboardText(msg);
                             }
-                            setClipboardImage(img);
-                        } else {
-                            setClipboardText(msg);
-                        }
-                        simulateKeyCombo(robot, KeyEvent.VK_CONTROL, KeyEvent.VK_V);
-                        robot.delay(200);
+                            simulateKeyCombo(robot, KeyEvent.VK_CONTROL, KeyEvent.VK_V);
+                            robot.delay(200);
 
-                        // Press Send key
-                        if ("Enter".equals(sendKey)) {
-                            robot.keyPress(KeyEvent.VK_ENTER);
-                            robot.keyRelease(KeyEvent.VK_ENTER);
-                        } else {
-                            simulateKeyCombo(robot, KeyEvent.VK_CONTROL, KeyEvent.VK_ENTER);
+                            // Press Send key
+                            if ("Enter".equals(sendKey)) {
+                                robot.keyPress(KeyEvent.VK_ENTER);
+                                robot.keyRelease(KeyEvent.VK_ENTER);
+                            } else {
+                                simulateKeyCombo(robot, KeyEvent.VK_CONTROL, KeyEvent.VK_ENTER);
+                            }
+                            robot.delay(500);
+                        }
+
+                        // 3. Copy and Send global images if enabled
+                        if (sendGlobalImgs && !globalImgsList.isEmpty()) {
+                            for (String imgPath : globalImgsList) {
+                                if (stopRequested) break;
+                                java.awt.Image img = javax.imageio.ImageIO.read(new File(imgPath));
+                                if (img != null) {
+                                    setClipboardImage(img);
+                                    simulateKeyCombo(robot, KeyEvent.VK_CONTROL, KeyEvent.VK_V);
+                                    robot.delay(200);
+
+                                    if ("Enter".equals(sendKey)) {
+                                        robot.keyPress(KeyEvent.VK_ENTER);
+                                        robot.keyRelease(KeyEvent.VK_ENTER);
+                                    } else {
+                                        simulateKeyCombo(robot, KeyEvent.VK_CONTROL, KeyEvent.VK_ENTER);
+                                    }
+                                    robot.delay(800); // delay between consecutive image sends
+                                } else {
+                                    log("【警告】无法读取全局图片: " + imgPath);
+                                }
+                            }
                         }
 
                         // Done
@@ -585,6 +674,10 @@ public class WeChatPanel extends ToolPanel {
                     clearBtn.setEnabled(true);
                     addRowBtn.setEnabled(true);
                     addImgRowBtn.setEnabled(true);
+                    addGlobalImgBtn.setEnabled(true);
+                    delGlobalImgBtn.setEnabled(true);
+                    clearGlobalImgBtn.setEnabled(true);
+                    enableGlobalImgCb.setEnabled(true);
                 });
             }
         });

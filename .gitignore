@@ -25,3 +25,6 @@ Thumbs.db
 dependency-reduced-pom.xml
 toolbox-config.properties
 toolbox-passwords.enc
+
+classpath.txt
+META-INF/

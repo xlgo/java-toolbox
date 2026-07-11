@@ -1184,30 +1184,35 @@ public class KafkaPanel extends ToolPanel {
                     }
                 }
 
-                // 4. Find historical/offset subscribers in batch
+                // 4. Find historical/offset subscribers concurrently to avoid single group failure
                 Set<String> offsetGroups = new HashSet<>();
                 try {
-                    Map<String, ListConsumerGroupOffsetsSpec> groupSpecs = new HashMap<>();
+                    Map<String, org.apache.kafka.common.KafkaFuture<Map<TopicPartition, OffsetAndMetadata>>> futures = new HashMap<>();
+                    ListConsumerGroupOffsetsOptions options = new ListConsumerGroupOffsetsOptions().timeoutMs(5000);
                     for (String gid : groupIds) {
-                        groupSpecs.put(gid, new ListConsumerGroupOffsetsSpec());
+                        futures.put(gid, adminClient.listConsumerGroupOffsets(gid, options).partitionsToOffsetAndMetadata());
                     }
-                    Map<String, Map<TopicPartition, OffsetAndMetadata>> allOffsets =
-                            adminClient.listConsumerGroupOffsets(groupSpecs).all().get();
-
-                    for (Map.Entry<String, Map<TopicPartition, OffsetAndMetadata>> entry : allOffsets.entrySet()) {
-                        String groupId = entry.getKey();
-                        Map<TopicPartition, OffsetAndMetadata> offsets = entry.getValue();
-                        if (offsets != null) {
-                            for (TopicPartition tp : offsets.keySet()) {
-                                if (tp.topic().equals(topicName)) {
-                                    offsetGroups.add(groupId);
-                                    break;
+                    for (Map.Entry<String, org.apache.kafka.common.KafkaFuture<Map<TopicPartition, OffsetAndMetadata>>> entry : futures.entrySet()) {
+                        String gid = entry.getKey();
+                        try {
+                            Map<TopicPartition, OffsetAndMetadata> offsets = entry.getValue().get(3, java.util.concurrent.TimeUnit.SECONDS);
+                            if (offsets != null) {
+                                for (TopicPartition tp : offsets.keySet()) {
+                                    if (tp.topic().equals(topicName)) {
+                                        offsetGroups.add(gid);
+                                        break;
+                                    }
                                 }
                             }
+                        } catch (java.util.concurrent.TimeoutException ex) {
+                            // Ignore timeout for individual group
+                            consoleLog("查询消费组 " + gid + " Offset 超时");
+                        } catch (Exception ex) {
+                            // Ignore other individual errors
                         }
                     }
                 } catch (Exception ex) {
-                    consoleLog("批量查询消费组 Offset 失败 (可能是 Broker 版本不支持，将只根据活动成员匹配)，错误: " + ex.getMessage());
+                    consoleLog("查询消费组 Offset 失败: " + ex.getMessage());
                 }
 
                 // Combine active and offset-only subscribers

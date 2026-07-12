@@ -14,6 +14,7 @@ import com.aqishi.toolbox.crypto.CryptoPanel;
 import com.aqishi.toolbox.crypto.SymmetricPanel;
 import com.aqishi.toolbox.misc.ColorPanel;
 import com.aqishi.toolbox.misc.CertPanel;
+import com.aqishi.toolbox.misc.TotpPanel;
 import com.aqishi.toolbox.misc.K8sPanel;
 import com.aqishi.toolbox.misc.K8sManagerPanel;
 import com.aqishi.toolbox.misc.JsonPanel;
@@ -75,7 +76,7 @@ public class MainFrame extends JFrame {
 
     private void createTools() {
         java.util.function.Supplier<ToolPanel>[] creators = new java.util.function.Supplier[]{
-            CryptoPanel::new, SymmetricPanel::new, AsymmetricPanel::new, AccountManagerPanel::new,
+            CryptoPanel::new, SymmetricPanel::new, AsymmetricPanel::new, AccountManagerPanel::new, TotpPanel::new,
             ConvertPanel::new, TimePanel::new, Base64ImagePanel::new, FormatConvertPanel::new,
             JsonPanel::new, XmlPanel::new, SqlPanel::new, RegexPanel::new, JwtPanel::new,
             CronPanel::new, TextDiffPanel::new, DockerComposePanel::new, SubnetPanel::new,

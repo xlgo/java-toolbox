@@ -664,7 +664,7 @@ public class WeChatPanel extends ToolPanel {
 
                 if (!matchesSearch) return false;
 
-                String username = (String) entry.getValue(6);
+                String username = (String) entry.getValue(5);
                 WeChatContactReader.ContactInfo info = findContactByUsername(username);
                 if (info == null) return true;
 

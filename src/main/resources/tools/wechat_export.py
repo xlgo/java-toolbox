@@ -396,7 +396,8 @@ def run_export_logic(wechat_window, args, state):
         print(json.dumps({"status": "已成功激活微信，正在初始化定位详情面板..."}))
         sys.stdout.flush()
 
-        panel = find_detail_panel(wechat_window)
+        global_panel = find_detail_panel(wechat_window)
+        panel = global_panel
         if panel:
             print(json.dumps({"status": "面板定位成功，开始通过 Down 键遍历好友..."}))
         else:
@@ -408,15 +409,34 @@ def run_export_logic(wechat_window, args, state):
             time.sleep(0.05)
             
             details = None
-            if panel:
-                try:
-                    details = parse_profile_panel(panel)
-                except Exception:
-                    panel = None
+            for attempt in range(4):
+                check_state(state)
+                if panel:
+                    try:
+                        details = parse_profile_panel(panel)
+                        if details and (details.get('wechat_id') or details.get('nickname')):
+                            break
+                    except Exception:
+                        panel = None
+                        
+                if (not panel or not details or not (details.get('wechat_id') or details.get('nickname'))) and global_panel:
+                    try:
+                        if global_panel.Exists(0.01):
+                            panel = global_panel
+                        else:
+                            panel = None
+                            global_panel = None
+                    except Exception:
+                        panel = None
+                        global_panel = None
+                        
+                if not details or not (details.get('wechat_id') or details.get('nickname')):
+                    time.sleep(0.05)
             
             if not panel or not details or not (details.get('wechat_id') or details.get('nickname')):
                 panel = find_detail_panel(wechat_window)
                 if panel:
+                    global_panel = panel
                     try:
                         details = parse_profile_panel(panel)
                     except Exception:
@@ -485,7 +505,8 @@ def run_export_logic(wechat_window, args, state):
         consecutive_no_new = 0
         max_no_new_attempts = 4
         count = 0
-        panel = None
+        global_panel = find_detail_panel(wechat_window)
+        panel = global_panel
 
         while count < args.limit:
             check_state(state)
@@ -536,15 +557,34 @@ def run_export_logic(wechat_window, args, state):
                     time.sleep(args.delay)
                     
                     details = None
-                    if panel:
-                        try:
-                            details = parse_profile_panel(panel)
-                        except Exception:
-                            panel = None
+                    for attempt in range(4):
+                        check_state(state)
+                        if panel:
+                            try:
+                                details = parse_profile_panel(panel)
+                                if details and (details.get('wechat_id') or details.get('nickname')):
+                                    break
+                            except Exception:
+                                panel = None
+                                
+                        if (not panel or not details or not (details.get('wechat_id') or details.get('nickname'))) and global_panel:
+                            try:
+                                if global_panel.Exists(0.01):
+                                    panel = global_panel
+                                else:
+                                    panel = None
+                                    global_panel = None
+                            except Exception:
+                                panel = None
+                                global_panel = None
+                                
+                        if not details or not (details.get('wechat_id') or details.get('nickname')):
+                            time.sleep(0.05)
                     
                     if not panel or not details or not (details.get('wechat_id') or details.get('nickname')):
                         panel = find_detail_panel(wechat_window)
                         if panel:
+                            global_panel = panel
                             try:
                                 details = parse_profile_panel(panel)
                             except Exception:

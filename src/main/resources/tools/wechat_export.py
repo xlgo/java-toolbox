@@ -566,7 +566,7 @@ def run_export_logic(wechat_window, args, state):
                     list_ctrl.WheelDown(wheelTimes=3)
                 except Exception:
                     list_ctrl.SendKeys('{PAGEDOWN}')
-                time.sleep(0.5)
+                time.sleep(0.1)
                 
             if consecutive_no_new >= max_no_new_attempts:
                 print(json.dumps({"status": "已到达通讯录底部，获取完成！"}))

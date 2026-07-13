@@ -157,7 +157,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--limit', type=int, default=1000, help='Maximum number of contacts to fetch')
     parser.add_argument('--delay', type=float, default=0.3, help='Delay between down-presses')
-    parser.add_argument('--mode', type=str, default='mouse', choices=['keyboard', 'mouse'], help='Traversal mode')
+    parser.add_argument('--mode', type=str, default='keyboard', choices=['keyboard', 'mouse'], help='Traversal mode')
     args = parser.parse_args()
 
     # Find WeChat Window with multiple fallback strategies

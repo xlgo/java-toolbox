@@ -1337,7 +1337,7 @@ public class WeChatPanel extends ToolPanel {
                 "键盘模式 (使用 Down 键，在键盘可用时极快)", 
                 "鼠标模式 (模拟鼠标点击与滚轮，微信4.x必选)"
         });
-        modeCombo.setSelectedIndex(1); // Default to Mouse mode
+        modeCombo.setSelectedIndex(0); // Default to Mouse mode
         gbc.gridx = 1; gbc.weightx = 1.0;
         dialog.add(modeCombo, gbc);
         

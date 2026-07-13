@@ -1455,12 +1455,13 @@ public class WeChatPanel extends ToolPanel {
                                 String remark = (String) data.get("remark");
                                 String region = (String) data.get("region");
                                 
+                                Integer genderVal = (Integer) data.get("gender");
                                 WeChatContactReader.ContactInfo info = new WeChatContactReader.ContactInfo();
                                 info.nickname = nickname;
                                 info.alias = wechatId;
                                 info.remark = remark;
                                 info.username = wechatId != null && !wechatId.isEmpty() ? wechatId : nickname;
-                                info.gender = 0;
+                                info.gender = genderVal != null ? genderVal : 0;
                                 info.avatarUrl = "";
                                 
                                 collected++;

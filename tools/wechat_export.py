@@ -64,7 +64,8 @@ def parse_profile_panel(panel):
         'nickname': '',
         'wechat_id': '',
         'remark': '',
-        'region': ''
+        'region': '',
+        'gender': 0
     }
     
     # Matching labels (Simplified/Traditional/English)
@@ -151,6 +152,19 @@ def parse_profile_panel(panel):
             if details['nickname'] and details['nickname'] != first_text:
                 details['remark'] = first_text
                 
+    # Detect gender
+    for child, depth in uia.WalkControl(panel):
+        name = child.Name
+        if name:
+            name_clean = name.strip()
+            if child.ControlType in [uia.ControlType.ImageControl, uia.ControlType.CustomControl] or (child.ControlType == uia.ControlType.TextControl and name_clean in ["男", "女", "Male", "Female"] and name_clean != details['nickname']):
+                if name_clean in ["男", "Male"]:
+                    details['gender'] = 1
+                    break
+                elif name_clean in ["女", "Female"]:
+                    details['gender'] = 2
+                    break
+                    
     return details
 
 def main():

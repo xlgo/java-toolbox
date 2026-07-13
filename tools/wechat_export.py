@@ -27,19 +27,24 @@ except ImportError:
         sys.exit(1)
 
 def find_detail_panel(wechat_window):
-    # Search the window for any text control containing "微信号" or "WeChat ID"
+    # Search the window for any text control containing "微信号" or "WeChat ID" (Simplified/Traditional/English)
+    wechat_keys = ["微信号", "WeChat ID", "微訊號", "微信號"]
     for child, depth in uia.WalkControl(wechat_window):
         if child.ControlType == uia.ControlType.TextControl:
             name = child.Name
-            if name and ("微信号" in name or "WeChat ID" in name):
+            if name and any(k in name for k in wechat_keys):
                 # Climb up to find the container that holds both this text and the send message button
                 curr = child
                 for _ in range(5):
                     curr = curr.GetParentControl()
                     if curr is None:
                         break
-                    # Check if this container contains the "Send Message" / "发消息" button
-                    for btn_name in ["发消息", "进入公众号", "关注", "发送消息", "Send Message"]:
+                    # Check if this container contains the send button (Simplified/Traditional/English)
+                    btn_names = [
+                        "发消息", "进入公众号", "关注", "发送消息", "Send Message",
+                        "發消息", "發送訊息", "傳送訊息", "進入公眾號", "關注", "發送消息"
+                    ]
+                    for btn_name in btn_names:
                         if curr.ButtonControl(Name=btn_name).Exists(0.02):
                             return curr
     return None
@@ -62,11 +67,23 @@ def parse_profile_panel(panel):
         'region': ''
     }
     
-    # Matching labels
-    wechat_labels = ["微信号：", "微信号:", "WeChat ID:", "WeChat ID："]
-    remark_labels = ["备注名：", "备注名:", "备注：", "备注:", "Remark:", "Remark："]
-    nickname_labels = ["昵称：", "昵称:", "Nickname:", "Nickname："]
-    region_labels = ["地区：", "地区:", "Region:", "Region："]
+    # Matching labels (Simplified/Traditional/English)
+    wechat_labels = [
+        "微信号：", "微信号:", "WeChat ID:", "WeChat ID：",
+        "微訊號：", "微訊號:", "微信號：", "微信號:"
+    ]
+    remark_labels = [
+        "备注名：", "备注名:", "备注：", "备注:", "Remark:", "Remark：",
+        "備註名：", "備註名:", "備註：", "備註:"
+    ]
+    nickname_labels = [
+        "昵称：", "昵称:", "Nickname:", "Nickname：",
+        "暱稱：", "暱稱:", "暱稱"
+    ]
+    region_labels = [
+        "地区：", "地区:", "Region:", "Region：",
+        "地區：", "地區:"
+    ]
     
     for idx, name in enumerate(text_names):
         name_clean = name.strip()
@@ -113,7 +130,10 @@ def parse_profile_panel(panel):
 
     # If nickname not found via "昵称：" label
     if not details['nickname']:
-        excluded = ["微信号", "备注", "地区", "发消息", "进入公众号", "关注", "发送消息", "功能介绍", "帐号主体", "Send Message", "WeChat ID", "Remark", "Region"]
+        excluded = [
+            "微信号", "备注", "地区", "发消息", "进入公众号", "关注", "发送消息", "功能介绍", "帐号主体", "Send Message", "WeChat ID", "Remark", "Region",
+            "微訊號", "微信號", "備註", "地區", "發消息", "發送訊息", "傳送訊息", "進入公眾號", "關注", "發送消息", "功能介紹", "帳號主體"
+        ]
         for name in text_names:
             name_clean = name.strip()
             if name_clean and not any(k in name_clean for k in excluded) and len(name_clean) < 40:
@@ -123,7 +143,10 @@ def parse_profile_panel(panel):
     # If first text is different from nickname and we got nickname, it is the remark
     if text_names and not details['remark']:
         first_text = text_names[0].strip()
-        excluded = ["微信号", "备注", "地区", "发消息", "进入公众号", "关注", "发送消息", "功能介绍", "帐号主体", "Send Message", "WeChat ID", "Remark", "Region"]
+        excluded = [
+            "微信号", "备注", "地区", "发消息", "进入公众号", "关注", "发送消息", "功能介绍", "帐号主体", "Send Message", "WeChat ID", "Remark", "Region",
+            "微訊號", "微信號", "備註", "地區", "發消息", "發送訊息", "傳送訊息", "進入公眾號", "關注", "發送消息", "功能介紹", "帳號主體"
+        ]
         if first_text and not any(k in first_text for k in excluded) and len(first_text) < 40:
             if details['nickname'] and details['nickname'] != first_text:
                 details['remark'] = first_text
@@ -181,8 +204,12 @@ def main():
     if args.mode == 'keyboard':
         # Keyboard Mode Loop
         try:
-            list_ctrl = wechat_window.ListControl(Name="联系人")
-            if not list_ctrl.Exists(1):
+            list_ctrl = None
+            for name in ["联系人", "Contacts", "聯絡人", "通讯录", "通訊錄"]:
+                list_ctrl = wechat_window.ListControl(Name=name)
+                if list_ctrl.Exists(0.1):
+                    break
+            if not list_ctrl or not list_ctrl.Exists(0.01):
                 list_ctrl = wechat_window.ListControl()
             if list_ctrl.Exists(0.5):
                 list_ctrl.SetFocus()
@@ -243,7 +270,7 @@ def main():
         list_ctrl = None
         for child, depth in uia.WalkControl(wechat_window):
             if child.ControlType == uia.ControlType.ListControl:
-                if child.Name in ["联系人", "Contacts"] or len(child.GetChildren()) > 3:
+                if child.Name in ["联系人", "Contacts", "聯絡人", "通讯录", "通訊錄"] or len(child.GetChildren()) > 3:
                     list_ctrl = child
                     break
                     

@@ -26,6 +26,7 @@ public class WeChatContactReader {
         public String alias;        // 自定义微信号 (Alias/alias)
         public String nickname;     // 昵称 (NickName/nickname)
         public String remark;       // 备注名 (Remark/remark/conRemark)
+        public String tag;          // 标签 (Tag/tag)
         public int gender;          // 性别 (0:未知, 1:男, 2:女)
         public String avatarUrl;    // 头像 URL (smallHeadImgUrl/bigHeadImgUrl/reserved2)
         public int type;            // 联系人类型 (Type/type)
@@ -321,7 +322,7 @@ public class WeChatContactReader {
 
             // 创建表头
             Row headerRow = sheet.createRow(0);
-            String[] headers = {"昵称", "微信号", "备注名", "性别", "头像链接", "原始微信号(UserName)"};
+            String[] headers = {"昵称", "微信号", "备注名", "标签"};
             for (int i = 0; i < headers.length; i++) {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(headers[i]);
@@ -334,17 +335,7 @@ public class WeChatContactReader {
                 row.createCell(0).setCellValue(contact.nickname != null ? contact.nickname : "");
                 row.createCell(1).setCellValue(contact.alias != null ? contact.alias : "");
                 row.createCell(2).setCellValue(contact.remark != null ? contact.remark : "");
-
-                String genderStr = "未知";
-                if (contact.gender == 1) {
-                    genderStr = "男";
-                } else if (contact.gender == 2) {
-                    genderStr = "女";
-                }
-                row.createCell(3).setCellValue(genderStr);
-                
-                row.createCell(4).setCellValue(contact.avatarUrl != null ? contact.avatarUrl : "");
-                row.createCell(5).setCellValue(contact.username != null ? contact.username : "");
+                row.createCell(3).setCellValue(contact.tag != null ? contact.tag : "");
             }
 
             // 自适应列宽

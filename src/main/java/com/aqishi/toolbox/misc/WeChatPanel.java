@@ -329,7 +329,7 @@ public class WeChatPanel extends ToolPanel {
         centerPanel.add(filterBar, BorderLayout.NORTH);
 
         // Table
-        wxcTableModel = new DefaultTableModel(new Object[]{"选择", "昵称", "微信号", "备注名", "性别", "头像链接", "原始ID (UserName)"}, 0) {
+        wxcTableModel = new DefaultTableModel(new Object[]{"选择", "昵称", "微信号", "备注名", "标签", "UserName(隐藏)"}, 0) {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
                 if (columnIndex == 0) return Boolean.class;
@@ -356,9 +356,10 @@ public class WeChatPanel extends ToolPanel {
         wxcTable.getColumnModel().getColumn(1).setPreferredWidth(120);
         wxcTable.getColumnModel().getColumn(2).setPreferredWidth(120);
         wxcTable.getColumnModel().getColumn(3).setPreferredWidth(120);
-        wxcTable.getColumnModel().getColumn(4).setPreferredWidth(50);
-        wxcTable.getColumnModel().getColumn(5).setPreferredWidth(180);
-        wxcTable.getColumnModel().getColumn(6).setPreferredWidth(150);
+        wxcTable.getColumnModel().getColumn(4).setPreferredWidth(100);
+        wxcTable.getColumnModel().getColumn(5).setMinWidth(0);
+        wxcTable.getColumnModel().getColumn(5).setMaxWidth(0);
+        wxcTable.getColumnModel().getColumn(5).setPreferredWidth(0);
 
         JScrollPane tableScroll = new JScrollPane(wxcTable);
         centerPanel.add(tableScroll, BorderLayout.CENTER);
@@ -486,17 +487,22 @@ public class WeChatPanel extends ToolPanel {
                     String nickname = (String) wxcTableModel.getValueAt(i, 1);
                     String alias = (String) wxcTableModel.getValueAt(i, 2);
                     String remark = (String) wxcTableModel.getValueAt(i, 3);
-                    String username = (String) wxcTableModel.getValueAt(i, 6);
+                    String username = (String) wxcTableModel.getValueAt(i, 5);
 
-                    String targetName = remark;
-                    if (targetName == null || targetName.trim().isEmpty()) {
-                        targetName = nickname;
+                    String displayName = remark;
+                    if (displayName == null || displayName.trim().isEmpty()) {
+                        displayName = nickname;
                     }
-                    if (targetName == null || targetName.trim().isEmpty()) {
-                        targetName = alias;
+                    if (displayName == null || displayName.trim().isEmpty()) {
+                        displayName = alias;
                     }
-                    if (targetName == null || targetName.trim().isEmpty()) {
-                        targetName = username;
+                    if (displayName == null || displayName.trim().isEmpty()) {
+                        displayName = username;
+                    }
+
+                    String targetName = displayName;
+                    if (alias != null && !alias.trim().isEmpty() && !alias.trim().startsWith("wxid_") && !alias.trim().equals(displayName)) {
+                        targetName = displayName + " (" + alias.trim() + ")";
                     }
 
                     int id = tableModel.getRowCount() + 1;
@@ -528,7 +534,7 @@ public class WeChatPanel extends ToolPanel {
                 for (int i = 0; i < wxcTableModel.getRowCount(); i++) {
                     Boolean val = (Boolean) wxcTableModel.getValueAt(i, 0);
                     if (val != null && val) {
-                        String username = (String) wxcTableModel.getValueAt(i, 6);
+                        String username = (String) wxcTableModel.getValueAt(i, 5);
                         WeChatContactReader.ContactInfo info = findContactByUsername(username);
                         if (info != null) toExport.add(info);
                     }
@@ -571,7 +577,7 @@ public class WeChatPanel extends ToolPanel {
             for (int i = 0; i < wxcTableModel.getRowCount(); i++) {
                 Boolean val = (Boolean) wxcTableModel.getValueAt(i, 0);
                 if (val != null && val) {
-                    String username = (String) wxcTableModel.getValueAt(i, 6);
+                    String username = (String) wxcTableModel.getValueAt(i, 5);
                     WeChatContactReader.ContactInfo info = findContactByUsername(username);
                     if (info != null) selected.add(info);
                 }
@@ -704,16 +710,12 @@ public class WeChatPanel extends ToolPanel {
     private void refreshContactTable() {
         wxcTableModel.setRowCount(0);
         for (WeChatContactReader.ContactInfo c : allContacts) {
-            String genderStr = "未知";
-            if (c.gender == 1) genderStr = "男";
-            else if (c.gender == 2) genderStr = "女";
             wxcTableModel.addRow(new Object[]{
                     c.selected,
                     c.nickname != null ? c.nickname : "",
                     c.alias != null ? c.alias : "",
                     c.remark != null ? c.remark : "",
-                    genderStr,
-                    c.avatarUrl != null ? c.avatarUrl : "",
+                    c.tag != null ? c.tag : "",
                     c.username
             });
         }
@@ -1058,8 +1060,18 @@ public class WeChatPanel extends ToolPanel {
                         robot.keyRelease(KeyEvent.VK_DELETE);
                         robot.delay(150);
 
+                        // Extract WeChat ID from "DisplayName (Alias)" format if present
+                        String searchKey = name;
+                        if (name != null && name.contains(" (") && name.endsWith(")")) {
+                            int startIndex = name.lastIndexOf(" (");
+                            String possibleAlias = name.substring(startIndex + 2, name.length() - 1).trim();
+                            if (!possibleAlias.isEmpty()) {
+                                searchKey = possibleAlias;
+                            }
+                        }
+
                         // Copy Name to clipboard & Paste
-                        setClipboardText(name);
+                        setClipboardText(searchKey);
                         simulateKeyCombo(robot, KeyEvent.VK_CONTROL, KeyEvent.VK_V);
                         robot.delay(delaySearch);
 
@@ -1454,12 +1466,14 @@ public class WeChatPanel extends ToolPanel {
                                 String wechatId = (String) data.get("wechat_id");
                                 String remark = (String) data.get("remark");
                                 String region = (String) data.get("region");
+                                String tag = (String) data.get("tag");
                                 
                                 Integer genderVal = (Integer) data.get("gender");
                                 WeChatContactReader.ContactInfo info = new WeChatContactReader.ContactInfo();
                                 info.nickname = nickname;
                                 info.alias = wechatId;
                                 info.remark = remark;
+                                info.tag = tag != null ? tag : "";
                                 info.username = wechatId != null && !wechatId.isEmpty() ? wechatId : nickname;
                                 info.gender = genderVal != null ? genderVal : 0;
                                 info.avatarUrl = "";
@@ -1492,7 +1506,12 @@ public class WeChatPanel extends ToolPanel {
                 }
             } catch (Exception ex) {
                 SwingUtilities.invokeLater(() -> {
-                    UIUtils.error(getView(), "执行自动获取异常:\n" + ex.getMessage());
+                    String msg = ex.getMessage();
+                    if (msg != null && (msg.contains("Cannot run program") || msg.contains("系统找不到指定的文件") || msg.contains("not found"))) {
+                        UIUtils.error(getView(), "执行自动获取异常:\n系统未检测到有效的 Python 环境！\n\n请确认：\n1. 电脑已安装 Python\n2. 安装时已勾选 “Add Python to PATH” 选项。\n安装并配置完成后，请重启本软件重试。");
+                    } else {
+                        UIUtils.error(getView(), "执行自动获取异常:\n" + msg);
+                    }
                 });
             } finally {
                 if (tempScriptFile != null && tempScriptFile.exists()) {

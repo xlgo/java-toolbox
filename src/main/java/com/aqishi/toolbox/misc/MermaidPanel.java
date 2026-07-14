@@ -90,7 +90,7 @@ public class MermaidPanel extends ToolPanel {
     }
 
     public MermaidPanel() {
-        super("dev", "mermaid",
+        super("chart", "mermaid",
                 "Mermaid", "绘图", "画图", "流程图",
                 "时序图", "UML", "图表", "diagram");
     }

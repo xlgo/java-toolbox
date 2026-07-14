@@ -83,7 +83,7 @@ public class BpmnPanel extends ToolPanel {
     private boolean updatingProperties = false;
 
     public BpmnPanel() {
-        super("dev", "bpmn.designer",
+        super("chart", "bpmn.designer",
                 "BPMN", "工作流", "设计器", "Workflow", "Process", "流程图", "Camunda", "Activiti");
         
         // 初始化默认流程

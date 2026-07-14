@@ -2,11 +2,14 @@ package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.util.UIUtils;
+import com.formdev.flatlaf.extras.FlatSVGIcon;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -15,12 +18,13 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Mermaid 绘图面板：支持在线渲染、各类图表模板一键载入、本地导出 PNG。
+ * Mermaid 绘图面板：支持在线矢量 SVG 渲染、手势拖拽平移、各类图表模板一键载入、导出高清 PNG 或矢量 SVG 图表。
  */
 public class MermaidPanel extends ToolPanel {
 
@@ -31,8 +35,9 @@ public class MermaidPanel extends ToolPanel {
     private JButton exportBtn;
     private JProgressBar progressBar;
     
-    // 缓存当前渲染成功的图片，以便导出
-    private BufferedImage currentImage;
+    // 缓存渲染结果
+    private byte[] currentSvgBytes;
+    private FlatSVGIcon currentIcon;
 
     // 预置模板列表
     private static final Map<String, String> TEMPLATES = new LinkedHashMap<>();
@@ -145,16 +150,68 @@ public class MermaidPanel extends ToolPanel {
 
         leftPanel.add(controlPanel, BorderLayout.SOUTH);
 
-        // 2. 右侧图片展示区
+        // 2. 右侧图片展示区 (带 Drag-to-Scroll 手势拖拽平移)
         previewLabel = new JLabel("暂未生成图表，请在左侧编辑代码后点击“渲染图表”。", SwingConstants.CENTER);
         previewLabel.setFont(UIUtils.plainFont());
         previewLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
         
         JScrollPane previewScroll = new JScrollPane(previewLabel);
         previewScroll.setBorder(BorderFactory.createTitledBorder(
-                null, "图表渲染预览", javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
+                null, "图表渲染预览 (按住鼠标左键可任意拖拽平移)", javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
                 javax.swing.border.TitledBorder.DEFAULT_POSITION, UIUtils.plainFont(),
                 UIManager.getColor("Component.accentColor")));
+
+        JViewport viewport = previewScroll.getViewport();
+
+        // 鼠标拖拽平移逻辑实现 (使用屏幕绝对坐标差值防抖动)
+        MouseAdapter dragScrollAdapter = new MouseAdapter() {
+            private Point originOnScreen;
+            private Point viewPositionAtStart;
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (previewLabel.getIcon() != null && SwingUtilities.isLeftMouseButton(e)) {
+                    originOnScreen = e.getLocationOnScreen();
+                    viewPositionAtStart = viewport.getViewPosition();
+                    previewLabel.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (previewLabel.getIcon() != null) {
+                    previewLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                } else {
+                    previewLabel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
+                }
+            }
+
+            @Override
+            public void mouseDragged(MouseEvent e) {
+                if (originOnScreen != null && viewPositionAtStart != null && previewLabel.getIcon() != null) {
+                    Point currentScreen = e.getLocationOnScreen();
+                    int dx = currentScreen.x - originOnScreen.x;
+                    int dy = currentScreen.y - originOnScreen.y;
+                    
+                    int newX = viewPositionAtStart.x - dx;
+                    int newY = viewPositionAtStart.y - dy;
+                    
+                    // 获取可滑动的最大边界
+                    int maxX = Math.max(0, previewLabel.getWidth() - viewport.getWidth());
+                    int maxY = Math.max(0, previewLabel.getHeight() - viewport.getHeight());
+                    
+                    if (newX < 0) newX = 0;
+                    if (newX > maxX) newX = maxX;
+                    if (newY < 0) newY = 0;
+                    if (newY > maxY) newY = maxY;
+                    
+                    viewport.setViewPosition(new Point(newX, newY));
+                }
+            }
+        };
+
+        previewLabel.addMouseListener(dragScrollAdapter);
+        previewLabel.addMouseMotionListener(dragScrollAdapter);
 
         // 3. 将左右面板装入 JSplitPane 容器
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, previewScroll);
@@ -189,18 +246,19 @@ public class MermaidPanel extends ToolPanel {
         previewLabel.setIcon(null);
         previewLabel.setText("正在连接云端服务渲染中，请稍候...");
         previewLabel.setForeground(UIManager.getColor("Label.foreground"));
+        previewLabel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
 
-        new SwingWorker<BufferedImage, Void>() {
+        new SwingWorker<byte[], Void>() {
             private String errorMsg = null;
 
             @Override
-            protected BufferedImage doInBackground() throws Exception {
+            protected byte[] doInBackground() throws Exception {
                 // 将代码进行 UTF-8 Base64 编码，生成 URL-safe 的请求字符串
                 byte[] codeBytes = code.getBytes(StandardCharsets.UTF_8);
                 String base64Code = Base64.getUrlEncoder().withoutPadding().encodeToString(codeBytes);
                 
-                // Kroki 或 Mermaid.ink PNG 渲染源 (这里使用稳定和极速的 Mermaid.ink)
-                String requestUrl = "https://mermaid.ink/img/" + base64Code;
+                // 请求矢量 SVG 格式渲染源，确保无限清晰
+                String requestUrl = "https://mermaid.ink/svg/" + base64Code;
                 
                 URL url = new URL(requestUrl);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -218,10 +276,7 @@ public class MermaidPanel extends ToolPanel {
                         while ((bytesRead = is.read(buffer)) != -1) {
                             baos.write(buffer, 0, bytesRead);
                         }
-                        byte[] imageBytes = baos.toByteArray();
-                        try (ByteArrayInputStream bais = new ByteArrayInputStream(imageBytes)) {
-                            return ImageIO.read(bais);
-                        }
+                        return baos.toByteArray();
                     }
                 } else {
                     errorMsg = "云端渲染失败 (HTTP " + responseCode + ")！\n请检查您的 Mermaid 语法是否正确。";
@@ -234,20 +289,27 @@ public class MermaidPanel extends ToolPanel {
                 renderBtn.setEnabled(true);
                 progressBar.setVisible(false);
                 try {
-                    BufferedImage image = get();
-                    if (image != null) {
-                        currentImage = image;
+                    byte[] svgBytes = get();
+                    if (svgBytes != null && svgBytes.length > 0) {
+                        currentSvgBytes = svgBytes;
+                        
+                        // 使用 flatlaf-extras 中的 FlatSVGIcon (底层利用 jsvg 解析渲染，支持无限缩放)
+                        currentIcon = new FlatSVGIcon(new ByteArrayInputStream(svgBytes));
+                        
                         previewLabel.setText("");
-                        previewLabel.setIcon(new ImageIcon(image));
+                        previewLabel.setIcon(currentIcon);
+                        previewLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)); // 有图展示时手型提示可拖拽
                         exportBtn.setEnabled(true);
                     } else {
-                        currentImage = null;
+                        currentSvgBytes = null;
+                        currentIcon = null;
                         previewLabel.setIcon(null);
                         previewLabel.setText(errorMsg != null ? errorMsg : "网络请求出现异常，无法渲染图表。");
                         previewLabel.setForeground(Color.RED);
                     }
                 } catch (Exception ex) {
-                    currentImage = null;
+                    currentSvgBytes = null;
+                    currentIcon = null;
                     previewLabel.setIcon(null);
                     previewLabel.setText("连接渲染服务异常: \n" + ex.getMessage() + "\n\n请检查您当前的互联网连接状态。");
                     previewLabel.setForeground(Color.RED);
@@ -257,26 +319,48 @@ public class MermaidPanel extends ToolPanel {
     }
 
     private void triggerExport() {
-        if (currentImage == null) {
+        if (currentSvgBytes == null || currentIcon == null) {
             UIUtils.error(getView(), "当前没有可导出的图表！");
             return;
         }
 
         JFileChooser chooser = new JFileChooser();
         chooser.setSelectedFile(new File("mermaid_chart.png"));
-        chooser.setFileFilter(new FileNameExtensionFilter("PNG 图片 (*.png)", "png"));
+        chooser.addChoosableFileFilter(new FileNameExtensionFilter("PNG 图片 (*.png)", "png"));
+        chooser.addChoosableFileFilter(new FileNameExtensionFilter("SVG 矢量图 (*.svg)", "svg"));
+        chooser.setFileFilter(chooser.getChoosableFileFilters()[0]); // 默认使用 PNG
         
         if (chooser.showSaveDialog(getView()) == JFileChooser.APPROVE_OPTION) {
             File dest = chooser.getSelectedFile();
-            if (!dest.getName().toLowerCase().endsWith(".png")) {
-                dest = new File(dest.getParentFile(), dest.getName() + ".png");
+            javax.swing.filechooser.FileFilter activeFilter = chooser.getFileFilter();
+            
+            String ext = "png";
+            if (activeFilter instanceof FileNameExtensionFilter) {
+                String[] exts = ((FileNameExtensionFilter) activeFilter).getExtensions();
+                if (exts.length > 0) {
+                    ext = exts[0].toLowerCase();
+                }
+            }
+            
+            // 如果用户写的文件名没有对应后缀，强行加上
+            if (!dest.getName().toLowerCase().endsWith("." + ext)) {
+                dest = new File(dest.getParentFile(), dest.getName() + "." + ext);
             }
 
             final File finalDest = dest;
+            final String finalExt = ext;
+
             new SwingWorker<Void, Void>() {
                 @Override
                 protected Void doInBackground() throws Exception {
-                    ImageIO.write(currentImage, "png", finalDest);
+                    if ("svg".equals(finalExt)) {
+                        // 导出为 SVG 矢量图
+                        Files.write(finalDest.toPath(), currentSvgBytes);
+                    } else {
+                        // 导出为 PNG 高清图
+                        BufferedImage bi = convertIconToImage(currentIcon);
+                        ImageIO.write(bi, "png", finalDest);
+                    }
                     return null;
                 }
 
@@ -284,12 +368,34 @@ public class MermaidPanel extends ToolPanel {
                 protected void done() {
                     try {
                         get();
-                        UIUtils.info(getView(), "图表已成功导出为图片！");
+                        UIUtils.info(getView(), "图表已成功导出为 " + finalExt.toUpperCase() + " 文件！");
                     } catch (Exception ex) {
                         UIUtils.error(getView(), "导出失败:\n" + ex.getMessage());
                     }
                 }
             }.execute();
         }
+    }
+
+    /**
+     * 将 FlatSVGIcon 渲染为高分辨率的 BufferedImage 以便导出 PNG 图片
+     */
+    private BufferedImage convertIconToImage(FlatSVGIcon icon) {
+        int w = icon.getIconWidth();
+        int h = icon.getIconHeight();
+        // 渲染比例倍数：这里使用 2 倍高分比率，保证在超大分辨率或打印时依然无限清晰
+        int scale = 2; 
+        BufferedImage bi = new BufferedImage(w * scale, h * scale, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = bi.createGraphics();
+        
+        // 开启最高品质的抗锯齿与文本渲染平滑配置
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        
+        g2.scale(scale, scale);
+        icon.paintIcon(null, g2, 0, 0);
+        g2.dispose();
+        return bi;
     }
 }

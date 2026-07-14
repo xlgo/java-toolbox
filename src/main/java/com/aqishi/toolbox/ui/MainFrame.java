@@ -39,6 +39,7 @@ import com.aqishi.toolbox.misc.DatabasePanel;
 import com.aqishi.toolbox.misc.StringToolPanel;
 import com.aqishi.toolbox.misc.KafkaPanel;
 import com.aqishi.toolbox.misc.WeChatPanel;
+import com.aqishi.toolbox.misc.MermaidPanel;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.I18n;
@@ -84,7 +85,7 @@ public class MainFrame extends JFrame {
             K8sPanel::new, K8sManagerPanel::new, UuidPanel::new, PasswordPanel::new,
             RandomNumberPanel::new, CalculatorPanel::new, StatisticsPanel::new, SortPanel::new,
             SearchPanel::new, HanoiPanel::new, VideoMonitorPanel::new, RedisPanel::new, BpmnPanel::new,
-            DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, WeChatPanel::new
+            DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, WeChatPanel::new, MermaidPanel::new
         };
         
         tools = new ToolPanel[creators.length];

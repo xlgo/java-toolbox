@@ -127,6 +127,7 @@ def check_state(state):
     if state.is_stopped:
         print(json.dumps({"status": "用户已点击结束，导出停止。"}, ensure_ascii=False))
         sys.stdout.flush()
+        # 强制退出后台线程
         sys.exit(0)
     while state.is_paused:
         time.sleep(0.1)
@@ -278,7 +279,7 @@ def parse_profile_panel(panel):
         first_text = text_names[0].strip()
         excluded = [
             "微信号", "备注", "地区", "标签", "发消息", "进入公众号", "关注", "发送消息", "功能介绍", "帐号主体", "Send Message", "WeChat ID", "Remark", "Region", "Tag", "Tags",
-            "微訊號", "微信號", "備註", "地區", "標籤", "發消息", "發送訊息", "傳送訊息", "進入公眾號", "關注", "發送消息", "功能介紹", "帳号主體"
+            "微訊號", "微信號", "備註", "地區", "標籤", "發消息", "發送訊息", "傳送訊息", "進入公眾號", "關注", "發送消息", "功能介紹", "帳號主體"
         ]
         first_norm = first_text.replace("：", "").replace(":", "").replace(" ", "").strip()
         if first_text and not any(k.replace(" ", "") in first_norm for k in excluded) and len(first_text) < 40:

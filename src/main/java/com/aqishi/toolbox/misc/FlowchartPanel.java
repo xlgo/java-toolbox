@@ -976,8 +976,8 @@ public class FlowchartPanel extends ToolPanel {
 
         String id = "Node_" + UUID.randomUUID().toString().substring(0, 8);
         FlowNode node = new FlowNode(shapeType, id, name, p.x, p.y);
-        node.x = p.x - node.w / 2;
-        node.y = p.y - node.h / 2;
+        node.x = p.x;
+        node.y = p.y;
         nodes.add(node);
         
         selectedNodes.clear();

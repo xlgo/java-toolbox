@@ -19,6 +19,9 @@ import java.util.UUID;
 class CanvasPanel extends JPanel {
     private final FlowchartPanel parent;
     private FlowNode hoveredNode = null;
+    private boolean isExtending = false;
+    private int snapOffsetX = 0;
+    private int snapOffsetY = 0;
 
     CanvasPanel(FlowchartPanel parent) {
         this.parent = parent;
@@ -144,9 +147,27 @@ class CanvasPanel extends JPanel {
                             CanvasPanel.this.parent.isConnecting = true;
                             CanvasPanel.this.parent.connectSourceNode = hoveredNode;
                             CanvasPanel.this.parent.connectSourcePortIndex = markerIdx;
-                            Point2D.Double rel = FlowEdge.getPortRelativeCoords(markerIdx);
-                            CanvasPanel.this.parent.connectSourceRelX = rel.x;
-                            CanvasPanel.this.parent.connectSourceRelY = rel.y;
+                            
+                            // 根据生命线和普通节点精准计算起点的相对比例
+                            if (hoveredNode.type.equals(FlowNode.TYPE_LIFELINE) || hoveredNode.type.equals(FlowNode.TYPE_ACTOR)) {
+                                int headerH = hoveredNode.type.equals(FlowNode.TYPE_LIFELINE) ? 35 : 50;
+                                int gap = 25;
+                                int targetY = hoveredNode.y + headerH + markerIdx * gap;
+                                double relY = (double) (targetY - hoveredNode.y) / hoveredNode.h;
+                                CanvasPanel.this.parent.connectSourceRelX = 0.5;
+                                CanvasPanel.this.parent.connectSourceRelY = relY;
+                            } else if (hoveredNode.type.equals(FlowNode.TYPE_ACTIVATION)) {
+                                double[] relYs = {0.0, 0.5, 1.0};
+                                CanvasPanel.this.parent.connectSourceRelX = 0.5;
+                                CanvasPanel.this.parent.connectSourceRelY = relYs[markerIdx];
+                            } else {
+                                double[][] relCoords = {
+                                    {0.5, 0.0}, {1.0, 0.5}, {0.5, 1.0}, {0.0, 0.5},
+                                    {0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}
+                                };
+                                CanvasPanel.this.parent.connectSourceRelX = relCoords[markerIdx][0];
+                                CanvasPanel.this.parent.connectSourceRelY = relCoords[markerIdx][1];
+                            }
                             return;
                         }
                     }
@@ -195,6 +216,15 @@ class CanvasPanel extends JPanel {
 
             @Override
             public void mouseReleased(MouseEvent e) {
+                if (CanvasPanel.this.parent.currentDragState == FlowchartPanel.DragState.MOVE_NODE && CanvasPanel.this.parent.draggedNode != null) {
+                    for (FlowNode n : CanvasPanel.this.parent.selectedNodes) {
+                        n.x += snapOffsetX;
+                        n.y += snapOffsetY;
+                    }
+                    snapOffsetX = 0;
+                    snapOffsetY = 0;
+                }
+
                 if (CanvasPanel.this.parent.isConnecting && CanvasPanel.this.parent.connectSourceNode != null) {
                     completeConnection(e.getPoint());
                 }
@@ -204,6 +234,14 @@ class CanvasPanel extends JPanel {
                     if (target != null) {
                         Point[] outPt = new Point[1];
                         java.awt.geom.Point2D.Double rel = snapToBestPosition(target, e.getPoint(), outPt);
+                        
+                        FlowNode other = CanvasPanel.this.parent.draggedEdge.target;
+                        if ((target.type.equals(FlowNode.TYPE_LIFELINE) || target.type.equals(FlowNode.TYPE_ACTOR)) &&
+                            (other.type.equals(FlowNode.TYPE_LIFELINE) || other.type.equals(FlowNode.TYPE_ACTOR))) {
+                            Point otherPt = other.getConnectionPoint(CanvasPanel.this.parent.draggedEdge.targetRelX, CanvasPanel.this.parent.draggedEdge.targetRelY);
+                            rel.y = (double)(otherPt.y - target.y) / target.h;
+                        }
+                        
                         CanvasPanel.this.parent.draggedEdge.source = target;
                         CanvasPanel.this.parent.draggedEdge.sourceRelX = rel.x;
                         CanvasPanel.this.parent.draggedEdge.sourceRelY = rel.y;
@@ -214,6 +252,14 @@ class CanvasPanel extends JPanel {
                     if (target != null) {
                         Point[] outPt = new Point[1];
                         java.awt.geom.Point2D.Double rel = snapToBestPosition(target, e.getPoint(), outPt);
+                        
+                        FlowNode other = CanvasPanel.this.parent.draggedEdge.source;
+                        if ((target.type.equals(FlowNode.TYPE_LIFELINE) || target.type.equals(FlowNode.TYPE_ACTOR)) &&
+                            (other.type.equals(FlowNode.TYPE_LIFELINE) || other.type.equals(FlowNode.TYPE_ACTOR))) {
+                            Point otherPt = other.getConnectionPoint(CanvasPanel.this.parent.draggedEdge.sourceRelX, CanvasPanel.this.parent.draggedEdge.sourceRelY);
+                            rel.y = (double)(otherPt.y - target.y) / target.h;
+                        }
+                        
                         CanvasPanel.this.parent.draggedEdge.target = target;
                         CanvasPanel.this.parent.draggedEdge.targetRelX = rel.x;
                         CanvasPanel.this.parent.draggedEdge.targetRelY = rel.y;
@@ -248,6 +294,15 @@ class CanvasPanel extends JPanel {
                         CanvasPanel.this.parent.tempTargetNode = target;
                         Point[] outPt = new Point[1];
                         java.awt.geom.Point2D.Double rel = snapToBestPosition(target, e.getPoint(), outPt);
+                        
+                        // 正在拉线预览时，如果两端都是生命线，强制Y轴对齐，使虚线水平呈现
+                        FlowNode source = CanvasPanel.this.parent.connectSourceNode;
+                        if ((source.type.equals(FlowNode.TYPE_LIFELINE) || source.type.equals(FlowNode.TYPE_ACTOR)) &&
+                            (target.type.equals(FlowNode.TYPE_LIFELINE) || target.type.equals(FlowNode.TYPE_ACTOR))) {
+                            Point srcPt = source.getConnectionPoint(CanvasPanel.this.parent.connectSourceRelX, CanvasPanel.this.parent.connectSourceRelY);
+                            rel.y = (double)(srcPt.y - target.y) / target.h;
+                        }
+                        
                         CanvasPanel.this.parent.tempTargetRelX = rel.x;
                         CanvasPanel.this.parent.tempTargetRelY = rel.y;
                         CanvasPanel.this.parent.tempTargetPortIndex = getClosestPortIndex(target, e.getPoint());
@@ -257,14 +312,61 @@ class CanvasPanel extends JPanel {
                 }
 
                 if (CanvasPanel.this.parent.currentDragState == FlowchartPanel.DragState.MOVE_NODE && CanvasPanel.this.parent.draggedNode != null) {
+                    FlowNode dn = CanvasPanel.this.parent.draggedNode;
+                    
+                    // 1. 数据层平滑累加纯鼠标位移，永远不锁死拖拽
                     for (FlowNode n : CanvasPanel.this.parent.selectedNodes) {
                         n.x += dx;
                         n.y += dy;
+                    }
+                    
+                    // 2. 预先重置吸附偏移量
+                    snapOffsetX = 0;
+                    snapOffsetY = 0;
+                    
+                    // 3. 计算最新的吸附偏移量
+                    int[] srcXs = {dn.x, dn.x + dn.w / 2, dn.x + dn.w};
+                    int[] srcYs = {dn.y, dn.y + dn.h / 2, dn.y + dn.h};
+                    
+                    int threshold = 8; // 8像素磁吸阈值
+                    boolean snapX = false;
+                    boolean snapY = false;
+                    
+                    for (FlowNode target : CanvasPanel.this.parent.nodes) {
+                        if (CanvasPanel.this.parent.selectedNodes.contains(target)) continue;
                         
+                        int[] tgtXs = {target.x, target.x + target.w / 2, target.x + target.w};
+                        int[] tgtYs = {target.y, target.y + target.h / 2, target.y + target.h};
+                        
+                        for (int sx : srcXs) {
+                            for (int tx : tgtXs) {
+                                if (Math.abs(sx - tx) < threshold) {
+                                    snapOffsetX = tx - sx;
+                                    snapX = true;
+                                    break;
+                                }
+                            }
+                            if (snapX) break;
+                        }
+                        
+                        for (int sy : srcYs) {
+                            for (int ty : tgtYs) {
+                                if (Math.abs(sy - ty) < threshold) {
+                                    snapOffsetY = ty - sy;
+                                    snapY = true;
+                                    break;
+                                }
+                            }
+                            if (snapY) break;
+                        }
+                    }
+                    
+                    // 处理时序图激活条磁吸生命线逻辑
+                    for (FlowNode n : CanvasPanel.this.parent.selectedNodes) {
                         if (n.type.equals(FlowNode.TYPE_ACTIVATION)) {
                             FlowNode closestLifeline = null;
                             double minDist = 40.0;
-                            int activationCenterX = n.x + n.w / 2;
+                            int activationCenterX = n.x + snapOffsetX + n.w / 2;
                             for (FlowNode targetNode : CanvasPanel.this.parent.nodes) {
                                 if (targetNode.type.equals(FlowNode.TYPE_LIFELINE) || targetNode.type.equals(FlowNode.TYPE_ACTOR)) {
                                     int lifelineCenterX = targetNode.x + targetNode.w / 2;
@@ -276,10 +378,11 @@ class CanvasPanel extends JPanel {
                                 }
                             }
                             if (closestLifeline != null) {
-                                n.x = closestLifeline.x + closestLifeline.w / 2 - n.w / 2;
+                                n.x = closestLifeline.x + closestLifeline.w / 2 - n.w / 2 - snapOffsetX;
                             }
                         }
                     }
+                    
                     CanvasPanel.this.parent.adjustCanvasSize();
                     repaint();
                 } else if (CanvasPanel.this.parent.currentDragState == FlowchartPanel.DragState.DRAG_WAYPOINT) {
@@ -329,6 +432,11 @@ class CanvasPanel extends JPanel {
             @Override
             public void mouseMoved(MouseEvent e) {
                 if (CanvasPanel.this.parent.currentMode == FlowchartPanel.Mode.SELECT) {
+                    FlowNode hitNode = getNodeAtPoint(e.getPoint());
+                    if (hitNode != hoveredNode) {
+                        hoveredNode = hitNode;
+                        repaint();
+                    }
                     if (CanvasPanel.this.parent.selectedNode != null && CanvasPanel.this.parent.selectedNodes.size() == 1) {
                         FlowchartPanel.DragState resizeState = getResizeHandleState(CanvasPanel.this.parent.selectedNode, e.getPoint());
                         if (resizeState != FlowchartPanel.DragState.NONE) {
@@ -342,6 +450,13 @@ class CanvasPanel extends JPanel {
                                 case RESIZE_BC: setCursor(Cursor.getPredefinedCursor(Cursor.S_RESIZE_CURSOR)); break;
                                 case RESIZE_BR: setCursor(Cursor.getPredefinedCursor(Cursor.SE_RESIZE_CURSOR)); break;
                             }
+                            return;
+                        }
+                    }
+                    if (hoveredNode != null) {
+                        int markerIdx = getConnectionMarkerAt(hoveredNode, e.getPoint());
+                        if (markerIdx != -1) {
+                            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                             return;
                         }
                     }
@@ -370,6 +485,12 @@ class CanvasPanel extends JPanel {
                             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                             return;
                         }
+                    }
+                } else {
+                    FlowNode hitNode = getNodeAtPoint(e.getPoint());
+                    if (hitNode != hoveredNode) {
+                        hoveredNode = hitNode;
+                        repaint();
                     }
                 }
                 setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
@@ -481,9 +602,50 @@ class CanvasPanel extends JPanel {
                     CanvasPanel.this.parent.tempTargetRelX,
                     CanvasPanel.this.parent.tempTargetRelY
                 );
-                g2.setColor(Color.RED);
+                // 绘制发光的吸附推荐位置
+                g2.setColor(new Color(64, 158, 255, 60));
+                g2.fillOval(mPt.x - 10, mPt.y - 10, 20, 20);
+                g2.setColor(new Color(64, 158, 255, 180));
                 g2.setStroke(new BasicStroke(2.0f));
-                g2.drawOval(mPt.x - 5, mPt.y - 5, 10, 10);
+                g2.drawOval(mPt.x - 6, mPt.y - 6, 12, 12);
+                g2.setColor(new Color(64, 158, 255));
+                g2.fillOval(mPt.x - 3, mPt.y - 3, 6, 6);
+            }
+        }
+
+        // 拖拽移动节点时绘制对齐参考线
+        if (CanvasPanel.this.parent.currentDragState == FlowchartPanel.DragState.MOVE_NODE && CanvasPanel.this.parent.draggedNode != null) {
+            FlowNode dn = CanvasPanel.this.parent.draggedNode;
+            int threshold = 6;
+            g2.setColor(new Color(255, 99, 71, 180)); // 浅红番茄色对齐线
+            g2.setStroke(new BasicStroke(1.0f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10.0f, new float[]{4f, 4f}, 0.0f));
+            
+            int[] srcXs = {dn.x, dn.x + dn.w / 2, dn.x + dn.w};
+            int[] srcYs = {dn.y, dn.y + dn.h / 2, dn.y + dn.h};
+            
+            for (FlowNode target : CanvasPanel.this.parent.nodes) {
+                if (CanvasPanel.this.parent.selectedNodes.contains(target)) continue;
+                
+                int[] tgtXs = {target.x, target.x + target.w / 2, target.x + target.w};
+                int[] tgtYs = {target.y, target.y + target.h / 2, target.y + target.h};
+                
+                // 检查垂直对齐
+                for (int sx : srcXs) {
+                    for (int tx : tgtXs) {
+                        if (Math.abs(sx - tx) < threshold) {
+                            g2.drawLine(tx, 0, tx, getHeight());
+                        }
+                    }
+                }
+                
+                // 检查水平对齐
+                for (int sy : srcYs) {
+                    for (int ty : tgtYs) {
+                        if (Math.abs(sy - ty) < threshold) {
+                            g2.drawLine(0, ty, getWidth(), ty);
+                        }
+                    }
+                }
             }
         }
 
@@ -534,16 +696,26 @@ class CanvasPanel extends JPanel {
     private void drawAllNodes(Graphics2D g2) {
         for (FlowNode node : CanvasPanel.this.parent.nodes) {
             boolean isSelected = CanvasPanel.this.parent.selectedNodes.contains(node);
-            Color borderTheme = isSelected ? UIManager.getColor("Component.focusColor") : node.borderColor;
-            if (borderTheme == null) borderTheme = isSelected ? Color.BLUE : Color.GRAY;
+            
+            // 备份原数据坐标，防止拖拽磁吸死锁
+            int originalX = node.x;
+            int originalY = node.y;
+            if (isSelected && CanvasPanel.this.parent.currentDragState == FlowchartPanel.DragState.MOVE_NODE) {
+                node.x += snapOffsetX;
+                node.y += snapOffsetY;
+            }
+            
+            try {
+                Color borderTheme = isSelected ? UIManager.getColor("Component.focusColor") : node.borderColor;
+                if (borderTheme == null) borderTheme = isSelected ? Color.BLUE : Color.GRAY;
 
-            // 粗细样式应用
-            float thick = isSelected ? node.borderThickness + 1.0f : node.borderThickness;
-            Stroke stroke = node.isDashedBorder ? 
-                    new BasicStroke(thick, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10.0f, new float[]{5f}, 0.0f) :
-                    new BasicStroke(thick);
+                // 粗细样式应用
+                float thick = isSelected ? node.borderThickness + 1.0f : node.borderThickness;
+                Stroke stroke = node.isDashedBorder ? 
+                        new BasicStroke(thick, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10.0f, new float[]{5f}, 0.0f) :
+                        new BasicStroke(thick);
 
-            g2.setStroke(stroke);
+                g2.setStroke(stroke);
 
             if (node.type.equals(FlowNode.TYPE_START_END)) {
                 // 起止框 (椭圆)
@@ -751,8 +923,11 @@ class CanvasPanel extends JPanel {
                 g2.setColor(borderTheme);
                 g2.drawRect(node.x, node.y, node.w, node.h);
             }
-
             drawNodeName(g2, node);
+            } finally {
+                node.x = originalX;
+                node.y = originalY;
+            }
         }
     }
 
@@ -1024,21 +1199,32 @@ class CanvasPanel extends JPanel {
         if (node != null) {
             CanvasPanel.this.parent.isConnecting = true;
             CanvasPanel.this.parent.connectSourceNode = node;
-            java.awt.geom.Point2D.Double rel = node.getClosestRelativePoint(p);
+            Point[] outPt = new Point[1];
+            java.awt.geom.Point2D.Double rel = snapToBestPosition(node, p, outPt);
             CanvasPanel.this.parent.connectSourceRelX = rel.x;
             CanvasPanel.this.parent.connectSourceRelY = rel.y;
-            CanvasPanel.this.parent.connectSourcePortIndex = getClosestPortIndex(node, p);
+            CanvasPanel.this.parent.connectSourcePortIndex = getClosestPortIndex(node, outPt[0]);
         }
     }
 
     private void completeConnection(Point p) {
         FlowNode target = getNodeAtPoint(p);
-        if (target != null && target != CanvasPanel.this.parent.connectSourceNode) {
-            java.awt.geom.Point2D.Double tgtRel = target.getClosestRelativePoint(p);
+        FlowNode source = CanvasPanel.this.parent.connectSourceNode;
+        if (target != null && target != source) {
+            Point[] outPt = new Point[1];
+            java.awt.geom.Point2D.Double tgtRel = snapToBestPosition(target, p, outPt);
+            
+            // 如果连线的源端和目标端都是生命线/角色线，强制它们在Y轴绝对水平对齐
+            if ((source.type.equals(FlowNode.TYPE_LIFELINE) || source.type.equals(FlowNode.TYPE_ACTOR)) &&
+                (target.type.equals(FlowNode.TYPE_LIFELINE) || target.type.equals(FlowNode.TYPE_ACTOR))) {
+                Point srcPt = source.getConnectionPoint(CanvasPanel.this.parent.connectSourceRelX, CanvasPanel.this.parent.connectSourceRelY);
+                double alignedRelY = (double)(srcPt.y - target.y) / target.h;
+                tgtRel.y = alignedRelY;
+            }
             
             boolean exist = false;
             for (FlowEdge e : CanvasPanel.this.parent.edges) {
-                if (e.source == CanvasPanel.this.parent.connectSourceNode && e.target == target 
+                if (e.source == source && e.target == target 
                     && Math.abs(e.sourceRelX - CanvasPanel.this.parent.connectSourceRelX) < 0.01
                     && Math.abs(e.sourceRelY - CanvasPanel.this.parent.connectSourceRelY) < 0.01
                     && Math.abs(e.targetRelX - tgtRel.x) < 0.01
@@ -1049,14 +1235,92 @@ class CanvasPanel extends JPanel {
             }
             if (!exist) {
                 String id = "Flow_" + UUID.randomUUID().toString().substring(0, 8);
-                FlowEdge edge = new FlowEdge(id, "", CanvasPanel.this.parent.connectSourceNode, target,
+                FlowEdge edge = new FlowEdge(id, "", source, target,
                     CanvasPanel.this.parent.connectSourceRelX, CanvasPanel.this.parent.connectSourceRelY,
                     tgtRel.x, tgtRel.y);
+                
+                // 将 FlowEdge 添加进 edges
                 CanvasPanel.this.parent.edges.add(edge);
+
+                // 【自动对齐最大长度】：如果新增的生命线被连接，立即将参与该连线的生命线高度统一为当前最大的生命线高度
+                int maxH = 0;
+                for (FlowNode n : CanvasPanel.this.parent.nodes) {
+                    if (n.type.equals(FlowNode.TYPE_LIFELINE) || n.type.equals(FlowNode.TYPE_ACTOR)) {
+                        if (n.h > maxH) maxH = n.h;
+                    }
+                }
+                if (maxH > 0) {
+                    FlowNode[] connectedNodes = {source, target};
+                    for (FlowNode n : connectedNodes) {
+                        if ((n.type.equals(FlowNode.TYPE_LIFELINE) || n.type.equals(FlowNode.TYPE_ACTOR)) && n.h < maxH) {
+                            double oldH = n.h;
+                            n.h = maxH;
+                            double newH = n.h;
+                            // 重算与该节点关联的连线的相对 Y 坐标比率
+                            for (FlowEdge e : CanvasPanel.this.parent.edges) {
+                                if (e.source == n) {
+                                    double oldAbsY = n.y + e.sourceRelY * oldH;
+                                    e.sourceRelY = (oldAbsY - n.y) / newH;
+                                }
+                                if (e.target == n) {
+                                    double oldAbsY = n.y + e.targetRelY * oldH;
+                                    e.targetRelY = (oldAbsY - n.y) / newH;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // 【连线结束后检测最后一个点进行自动延长】：
+                // 1. 如果源是生命线，且连在了源生命线的最后一个点
+                if (source.type.equals(FlowNode.TYPE_LIFELINE) || source.type.equals(FlowNode.TYPE_ACTOR)) {
+                    int headerH = source.type.equals(FlowNode.TYPE_LIFELINE) ? 35 : 50;
+                    double lastRelY = (double)(source.h - (source.h - headerH) % 25) / source.h;
+                    if (Math.abs(CanvasPanel.this.parent.connectSourceRelY - lastRelY) < 0.02) {
+                        triggerGlobalExtension();
+                    }
+                }
+                // 2. 如果目标是生命线，且连在了目标生命线的最后一个点
+                if (target.type.equals(FlowNode.TYPE_LIFELINE) || target.type.equals(FlowNode.TYPE_ACTOR)) {
+                    int headerH = target.type.equals(FlowNode.TYPE_LIFELINE) ? 35 : 50;
+                    double lastRelY = (double)(target.h - (target.h - headerH) % 25) / target.h;
+                    if (Math.abs(tgtRel.y - lastRelY) < 0.02) {
+                        triggerGlobalExtension();
+                    }
+                }
+                
                 CanvasPanel.this.parent.selectedEdge = edge;
                 CanvasPanel.this.parent.selectedNode = null;
                 CanvasPanel.this.parent.updatePropertyPanel();
             }
+        }
+    }
+
+    private void triggerGlobalExtension() {
+        if (isExtending) return;
+        isExtending = true;
+        try {
+            for (FlowNode n : CanvasPanel.this.parent.nodes) {
+                if (n.type.equals(FlowNode.TYPE_LIFELINE) || n.type.equals(FlowNode.TYPE_ACTOR)) {
+                    double oldH = n.h;
+                    n.h += 75;
+                    double newH = n.h;
+                    for (FlowEdge e : CanvasPanel.this.parent.edges) {
+                        if (e.source == n) {
+                            double oldAbsY = n.y + e.sourceRelY * oldH;
+                            e.sourceRelY = (oldAbsY - n.y) / newH;
+                        }
+                        if (e.target == n) {
+                            double oldAbsY = n.y + e.targetRelY * oldH;
+                            e.targetRelY = (oldAbsY - n.y) / newH;
+                        }
+                    }
+                }
+            }
+            CanvasPanel.this.parent.adjustCanvasSize();
+            repaint();
+        } finally {
+            isExtending = false;
         }
     }
 
@@ -1254,10 +1518,48 @@ class CanvasPanel extends JPanel {
 
     private int getConnectionMarkerAt(FlowNode node, Point p) {
         if (node == null) return -1;
-        for (int i = 0; i < 4; i++) {
-            Point portPt = node.getPortPoint(i);
-            if (p.distance(portPt) < 8.0) {
-                return i;
+        if (node.type.equals(FlowNode.TYPE_LIFELINE) || node.type.equals(FlowNode.TYPE_ACTOR)) {
+            int headerH = node.type.equals(FlowNode.TYPE_LIFELINE) ? 35 : 50;
+            int cx = node.x + node.w / 2;
+            int startY = node.y + headerH;
+            int endY = node.y + node.h;
+            int gap = 25;
+            
+            int idx = 0;
+            for (int py = startY; py <= endY; py += gap) {
+                if (p.distance(new Point(cx, py)) < 10.0) {
+                    return idx;
+                }
+                idx++;
+            }
+            return -1;
+        }
+        
+        if (node.type.equals(FlowNode.TYPE_ACTIVATION)) {
+            Point[] pts = {
+                new Point(node.x + node.w / 2, node.y),
+                new Point(node.x + node.w / 2, node.y + node.h / 2),
+                new Point(node.x + node.w / 2, node.y + node.h)
+            };
+            for (int i = 0; i < pts.length; i++) {
+                if (p.distance(pts[i]) < 8.0) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        // 仅在连线模式或正在创建连线时，普通节点才允许通过8个控制点拖出线/连线
+        if (CanvasPanel.this.parent.currentMode == FlowchartPanel.Mode.CONNECT || CanvasPanel.this.parent.isConnecting) {
+            double[][] relCoords = {
+                {0.5, 0.0}, {1.0, 0.5}, {0.5, 1.0}, {0.0, 0.5},
+                {0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}
+            };
+            for (int i = 0; i < relCoords.length; i++) {
+                Point pt = node.getConnectionPoint(relCoords[i][0], relCoords[i][1]);
+                if (p.distance(pt) < 8.0) {
+                    return i;
+                }
             }
         }
         return -1;
@@ -1265,18 +1567,77 @@ class CanvasPanel extends JPanel {
 
     private void drawHoveredNodeMarkers(Graphics2D g2, FlowNode node) {
         if (node == null) return;
-        
-        // For lifelines and actors, only highlight the header box ports
-        g2.setColor(new Color(64, 158, 255));
         g2.setStroke(new BasicStroke(1.0f));
-        for (int i = 0; i < 4; i++) {
-            Point p = node.getPortPoint(i);
-            g2.setColor(new Color(64, 158, 255, 180));
-            g2.fillOval(p.x - 4, p.y - 4, 8, 8);
-            g2.setColor(Color.WHITE);
-            g2.fillOval(p.x - 2, p.y - 2, 4, 4);
-            g2.setColor(new Color(64, 158, 255));
-            g2.drawOval(p.x - 4, p.y - 4, 8, 8);
+
+        // 1. 如果当前正在创建连线 (isConnecting)
+        if (CanvasPanel.this.parent.isConnecting) {
+            // 只有作为目标点的图形才显示周围可吸附的虚拟点
+            if (node != CanvasPanel.this.parent.tempTargetNode) {
+                return;
+            }
+            
+            if (node.type.equals(FlowNode.TYPE_LIFELINE) || node.type.equals(FlowNode.TYPE_ACTOR)) {
+                int headerH = node.type.equals(FlowNode.TYPE_LIFELINE) ? 35 : 50;
+                int cx = node.x + node.w / 2;
+                int startY = node.y + headerH;
+                int endY = node.y + node.h;
+                int gap = 25;
+                for (int py = startY; py <= endY; py += gap) {
+                    g2.setColor(new Color(64, 158, 255, 180));
+                    g2.fillOval(cx - 4, py - 4, 8, 8);
+                    g2.setColor(Color.WHITE);
+                    g2.fillOval(cx - 2, py - 2, 4, 4);
+                    g2.setColor(new Color(64, 158, 255));
+                    g2.drawOval(cx - 4, py - 4, 8, 8);
+                }
+            } else if (node.type.equals(FlowNode.TYPE_ACTIVATION)) {
+                Point[] pts = {
+                    new Point(node.x + node.w / 2, node.y),
+                    new Point(node.x + node.w / 2, node.y + node.h / 2),
+                    new Point(node.x + node.w / 2, node.y + node.h)
+                };
+                for (Point pt : pts) {
+                    g2.setColor(new Color(64, 158, 255, 180));
+                    g2.fillOval(pt.x - 4, pt.y - 4, 8, 8);
+                    g2.setColor(Color.WHITE);
+                    g2.fillOval(pt.x - 2, pt.y - 2, 4, 4);
+                    g2.setColor(new Color(64, 158, 255));
+                    g2.drawOval(pt.x - 4, pt.y - 4, 8, 8);
+                }
+            } else {
+                // 普通目标节点显示 8 个吸附点
+                double[][] relCoords = {
+                    {0.5, 0.0}, {1.0, 0.5}, {0.5, 1.0}, {0.0, 0.5},
+                    {0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}
+                };
+                for (double[] rel : relCoords) {
+                    Point pt = node.getConnectionPoint(rel[0], rel[1]);
+                    g2.setColor(new Color(64, 158, 255, 180));
+                    g2.fillOval(pt.x - 4, pt.y - 4, 8, 8);
+                    g2.setColor(Color.WHITE);
+                    g2.fillOval(pt.x - 2, pt.y - 2, 4, 4);
+                    g2.setColor(new Color(64, 158, 255));
+                    g2.drawOval(pt.x - 4, pt.y - 4, 8, 8);
+                }
+            }
+        } else {
+            // 2. 如果是非连线状态下鼠标移动悬停 (用于直接拖拽连线起点的点)
+            // 只有生命线/Actor需要连续显示可以拖出连点的点 (中间间隔一个虚拟点，即 25px 距离)
+            if (node.type.equals(FlowNode.TYPE_LIFELINE) || node.type.equals(FlowNode.TYPE_ACTOR)) {
+                int headerH = node.type.equals(FlowNode.TYPE_LIFELINE) ? 35 : 50;
+                int cx = node.x + node.w / 2;
+                int startY = node.y + headerH;
+                int endY = node.y + node.h;
+                int gap = 25;
+                for (int py = startY; py <= endY; py += gap) {
+                    g2.setColor(new Color(64, 158, 255, 180));
+                    g2.fillOval(cx - 4, py - 4, 8, 8);
+                    g2.setColor(Color.WHITE);
+                    g2.fillOval(cx - 2, py - 2, 4, 4);
+                    g2.setColor(new Color(64, 158, 255));
+                    g2.drawOval(cx - 4, py - 4, 8, 8);
+                }
+            }
         }
     }
 
@@ -1284,21 +1645,70 @@ class CanvasPanel extends JPanel {
         if (target == null) return new java.awt.geom.Point2D.Double(0.5, 0.5);
         
         if (target.type.equals(FlowNode.TYPE_LIFELINE) || target.type.equals(FlowNode.TYPE_ACTOR)) {
-            java.awt.geom.Point2D.Double rel = target.getClosestRelativePoint(mousePt);
-            outSnapPoint[0] = target.getConnectionPoint(rel.x, rel.y);
-            return rel;
+            int headerH = target.type.equals(FlowNode.TYPE_LIFELINE) ? 35 : 50;
+            int cx = target.x + target.w / 2;
+            int startY = target.y + headerH;
+            int endY = target.y + target.h;
+            int gap = 25;
+            
+            int totalPoints = 0;
+            for (int py = startY; py <= endY; py += gap) {
+                totalPoints++;
+            }
+            
+            double minDist = Double.MAX_VALUE;
+            double bestRy = 0.5;
+            Point bestPt = new Point(cx, target.y + target.h / 2);
+            int bestIdx = -1;
+            
+            int idx = 0;
+            for (int py = startY; py <= endY; py += gap) {
+                Point pt = new Point(cx, py);
+                double dist = mousePt.distance(pt);
+                if (dist < minDist) {
+                    minDist = dist;
+                    bestRy = (double)(py - target.y) / target.h;
+                    bestPt = pt;
+                    bestIdx = idx;
+                }
+                idx++;
+            }
+            
+            // 仅进行定位吸附计算，不再拖拽中途触发延长
+            outSnapPoint[0] = bestPt;
+            return new java.awt.geom.Point2D.Double(0.5, bestRy);
+        }
+
+        if (target.type.equals(FlowNode.TYPE_ACTIVATION)) {
+            Point[] pts = {
+                new Point(target.x + target.w / 2, target.y),
+                new Point(target.x + target.w / 2, target.y + target.h / 2),
+                new Point(target.x + target.w / 2, target.y + target.h)
+            };
+            double[] relYs = {0.0, 0.5, 1.0};
+            double minDist = Double.MAX_VALUE;
+            int bestIdx = 1;
+            for (int i = 0; i < pts.length; i++) {
+                double dist = mousePt.distance(pts[i]);
+                if (dist < minDist) {
+                    minDist = dist;
+                    bestIdx = i;
+                }
+            }
+            outSnapPoint[0] = pts[bestIdx];
+            return new java.awt.geom.Point2D.Double(0.5, relYs[bestIdx]);
         }
         
+        // 普通节点 8 个推荐候选位置 (上、右、下、左、左上、右上、左下、右下)
         double[][] candidates = {
-            {0.5, 0.5}, // 中心点
-            {0.5, 0.0}, // 上顶点
-            {1.0, 0.5}, // 右顶点
-            {0.5, 1.0}, // 下顶点
-            {0.0, 0.5}, // 左顶点
-            {0.0, 0.0}, // 左上角
-            {1.0, 0.0}, // 右上角
-            {0.0, 1.0}, // 左下角
-            {1.0, 1.0}  // 右下角
+            {0.5, 0.0}, // 上
+            {1.0, 0.5}, // 右
+            {0.5, 1.0}, // 下
+            {0.0, 0.5}, // 左
+            {0.0, 0.0}, // 左上
+            {1.0, 0.0}, // 右上
+            {0.0, 1.0}, // 左下
+            {1.0, 1.0}  // 右下
         };
         
         double minDist = Double.MAX_VALUE;
@@ -1317,7 +1727,8 @@ class CanvasPanel extends JPanel {
             }
         }
         
-        if (minDist < 12.0) {
+        // 如果离推荐的 8 个吸附点较近（小于18像素），直接吸附到该推荐位置上
+        if (minDist < 18.0) {
             outSnapPoint[0] = bestPt;
             return new java.awt.geom.Point2D.Double(bestRx, bestRy);
         }

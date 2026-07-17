@@ -78,7 +78,7 @@ public class FlowchartPanel extends ToolPanel {
     enum DragState {
         NONE, MOVE_NODE, MOVE_PORT, CREATE_CONNECTION,
         RESIZE_TL, RESIZE_TC, RESIZE_TR, RESIZE_ML, RESIZE_MR, RESIZE_BL, RESIZE_BC, RESIZE_BR,
-        DRAG_WAYPOINT, DRAG_EDGE_START, DRAG_EDGE_END
+        DRAG_WAYPOINT, DRAG_EDGE_START, DRAG_EDGE_END, DRAG_EDGE_LABEL
     }
     DragState currentDragState = DragState.NONE;
     FlowNode draggedNode = null;
@@ -104,6 +104,16 @@ public class FlowchartPanel extends ToolPanel {
     Point selectionStart = null;
     Rectangle selectionRect = null;
 
+    // 撤销与重做数据栈
+    final java.util.Stack<String> undoStack = new java.util.Stack<>();
+    final java.util.Stack<String> redoStack = new java.util.Stack<>();
+    String dragStartState = null;
+    private JButton undoBtn;
+    private JButton redoBtn;
+
+    // 缩放因子
+    double zoomFactor = 1.0;
+
     // UI 组件
     private CanvasPanel canvasPanel;
     private JScrollPane scrollPane;
@@ -122,10 +132,10 @@ public class FlowchartPanel extends ToolPanel {
     private JComboBox<String> edgeColorCombo;
     private JComboBox<String> edgeStrokeCombo;
     private JComboBox<String> edgeRoutingCombo;
-    private JSlider edgeLabelPosSlider;
+    JSlider edgeLabelPosSlider;
     
     private JPanel propPanel;
-    private boolean updatingProperties = false;
+    boolean updatingProperties = false;
 
     // 样式预设定义
     private static final Map<String, Color> COLOR_PRESETS = new HashMap<>();
@@ -181,46 +191,52 @@ public class FlowchartPanel extends ToolPanel {
                 TitledBorder.DEFAULT_POSITION, UIUtils.plainFont(),
                 UIManager.getColor("Component.accentColor")));
 
-        JTabbedPane tabbedPane = new JTabbedPane(JTabbedPane.TOP);
-        tabbedPane.setFont(UIUtils.plainFont().deriveFont(11f));
-        tabbedPane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+        JPanel accordionPanel = new ScrollablePanel();
+        accordionPanel.setLayout(new BoxLayout(accordionPanel, BoxLayout.Y_AXIS));
 
         // 1. 基础流程
-        JPanel flowGrid = new JPanel(new GridLayout(7, 1, 4, 6));
-        flowGrid.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
-        flowGrid.add(new ShapeDragLabel("🟢 起止框", TYPE_START_END));
-        flowGrid.add(new ShapeDragLabel("🟦 步骤框", TYPE_PROCESS));
-        flowGrid.add(new ShapeDragLabel("🔶 判定框", TYPE_DECISION));
-        flowGrid.add(new ShapeDragLabel("▱ 数据框", TYPE_DATA));
-        flowGrid.add(new ShapeDragLabel("♊ 预设子过程", TYPE_PREDEFINED));
-        flowGrid.add(new ShapeDragLabel("🔘 终结符/起止", TYPE_TERMINATOR));
-        flowGrid.add(new ShapeDragLabel("⛛ 离页连接符", TYPE_OFF_PAGE_CONNECTOR));
-        tabbedPane.addTab("基础流程", new JScrollPane(flowGrid));
+        JPanel flowGrid = new JPanel(new GridLayout(0, 2, 4, 4));
+        flowGrid.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        flowGrid.add(new ShapeDragLabel("🟢", "起止框", TYPE_START_END));
+        flowGrid.add(new ShapeDragLabel("🟦", "步骤框", TYPE_PROCESS));
+        flowGrid.add(new ShapeDragLabel("🔶", "判定框", TYPE_DECISION));
+        flowGrid.add(new ShapeDragLabel("▱", "数据框", TYPE_DATA));
+        flowGrid.add(new ShapeDragLabel("♊", "预设子过程", TYPE_PREDEFINED));
+        flowGrid.add(new ShapeDragLabel("🔘", "终结符/起止", TYPE_TERMINATOR));
+        flowGrid.add(new ShapeDragLabel("⛛", "离页连接符", TYPE_OFF_PAGE_CONNECTOR));
+        addAccordionGroup("基础流程", flowGrid, accordionPanel);
 
         // 2. 系统/数据
-        JPanel sysGrid = new JPanel(new GridLayout(10, 1, 4, 6));
-        sysGrid.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
-        sysGrid.add(new ShapeDragLabel("🛢️ 数据库", TYPE_DATABASE));
-        sysGrid.add(new ShapeDragLabel("☁️ 外部系统", TYPE_CLOUD));
-        sysGrid.add(new ShapeDragLabel("📑 文档框", TYPE_DOCUMENT));
-        sysGrid.add(new ShapeDragLabel("⬡ 准备工作", TYPE_PREPARATION));
-        sysGrid.add(new ShapeDragLabel("⧄ 手工输入", TYPE_MANUAL_INPUT));
-        sysGrid.add(new ShapeDragLabel("⏳ 延时符", TYPE_DELAY));
-        sysGrid.add(new ShapeDragLabel("📺 显示器", TYPE_DISPLAY));
-        sysGrid.add(new ShapeDragLabel("💾 内部存储", TYPE_INTERNAL_STORAGE));
-        sysGrid.add(new ShapeDragLabel("🃏 卡片登记", TYPE_CARD));
-        sysGrid.add(new ShapeDragLabel("💬 注释文本", TYPE_ANNOTATION));
-        tabbedPane.addTab("系统/数据", new JScrollPane(sysGrid));
+        JPanel sysGrid = new JPanel(new GridLayout(0, 2, 4, 4));
+        sysGrid.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        sysGrid.add(new ShapeDragLabel("🛢️", "数据库", TYPE_DATABASE));
+        sysGrid.add(new ShapeDragLabel("☁️", "外部系统", TYPE_CLOUD));
+        sysGrid.add(new ShapeDragLabel("📑", "文档框", TYPE_DOCUMENT));
+        sysGrid.add(new ShapeDragLabel("⬡", "准备工作", TYPE_PREPARATION));
+        sysGrid.add(new ShapeDragLabel("⧄", "手工输入", TYPE_MANUAL_INPUT));
+        sysGrid.add(new ShapeDragLabel("⏳", "延时符", TYPE_DELAY));
+        sysGrid.add(new ShapeDragLabel("📺", "显示器", TYPE_DISPLAY));
+        sysGrid.add(new ShapeDragLabel("💾", "内部存储", TYPE_INTERNAL_STORAGE));
+        sysGrid.add(new ShapeDragLabel("🃏", "卡片登记", TYPE_CARD));
+        sysGrid.add(new ShapeDragLabel("💬", "注释文本", TYPE_ANNOTATION));
+        addAccordionGroup("系统/数据", sysGrid, accordionPanel);
 
         // 3. 时序图组件
-        JPanel seqGrid = new JPanel(new GridLayout(3, 1, 4, 6));
-        seqGrid.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
-        seqGrid.add(new ShapeDragLabel("💈 生命线", TYPE_LIFELINE));
-        seqGrid.add(new ShapeDragLabel("🧍 角色线", TYPE_ACTOR));
-        seqGrid.add(new ShapeDragLabel("▮ 激活条", TYPE_ACTIVATION));
-        tabbedPane.addTab("时序组件", new JScrollPane(seqGrid));
+        JPanel seqGrid = new JPanel(new GridLayout(0, 2, 4, 4));
+        seqGrid.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        seqGrid.add(new ShapeDragLabel("💈", "生命线", TYPE_LIFELINE));
+        seqGrid.add(new ShapeDragLabel("🧍", "角色线", TYPE_ACTOR));
+        seqGrid.add(new ShapeDragLabel("▮", "激活条", TYPE_ACTIVATION));
+        addAccordionGroup("时序组件", seqGrid, accordionPanel);
 
-        shapesPanel.add(tabbedPane, BorderLayout.CENTER);
+        // 添加垂直胶水，使折叠时内容紧贴顶部，不被拉长拉高
+        accordionPanel.add(Box.createVerticalGlue());
+
+        JScrollPane shapesScrollPane = new JScrollPane(accordionPanel);
+        shapesScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        shapesScrollPane.getVerticalScrollBar().setUnitIncrement(10);
+        shapesPanel.add(shapesScrollPane, BorderLayout.CENTER);
+        
         root.add(shapesPanel, BorderLayout.WEST);
 
         // 2. 顶部工具栏
@@ -259,6 +275,56 @@ public class FlowchartPanel extends ToolPanel {
         clearBtn.setFont(UIUtils.plainFont());
         clearBtn.addActionListener(e -> clearCanvas());
         toolBar.add(clearBtn);
+
+        toolBar.addSeparator();
+
+        undoBtn = new JButton(" ↩️ 撤销");
+        undoBtn.setFont(UIUtils.plainFont());
+        undoBtn.setToolTipText("撤销上一步操作 (Ctrl+Z)");
+        undoBtn.setEnabled(false);
+        undoBtn.addActionListener(e -> undo());
+        toolBar.add(undoBtn);
+
+        redoBtn = new JButton(" ↪️ 重做");
+        redoBtn.setFont(UIUtils.plainFont());
+        redoBtn.setToolTipText("重做上一步撤销的操作 (Ctrl+Y)");
+        redoBtn.setEnabled(false);
+        redoBtn.addActionListener(e -> redo());
+        toolBar.add(redoBtn);
+
+        toolBar.addSeparator();
+
+        JButton zoomInBtn = new JButton(" 🔍+ 放大");
+        zoomInBtn.setFont(UIUtils.plainFont());
+        zoomInBtn.setToolTipText("放大画布 (Ctrl + Mouse Wheel Up / Ctrl + =)");
+        zoomInBtn.addActionListener(e -> {
+            zoomFactor = Math.min(3.0, zoomFactor + 0.1);
+            adjustCanvasSize();
+            canvasPanel.repaint();
+        });
+        toolBar.add(zoomInBtn);
+
+        JButton zoomOutBtn = new JButton(" 🔍- 缩小");
+        zoomOutBtn.setFont(UIUtils.plainFont());
+        zoomOutBtn.setToolTipText("缩小画布 (Ctrl + Mouse Wheel Down / Ctrl + -)");
+        zoomOutBtn.addActionListener(e -> {
+            zoomFactor = Math.max(0.3, zoomFactor - 0.1);
+            adjustCanvasSize();
+            canvasPanel.repaint();
+        });
+        toolBar.add(zoomOutBtn);
+
+        JButton zoomResetBtn = new JButton(" 100%");
+        zoomResetBtn.setFont(UIUtils.plainFont());
+        zoomResetBtn.setToolTipText("恢复原始大小 (Ctrl+0)");
+        zoomResetBtn.addActionListener(e -> {
+            zoomFactor = 1.0;
+            adjustCanvasSize();
+            canvasPanel.repaint();
+        });
+        toolBar.add(zoomResetBtn);
+
+        toolBar.addSeparator();
 
         JButton exportBtn = new JButton(" 💾 导出图片");
         exportBtn.setFont(UIUtils.plainFont());
@@ -402,10 +468,50 @@ public class FlowchartPanel extends ToolPanel {
         gbc.weighty = 1.0;
         propPanel.add(new JPanel(), gbc);
 
+        // 声明 focus 适配器来跟踪输入状态以实现高级撤销
+        class Typelistener extends FocusAdapter implements ActionListener {
+            private boolean isTyping = false;
+            
+            void startTyping() {
+                if (!isTyping) {
+                    saveState();
+                    isTyping = true;
+                }
+            }
+            
+            void reset() {
+                isTyping = false;
+            }
+
+            @Override
+            public void focusGained(FocusEvent e) {
+                reset();
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                reset();
+            }
+
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                reset();
+            }
+        }
+        
+        Typelistener nameFieldListener = new Typelistener();
+        nameField.addFocusListener(nameFieldListener);
+        nameField.addActionListener(nameFieldListener);
+        
+        Typelistener edgeFieldListener = new Typelistener();
+        edgeLabelField.addFocusListener(edgeFieldListener);
+        edgeLabelField.addActionListener(edgeFieldListener);
+
         // 绑定字段监听
         nameField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
             if (updatingProperties) return;
             if (selectedNode != null) {
+                nameFieldListener.startTyping();
                 selectedNode.name = nameField.getText().trim();
                 canvasPanel.repaint();
             }
@@ -414,6 +520,7 @@ public class FlowchartPanel extends ToolPanel {
         edgeLabelField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
             if (updatingProperties) return;
             if (selectedEdge != null) {
+                edgeFieldListener.startTyping();
                 selectedEdge.label = edgeLabelField.getText().trim();
                 canvasPanel.repaint();
             }
@@ -422,6 +529,7 @@ public class FlowchartPanel extends ToolPanel {
         // 样式下拉绑定与自定义颜色绑定
         nodeBgCombo.addActionListener(e -> {
             if (updatingProperties || selectedNode == null) return;
+            saveState();
             String key = (String) nodeBgCombo.getSelectedItem();
             selectedNode.bgColor = COLOR_PRESETS.get(key);
             canvasPanel.repaint();
@@ -431,6 +539,7 @@ public class FlowchartPanel extends ToolPanel {
             if (selectedNode == null) return;
             Color chosen = JColorChooser.showDialog(getView(), "自定义背景填充色", selectedNode.bgColor);
             if (chosen != null) {
+                saveState();
                 selectedNode.bgColor = chosen;
                 canvasPanel.repaint();
             }
@@ -438,6 +547,7 @@ public class FlowchartPanel extends ToolPanel {
 
         nodeBorderColorCombo.addActionListener(e -> {
             if (updatingProperties || selectedNode == null) return;
+            saveState();
             String key = (String) nodeBorderColorCombo.getSelectedItem();
             selectedNode.borderColor = COLOR_PRESETS.get(key);
             canvasPanel.repaint();
@@ -447,6 +557,7 @@ public class FlowchartPanel extends ToolPanel {
             if (selectedNode == null) return;
             Color chosen = JColorChooser.showDialog(getView(), "自定义边框颜色", selectedNode.borderColor);
             if (chosen != null) {
+                saveState();
                 selectedNode.borderColor = chosen;
                 canvasPanel.repaint();
             }
@@ -454,12 +565,14 @@ public class FlowchartPanel extends ToolPanel {
 
         nodeBorderCombo.addActionListener(e -> {
             if (updatingProperties || selectedNode == null) return;
+            saveState();
             selectedNode.isDashedBorder = nodeBorderCombo.getSelectedIndex() == 1;
             canvasPanel.repaint();
         });
 
         nodeBorderThicknessCombo.addActionListener(e -> {
             if (updatingProperties || selectedNode == null) return;
+            saveState();
             int idx = nodeBorderThicknessCombo.getSelectedIndex();
             selectedNode.borderThickness = idx == 0 ? 1.5f : (idx == 1 ? 2.5f : 4.0f);
             canvasPanel.repaint();
@@ -467,6 +580,7 @@ public class FlowchartPanel extends ToolPanel {
 
         nodeTextColorCombo.addActionListener(e -> {
             if (updatingProperties || selectedNode == null) return;
+            saveState();
             String key = (String) nodeTextColorCombo.getSelectedItem();
             selectedNode.textColor = COLOR_PRESETS.get(key);
             canvasPanel.repaint();
@@ -476,6 +590,7 @@ public class FlowchartPanel extends ToolPanel {
             if (selectedNode == null) return;
             Color chosen = JColorChooser.showDialog(getView(), "自定义文本颜色", selectedNode.textColor);
             if (chosen != null) {
+                saveState();
                 selectedNode.textColor = chosen;
                 canvasPanel.repaint();
             }
@@ -483,18 +598,21 @@ public class FlowchartPanel extends ToolPanel {
 
         nodeFontSizeSpinner.addChangeListener(e -> {
             if (updatingProperties || selectedNode == null) return;
+            saveState();
             selectedNode.fontSize = (Integer) nodeFontSizeSpinner.getValue();
             canvasPanel.repaint();
         });
 
         nodeBoldToggle.addActionListener(e -> {
             if (updatingProperties || selectedNode == null) return;
+            saveState();
             selectedNode.isBold = nodeBoldToggle.isSelected();
             canvasPanel.repaint();
         });
 
         edgeColorCombo.addActionListener(e -> {
             if (updatingProperties || selectedEdge == null) return;
+            saveState();
             String key = (String) edgeColorCombo.getSelectedItem();
             selectedEdge.lineColor = COLOR_PRESETS.get(key);
             canvasPanel.repaint();
@@ -504,6 +622,7 @@ public class FlowchartPanel extends ToolPanel {
             if (selectedEdge == null) return;
             Color chosen = JColorChooser.showDialog(getView(), "自定义连线颜色", selectedEdge.lineColor);
             if (chosen != null) {
+                saveState();
                 selectedEdge.lineColor = chosen;
                 canvasPanel.repaint();
             }
@@ -511,12 +630,14 @@ public class FlowchartPanel extends ToolPanel {
 
         edgeStrokeCombo.addActionListener(e -> {
             if (updatingProperties || selectedEdge == null) return;
+            saveState();
             selectedEdge.isDashed = edgeStrokeCombo.getSelectedIndex() == 1;
             canvasPanel.repaint();
         });
 
         edgeRoutingCombo.addActionListener(e -> {
             if (updatingProperties || selectedEdge == null) return;
+            saveState();
             int idx = edgeRoutingCombo.getSelectedIndex();
             selectedEdge.routingType = idx == 0 ? "manhattan" : (idx == 1 ? "straight" : "bezier");
             canvasPanel.repaint();
@@ -524,6 +645,9 @@ public class FlowchartPanel extends ToolPanel {
 
         edgeLabelPosSlider.addChangeListener(e -> {
             if (updatingProperties || selectedEdge == null) return;
+            if (!edgeLabelPosSlider.getValueIsAdjusting()) {
+                saveState();
+            }
             selectedEdge.labelPosition = edgeLabelPosSlider.getValue() / 100.0;
             canvasPanel.repaint();
         });
@@ -534,11 +658,95 @@ public class FlowchartPanel extends ToolPanel {
         canvasPanel = new CanvasPanel(this);
         scrollPane = new JScrollPane(canvasPanel);
         scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16); // 增加纵向滚轮单位以提高顺滑度
+        scrollPane.getHorizontalScrollBar().setUnitIncrement(16); // 增加横向滚轮单位
         root.add(scrollPane, BorderLayout.CENTER);
+
+        // 全局快捷键注册以支持撤销和重做 (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z)
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_DOWN_MASK), "undoAction");
+        root.getActionMap().put("undoAction", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+                undo();
+            }
+        });
+
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_Y, InputEvent.CTRL_DOWN_MASK), "redoAction");
+        root.getActionMap().put("redoAction", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+                redo();
+            }
+        });
+
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "redoAction");
+
+        // 全局快捷键注册以支持画布缩放 (Ctrl+=, Ctrl+-, Ctrl+0)
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_EQUALS, InputEvent.CTRL_DOWN_MASK), "zoomIn");
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_ADD, InputEvent.CTRL_DOWN_MASK), "zoomIn");
+        root.getActionMap().put("zoomIn", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+                zoomFactor = Math.min(3.0, zoomFactor + 0.1);
+                adjustCanvasSize();
+                canvasPanel.repaint();
+            }
+        });
+
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_MINUS, InputEvent.CTRL_DOWN_MASK), "zoomOut");
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_SUBTRACT, InputEvent.CTRL_DOWN_MASK), "zoomOut");
+        root.getActionMap().put("zoomOut", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+                zoomFactor = Math.max(0.3, zoomFactor - 0.1);
+                adjustCanvasSize();
+                canvasPanel.repaint();
+            }
+        });
+
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_0, InputEvent.CTRL_DOWN_MASK), "zoomReset");
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_NUMPAD0, InputEvent.CTRL_DOWN_MASK), "zoomReset");
+        root.getActionMap().put("zoomReset", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+                zoomFactor = 1.0;
+                adjustCanvasSize();
+                canvasPanel.repaint();
+            }
+        });
 
         updatePropertyPanel();
 
         return root;
+    }
+
+    private void addAccordionGroup(String title, JPanel contentPanel, JPanel container) {
+        JButton headerBtn = new JButton("▼ " + title);
+        headerBtn.setFont(UIUtils.titleFont().deriveFont(12f));
+        headerBtn.setHorizontalAlignment(SwingConstants.LEFT);
+        headerBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        headerBtn.setPreferredSize(new Dimension(170, 30));
+        headerBtn.putClientProperty("JButton.buttonType", "square");
+        headerBtn.setFocusPainted(false);
+        headerBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
+        contentPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        
+        headerBtn.addActionListener(e -> {
+            boolean visible = !contentPanel.isVisible();
+            contentPanel.setVisible(visible);
+            headerBtn.setText((visible ? "▼ " : "▶ ") + title);
+            container.revalidate();
+            container.repaint();
+        });
+        
+        container.add(headerBtn);
+        container.add(contentPanel);
+        
+        Component strut = Box.createVerticalStrut(2);
+        if (strut instanceof JComponent) {
+            ((JComponent) strut).setAlignmentX(Component.LEFT_ALIGNMENT);
+        }
+        container.add(strut);
     }
 
     private GridBagConstraints getGbc(GridBagConstraints gbc, int y) {
@@ -663,6 +871,7 @@ public class FlowchartPanel extends ToolPanel {
 
     private void clearCanvas() {
         if (JOptionPane.showConfirmDialog(getView(), "确定要清空画布吗?", "提示", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
+            saveState();
             nodes.clear();
             edges.clear();
             clearSelection();
@@ -673,7 +882,7 @@ public class FlowchartPanel extends ToolPanel {
     // --- 序列化/反序列化相关 DTO 与方法 ---
 
 
-    private String serializeToJson() throws Exception {
+    String serializeToJson() throws Exception {
         DiagramData data = new DiagramData();
         data.nodes = new ArrayList<>();
         for (FlowNode node : nodes) {
@@ -871,8 +1080,57 @@ public class FlowchartPanel extends ToolPanel {
         }
     }
 
+    public void saveState() {
+        try {
+            String state = serializeToJson();
+            if (undoStack.isEmpty() || !undoStack.peek().equals(state)) {
+                undoStack.push(state);
+                redoStack.clear();
+                updateUndoRedoButtons();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void undo() {
+        if (undoStack.isEmpty()) return;
+        try {
+            String currentState = serializeToJson();
+            redoStack.push(currentState);
+            String prevState = undoStack.pop();
+            deserializeFromJson(prevState);
+            updateUndoRedoButtons();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void redo() {
+        if (redoStack.isEmpty()) return;
+        try {
+            String currentState = serializeToJson();
+            undoStack.push(currentState);
+            String nextState = redoStack.pop();
+            deserializeFromJson(nextState);
+            updateUndoRedoButtons();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    void updateUndoRedoButtons() {
+        if (undoBtn != null) {
+            undoBtn.setEnabled(!undoStack.isEmpty());
+        }
+        if (redoBtn != null) {
+            redoBtn.setEnabled(!redoStack.isEmpty());
+        }
+    }
+
     private void autoLayout() {
         if (nodes.isEmpty()) return;
+        saveState();
 
         int[] inDegree = new int[nodes.size()];
         for (FlowEdge edge : edges) {
@@ -951,6 +1209,7 @@ public class FlowchartPanel extends ToolPanel {
     }
 
     void addNewNodeAt(String shapeType, Point p) {
+        saveState();
         String name = "节点";
         switch (shapeType) {
             case FlowNode.TYPE_START_END: name = "起止"; break;
@@ -997,7 +1256,7 @@ public class FlowchartPanel extends ToolPanel {
             if (n.x + n.w + 150 > maxX) maxX = n.x + n.w + 150;
             if (n.y + n.h + 150 > maxY) maxY = n.y + n.h + 150;
         }
-        canvasPanel.setPreferredSize(new Dimension(maxX, maxY));
+        canvasPanel.setPreferredSize(new Dimension((int) (maxX * zoomFactor), (int) (maxY * zoomFactor)));
         canvasPanel.revalidate();
     }
 
@@ -1009,13 +1268,15 @@ public class FlowchartPanel extends ToolPanel {
     private static class ShapeDragLabel extends JLabel {
         private final String shapeType;
 
-        ShapeDragLabel(String name, String type) {
-            super(name, SwingConstants.LEFT);
+        ShapeDragLabel(String emoji, String name, String type) {
+            super(emoji, SwingConstants.CENTER);
             this.shapeType = type;
-            setFont(UIUtils.plainFont());
+            setToolTipText(name);
+            setFont(UIUtils.plainFont().deriveFont(15f));
+            setPreferredSize(new Dimension(72, 32));
             setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")),
-                    BorderFactory.createEmptyBorder(6, 12, 6, 12)
+                    BorderFactory.createEmptyBorder(3, 3, 3, 3)
             ));
             setOpaque(true);
             setBackground(UIManager.getColor("Panel.background"));
@@ -1053,5 +1314,29 @@ public class FlowchartPanel extends ToolPanel {
         public void insertUpdate(DocumentEvent e) { r.run(); }
         public void removeUpdate(DocumentEvent e) { r.run(); }
         public void changedUpdate(DocumentEvent e) { r.run(); }
+    }
+
+    /** 追踪视口宽度的滚动面板容器 */
+    private static class ScrollablePanel extends JPanel implements Scrollable {
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 10;
+        }
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 100;
+        }
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
     }
 }

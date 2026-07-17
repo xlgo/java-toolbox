@@ -28,6 +28,10 @@ class CanvasPanel extends JPanel {
         setPreferredSize(new Dimension(1000, 800));
         setBackground(UIManager.getColor("Panel.background"));
         setFocusable(true);
+        // 允许接收并拦截底层鼠标事件以统一转换缩放坐标
+        enableEvents(AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK);
+        // 允许接收并拦截底层鼠标事件
+        enableEvents(AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK);
 
         // 监听 DND 拖拽放下 (从左侧备选库拖入画布)
         setDropTarget(new DropTarget(this, new DropTargetAdapter() {
@@ -55,9 +59,37 @@ class CanvasPanel extends JPanel {
         // 监听鼠标交互
         MouseAdapter listener = new MouseAdapter() {
             @Override
+            public void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
+                    FlowNode clickedNode = getNodeAtPoint(e.getPoint());
+                    if (clickedNode != null) {
+                        editNodeName(clickedNode);
+                        return;
+                    }
+                    // 如果双击在连线文字区域，也可以编辑连线文本
+                    for (FlowEdge edge : CanvasPanel.this.parent.edges) {
+                        Rectangle bounds = getEdgeLabelBounds(edge);
+                        if (bounds != null && bounds.contains(e.getPoint())) {
+                            editEdgeLabel(edge);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            @Override
             public void mousePressed(MouseEvent e) {
                 requestFocusInWindow();
                 CanvasPanel.this.parent.currentMousePoint = e.getPoint();
+
+                // 只要是左键点击，先记下可能的拖拽起始状态以供撤销使用
+                if (SwingUtilities.isLeftMouseButton(e) && CanvasPanel.this.parent.currentMode == FlowchartPanel.Mode.SELECT) {
+                    try {
+                        CanvasPanel.this.parent.dragStartState = CanvasPanel.this.parent.serializeToJson();
+                    } catch (Exception ex) {
+                        ex.printStackTrace();
+                    }
+                }
 
                 if (SwingUtilities.isRightMouseButton(e)) {
                     if (CanvasPanel.this.parent.selectedEdge != null) {
@@ -225,8 +257,11 @@ class CanvasPanel extends JPanel {
                     snapOffsetY = 0;
                 }
 
+                Point zoomPt = getZoomedPoint(e.getPoint());
                 if (CanvasPanel.this.parent.isConnecting && CanvasPanel.this.parent.connectSourceNode != null) {
-                    completeConnection(e.getPoint());
+                    completeConnection(zoomPt);
+                    // 连线工具使用一次就自动恢复为选择模式
+                    CanvasPanel.this.parent.setMode(FlowchartPanel.Mode.SELECT);
                 }
 
                 if (CanvasPanel.this.parent.currentDragState == FlowchartPanel.DragState.DRAG_EDGE_START && CanvasPanel.this.parent.draggedEdge != null) {
@@ -265,6 +300,21 @@ class CanvasPanel extends JPanel {
                         CanvasPanel.this.parent.draggedEdge.targetRelY = rel.y;
                         CanvasPanel.this.parent.draggedEdge.targetPort = CanvasPanel.this.parent.draggedEdge.getPortIndexFromRel(rel.x, rel.y, false);
                     }
+                }
+
+                // 拖拽类修改判定
+                if (CanvasPanel.this.parent.dragStartState != null) {
+                    try {
+                        String currentState = CanvasPanel.this.parent.serializeToJson();
+                        if (!currentState.equals(CanvasPanel.this.parent.dragStartState)) {
+                            CanvasPanel.this.parent.undoStack.push(CanvasPanel.this.parent.dragStartState);
+                            CanvasPanel.this.parent.redoStack.clear();
+                            CanvasPanel.this.parent.updateUndoRedoButtons();
+                        }
+                    } catch (Exception ex) {
+                        ex.printStackTrace();
+                    }
+                    CanvasPanel.this.parent.dragStartState = null;
                 }
 
                 CanvasPanel.this.parent.isConnecting = false;
@@ -505,6 +555,37 @@ class CanvasPanel extends JPanel {
             public void keyPressed(KeyEvent e) {
                 if (e.getKeyCode() == KeyEvent.VK_DELETE || e.getKeyCode() == KeyEvent.VK_BACK_SPACE) {
                     deleteSelected();
+                } else if (e.getKeyCode() == KeyEvent.VK_F2 || e.getKeyCode() == KeyEvent.VK_ENTER) {
+                    if (CanvasPanel.this.parent.selectedNode != null) {
+                        editNodeName(CanvasPanel.this.parent.selectedNode);
+                    } else if (CanvasPanel.this.parent.selectedEdge != null) {
+                        editEdgeLabel(CanvasPanel.this.parent.selectedEdge);
+                    }
+                } else if (e.isControlDown() && e.getKeyCode() == KeyEvent.VK_Z) {
+                    CanvasPanel.this.parent.undo();
+                } else if (e.isControlDown() && e.getKeyCode() == KeyEvent.VK_Y) {
+                    CanvasPanel.this.parent.redo();
+                }
+            }
+        });
+
+        // 支持 Ctrl+滚轮 进行缩放，无 Ctrl 时向上传递普通滚轮事件以实现滚动条滚动
+        addMouseWheelListener(e -> {
+            if (e.isControlDown()) {
+                double oldZoom = CanvasPanel.this.parent.zoomFactor;
+                if (e.getWheelRotation() < 0) {
+                    CanvasPanel.this.parent.zoomFactor = Math.min(3.0, CanvasPanel.this.parent.zoomFactor + 0.1);
+                } else {
+                    CanvasPanel.this.parent.zoomFactor = Math.max(0.3, CanvasPanel.this.parent.zoomFactor - 0.1);
+                }
+                if (CanvasPanel.this.parent.zoomFactor != oldZoom) {
+                    CanvasPanel.this.parent.adjustCanvasSize();
+                    repaint();
+                }
+            } else {
+                // 将普通的滚轮事件分发给外层的 ScrollPane，从而启用丝滑的画面滚动
+                if (getParent() != null) {
+                    getParent().dispatchEvent(e);
                 }
             }
         });
@@ -562,7 +643,8 @@ class CanvasPanel extends JPanel {
         }
 
         if (menu.getComponentCount() > 0) {
-            menu.show(this, e.getX(), e.getY());
+            double zoom = CanvasPanel.this.parent.zoomFactor;
+            menu.show(this, (int)(e.getX() * zoom), (int)(e.getY() * zoom));
         }
     }
 
@@ -572,6 +654,10 @@ class CanvasPanel extends JPanel {
         Graphics2D g2 = (Graphics2D) g;
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+        // 应用画布缩放
+        double zoom = CanvasPanel.this.parent.zoomFactor;
+        g2.scale(zoom, zoom);
 
         drawGrid(g2);
         drawAll(g2);
@@ -650,7 +736,7 @@ class CanvasPanel extends JPanel {
         }
 
         // 绘制悬停节点四周的连线标记
-        if (!CanvasPanel.this.parent.isConnecting && hoveredNode != null) {
+        if (hoveredNode != null) {
             drawHoveredNodeMarkers(g2, hoveredNode);
         }
 
@@ -1094,6 +1180,22 @@ class CanvasPanel extends JPanel {
         g2.fillPolygon(arrow);
     }
 
+    private Rectangle getEdgeLabelBounds(FlowEdge edge) {
+        if (edge.label == null || edge.label.trim().isEmpty()) {
+            return null;
+        }
+        Font font = new Font("Microsoft YaHei", Font.PLAIN, 11);
+        FontMetrics fm = getFontMetrics(font);
+        Point center = edge.getPointAtFraction(edge.labelPosition);
+        int cx = center.x;
+        int cy = center.y - 4;
+        int w = fm.stringWidth(edge.label) + 4;
+        int h = fm.getHeight();
+        int x = cx - w / 2;
+        int y = cy - fm.getAscent() + 2;
+        return new Rectangle(x, y, w, h);
+    }
+
     private void drawEdgeLabel(Graphics2D g2, FlowEdge edge, String label) {
         g2.setFont(new Font("Microsoft YaHei", Font.PLAIN, 11));
         FontMetrics fm = g2.getFontMetrics();
@@ -1239,6 +1341,7 @@ class CanvasPanel extends JPanel {
                     CanvasPanel.this.parent.connectSourceRelX, CanvasPanel.this.parent.connectSourceRelY,
                     tgtRel.x, tgtRel.y);
                 
+                CanvasPanel.this.parent.saveState();
                 // 将 FlowEdge 添加进 edges
                 CanvasPanel.this.parent.edges.add(edge);
 
@@ -1325,6 +1428,7 @@ class CanvasPanel extends JPanel {
     }
 
     private void deleteNode(FlowNode node) {
+        CanvasPanel.this.parent.saveState();
         CanvasPanel.this.parent.nodes.remove(node);
         CanvasPanel.this.parent.edges.removeIf(e -> e.source == node || e.target == node);
         CanvasPanel.this.parent.clearSelection();
@@ -1332,6 +1436,7 @@ class CanvasPanel extends JPanel {
     }
 
     private void deleteEdge(FlowEdge edge) {
+        CanvasPanel.this.parent.saveState();
         CanvasPanel.this.parent.edges.remove(edge);
         CanvasPanel.this.parent.clearSelection();
         repaint();
@@ -1339,14 +1444,28 @@ class CanvasPanel extends JPanel {
 
     private void editNodeName(FlowNode node) {
         String newName = UIUtils.input(CanvasPanel.this.parent.getView(), "请输入新名称文本:", node.name);
-        if (newName != null) {
+        if (newName != null && !newName.trim().equals(node.name)) {
+            CanvasPanel.this.parent.saveState();
             node.name = newName.trim();
             CanvasPanel.this.parent.updatePropertyPanel();
             repaint();
         }
     }
 
+    private void editEdgeLabel(FlowEdge edge) {
+        String newLabel = UIUtils.input(CanvasPanel.this.parent.getView(), "请输入连线条件文本:", edge.label);
+        if (newLabel != null && !newLabel.trim().equals(edge.label)) {
+            CanvasPanel.this.parent.saveState();
+            edge.label = newLabel.trim();
+            CanvasPanel.this.parent.updatePropertyPanel();
+            repaint();
+        }
+    }
+
     private void deleteSelected() {
+        if (!CanvasPanel.this.parent.selectedNodes.isEmpty() || CanvasPanel.this.parent.selectedEdge != null) {
+            CanvasPanel.this.parent.saveState();
+        }
         if (!CanvasPanel.this.parent.selectedNodes.isEmpty()) {
             for (FlowNode n : new ArrayList<>(CanvasPanel.this.parent.selectedNodes)) {
                 CanvasPanel.this.parent.nodes.remove(n);
@@ -1359,6 +1478,37 @@ class CanvasPanel extends JPanel {
             CanvasPanel.this.parent.clearSelection();
             repaint();
         }
+    }
+
+    // --- 拦截并对准缩放的鼠标事件 ---
+
+    private Point getZoomedPoint(Point p) {
+        double zoom = CanvasPanel.this.parent.zoomFactor;
+        return new Point((int) (p.x / zoom), (int) (p.y / zoom));
+    }
+
+    @Override
+    protected void processMouseEvent(MouseEvent e) {
+        double zoom = parent.zoomFactor;
+        if (zoom != 1.0) {
+            Point p = e.getPoint();
+            int lx = (int) (p.x / zoom);
+            int ly = (int) (p.y / zoom);
+            e.translatePoint(lx - p.x, ly - p.y);
+        }
+        super.processMouseEvent(e);
+    }
+
+    @Override
+    protected void processMouseMotionEvent(MouseEvent e) {
+        double zoom = parent.zoomFactor;
+        if (zoom != 1.0) {
+            Point p = e.getPoint();
+            int lx = (int) (p.x / zoom);
+            int ly = (int) (p.y / zoom);
+            e.translatePoint(lx - p.x, ly - p.y);
+        }
+        super.processMouseMotionEvent(e);
     }
 
     private int getWaypointHandleAt(FlowEdge edge, Point p) {
@@ -1549,17 +1699,15 @@ class CanvasPanel extends JPanel {
             return -1;
         }
 
-        // 仅在连线模式或正在创建连线时，普通节点才允许通过8个控制点拖出线/连线
-        if (CanvasPanel.this.parent.currentMode == FlowchartPanel.Mode.CONNECT || CanvasPanel.this.parent.isConnecting) {
-            double[][] relCoords = {
-                {0.5, 0.0}, {1.0, 0.5}, {0.5, 1.0}, {0.0, 0.5},
-                {0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}
-            };
-            for (int i = 0; i < relCoords.length; i++) {
-                Point pt = node.getConnectionPoint(relCoords[i][0], relCoords[i][1]);
-                if (p.distance(pt) < 8.0) {
-                    return i;
-                }
+        // 所有模式下都允许通过8个控制点检测并拖出线/连线
+        double[][] relCoords = {
+            {0.5, 0.0}, {1.0, 0.5}, {0.5, 1.0}, {0.0, 0.5},
+            {0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}
+        };
+        for (int i = 0; i < relCoords.length; i++) {
+            Point pt = node.getConnectionPoint(relCoords[i][0], relCoords[i][1]);
+            if (p.distance(pt) < 8.0) {
+                return i;
             }
         }
         return -1;
@@ -1569,10 +1717,12 @@ class CanvasPanel extends JPanel {
         if (node == null) return;
         g2.setStroke(new BasicStroke(1.0f));
 
-        // 1. 如果当前正在创建连线 (isConnecting)
-        if (CanvasPanel.this.parent.isConnecting) {
-            // 只有作为目标点的图形才显示周围可吸附的虚拟点
-            if (node != CanvasPanel.this.parent.tempTargetNode) {
+        // 1. 如果当前正在创建连线 (isConnecting) 或者正处于连线模式下悬停
+        if (CanvasPanel.this.parent.isConnecting || CanvasPanel.this.parent.currentMode == FlowchartPanel.Mode.CONNECT) {
+            if (CanvasPanel.this.parent.isConnecting && node == CanvasPanel.this.parent.connectSourceNode) {
+                return;
+            }
+            if (CanvasPanel.this.parent.isConnecting && CanvasPanel.this.parent.tempTargetNode != null && node != CanvasPanel.this.parent.tempTargetNode) {
                 return;
             }
             
@@ -1621,8 +1771,7 @@ class CanvasPanel extends JPanel {
                 }
             }
         } else {
-            // 2. 如果是非连线状态下鼠标移动悬停 (用于直接拖拽连线起点的点)
-            // 只有生命线/Actor需要连续显示可以拖出连点的点 (中间间隔一个虚拟点，即 25px 距离)
+            // 2. 如果是非连线状态下鼠标移动悬停 (SELECT 模式下高亮拖拽线引导)
             if (node.type.equals(FlowNode.TYPE_LIFELINE) || node.type.equals(FlowNode.TYPE_ACTOR)) {
                 int headerH = node.type.equals(FlowNode.TYPE_LIFELINE) ? 35 : 50;
                 int cx = node.x + node.w / 2;
@@ -1636,6 +1785,35 @@ class CanvasPanel extends JPanel {
                     g2.fillOval(cx - 2, py - 2, 4, 4);
                     g2.setColor(new Color(64, 158, 255));
                     g2.drawOval(cx - 4, py - 4, 8, 8);
+                }
+            } else if (node.type.equals(FlowNode.TYPE_ACTIVATION)) {
+                Point[] pts = {
+                    new Point(node.x + node.w / 2, node.y),
+                    new Point(node.x + node.w / 2, node.y + node.h / 2),
+                    new Point(node.x + node.w / 2, node.y + node.h)
+                };
+                for (Point pt : pts) {
+                    g2.setColor(new Color(64, 158, 255, 180));
+                    g2.fillOval(pt.x - 4, pt.y - 4, 8, 8);
+                    g2.setColor(Color.WHITE);
+                    g2.fillOval(pt.x - 2, pt.y - 2, 4, 4);
+                    g2.setColor(new Color(64, 158, 255));
+                    g2.drawOval(pt.x - 4, pt.y - 4, 8, 8);
+                }
+            } else {
+                // 普通节点同样在 SELECT 悬停时高亮 8 个端口，供用户直接拖出新连线
+                double[][] relCoords = {
+                    {0.5, 0.0}, {1.0, 0.5}, {0.5, 1.0}, {0.0, 0.5},
+                    {0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}
+                };
+                for (double[] rel : relCoords) {
+                    Point pt = node.getConnectionPoint(rel[0], rel[1]);
+                    g2.setColor(new Color(64, 158, 255, 180));
+                    g2.fillOval(pt.x - 4, pt.y - 4, 8, 8);
+                    g2.setColor(Color.WHITE);
+                    g2.fillOval(pt.x - 2, pt.y - 2, 4, 4);
+                    g2.setColor(new Color(64, 158, 255));
+                    g2.drawOval(pt.x - 4, pt.y - 4, 8, 8);
                 }
             }
         }

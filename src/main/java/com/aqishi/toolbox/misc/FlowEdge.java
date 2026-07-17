@@ -198,4 +198,57 @@ public class FlowEdge {
         }
         return pts.get(pts.size() - 1);
     }
+
+    public double getClosestFraction(Point p) {
+        List<Point> pts = getPoints();
+        if (pts.isEmpty()) return 0.5;
+        if (pts.size() == 1) return 0.5;
+        
+        double totalLength = 0;
+        double[] lengths = new double[pts.size() - 1];
+        for (int i = 0; i < pts.size() - 1; i++) {
+            lengths[i] = pts.get(i).distance(pts.get(i + 1));
+            totalLength += lengths[i];
+        }
+        
+        if (totalLength == 0) return 0.5;
+        
+        double minDist = Double.MAX_VALUE;
+        double bestAccumulated = 0;
+        double bestSegmentFraction = 0;
+        
+        double currentAccumulated = 0;
+        for (int i = 0; i < pts.size() - 1; i++) {
+            Point pStart = pts.get(i);
+            Point pEnd = pts.get(i + 1);
+            
+            Point proj = projectPointToSegment(p, pStart, pEnd);
+            double dist = p.distance(proj);
+            if (dist < minDist) {
+                minDist = dist;
+                bestAccumulated = currentAccumulated;
+                if (lengths[i] > 0) {
+                    bestSegmentFraction = pStart.distance(proj);
+                } else {
+                    bestSegmentFraction = 0;
+                }
+            }
+            currentAccumulated += lengths[i];
+        }
+        
+        double fraction = (bestAccumulated + bestSegmentFraction) / totalLength;
+        return Math.max(0.0, Math.min(1.0, fraction));
+    }
+
+    private static Point projectPointToSegment(Point p, Point s1, Point s2) {
+        double x1 = s1.x, y1 = s1.y;
+        double x2 = s2.x, y2 = s2.y;
+        double px = p.x, py = p.y;
+        double dx = x2 - x1;
+        double dy = y2 - y1;
+        if (dx == 0 && dy == 0) return new Point(s1);
+        double t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy);
+        t = Math.max(0.0, Math.min(1.0, t));
+        return new Point((int) (x1 + t * dx), (int) (y1 + t * dy));
+    }
 }

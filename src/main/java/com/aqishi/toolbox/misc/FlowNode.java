@@ -137,7 +137,10 @@ public class FlowNode {
     }
 
     public Point getConnectionPoint(double relX, double relY) {
-        return new Point((int) (x + relX * w), (int) (y + relY * h));
+        if (type.equals(TYPE_LIFELINE) || type.equals(TYPE_ACTOR)) {
+            return new Point((int) (x + relX * w), (int) (y + relY * h));
+        }
+        return getClosestOutlinePoint(new Point((int) (x + relX * w), (int) (y + relY * h)));
     }
 
     public Point2D.Double getClosestRelativePoint(Point p) {

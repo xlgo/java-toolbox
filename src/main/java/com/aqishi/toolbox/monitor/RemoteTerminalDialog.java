@@ -33,16 +33,16 @@ public class RemoteTerminalDialog extends JDialog {
 
         initComponents();
         setupListeners();
-        
+
         setSize(700, 450);
         setLocationRelativeTo(parent);
-        
+
         sendSystemCommand("");
     }
 
     private void initComponents() {
         setLayout(new BorderLayout(5, 5));
-        
+
         terminalArea = new JTextArea();
         terminalArea.setEditable(false);
         terminalArea.setFont(new Font("Consolas", Font.PLAIN, 14));
@@ -116,7 +116,7 @@ public class RemoteTerminalDialog extends JDialog {
             req.put("action", "exec");
             req.put("command", cmd);
             req.put("sessionId", sessionId);
-            
+
             byte[] payload = mapper.writeValueAsString(req).getBytes(StandardCharsets.UTF_8);
             channel.send(new DesktopMessage(DesktopMessage.TYPE_CMD_REQUEST, payload));
         } catch (Exception e) {
@@ -129,7 +129,7 @@ public class RemoteTerminalDialog extends JDialog {
             Map<String, Object> req = new HashMap<>();
             req.put("action", "close");
             req.put("sessionId", sessionId);
-            
+
             byte[] payload = mapper.writeValueAsString(req).getBytes(StandardCharsets.UTF_8);
             channel.send(new DesktopMessage(DesktopMessage.TYPE_CMD_REQUEST, payload));
         } catch (Exception ignored) {}

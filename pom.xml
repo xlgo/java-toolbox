@@ -6,7 +6,7 @@
 
     <groupId>com.aqishi</groupId>
     <artifactId>java-toolbox</artifactId>
-    <version>1.2.0</version>
+    <version>1.3.0</version>
     <packaging>jar</packaging>
 
     <name>Java Toolbox</name>
@@ -93,6 +93,16 @@
             <groupId>org.java-websocket</groupId>
             <artifactId>Java-WebSocket</artifactId>
             <version>1.5.4</version>
+        </dependency>
+        <!--
+            Full RFC ICE state machine for the remote-desktop direct UDP path.
+            Only STUN harvesters are configured by the application; TURN/data
+            relay is deliberately not enabled.
+        -->
+        <dependency>
+            <groupId>org.jitsi</groupId>
+            <artifactId>ice4j</artifactId>
+            <version>3.2-10-gfcadc70</version>
         </dependency>
         <!-- JediTerm Terminal Emulator -->
         <dependency>

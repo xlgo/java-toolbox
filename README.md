@@ -1,6 +1,6 @@
 # Java 工具箱
 
-> 桌面端多功能工具箱，基于 Java Swing + FlatLaf 外观包。JDK 8+ 即可运行，双击 `run.bat` 或 `java -jar target/java-toolbox.jar` 启动。
+> 桌面端多功能工具箱，基于 Java Swing + FlatLaf 外观包。基础工具使用 JDK 8+；远程桌面的完整 ICE 直连功能要求 JDK 11+。双击 `run.bat` 或 `java -jar target/java-toolbox.jar` 启动。
 
 <p align="center">
   <img src="screenshots/overview.png" alt="Java 工具箱概览" width="750"/>
@@ -41,7 +41,7 @@
 | 生成 | UUID 生成 | 批量生成、去横线、大写、一键复制 |
 | 生成 | 密码生成器 | 基于 SecureRandom 的离线强密码生成与实时强度评估 |
 | 监控 | 视频监控 | 视频监控面板，支持多路画面分屏布局、格子合并拆分与设备树管理 |
-| 监控 | 远程桌面 | 纯 P2P 远程控制桌面，支持 UDP 双向打洞、阿里云 STUN 公网映射探测、鼠标键盘模拟与文件传输，无任何中转服务器依赖 |
+| 监控 | 远程桌面 | 纯 P2P 远程控制桌面，优先采用 ice4j 完整 ICE 状态机进行 UDP 双向打洞（多 STUN、triggered check、peer-reflexive candidate、角色冲突处理与候选对提名），失败后尝试带 UPnP/NAT-PMP 的 TCP 直连；不配置 TURN，信令服务器不转发桌面数据 |
 | 运维 | Kafka 管理 | 管理 Kafka 集群，浏览主题与消费组，查看 Lag 详情，消息拉取/发布，以及**实时查看主题的订阅消费组与活跃成员分区分配** |
 | 运维 | K8s 集群管理 | 多集群管理，Kubeconfig 导入与 Namespace 切换，浏览 Pod/Deployment/Service/ConfigMap/Node，日志追踪，Exec 容器终端，以及**容器文件上传与下载** |
 | 其它 | 微信群发与通讯录 | 微信群发，以及自适应读取微信 SQLite 通讯录（展示昵称、备注、微信号、头像，支持 Excel 导出、一键追加群发、头像批量下载） |
@@ -104,6 +104,7 @@ git push
 - Java Swing（GUI）
 - FlatLaf 3.5.4（外观包 + IntelliJ 主题包）
 - BouncyCastle 1.70（国密 SM2/SM3/SM4 算法支持，提供与经典加解密的统一调用）
+- ice4j 3.2（远程桌面完整 ICE/STUN UDP 直连；未启用 TURN）
 - Maven Shade（打 fat jar）
 - 纯 JDK 实现：JSON 美化、中缀表达式求值、标准 AES/DES/3DES/RSA 加解密
 
@@ -161,8 +162,12 @@ src/main/java/com/aqishi/toolbox/
 ├── monitor/               # 监控
 │   ├── VideoMonitorPanel.java # 视频监控
 │   ├── RemoteDesktopPanel.java # 远程桌面（控制端/被控端面板）
-│   ├── P2PConnector.java       # UDP P2P 双向打洞连接协商器
+│   ├── Ice4jDirectConnector.java # 完整 ICE UDP 直连协商器（远程桌面当前使用）
+│   ├── P2PConnector.java       # 旧版轻量 UDP 打洞实现（兼容与测试保留）
+│   ├── TcpDirectConnector.java # UDP 失败后的 TCP 直连协商器
 │   ├── StunClient.java         # STUN 客户端，获取公网反射 IP 与映射端口
+│   ├── UpnpPortMapper.java     # UPnP IGD 公网端口映射与双重 NAT 校验
+│   ├── NatPmpPortMapper.java   # NAT-PMP 公网端口映射
 │   ├── UdpChannelImpl.java     # 基于 UDP 协议的 P2P 通信通道
 │   ├── DesktopSignalClient.java# 信令服务器客户端
 │   └── DesktopSignalServer.java# 局域网/公网多端同组信令中转服务器

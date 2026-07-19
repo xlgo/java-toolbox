@@ -92,14 +92,14 @@ public class DesktopSignalServer extends WebSocketServer {
                     wsToName.put(conn, name);
 
                     log("加入组成功: ID=" + id + ", Group=" + group + ", Name=" + name);
-                    
+
                     // 发送 joined 回执
                     Map<String, Object> joinedResp = new HashMap<>();
                     joinedResp.put("type", "joined");
                     joinedResp.put("id", id);
                     joinedResp.put("group", group);
                     conn.send(mapper.writeValueAsString(joinedResp));
-                    
+
                     // 广播当前组最新的在线成员列表
                     broadcastUserList(group);
                     break;
@@ -110,7 +110,7 @@ public class DesktopSignalServer extends WebSocketServer {
                     if (msgStr == null) {
                         msgStr = (String) json.get("data");
                     }
-                    
+
                     String fromId = wsToId.get(conn);
                     if (fromId == null || toId == null || msgStr == null) return;
 

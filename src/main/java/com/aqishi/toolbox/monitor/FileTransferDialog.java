@@ -126,7 +126,7 @@ public class FileTransferDialog extends JDialog {
                         downloadDir.mkdirs();
                     }
                     File localFile = new File(downloadDir, fileName + ".tmp");
-                    
+
                     FileReceiver receiver = new FileReceiver(fileId, fileName, fileSize, localFile);
                     receivers.put(fileId, receiver);
 
@@ -165,13 +165,13 @@ public class FileTransferDialog extends JDialog {
             // 二进制数据块
             try {
                 if (data.length < 1 + 36 + 8 + 4) return;
-                
+
                 String fileId = new String(data, 1, 36, StandardCharsets.UTF_8);
-                
+
                 ByteBuffer buf = ByteBuffer.wrap(data, 37, 12);
                 long chunkIndex = buf.getLong();
                 int chunkSize = buf.getInt();
-                
+
                 FileReceiver receiver = receivers.get(fileId);
                 if (receiver != null) {
                     receiver.writeChunk(chunkIndex, data, 49, chunkSize);
@@ -222,15 +222,15 @@ public class FileTransferDialog extends JDialog {
             while ((readBytes = fis.read(buffer)) != -1 && task.running) {
                 byte[] fileIdBytes = task.fileId.getBytes(StandardCharsets.UTF_8);
                 byte[] payload = new byte[1 + 36 + 8 + 4 + readBytes];
-                
+
                 payload[0] = 0x01;
                 System.arraycopy(fileIdBytes, 0, payload, 1, 36);
-                
+
                 ByteBuffer buf = ByteBuffer.allocate(12);
                 buf.putLong(chunkIndex);
                 buf.putInt(readBytes);
                 System.arraycopy(buf.array(), 0, payload, 37, 12);
-                
+
                 System.arraycopy(buffer, 0, payload, 49, readBytes);
 
                 channel.send(new DesktopMessage(DesktopMessage.TYPE_FILE_TRANSFER, payload));
@@ -244,7 +244,7 @@ public class FileTransferDialog extends JDialog {
                     double speed = (currentSent - lastSent) / 1024.0 / 1024.0 / ((now - lastTime) / 1000.0);
                     lastTime = now;
                     lastSent = currentSent;
-                    
+
                     SwingUtilities.invokeLater(() -> {
                         int pct = (int) (currentSent * 100 / task.fileSize);
                         task.progressBar.setValue(pct);

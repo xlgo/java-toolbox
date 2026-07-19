@@ -24,7 +24,7 @@ public class TransparentOverlayWindow extends JWindow {
         setLocation(0, 0);
         setAlwaysOnTop(true);
         setFocusable(false);
-        
+
         // 尝试设置完全透明背景 (JDK 7+)
         try {
             setBackground(new Color(0, 0, 0, 0));
@@ -60,7 +60,7 @@ public class TransparentOverlayWindow extends JWindow {
                         }
                     }
                 }
-                
+
                 if (changed) {
                     repaint();
                 }

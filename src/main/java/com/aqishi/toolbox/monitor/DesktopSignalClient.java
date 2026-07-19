@@ -119,7 +119,7 @@ public class DesktopSignalClient extends WebSocketClient {
                     if (content == null) {
                         content = (String) json.get("data");
                     }
-                    
+
                     if (fromId != null && content != null) {
                         try {
                             byte[] raw = Base64.getDecoder().decode(content);
@@ -178,7 +178,7 @@ public class DesktopSignalClient extends WebSocketClient {
             msg.put("id", id);
             msg.put("group", group);
             msg.put("name", name);
-            
+
             String jsonStr = mapper.writeValueAsString(msg);
             send(jsonStr);
             log("已向服务发送 Join 请求: ID=" + id + ", Group=" + group + ", Name=" + name);
@@ -197,7 +197,7 @@ public class DesktopSignalClient extends WebSocketClient {
             msg.put("to", toId);
             msg.put("msg", base64Data);
             msg.put("data", base64Data);
-            
+
             send(mapper.writeValueAsString(msg));
         } catch (Exception e) {
             e.printStackTrace();

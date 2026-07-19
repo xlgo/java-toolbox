@@ -46,7 +46,7 @@ public class SocketChannelImpl implements DesktopChannel {
         try {
             socket.close();
         } catch (Exception ignored) {}
-        
+
         if (closeListener != null) {
             closeListener.run();
         }
@@ -85,7 +85,7 @@ public class SocketChannelImpl implements DesktopChannel {
                     if (len > 0) {
                         dis.readFully(payload);
                     }
-                    
+
                     if (messageListener != null) {
                         messageListener.accept(new DesktopMessage(type, payload));
                     }

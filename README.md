@@ -41,6 +41,7 @@
 | 生成 | UUID 生成 | 批量生成、去横线、大写、一键复制 |
 | 生成 | 密码生成器 | 基于 SecureRandom 的离线强密码生成与实时强度评估 |
 | 监控 | 视频监控 | 视频监控面板，支持多路画面分屏布局、格子合并拆分与设备树管理 |
+| 监控 | 远程桌面 | 纯 P2P 远程控制桌面，支持 UDP 双向打洞、阿里云 STUN 公网映射探测、鼠标键盘模拟与文件传输，无任何中转服务器依赖 |
 | 运维 | Kafka 管理 | 管理 Kafka 集群，浏览主题与消费组，查看 Lag 详情，消息拉取/发布，以及**实时查看主题的订阅消费组与活跃成员分区分配** |
 | 运维 | K8s 集群管理 | 多集群管理，Kubeconfig 导入与 Namespace 切换，浏览 Pod/Deployment/Service/ConfigMap/Node，日志追踪，Exec 容器终端，以及**容器文件上传与下载** |
 | 其它 | 微信群发与通讯录 | 微信群发，以及自适应读取微信 SQLite 通讯录（展示昵称、备注、微信号、头像，支持 Excel 导出、一键追加群发、头像批量下载） |
@@ -158,7 +159,13 @@ src/main/java/com/aqishi/toolbox/
 │   ├── WeChatPanel.java   # 微信工具（群发与通讯录读取）
 │   └── WeChatContactReader.java # 微信数据库解析工具
 ├── monitor/               # 监控
-│   └── VideoMonitorPanel.java # 视频监控
+│   ├── VideoMonitorPanel.java # 视频监控
+│   ├── RemoteDesktopPanel.java # 远程桌面（控制端/被控端面板）
+│   ├── P2PConnector.java       # UDP P2P 双向打洞连接协商器
+│   ├── StunClient.java         # STUN 客户端，获取公网反射 IP 与映射端口
+│   ├── UdpChannelImpl.java     # 基于 UDP 协议的 P2P 通信通道
+│   ├── DesktopSignalClient.java# 信令服务器客户端
+│   └── DesktopSignalServer.java# 局域网/公网多端同组信令中转服务器
 └── util/UIUtils.java      # UI 辅助
 ```
 

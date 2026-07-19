@@ -32,6 +32,7 @@ import com.aqishi.toolbox.misc.SubnetPanel;
 import com.aqishi.toolbox.misc.HttpTestPanel;
 import com.aqishi.toolbox.misc.CallbackTestPanel;
 import com.aqishi.toolbox.monitor.VideoMonitorPanel;
+import com.aqishi.toolbox.monitor.RemoteDesktopPanel;
 import com.aqishi.toolbox.misc.RedisPanel;
 import com.aqishi.toolbox.misc.BpmnPanel;
 import com.aqishi.toolbox.misc.AccountManagerPanel;
@@ -85,7 +86,7 @@ public class MainFrame extends JFrame {
             HttpTestPanel::new, CallbackTestPanel::new, ColorPanel::new, CertPanel::new,
             K8sPanel::new, K8sManagerPanel::new, UuidPanel::new, PasswordPanel::new,
             RandomNumberPanel::new, CalculatorPanel::new, StatisticsPanel::new, SortPanel::new,
-            SearchPanel::new, HanoiPanel::new, VideoMonitorPanel::new, RedisPanel::new, BpmnPanel::new,
+            SearchPanel::new, HanoiPanel::new, VideoMonitorPanel::new, RemoteDesktopPanel::new, RedisPanel::new, BpmnPanel::new,
             DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, WeChatPanel::new, MermaidPanel::new, FlowchartPanel::new
         };
         

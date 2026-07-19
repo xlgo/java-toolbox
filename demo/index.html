@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebRTC P2P 打洞通信</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <section class="card hero">
+      <h1>WebRTC P2P 打洞通信</h1>
+      <p>浏览器客户端可部署到 GitHub Pages；Python 中间服务器负责分组、信令交换和打洞失败后的隧道转发。</p>
+    </section>
+
+    <section class="card grid">
+      <label>中间服务器 WebSocket 地址
+        <input id="serverUrl" placeholder="ws://170.106.158.103:21701" autocomplete="url">
+      </label>
+      <label>分组标识
+        <input id="groupId" placeholder="arges" autocomplete="off">
+      </label>
+      <label>本机名称（可选）
+        <input id="displayName" placeholder="browser-a" autocomplete="nickname">
+      </label>
+      <button id="connectBtn">连接并获取同组节点</button>
+    </section>
+
+    <section class="columns">
+      <aside class="card">
+        <div class="section-title"><h2>同组可连接节点</h2><button id="refreshBtn">刷新</button></div>
+        <ul id="peerList" class="peer-list"></ul>
+      </aside>
+
+      <section class="card chat">
+        <div class="section-title"><h2>通信</h2><span id="status" class="badge">未连接</span></div>
+        <div id="messages" class="messages"></div>
+        <div class="send-row">
+          <select id="mode">
+            <option value="tcp">TCP（可靠有序 DataChannel）</option>
+            <option value="udp">UDP（低延迟不可靠 DataChannel）</option>
+            <option value="tunnel">隧道（服务器转发）</option>
+          </select>
+          <input id="messageInput" placeholder="输入消息后发送">
+          <button id="sendBtn">发送</button>
+        </div>
+      </section>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -45,6 +45,7 @@
 | 运维 | Kafka 管理 | 管理 Kafka 集群，浏览主题与消费组，查看 Lag 详情，消息拉取/发布，以及**实时查看主题的订阅消费组与活跃成员分区分配** |
 | 运维 | K8s 集群管理 | 多集群管理，Kubeconfig 导入与 Namespace 切换，浏览 Pod/Deployment/Service/ConfigMap/Node，日志追踪，Exec 容器终端，以及**容器文件上传与下载** |
 | 其它 | 微信群发与通讯录 | 微信群发，以及自适应读取微信 SQLite 通讯录（展示昵称、备注、微信号、头像，支持 Excel 导出、一键追加群发、头像批量下载） |
+| 其它 | 微信导出工具脚本 | `tools/wechat_export.py`：基于 Windows UIAutomation 的微信 UI 自动化导出工具，附带可视化悬浮控制面板（暂停/继续/停止）、自动重试与坐标防失焦校验 |
 
 ## 主题与体验优化
 
@@ -171,6 +172,8 @@ src/main/java/com/aqishi/toolbox/
 │   ├── UdpChannelImpl.java     # 基于 UDP 协议的 P2P 通信通道
 │   ├── DesktopSignalClient.java# 信令服务器客户端
 │   └── DesktopSignalServer.java# 局域网/公网多端同组信令中转服务器
+├── tools/                  # 辅助工具脚本
+│   └── wechat_export.py    # 微信聊天记录/联系人UI自动化导出脚本（基于 UIAutomation，提供悬浮控制面板）
 └── util/UIUtils.java      # UI 辅助
 ```
 

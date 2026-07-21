@@ -191,6 +191,14 @@ src/main/java/com/aqishi/toolbox/
 └── util/UIUtils.java      # UI 辅助
 ```
 
+## 详细功能文档
+
+针对涉及复杂打洞、容器交互及UI自动化的工具，提供了专门的技术与使用指南文档：
+
+- 📡 [远程桌面 (Remote Desktop) 技术与使用指南](docs/remote_desktop_guide.md)：包含 ICE/STUN 打洞机制、TCP 回退原理及自建信令服务器指导。
+- ☸️ [K8s 集群管理 (K8s Manager) 指南](docs/k8s_manager_guide.md)：涵盖多集群配置导入、Web Terminal、日志流追踪与容器文件传输说明。
+- 💬 [微信工具与 UI 自动化导出指南](docs/wechat_tools_guide.md)：说明本地通讯录解析及 Python UIAutomation 悬浮控制面板脚本的使用方法。
+
 ## License
 
 MIT

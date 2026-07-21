@@ -553,6 +553,21 @@ def run_export_logic(wechat_window, args, state):
                     time.sleep(0.05)
                     check_state(state)
                     
+                    # 重新获取最新的 BoundingRectangle，防止滚动后元素变为虚拟化/不可见
+                    rect_now = item.BoundingRectangle
+                    if not rect_now or (rect_now.left == 0 and rect_now.top == 0 and rect_now.right == 0 and rect_now.bottom == 0):
+                        # 如果失效了，尝试重新 ScrollIntoView 看看能否恢复
+                        try:
+                            item.ScrollIntoView()
+                            time.sleep(0.05)
+                            rect_now = item.BoundingRectangle
+                        except Exception:
+                            pass
+                    
+                    # 如果仍然无效，或者宽高为 0，则跳过此项以防 Click 报错
+                    if not rect_now or (rect_now.left == 0 and rect_now.top == 0 and rect_now.right == 0 and rect_now.bottom == 0) or (rect_now.right - rect_now.left <= 0) or (rect_now.bottom - rect_now.top <= 0):
+                        continue
+                        
                     item.Click(simulateMove=False)
                     check_state(state)
                     time.sleep(args.delay)

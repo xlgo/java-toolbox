@@ -38,9 +38,10 @@ public class SqlPanel extends ToolPanel {
 
         JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         JButton pretty = UIUtils.button("格式化", 80);
+        JButton compress = UIUtils.button("压缩 SQL", 90);
         JButton copy = UIUtils.button("复制结果", 100);
         JButton clear = UIUtils.button("清空", 80);
-        btns.add(pretty); btns.add(copy); btns.add(clear);
+        btns.add(pretty); btns.add(compress); btns.add(copy); btns.add(clear);
         root.add(btns, BorderLayout.NORTH);
 
         JTextArea input = new JTextArea(8, 40);
@@ -59,12 +60,20 @@ public class SqlPanel extends ToolPanel {
         pretty.addActionListener(e -> {
             out.setText(formatSql(input.getText()));
         });
+        compress.addActionListener(e -> {
+            out.setText(compressSql(input.getText()));
+        });
         copy.addActionListener(e -> UIUtils.copyToClipboard(out.getText()));
         clear.addActionListener(e -> { input.setText(""); out.setText(""); });
         
         pretty.doClick();
 
         return root;
+    }
+
+    private String compressSql(String sql) {
+        if (sql == null || sql.trim().isEmpty()) return "";
+        return sql.replaceAll("\\s+", " ").trim();
     }
 
     private String formatSql(String sql) {

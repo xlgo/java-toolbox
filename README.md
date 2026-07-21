@@ -38,8 +38,15 @@
 | 开发工具 | K8s 部署生成 | Kubernetes 资源 YAML 生成器，支持 Deployment / Service / Ingress（含 TLS）/ ConfigMap 实时预览与导出 |
 | 开发工具 | Redis 管理 | Redis 连接管理与键浏览器（列表/树形双视图），支持值编辑与命令控制台操作 |
 | 开发工具 | 流程图与时序图设计 | 现代化流程图与时序图设计器，支持流程节点、生命线、激活条。支持多选拖动、节点修改文字、双击编辑、高阶撤销/重做（Ctrl+Z / Ctrl+Y）、中键/空白处拖拽画布滚动与 Ctrl+滚轮丝滑缩放，以及鼠标悬停节点控制点直接拖拽出连线吸附的极速连线交互，支持 PNG 导出 |
+| 开发工具 | BPMN 流程图设计器 | 专业 BPMN 2.0 流程图绘制，支持事件/任务/网关节点、智能吸附连线、框选批量移动与一键自动拓扑排版 |
+| 开发工具 | Mermaid 绘图 | Mermaid 语法实时预览与高清 PNG 渲染，支持拖拽平移、丰富图表模板与本地导出 |
+| 开发工具 | 字符串工具 | 字符串实时长度与编码字节统计、字符/子串/正则替换与删除、一键大小写与命名驼峰转换 |
 | 生成 | UUID 生成 | 批量生成、去横线、大写、一键复制 |
 | 生成 | 密码生成器 | 基于 SecureRandom 的离线强密码生成与实时强度评估 |
+| 生成 | 账号密码管理 | AES 离线加密存储账号与密码凭据，支持密码隐藏/显示与一键复制 |
+| 生成 | 动态验证码 (TOTP) | 谷歌身份验证器，支持密钥导入、自适应网格账号卡片展示与一键复制 |
+| 生成 | 随机测试数据生成 | 批量生成模拟测试数据，包含百家姓姓名、手机号、电子邮箱、地址、身份证号与银行卡号 |
+| 运维 | 数据库管理 | 多数据库管理客户端（支持 MySQL / PostgreSQL / Oracle / SQLite / H2 等），数据库树形浏览、SQL 执行与结果导出 |
 | 监控 | 视频监控 | 视频监控面板，支持多路画面分屏布局、格子合并拆分与设备树管理 |
 | 监控 | 远程桌面 | 纯 P2P 远程控制桌面，优先采用 ice4j 完整 ICE 状态机进行 UDP 双向打洞（多 STUN、triggered check、peer-reflexive candidate、角色冲突处理与候选对提名），失败后尝试带 UPnP/NAT-PMP 的 TCP 直连；不配置 TURN，信令服务器不转发桌面数据 |
 | 运维 | Kafka 管理 | 管理 Kafka 集群，浏览主题与消费组，查看 Lag 详情，消息拉取/发布，以及**实时查看主题的订阅消费组与活跃成员分区分配** |
@@ -155,7 +162,14 @@ src/main/java/com/aqishi/toolbox/
 │   ├── K8sManagerPanel.java # K8s 集群管理（终端、日志、文件上传下载）
 │   ├── KafkaPanel.java    # Kafka 管理（含主题订阅者视图）
 │   ├── RedisPanel.java    # Redis 管理
+│   ├── DatabasePanel.java # 数据库管理（多 DB 客户端）
+│   ├── BpmnPanel.java     # BPMN 2.0 流程图设计器
 │   ├── FlowchartPanel.java # 流程图与时序图设计（多功能拓扑、撤销重做、极速连线）
+│   ├── MermaidPanel.java  # Mermaid 绘图与预览
+│   ├── StringToolPanel.java # 字符串工具
+│   ├── AccountManagerPanel.java # 账号密码管理
+│   ├── TotpPanel.java     # 谷歌身份验证器 (TOTP)
+│   ├── RandomNumberPanel.java # 随机测试数据生成
 │   ├── UuidPanel.java     # UUID 生成
 │   ├── PasswordPanel.java # 密码生成器
 │   ├── WeChatPanel.java   # 微信工具（群发与通讯录读取）

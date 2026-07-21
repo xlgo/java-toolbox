@@ -252,7 +252,7 @@ public class CertUtils {
     // ===========================================================
     //  辅助方法
     // ===========================================================
-    private static KeyPair generateKeyPair(int idx) throws Exception {
+    public static KeyPair generateKeyPair(int idx) throws Exception {
         String algorithm = KEY_ALG_INTERNAL[idx];
         int size = KEY_SIZES[idx];
         KeyPairGenerator kpg = KeyPairGenerator.getInstance(algorithm);
@@ -297,7 +297,7 @@ public class CertUtils {
         }
     }
 
-    private static int indexOfKeyAlg(String label) {
+    public static int indexOfKeyAlg(String label) {
         for (int i = 0; i < KEY_ALGORITHMS.length; i++) {
             if (KEY_ALGORITHMS[i].equals(label)) return i;
         }

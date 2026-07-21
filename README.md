@@ -34,7 +34,7 @@
 | 开发工具 | HTTP 接口测试 | 轻量 HTTP 客户端，支持 GET / POST / PUT / DELETE，自定义请求头、Body 与 Content-Type |
 | 开发工具 | 回调 Mock | 启动临时 HTTP 服务器接收回调请求，自定义响应状态码与内容，实时回显请求详情 |
 | 开发工具 | 颜色转换 | HEX / RGB / HSL 互转，集成 **JColorChooser 调色板** 与 **一键复制** |
-| 开发工具 | 证书管理 | X.509 证书管理：创建根证书 (Root CA)、CA 签发子证书（支持 DNS/IP/EMAIL/URI 多类型 SAN）、证书解析报告，支持一键下载 PEM 文件 |
+| 开发工具 | 证书管理 | X.509 证书管理：支持根证书创建、子证书签发、证书解析，以及 **ACME v2 免费证书自动申请**（支持 Let's Encrypt / ZeroSSL，集成 Cloudflare API 自动挂载/清理 TXT 记录、DNS-01/HTTP-01 验证、倒计时保护及一键打包 Zip 导出） |
 | 开发工具 | K8s 部署生成 | Kubernetes 资源 YAML 生成器，支持 Deployment / Service / Ingress（含 TLS）/ ConfigMap 实时预览与导出 |
 | 开发工具 | Redis 管理 | Redis 连接管理与键浏览器（列表/树形双视图），支持值编辑与命令控制台操作 |
 | 开发工具 | 流程图与时序图设计 | 现代化流程图与时序图设计器，支持流程节点、生命线、激活条。支持多选拖动、节点修改文字、双击编辑、高阶撤销/重做（Ctrl+Z / Ctrl+Y）、中键/空白处拖拽画布滚动与 Ctrl+滚轮丝滑缩放，以及鼠标悬停节点控制点直接拖拽出连线吸附的极速连线交互，支持 PNG 导出 |
@@ -130,6 +130,10 @@ src/main/java/com/aqishi/toolbox/
 │   ├── SymmetricPanel.java# 对称加密
 │   ├── AsymmetricPanel.java# 非对称加密
 │   ├── CertUtils.java     # 证书工具（X.509 PEM 解析、根证书创建、签发）
+│   ├── acme/              # ACME 协议免费证书申请
+│   │   ├── AcmeClient.java           # RFC 8555 (ACME v2) 客户端（JWS 签名、Order/Challenge 管理）
+│   │   ├── CloudflareDnsProvider.java# Cloudflare API DNS-01 自动添加与清理 TXT 记录
+│   │   └── AcmeChallengeHelper.java  # HTTP-01 本地轻量 Web 服务与文件写库
 │   └── RSAUtils/SM2Utils/SM3Utils/SM4Utils/SymmetricUtils.java
 ├── convert/               # 转换
 │   ├── ConvertPanel.java  # 进制与编码

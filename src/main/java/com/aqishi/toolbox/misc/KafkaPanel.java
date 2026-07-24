@@ -11,6 +11,7 @@ import org.apache.kafka.clients.producer.*;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
+import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
@@ -20,6 +21,7 @@ import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -90,12 +92,15 @@ public class KafkaPanel extends ToolPanel {
     private JTable messageTable;
     private DefaultTableModel messageTableModel;
     private JTextArea messageDetailArea;
+    private JTable messageHeadersTable;
+    private DefaultTableModel messageHeadersTableModel;
     private JButton fetchBtn;
     private JLabel fetchStatusLabel;
     private final List<ConsumerRecord<String, String>> fetchedRecords = new ArrayList<>();
 
     // Tab 3: Message Producer
     private JTextField produceKeyField;
+    private JTextArea produceHeadersArea;
     private JTextArea produceValueArea;
     private JButton produceSendBtn;
     private JLabel produceStatusLabel;
@@ -108,7 +113,7 @@ public class KafkaPanel extends ToolPanel {
     private JLabel subscribersStatusLabel;
     private final Map<String, List<MemberDescription>> groupTopicActiveMembers = new HashMap<>();
 
-    // Logging / Console Tab
+    // Tab 5: Logging / Console Tab
     private JTextArea consoleOutput;
 
     public KafkaPanel() {
@@ -235,10 +240,7 @@ public class KafkaPanel extends ToolPanel {
 
         mainSplit.setLeftComponent(leftTabbedPane);
 
-        // Right Component: Split (Tabs Top, Console Logs Bottom)
-        JSplitPane rightSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        rightSplit.setDividerLocation(300);
-
+        // Right Component: Tabs
         rightTabbedPane = new JTabbedPane();
 
         // Right Tab 1: Group Lag Viewer
@@ -250,11 +252,11 @@ public class KafkaPanel extends ToolPanel {
         };
         lagTable = new JTable(lagTableModel);
         lagPanel.add(new JScrollPane(lagTable), BorderLayout.CENTER);
-        lagStatusLabel = new JLabel("选择左侧消费组查看消费详情。");
+        lagStatusLabel = new JLabel("选择左侧消费组查看消费详情。(提示: 双击主题可直接切换到相应主题)");
         lagPanel.add(lagStatusLabel, BorderLayout.SOUTH);
         rightTabbedPane.addTab("消费 Lag 详情", lagPanel);
 
-        // Right Tab 2: Message Viewer
+        // Right Tab 2: Message Viewer (消息查看)
         JPanel viewerPanel = new JPanel(new BorderLayout(8, 8));
         viewerPanel.setBorder(new EmptyBorder(6, 6, 6, 6));
 
@@ -280,22 +282,33 @@ public class KafkaPanel extends ToolPanel {
         JSplitPane msgSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         msgSplit.setDividerLocation(150);
 
-        messageTableModel = new DefaultTableModel(new String[]{"分区 ID", "Offset", "时间戳", "Key 长度", "Key", "Value 长度", "Value"}, 0) {
+        messageTableModel = new DefaultTableModel(new String[]{"分区 ID", "Offset", "时间戳", "Headers 数量", "Key 长度", "Key", "Value 长度", "Value"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) { return false; }
         };
         messageTable = new JTable(messageTableModel);
         msgSplit.setTopComponent(new JScrollPane(messageTable));
 
+        JTabbedPane messageDetailTabbedPane = new JTabbedPane();
+
         messageDetailArea = new JTextArea();
         messageDetailArea.setFont(UIUtils.monoFont());
         messageDetailArea.setEditable(false);
         messageDetailArea.setLineWrap(true);
         messageDetailArea.setWrapStyleWord(true);
-        msgSplit.setBottomComponent(new JScrollPane(messageDetailArea));
+        messageDetailTabbedPane.addTab("消息内容 (Value)", new JScrollPane(messageDetailArea));
+
+        messageHeadersTableModel = new DefaultTableModel(new String[]{"属性名称 (Key)", "属性值 (Value)"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) { return false; }
+        };
+        messageHeadersTable = new JTable(messageHeadersTableModel);
+        messageDetailTabbedPane.addTab("消息属性 (Headers)", new JScrollPane(messageHeadersTable));
+
+        msgSplit.setBottomComponent(messageDetailTabbedPane);
 
         viewerPanel.add(msgSplit, BorderLayout.CENTER);
-        rightTabbedPane.addTab("消息浏览器", viewerPanel);
+        rightTabbedPane.addTab("消息查看", viewerPanel);
 
         // Right Tab 3: Message Producer
         JPanel producerPanel = new JPanel(new GridBagLayout());
@@ -311,7 +324,16 @@ public class KafkaPanel extends ToolPanel {
         pGbc.gridx = 1; pGbc.weightx = 1.0;
         producerPanel.add(produceKeyField, pGbc);
 
-        pGbc.gridx = 0; pGbc.gridy = 1; pGbc.weightx = 0; pGbc.weighty = 1.0;
+        pGbc.gridx = 0; pGbc.gridy = 1; pGbc.weightx = 0; pGbc.weighty = 0.3;
+        producerPanel.add(new JLabel("自定义属性 (Headers, Key=Value):"), pGbc);
+
+        produceHeadersArea = new JTextArea(3, 40);
+        produceHeadersArea.setFont(UIUtils.monoFont());
+        produceHeadersArea.putClientProperty("JTextArea.placeholderText", "例如:\ntraceId=123456\napp=toolbox\ncontent-type=application/json");
+        pGbc.gridx = 1; pGbc.weightx = 1.0;
+        producerPanel.add(new JScrollPane(produceHeadersArea), pGbc);
+
+        pGbc.gridx = 0; pGbc.gridy = 2; pGbc.weightx = 0; pGbc.weighty = 0.7;
         producerPanel.add(new JLabel("Value (内容):"), pGbc);
 
         produceValueArea = new JTextArea();
@@ -321,7 +343,7 @@ public class KafkaPanel extends ToolPanel {
         pGbc.gridx = 1; pGbc.weightx = 1.0;
         producerPanel.add(new JScrollPane(produceValueArea), pGbc);
 
-        pGbc.gridx = 1; pGbc.gridy = 2; pGbc.weighty = 0; pGbc.fill = GridBagConstraints.HORIZONTAL;
+        pGbc.gridx = 1; pGbc.gridy = 3; pGbc.weighty = 0; pGbc.fill = GridBagConstraints.HORIZONTAL;
         JPanel prodActionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         produceSendBtn = UIUtils.button("发送消息", 100);
         produceStatusLabel = new JLabel("");
@@ -367,18 +389,16 @@ public class KafkaPanel extends ToolPanel {
 
         rightTabbedPane.addTab("主题订阅者", subscribersPanel);
 
-        rightSplit.setTopComponent(rightTabbedPane);
-
-        // Bottom Console Logs
-        JPanel consolePanel = new JPanel(new BorderLayout());
-        consolePanel.setBorder(BorderFactory.createTitledBorder("控制台日志"));
+        // Right Tab 5: Bottom Console Logs
+        JPanel consolePanel = new JPanel(new BorderLayout(6, 6));
+        consolePanel.setBorder(new EmptyBorder(6, 6, 6, 6));
         consoleOutput = new JTextArea();
         consoleOutput.setFont(UIUtils.monoFont());
         consoleOutput.setEditable(false);
         consolePanel.add(new JScrollPane(consoleOutput), BorderLayout.CENTER);
-        rightSplit.setBottomComponent(consolePanel);
+        rightTabbedPane.addTab("控制台日志", consolePanel);
 
-        mainSplit.setRightComponent(rightSplit);
+        mainSplit.setRightComponent(rightTabbedPane);
         root.add(mainSplit, BorderLayout.CENTER);
 
         // --- Hook Listeners ---
@@ -434,14 +454,40 @@ public class KafkaPanel extends ToolPanel {
             public void changedUpdate(javax.swing.event.DocumentEvent e) { filterTopics(); }
         });
 
-        // Message Table selection -> Value formatting
+        // Lag Table double click -> Switch to Topic
+        lagTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2 && lagTable.getSelectedRow() != -1) {
+                    int row = lagTable.getSelectedRow();
+                    String topic = (String) lagTableModel.getValueAt(row, 0);
+                    if (topic != null && !topic.trim().isEmpty()) {
+                        selectTopic(topic.trim());
+                    }
+                }
+            }
+        });
+
+        // Message Table selection -> Value formatting & Headers list
         messageTable.getSelectionModel().addListSelectionListener(e -> {
             if (e.getValueIsAdjusting()) return;
             int idx = messageTable.getSelectedRow();
+            messageHeadersTableModel.setRowCount(0);
             if (idx >= 0 && idx < fetchedRecords.size()) {
-                String val = fetchedRecords.get(idx).value();
+                ConsumerRecord<String, String> rec = fetchedRecords.get(idx);
+                String val = rec.value();
                 messageDetailArea.setText(tryFormatJson(val));
                 messageDetailArea.setCaretPosition(0);
+
+                if (rec.headers() != null) {
+                    for (Header header : rec.headers()) {
+                        String hKey = header.key();
+                        String hVal = header.value() != null ? new String(header.value(), StandardCharsets.UTF_8) : "[null]";
+                        messageHeadersTableModel.addRow(new Object[]{hKey, hVal});
+                    }
+                }
+            } else {
+                messageDetailArea.setText("");
             }
         });
 
@@ -476,6 +522,18 @@ public class KafkaPanel extends ToolPanel {
         // Fetch & Produce actions
         fetchBtn.addActionListener(e -> fetchMessages());
         produceSendBtn.addActionListener(e -> produceMessage());
+    }
+
+    private void selectTopic(String topicName) {
+        leftTabbedPane.setSelectedIndex(0);
+        if (!topicSearchField.getText().isEmpty()) {
+            topicSearchField.setText("");
+        }
+        if (allTopicsList.contains(topicName)) {
+            topicList.setSelectedValue(topicName, true);
+        }
+        onTopicSelected(topicName);
+        rightTabbedPane.setSelectedIndex(1);
     }
 
     private void toggleConnPanel() {
@@ -944,13 +1002,15 @@ public class KafkaPanel extends ToolPanel {
                         int vLen = v != null ? v.length() : 0;
                         String vVal = v != null ? v : "[null]";
                         
+                        int hCount = rec.headers() != null ? rec.headers().toArray().length : 0;
+
                         // Clean values for grid display
                         if (vVal.length() > 60) {
                             vVal = vVal.substring(0, 60) + "...";
                         }
 
                         messageTableModel.addRow(new Object[]{
-                                rec.partition(), rec.offset(), timeStr, kLen, kVal, vLen, vVal
+                                rec.partition(), rec.offset(), timeStr, hCount, kLen, kVal, vLen, vVal
                         });
                     }
 
@@ -972,6 +1032,7 @@ public class KafkaPanel extends ToolPanel {
         }
 
         String key = produceKeyField.getText().trim();
+        String headersTxt = produceHeadersArea.getText().trim();
         String val = produceValueArea.getText();
 
         produceSendBtn.setEnabled(false);
@@ -992,6 +1053,22 @@ public class KafkaPanel extends ToolPanel {
                 try (KafkaProducer<String, String> producer = new KafkaProducer<>(props)) {
                     String k = key.isEmpty() ? null : key;
                     ProducerRecord<String, String> record = new ProducerRecord<>(topic, k, val);
+
+                    if (!headersTxt.isEmpty()) {
+                        String[] lines = headersTxt.split("\n");
+                        for (String line : lines) {
+                            line = line.trim();
+                            if (line.isEmpty() || line.startsWith("#")) continue;
+                            int eqIdx = line.indexOf('=');
+                            if (eqIdx == -1) eqIdx = line.indexOf(':');
+                            if (eqIdx > 0) {
+                                String hKey = line.substring(0, eqIdx).trim();
+                                String hVal = line.substring(eqIdx + 1).trim();
+                                record.headers().add(hKey, hVal.getBytes(StandardCharsets.UTF_8));
+                            }
+                        }
+                    }
+
                     return producer.send(record).get();
                 }
             }
@@ -1004,6 +1081,7 @@ public class KafkaPanel extends ToolPanel {
                     produceStatusLabel.setText("发送成功！分区: " + meta.partition() + " | Offset: " + meta.offset());
                     consoleLog("消息发布成功！主题: " + meta.topic() + " | 分区: " + meta.partition() + " | Offset: " + meta.offset());
                     produceKeyField.setText("");
+                    produceHeadersArea.setText("");
                     produceValueArea.setText("");
                 } catch (Exception ex) {
                     Throwable c = ex.getCause() != null ? ex.getCause() : ex;

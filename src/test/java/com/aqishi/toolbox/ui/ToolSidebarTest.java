@@ -76,6 +76,19 @@ class ToolSidebarTest {
     }
 
     @Test
+    void usesCompactCollapseControlWithLocalizedDescription() throws Exception {
+        ToolSidebar[] sidebar = new ToolSidebar[1];
+        SwingUtilities.invokeAndWait(() -> sidebar[0] = sidebar());
+
+        JButton collapse = find(sidebar[0], JButton.class);
+        assertEquals("‹", collapse.getText());
+        assertEquals(I18n.get("nav.collapse"), collapse.getToolTipText());
+        assertEquals(
+                I18n.get("nav.collapse"),
+                collapse.getAccessibleContext().getAccessibleName());
+    }
+
+    @Test
     void refreshLabelsKeepsTheMountedViewAndCallbacksOnTheEdt() throws Exception {
         AtomicInteger builds = new AtomicInteger();
         AtomicReference<Boolean> callbackOnEdt = new AtomicReference<>(false);

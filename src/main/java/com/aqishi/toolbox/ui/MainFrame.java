@@ -236,7 +236,9 @@ public class MainFrame extends JFrame {
                 UIUtils.SPACE_SM, UIUtils.SPACE_MD));
 
         JPanel location = new JPanel(new BorderLayout(UIUtils.SPACE_SM, 0));
-        expandSidebarButton = new JButton(I18n.get("nav.expand"));
+        expandSidebarButton = new JButton("☰");
+        expandSidebarButton.setToolTipText(I18n.get("nav.expand"));
+        expandSidebarButton.getAccessibleContext().setAccessibleName(I18n.get("nav.expand"));
         expandSidebarButton.addActionListener(event -> setSidebarCollapsed(false));
         expandSidebarButton.setVisible(false);
         currentToolLabel = new JLabel();
@@ -347,7 +349,8 @@ public class MainFrame extends JFrame {
         setTitle(I18n.get("app.title"));
         topThemeLabel.setText(I18n.get("top.theme"));
         topLangLabel.setText(I18n.get("top.lang"));
-        expandSidebarButton.setText(I18n.get("nav.expand"));
+        expandSidebarButton.setToolTipText(I18n.get("nav.expand"));
+        expandSidebarButton.getAccessibleContext().setAccessibleName(I18n.get("nav.expand"));
         sidebar.refreshLabels();
         sidebar.setSelectedTool(currentToolId);
         updateCurrentToolLabel();

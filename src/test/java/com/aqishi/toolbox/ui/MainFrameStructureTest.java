@@ -20,6 +20,7 @@ class MainFrameStructureTest {
             assertNotNull(find(frame.getContentPane(), ToolSidebar.class));
             assertNotNull(find(frame.getContentPane(), ToolContentHost.class));
             assertNull(find(frame.getContentPane(), JTabbedPane.class));
+            assertNotNull(findButton(frame.getContentPane(), "☰"));
         } finally {
             SwingUtilities.invokeAndWait(frame::dispose);
         }
@@ -30,6 +31,19 @@ class MainFrameStructureTest {
             if (type.isInstance(child)) return type.cast(child);
             if (child instanceof Container) {
                 T nested = find((Container) child, type);
+                if (nested != null) return nested;
+            }
+        }
+        return null;
+    }
+
+    private static JButton findButton(Container root, String text) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JButton && text.equals(((JButton) child).getText())) {
+                return (JButton) child;
+            }
+            if (child instanceof Container) {
+                JButton nested = findButton((Container) child, text);
                 if (nested != null) return nested;
             }
         }

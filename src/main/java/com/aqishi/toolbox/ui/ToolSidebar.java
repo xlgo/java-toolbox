@@ -74,6 +74,7 @@ public final class ToolSidebar extends JPanel {
 
         JPanel header = new JPanel(new BorderLayout(UIUtils.SPACE_SM, 0));
         titleLabel.setFont(UIUtils.titleFont().deriveFont(16f));
+        collapseButton.setPreferredSize(new Dimension(32, 32));
         collapseButton.addActionListener(event -> collapseListener.run());
         collapseButton.setFocusPainted(false);
         header.add(titleLabel, BorderLayout.CENTER);
@@ -182,7 +183,10 @@ public final class ToolSidebar extends JPanel {
 
     public void refreshLabels() {
         titleLabel.setText(I18n.get("top.title"));
-        collapseButton.setText(I18n.get("nav.collapse"));
+        titleLabel.setToolTipText(I18n.get("top.title"));
+        collapseButton.setText("‹");
+        collapseButton.setToolTipText(I18n.get("nav.collapse"));
+        collapseButton.getAccessibleContext().setAccessibleName(I18n.get("nav.collapse"));
         searchField.putClientProperty(
                 "JTextField.placeholderText", I18n.get("top.search.placeholder"));
         searchField.getAccessibleContext().setAccessibleName(

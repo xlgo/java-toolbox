@@ -75,6 +75,7 @@ public class KafkaPanel extends ToolPanel {
     private JButton refreshTopicsBtn;
 
     // Consumer Groups Tab
+    private JTextField groupSearchField;
     private JList<String> groupList;
     private DefaultListModel<String> groupListModel;
     private final List<String> allGroupsList = new ArrayList<>();
@@ -232,7 +233,10 @@ public class KafkaPanel extends ToolPanel {
         groupsPanel.setBorder(new EmptyBorder(4, 4, 4, 4));
 
         JPanel groupHeaderPanel = new JPanel(new BorderLayout(4, 0));
-        refreshGroupsBtn = new JButton("刷新消费组");
+        groupSearchField = new JTextField();
+        groupSearchField.putClientProperty("JTextField.placeholderText", "过滤消费组...");
+        refreshGroupsBtn = new JButton("刷新");
+        groupHeaderPanel.add(groupSearchField, BorderLayout.CENTER);
         groupHeaderPanel.add(refreshGroupsBtn, BorderLayout.EAST);
         groupsPanel.add(groupHeaderPanel, BorderLayout.NORTH);
 
@@ -487,6 +491,16 @@ public class KafkaPanel extends ToolPanel {
             public void changedUpdate(javax.swing.event.DocumentEvent e) { filterTopics(); }
         });
 
+        // Filter Consumer Groups
+        groupSearchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { filterGroups(); }
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { filterGroups(); }
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { filterGroups(); }
+        });
+
         // Filter Messages
         msgSearchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             @Override
@@ -567,18 +581,73 @@ public class KafkaPanel extends ToolPanel {
             }
         });
 
+        // Subscriber Group Table Double Click -> Switch to Consumer Group Lag
+        subscriberGroupTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2 && subscriberGroupTable.getSelectedRow() != -1) {
+                    int row = subscriberGroupTable.getSelectedRow();
+                    String groupId = (String) subscriberGroupTableModel.getValueAt(row, 0);
+                    if (groupId != null && !groupId.trim().isEmpty()) {
+                        selectGroup(groupId.trim());
+                    }
+                }
+            }
+        });
+
         // Fetch & Produce actions
         fetchBtn.addActionListener(e -> fetchMessages());
         produceSendBtn.addActionListener(e -> produceMessage());
     }
 
-    private void filterMessages() {
-        String txt = msgSearchField.getText().trim();
-        if (txt.isEmpty()) {
-            messageTableSorter.setRowFilter(null);
-        } else {
-            messageTableSorter.setRowFilter(RowFilter.regexFilter("(?i)" + java.util.regex.Pattern.quote(txt)));
+    private void filterGroups() {
+        String filter = groupSearchField.getText().trim().toLowerCase();
+        groupListModel.clear();
+        for (String g : allGroupsList) {
+            if (filter.isEmpty() || g.toLowerCase().contains(filter)) {
+                groupListModel.addElement(g);
+            }
         }
+    }
+
+    private void filterMessages() {
+        String rawInput = msgSearchField.getText();
+        if (rawInput == null || rawInput.trim().isEmpty()) {
+            messageTableSorter.setRowFilter(null);
+            return;
+        }
+
+        String query = rawInput.trim().toLowerCase();
+        String normalizedQuery = query.replaceAll("\\s+", "");
+
+        messageTableSorter.setRowFilter(new RowFilter<DefaultTableModel, Integer>() {
+            @Override
+            public boolean include(Entry<? extends DefaultTableModel, ? extends Integer> entry) {
+                int modelRow = entry.getIdentifier();
+                if (modelRow >= 0 && modelRow < fetchedRecords.size()) {
+                    ConsumerRecord<String, String> rec = fetchedRecords.get(modelRow);
+                    String val = rec.value();
+                    String key = rec.key();
+
+                    if (val != null) {
+                        String lowerVal = val.toLowerCase();
+                        if (lowerVal.contains(query)) return true;
+                        if (!normalizedQuery.isEmpty() && lowerVal.replaceAll("\\s+", "").contains(normalizedQuery)) {
+                            return true;
+                        }
+                    }
+
+                    if (key != null) {
+                        String lowerKey = key.toLowerCase();
+                        if (lowerKey.contains(query)) return true;
+                        if (!normalizedQuery.isEmpty() && lowerKey.replaceAll("\\s+", "").contains(normalizedQuery)) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+        });
     }
 
     private void selectTopic(String topicName) {
@@ -600,6 +669,18 @@ public class KafkaPanel extends ToolPanel {
             offsetStrategyCombo.setSelectedItem("最新 50 条 (Latest 50)");
             fetchMessages();
         }
+    }
+
+    private void selectGroup(String groupId) {
+        leftTabbedPane.setSelectedIndex(1);
+        if (groupSearchField != null && !groupSearchField.getText().isEmpty()) {
+            groupSearchField.setText("");
+        }
+        if (allGroupsList.contains(groupId)) {
+            groupList.setSelectedValue(groupId, true);
+        }
+        onGroupSelected(groupId);
+        rightTabbedPane.setSelectedIndex(0);
     }
 
     private void toggleConnPanel() {
@@ -844,10 +925,7 @@ public class KafkaPanel extends ToolPanel {
                     }
                     Collections.sort(allGroupsList);
 
-                    groupListModel.clear();
-                    for (String g : allGroupsList) {
-                        groupListModel.addElement(g);
-                    }
+                    filterGroups();
                     consoleLog("消费组列表加载成功，共 " + allGroupsList.size() + " 个消费组。");
                 } catch (Exception ex) {
                     Throwable c = ex.getCause() != null ? ex.getCause() : ex;

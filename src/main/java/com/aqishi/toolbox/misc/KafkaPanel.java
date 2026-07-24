@@ -19,6 +19,8 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableRowSorter;
+import javax.swing.RowFilter;
 import java.awt.*;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
@@ -89,8 +91,10 @@ public class KafkaPanel extends ToolPanel {
     // Tab 2: Message Viewer
     private JComboBox<String> partitionCombo;
     private JComboBox<String> offsetStrategyCombo;
+    private JTextField msgSearchField;
     private JTable messageTable;
     private DefaultTableModel messageTableModel;
+    private TableRowSorter<DefaultTableModel> messageTableSorter;
     private JTextArea messageDetailArea;
     private JTable messageHeadersTable;
     private DefaultTableModel messageHeadersTableModel;
@@ -267,9 +271,15 @@ public class KafkaPanel extends ToolPanel {
         viewerCtrlPanel.add(partitionCombo);
 
         viewerCtrlPanel.add(new JLabel("策略:"));
-        offsetStrategyCombo = new JComboBox<>(new String[]{"从头开始 (Earliest)", "最新 50 条 (Latest 50)", "最新 100 条 (Latest 100)", "最新 500 条 (Latest 500)"});
+        offsetStrategyCombo = new JComboBox<>(new String[]{"最新 50 条 (Latest 50)", "从头开始 (Earliest)", "最新 100 条 (Latest 100)", "最新 500 条 (Latest 500)"});
         offsetStrategyCombo.setPreferredSize(new Dimension(160, 26));
+        offsetStrategyCombo.setSelectedItem("最新 50 条 (Latest 50)");
         viewerCtrlPanel.add(offsetStrategyCombo);
+
+        viewerCtrlPanel.add(new JLabel("检索:"));
+        msgSearchField = new JTextField(12);
+        msgSearchField.putClientProperty("JTextField.placeholderText", "过滤 Value/Key...");
+        viewerCtrlPanel.add(msgSearchField);
 
         fetchBtn = UIUtils.button("拉取消息", 90);
         viewerCtrlPanel.add(fetchBtn);
@@ -285,8 +295,21 @@ public class KafkaPanel extends ToolPanel {
         messageTableModel = new DefaultTableModel(new String[]{"分区 ID", "Offset", "时间戳", "Headers 数量", "Key 长度", "Key", "Value 长度", "Value"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) { return false; }
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                switch (columnIndex) {
+                    case 0: return Integer.class;
+                    case 1: return Long.class;
+                    case 3: return Integer.class;
+                    case 4: return Integer.class;
+                    case 6: return Integer.class;
+                    default: return String.class;
+                }
+            }
         };
         messageTable = new JTable(messageTableModel);
+        messageTableSorter = new TableRowSorter<>(messageTableModel);
+        messageTable.setRowSorter(messageTableSorter);
         msgSplit.setTopComponent(new JScrollPane(messageTable));
 
         JTabbedPane messageDetailTabbedPane = new JTabbedPane();
@@ -436,6 +459,16 @@ public class KafkaPanel extends ToolPanel {
             }
         });
 
+        // Topic List Double Click -> Auto fetch latest 50 messages
+        topicList.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2 && topicList.getSelectedValue() != null) {
+                    selectTopic(topicList.getSelectedValue(), true);
+                }
+            }
+        });
+
         groupList.addListSelectionListener(e -> {
             if (e.getValueIsAdjusting()) return;
             String group = groupList.getSelectedValue();
@@ -454,7 +487,17 @@ public class KafkaPanel extends ToolPanel {
             public void changedUpdate(javax.swing.event.DocumentEvent e) { filterTopics(); }
         });
 
-        // Lag Table double click -> Switch to Topic
+        // Filter Messages
+        msgSearchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { filterMessages(); }
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { filterMessages(); }
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { filterMessages(); }
+        });
+
+        // Lag Table double click -> Switch to Topic & Auto fetch latest 50
         lagTable.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
@@ -462,7 +505,7 @@ public class KafkaPanel extends ToolPanel {
                     int row = lagTable.getSelectedRow();
                     String topic = (String) lagTableModel.getValueAt(row, 0);
                     if (topic != null && !topic.trim().isEmpty()) {
-                        selectTopic(topic.trim());
+                        selectTopic(topic.trim(), true);
                     }
                 }
             }
@@ -471,20 +514,25 @@ public class KafkaPanel extends ToolPanel {
         // Message Table selection -> Value formatting & Headers list
         messageTable.getSelectionModel().addListSelectionListener(e -> {
             if (e.getValueIsAdjusting()) return;
-            int idx = messageTable.getSelectedRow();
+            int viewIdx = messageTable.getSelectedRow();
             messageHeadersTableModel.setRowCount(0);
-            if (idx >= 0 && idx < fetchedRecords.size()) {
-                ConsumerRecord<String, String> rec = fetchedRecords.get(idx);
-                String val = rec.value();
-                messageDetailArea.setText(tryFormatJson(val));
-                messageDetailArea.setCaretPosition(0);
+            if (viewIdx >= 0) {
+                int modelIdx = messageTable.convertRowIndexToModel(viewIdx);
+                if (modelIdx >= 0 && modelIdx < fetchedRecords.size()) {
+                    ConsumerRecord<String, String> rec = fetchedRecords.get(modelIdx);
+                    String val = rec.value();
+                    messageDetailArea.setText(tryFormatJson(val));
+                    messageDetailArea.setCaretPosition(0);
 
-                if (rec.headers() != null) {
-                    for (Header header : rec.headers()) {
-                        String hKey = header.key();
-                        String hVal = header.value() != null ? new String(header.value(), StandardCharsets.UTF_8) : "[null]";
-                        messageHeadersTableModel.addRow(new Object[]{hKey, hVal});
+                    if (rec.headers() != null) {
+                        for (Header header : rec.headers()) {
+                            String hKey = header.key();
+                            String hVal = header.value() != null ? new String(header.value(), StandardCharsets.UTF_8) : "[null]";
+                            messageHeadersTableModel.addRow(new Object[]{hKey, hVal});
+                        }
                     }
+                } else {
+                    messageDetailArea.setText("");
                 }
             } else {
                 messageDetailArea.setText("");
@@ -524,7 +572,20 @@ public class KafkaPanel extends ToolPanel {
         produceSendBtn.addActionListener(e -> produceMessage());
     }
 
+    private void filterMessages() {
+        String txt = msgSearchField.getText().trim();
+        if (txt.isEmpty()) {
+            messageTableSorter.setRowFilter(null);
+        } else {
+            messageTableSorter.setRowFilter(RowFilter.regexFilter("(?i)" + java.util.regex.Pattern.quote(txt)));
+        }
+    }
+
     private void selectTopic(String topicName) {
+        selectTopic(topicName, false);
+    }
+
+    private void selectTopic(String topicName, boolean autoFetch) {
         leftTabbedPane.setSelectedIndex(0);
         if (!topicSearchField.getText().isEmpty()) {
             topicSearchField.setText("");
@@ -534,6 +595,11 @@ public class KafkaPanel extends ToolPanel {
         }
         onTopicSelected(topicName);
         rightTabbedPane.setSelectedIndex(1);
+
+        if (autoFetch) {
+            offsetStrategyCombo.setSelectedItem("最新 50 条 (Latest 50)");
+            fetchMessages();
+        }
     }
 
     private void toggleConnPanel() {

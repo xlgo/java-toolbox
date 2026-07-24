@@ -47,11 +47,15 @@ public abstract class ToolPanel {
      * 匹配来源：名称、分组名、搜索关键词。
      */
     public boolean matchesSearch(String query) {
-        String q = query.toLowerCase();
-        if (name.toLowerCase().contains(q) || getLabel().toLowerCase().contains(q)) return true;
-        if (group.toLowerCase().contains(q) || getGroupLabel().toLowerCase().contains(q)) return true;
+        if (query == null) return false;
+        String q = query.trim().toLowerCase(java.util.Locale.ROOT);
+        if (q.isEmpty()) return true;
+        if (name.toLowerCase(java.util.Locale.ROOT).contains(q)
+                || getLabel().toLowerCase(java.util.Locale.ROOT).contains(q)) return true;
+        if (group.toLowerCase(java.util.Locale.ROOT).contains(q)
+                || getGroupLabel().toLowerCase(java.util.Locale.ROOT).contains(q)) return true;
         for (String kw : searchKeywords) {
-            if (kw.toLowerCase().contains(q)) return true;
+            if (kw != null && kw.toLowerCase(java.util.Locale.ROOT).contains(q)) return true;
         }
         return false;
     }

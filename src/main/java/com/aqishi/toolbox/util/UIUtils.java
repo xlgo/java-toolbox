@@ -18,6 +18,17 @@ public final class UIUtils {
     /** 统一内容区边距 */
     public static final EmptyBorder CONTENT_PADDING = new EmptyBorder(14, 16, 14, 16);
 
+    /** 工作台共享间距与侧栏尺寸 */
+    public static final int SPACE_XS = 4;
+    public static final int SPACE_SM = 8;
+    public static final int SPACE_MD = 12;
+    public static final int SPACE_LG = 16;
+    public static final int SIDEBAR_MIN_WIDTH = 190;
+    public static final int SIDEBAR_DEFAULT_WIDTH = 228;
+    public static final int SIDEBAR_MAX_WIDTH = 320;
+    public static final int NAV_ROW_HEIGHT = 32;
+    public static final int WORKBENCH_DIVIDER_SIZE = 5;
+
     /** 创建带标题的滚动文本区 */
     public static JScrollPane scrollText(JTextArea area, String title) {
         area.setFont(monoFont());

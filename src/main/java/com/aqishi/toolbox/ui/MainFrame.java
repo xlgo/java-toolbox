@@ -1,80 +1,78 @@
 package com.aqishi.toolbox.ui;
 
+import com.aqishi.toolbox.algo.HanoiPanel;
 import com.aqishi.toolbox.algo.SearchPanel;
 import com.aqishi.toolbox.algo.SortPanel;
-import com.aqishi.toolbox.algo.HanoiPanel;
 import com.aqishi.toolbox.calc.CalculatorPanel;
 import com.aqishi.toolbox.calc.StatisticsPanel;
 import com.aqishi.toolbox.convert.Base64ImagePanel;
 import com.aqishi.toolbox.convert.ConvertPanel;
-import com.aqishi.toolbox.convert.TimePanel;
 import com.aqishi.toolbox.convert.FormatConvertPanel;
+import com.aqishi.toolbox.convert.TimePanel;
 import com.aqishi.toolbox.crypto.AsymmetricPanel;
 import com.aqishi.toolbox.crypto.CryptoPanel;
 import com.aqishi.toolbox.crypto.SymmetricPanel;
-import com.aqishi.toolbox.misc.ColorPanel;
+import com.aqishi.toolbox.misc.AccountManagerPanel;
+import com.aqishi.toolbox.misc.BpmnPanel;
+import com.aqishi.toolbox.misc.CallbackTestPanel;
 import com.aqishi.toolbox.misc.CertPanel;
-import com.aqishi.toolbox.misc.TotpPanel;
-import com.aqishi.toolbox.misc.K8sPanel;
-import com.aqishi.toolbox.misc.K8sManagerPanel;
+import com.aqishi.toolbox.misc.ColorPanel;
+import com.aqishi.toolbox.misc.CronPanel;
+import com.aqishi.toolbox.misc.DatabasePanel;
+import com.aqishi.toolbox.misc.DockerComposePanel;
+import com.aqishi.toolbox.misc.FlowchartPanel;
+import com.aqishi.toolbox.misc.HttpTestPanel;
 import com.aqishi.toolbox.misc.JsonPanel;
 import com.aqishi.toolbox.misc.JwtPanel;
+import com.aqishi.toolbox.misc.K8sManagerPanel;
+import com.aqishi.toolbox.misc.K8sPanel;
+import com.aqishi.toolbox.misc.KafkaPanel;
+import com.aqishi.toolbox.misc.MermaidPanel;
 import com.aqishi.toolbox.misc.PasswordPanel;
 import com.aqishi.toolbox.misc.RandomNumberPanel;
-import com.aqishi.toolbox.misc.RegexPanel;
-import com.aqishi.toolbox.misc.UuidPanel;
-import com.aqishi.toolbox.misc.XmlPanel;
-import com.aqishi.toolbox.misc.SqlPanel;
-import com.aqishi.toolbox.misc.CronPanel;
-import com.aqishi.toolbox.misc.TextDiffPanel;
-import com.aqishi.toolbox.misc.DockerComposePanel;
-import com.aqishi.toolbox.misc.SubnetPanel;
-import com.aqishi.toolbox.misc.HttpTestPanel;
-import com.aqishi.toolbox.misc.CallbackTestPanel;
-import com.aqishi.toolbox.monitor.VideoMonitorPanel;
-import com.aqishi.toolbox.monitor.RemoteDesktopPanel;
 import com.aqishi.toolbox.misc.RedisPanel;
-import com.aqishi.toolbox.misc.BpmnPanel;
-import com.aqishi.toolbox.misc.AccountManagerPanel;
-import com.aqishi.toolbox.misc.DatabasePanel;
+import com.aqishi.toolbox.misc.RegexPanel;
+import com.aqishi.toolbox.misc.SqlPanel;
 import com.aqishi.toolbox.misc.StringToolPanel;
-import com.aqishi.toolbox.misc.KafkaPanel;
+import com.aqishi.toolbox.misc.SubnetPanel;
+import com.aqishi.toolbox.misc.TextDiffPanel;
+import com.aqishi.toolbox.misc.TotpPanel;
+import com.aqishi.toolbox.misc.UuidPanel;
 import com.aqishi.toolbox.misc.WeChatPanel;
-import com.aqishi.toolbox.misc.MermaidPanel;
-import com.aqishi.toolbox.misc.FlowchartPanel;
-import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.misc.XmlPanel;
+import com.aqishi.toolbox.monitor.RemoteDesktopPanel;
+import com.aqishi.toolbox.monitor.VideoMonitorPanel;
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.I18n;
+import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
 import java.awt.*;
-import java.awt.event.InputMethodEvent;
-import java.awt.event.InputMethodListener;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 
 /**
- * 主窗口：顶部标题栏+主题切换，中间 JTabbedPane（一级大类），
- * 每个 Tab 内左侧 JList（二级工具）+ 右侧 CardLayout 内容区。
- * <p>所有颜色由 FlatLaf 外观包提供，切换主题即整窗刷新。</p>
+ * 主窗口：统一分组侧边导航、当前工具栏、CardLayout 内容区与状态栏。
+ * 所有颜色由 FlatLaf 外观包提供，切换主题即整窗刷新。
  */
 public class MainFrame extends JFrame {
 
     private JLabel statusLabel;
-    private JLabel topTitleLabel;
+    private JLabel currentToolLabel;
     private JLabel topThemeLabel;
     private JLabel topLangLabel;
-    private JTextField searchField;
-    private JTabbedPane tabs;
-    private final Map<String, JList<String>> groupListMap = new java.util.HashMap<>();
-    private final Map<String, CardLayout> groupCardMap = new java.util.HashMap<>();
-    private final Map<String, JPanel> groupContentMap = new java.util.HashMap<>();
+    private JButton expandSidebarButton;
+    private ToolNavigationModel navigationModel;
+    private ToolSidebar sidebar;
+    private ToolContentHost contentHost;
+    private JSplitPane workspaceSplit;
+    private String currentToolId;
+    private int expandedSidebarWidth = UIUtils.SIDEBAR_DEFAULT_WIDTH;
+    private boolean sidebarCollapsed;
     private javax.swing.Timer statusTimer;
-    private javax.swing.Timer searchUpdateTimer;
-    private boolean searchInputComposing;
-    
+
     private ToolPanel[] tools;
 
     private void createTools() {
@@ -89,7 +87,7 @@ public class MainFrame extends JFrame {
             SearchPanel::new, HanoiPanel::new, VideoMonitorPanel::new, RemoteDesktopPanel::new, RedisPanel::new, BpmnPanel::new,
             DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, WeChatPanel::new, MermaidPanel::new, FlowchartPanel::new
         };
-        
+
         tools = new ToolPanel[creators.length];
         for (int i = 0; i < creators.length; i++) {
             tools[i] = creators[i].get();
@@ -104,7 +102,8 @@ public class MainFrame extends JFrame {
     public MainFrame() {
         super(I18n.get("app.title"));
         createTools();
-        
+        navigationModel = new ToolNavigationModel(java.util.Arrays.asList(tools));
+
         try {
             java.net.URL iconUrl = MainFrame.class.getResource("icon.png");
             if (iconUrl != null) {
@@ -115,7 +114,7 @@ public class MainFrame extends JFrame {
         }
 
         setDefaultCloseOperation(EXIT_ON_CLOSE);
-        
+
         int width = ConfigManager.getInt("width", 1024);
         int height = ConfigManager.getInt("height", 660);
         int x = ConfigManager.getInt("x", -1);
@@ -136,30 +135,26 @@ public class MainFrame extends JFrame {
                 Point p = getLocation();
                 ConfigManager.setInt("x", p.x);
                 ConfigManager.setInt("y", p.y);
+                persistNavigationState();
                 ConfigManager.save();
             }
         });
 
         initUI();
 
-        // 如果指定了 -Dscreenshot=path，则延迟拍照后退出
         String ssPath = System.getProperty("screenshot");
         if (ssPath != null && !ssPath.isEmpty()) {
             final String path = ssPath;
-            javax.swing.Timer ssTimer = new javax.swing.Timer(2000, e -> {
-                takeScreenshot(path);
-            });
+            javax.swing.Timer ssTimer = new javax.swing.Timer(2000, e -> takeScreenshot(path));
             ssTimer.setRepeats(false);
             ssTimer.start();
         }
     }
 
-    /** 对当前窗口截图并保存到文件 */
     private void takeScreenshot(String path) {
         try {
             Robot robot = new Robot();
             Rectangle bounds = getBounds();
-            // 先确保窗口在最前面
             toFront();
             Thread.sleep(300);
             java.awt.image.BufferedImage img = robot.createScreenCapture(bounds);
@@ -172,272 +167,194 @@ public class MainFrame extends JFrame {
 
     private void initUI() {
         setLayout(new BorderLayout(0, 0));
-        add(buildTopBar(), BorderLayout.NORTH);
-        add(buildCenter(), BorderLayout.CENTER);
+        add(buildWorkbench(), BorderLayout.CENTER);
         add(buildStatusBar(), BorderLayout.SOUTH);
+        installGlobalShortcuts();
+
+        String restoredId = ToolNavigationState.resolveToolId(
+                navigationModel,
+                ConfigManager.get("nav.selectedTool", null));
+        java.util.Set<String> expandedGroups = ToolNavigationState.parseExpandedGroups(
+                ConfigManager.get("nav.expandedGroups", null),
+                navigationModel.getGroupIds());
+        sidebar.setExpandedGroupIds(expandedGroups);
+        selectTool(restoredId);
+        sidebar.setSelectedTool(restoredId);
+
+        expandedSidebarWidth = ToolNavigationState.clampSidebarWidth(
+                ConfigManager.getInt("nav.sidebarWidth", UIUtils.SIDEBAR_DEFAULT_WIDTH));
+        boolean restoredCollapsed = Boolean.parseBoolean(
+                ConfigManager.get("nav.sidebarCollapsed", "false"));
+        sidebarCollapsed = false;
+        SwingUtilities.invokeLater(() -> {
+            workspaceSplit.setDividerLocation(expandedSidebarWidth);
+            setSidebarCollapsed(restoredCollapsed);
+        });
     }
 
-    /** 顶部栏：标题 + 搜索框 + 主题切换下拉框 */
-    private JComponent buildTopBar() {
-        JPanel bar = new JPanel(new BorderLayout(8, 0));
-        bar.setBorder(BorderFactory.createCompoundBorder(
-                new MatteBorder(0, 0, 1, 0, UIManager.getColor("Component.borderColor")),
-                new EmptyBorder(8, 14, 8, 14)));
+    private JComponent buildWorkbench() {
+        sidebar = new ToolSidebar(
+                navigationModel,
+                this::selectTool,
+                () -> setSidebarCollapsed(true));
+        sidebar.setMinimumSize(new Dimension(UIUtils.SIDEBAR_MIN_WIDTH, 0));
+        sidebar.setPreferredSize(new Dimension(UIUtils.SIDEBAR_DEFAULT_WIDTH, 0));
 
-        topTitleLabel = new JLabel(I18n.get("top.title"));
-        topTitleLabel.setFont(UIUtils.titleFont().deriveFont(16f));
-        JPanel titleBox = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        titleBox.add(topTitleLabel);
-        bar.add(titleBox, BorderLayout.WEST);
+        contentHost = new ToolContentHost(java.util.Arrays.asList(tools));
+        contentHost.setBorder(new EmptyBorder(2, UIUtils.SPACE_SM, UIUtils.SPACE_XS, UIUtils.SPACE_XS));
 
-        // ===== 搜索框 =====
-        JPanel searchBox = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
-        searchField = new JTextField();
-        searchField.setPreferredSize(new Dimension(240, 30));
-        searchField.putClientProperty("JTextField.placeholderText", I18n.get("top.search.placeholder"));
-        searchField.putClientProperty("JTextField.showClearButton", true);
-        searchBox.add(searchField);
-        bar.add(searchBox, BorderLayout.CENTER);
+        JPanel contentArea = new JPanel(new BorderLayout(0, 0));
+        contentArea.add(buildToolBar(), BorderLayout.NORTH);
+        contentArea.add(contentHost, BorderLayout.CENTER);
 
-        JPopupMenu searchPopup = new JPopupMenu();
-        searchPopup.setFocusable(false);
-        searchUpdateTimer = new javax.swing.Timer(120, e -> updateSearchPopup(searchPopup));
-        searchUpdateTimer.setRepeats(false);
-        searchField.addInputMethodListener(new InputMethodListener() {
-            @Override
-            public void inputMethodTextChanged(InputMethodEvent event) {
-                int textLength = event.getText() == null ? 0 : event.getText().getEndIndex() - event.getText().getBeginIndex();
-                searchInputComposing = textLength > event.getCommittedCharacterCount();
-                if (!searchInputComposing) {
-                    scheduleSearchPopupUpdate();
-                }
-            }
+        workspaceSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sidebar, contentArea);
+        workspaceSplit.setBorder(null);
+        workspaceSplit.setContinuousLayout(true);
+        workspaceSplit.setResizeWeight(0.0);
+        workspaceSplit.setDividerSize(UIUtils.WORKBENCH_DIVIDER_SIZE);
+        workspaceSplit.setDividerLocation(UIUtils.SIDEBAR_DEFAULT_WIDTH);
+        workspaceSplit.addPropertyChangeListener(
+                JSplitPane.DIVIDER_LOCATION_PROPERTY,
+                event -> {
+                    int location = workspaceSplit.getDividerLocation();
+                    if (sidebarCollapsed || location <= 0) return;
+                    int clamped = ToolNavigationState.clampSidebarWidth(location);
+                    expandedSidebarWidth = clamped;
+                    if (location != clamped) {
+                        SwingUtilities.invokeLater(() -> {
+                            if (!sidebarCollapsed) workspaceSplit.setDividerLocation(clamped);
+                        });
+                    }
+                });
+        return workspaceSplit;
+    }
 
-            @Override
-            public void caretPositionChanged(InputMethodEvent event) {
-                // No-op.
-            }
-        });
-        searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            public void insertUpdate(javax.swing.event.DocumentEvent e) { scheduleSearchPopupUpdate(); }
-            public void removeUpdate(javax.swing.event.DocumentEvent e) { scheduleSearchPopupUpdate(); }
-            public void changedUpdate(javax.swing.event.DocumentEvent e) { scheduleSearchPopupUpdate(); }
-        });
+    private JComponent buildToolBar() {
+        JPanel bar = new JPanel(new BorderLayout(UIUtils.SPACE_SM, 0));
+        bar.setBorder(new EmptyBorder(
+                UIUtils.SPACE_SM, UIUtils.SPACE_MD,
+                UIUtils.SPACE_SM, UIUtils.SPACE_MD));
 
-        // 右侧区：主题切换 + 语言切换
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-        
+        JPanel location = new JPanel(new BorderLayout(UIUtils.SPACE_SM, 0));
+        expandSidebarButton = new JButton(I18n.get("nav.expand"));
+        expandSidebarButton.addActionListener(event -> setSidebarCollapsed(false));
+        expandSidebarButton.setVisible(false);
+        currentToolLabel = new JLabel();
+        currentToolLabel.setFont(UIUtils.titleFont());
+        location.add(expandSidebarButton, BorderLayout.WEST);
+        location.add(currentToolLabel, BorderLayout.CENTER);
+        bar.add(location, BorderLayout.CENTER);
+
+        JPanel settings = new JPanel(new FlowLayout(FlowLayout.RIGHT, UIUtils.SPACE_XS, 0));
         topThemeLabel = new JLabel(I18n.get("top.theme"));
         topThemeLabel.setFont(UIUtils.plainFont());
         JComboBox<String> themeBox = new JComboBox<>(ThemeManager.names());
         themeBox.setSelectedItem(ThemeManager.current().name);
-        themeBox.setPreferredSize(new Dimension(160, 30));
-        themeBox.addActionListener(e -> {
-            String sel = (String) themeBox.getSelectedItem();
-            ThemeManager.apply(sel);
+        themeBox.setPreferredSize(new Dimension(160, 32));
+        themeBox.addActionListener(event -> {
+            ThemeManager.apply((String) themeBox.getSelectedItem());
+            SwingUtilities.invokeLater(() -> {
+                if (!sidebarCollapsed) workspaceSplit.setDividerLocation(expandedSidebarWidth);
+            });
         });
-        right.add(topThemeLabel);
-        right.add(themeBox);
+        settings.add(topThemeLabel);
+        settings.add(themeBox);
 
-        // 语言选择
-        right.add(new JLabel("  ")); // Spacer
         topLangLabel = new JLabel(I18n.get("top.lang"));
         topLangLabel.setFont(UIUtils.plainFont());
-        String currentLang = ConfigManager.get("locale", "zh_CN");
         JComboBox<String> langBox = new JComboBox<>(new String[]{"简体中文", "English"});
-        langBox.setSelectedIndex("en_US".equals(currentLang) ? 1 : 0);
-        langBox.setPreferredSize(new Dimension(100, 30));
-        langBox.addActionListener(e -> {
-            String selected = (String) langBox.getSelectedItem();
-            String targetLocale = "English".equals(selected) ? "en_US" : "zh_CN";
-            if (!targetLocale.equals(ConfigManager.get("locale", "zh_CN"))) {
-                ConfigManager.set("locale", targetLocale);
+        langBox.setSelectedIndex(
+                "en_US".equals(ConfigManager.get("locale", "zh_CN")) ? 1 : 0);
+        langBox.setPreferredSize(new Dimension(100, 32));
+        langBox.addActionListener(event -> {
+            String target = "English".equals(langBox.getSelectedItem()) ? "en_US" : "zh_CN";
+            if (!target.equals(ConfigManager.get("locale", "zh_CN"))) {
+                ConfigManager.set("locale", target);
                 ConfigManager.save();
                 I18n.init();
-                reload(this);
+                reloadInPlace();
             }
         });
-        right.add(topLangLabel);
-        right.add(langBox);
+        settings.add(topLangLabel);
+        settings.add(langBox);
+        bar.add(settings, BorderLayout.EAST);
 
-        bar.add(right, BorderLayout.EAST);
-
-        return bar;
+        JPanel wrapper = new JPanel(new BorderLayout(0, 0));
+        wrapper.add(bar, BorderLayout.CENTER);
+        wrapper.add(new JSeparator(), BorderLayout.SOUTH);
+        return wrapper;
     }
 
-    private void scheduleSearchPopupUpdate() {
-        if (searchUpdateTimer == null || searchInputComposing) {
+    private void selectTool(String toolId) {
+        ToolPanel tool = navigationModel.findTool(toolId);
+        if (tool == null || !contentHost.showTool(toolId)) {
             return;
         }
-        searchUpdateTimer.restart();
+        currentToolId = toolId;
+        ConfigManager.set("nav.selectedTool", toolId);
+        updateCurrentToolLabel();
     }
 
-    private void updateSearchPopup(JPopupMenu searchPopup) {
-        if (searchInputComposing) {
-            return;
+    private void updateCurrentToolLabel() {
+        ToolPanel tool = navigationModel.findTool(currentToolId);
+        String label = tool == null ? "" : tool.getGroupLabel() + " / " + tool.getLabel();
+        currentToolLabel.setText(label);
+        currentToolLabel.setToolTipText(label);
+    }
+
+    private void setSidebarCollapsed(boolean collapsed) {
+        if (workspaceSplit == null) return;
+        if (collapsed && !sidebarCollapsed && workspaceSplit.getDividerLocation() > 0) {
+            expandedSidebarWidth = ToolNavigationState.clampSidebarWidth(
+                    workspaceSplit.getDividerLocation());
         }
+        sidebarCollapsed = collapsed;
+        sidebar.setVisible(!collapsed);
+        workspaceSplit.setDividerSize(collapsed ? 0 : UIUtils.WORKBENCH_DIVIDER_SIZE);
+        workspaceSplit.setDividerLocation(collapsed ? 0 : expandedSidebarWidth);
+        expandSidebarButton.setVisible(collapsed);
+        ConfigManager.set("nav.sidebarCollapsed", Boolean.toString(collapsed));
+        workspaceSplit.revalidate();
+        workspaceSplit.repaint();
+    }
 
-        String q = searchField.getText().trim().toLowerCase();
-        searchPopup.setVisible(false);
-        searchPopup.removeAll();
-        if (q.isEmpty()) return;
-
-        int count = 0;
-        for (ToolPanel t : tools) {
-            if (t.matchesSearch(q)) {
-                JMenuItem item = new JMenuItem(t.getGroupLabel() + " > " + t.getLabel());
-                item.setFont(UIUtils.plainFont());
-                item.setFocusable(false);
-                item.addActionListener(ev -> {
-                    selectTool(t);
-                    SwingUtilities.invokeLater(() -> searchField.setText(""));
-                });
-                searchPopup.add(item);
-                count++;
-                if (count >= 10) break;
+    private void installGlobalShortcuts() {
+        JRootPane root = getRootPane();
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_K, InputEvent.CTRL_DOWN_MASK),
+                "nav.focusSearch");
+        root.getActionMap().put("nav.focusSearch", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                if (sidebarCollapsed) {
+                    setSidebarCollapsed(false);
+                }
+                SwingUtilities.invokeLater(sidebar::focusSearch);
             }
-        }
-        if (count > 0 && searchField.isShowing() && searchField.hasFocus()) {
-            searchPopup.show(searchField, 0, searchField.getHeight());
-        }
-    }
-
-    private static void reload(MainFrame currentFrame) {
-        ConfigManager.setInt("width", currentFrame.getWidth());
-        ConfigManager.setInt("height", currentFrame.getHeight());
-        Point p = currentFrame.getLocation();
-        ConfigManager.setInt("x", p.x);
-        ConfigManager.setInt("y", p.y);
-        ConfigManager.save();
-
-        SwingUtilities.invokeLater(() -> {
-            currentFrame.reloadInPlace();
         });
     }
 
-    /** 原地刷新界面文案，避免语言切换时销毁并重建窗口导致闪烁/消失。 */
+    private void persistNavigationState() {
+        ConfigManager.set("nav.selectedTool", currentToolId == null ? "" : currentToolId);
+        ConfigManager.setInt("nav.sidebarWidth", expandedSidebarWidth);
+        ConfigManager.set("nav.sidebarCollapsed", Boolean.toString(sidebarCollapsed));
+        ConfigManager.set(
+                "nav.expandedGroups",
+                ToolNavigationState.serializeExpandedGroups(sidebar.getExpandedGroupIds()));
+    }
+
     private void reloadInPlace() {
         setTitle(I18n.get("app.title"));
-        if (topTitleLabel != null) topTitleLabel.setText(I18n.get("top.title"));
-        if (topThemeLabel != null) topThemeLabel.setText(I18n.get("top.theme"));
-        if (topLangLabel != null) topLangLabel.setText(I18n.get("top.lang"));
-        if (searchField != null) {
-            searchField.putClientProperty("JTextField.placeholderText", I18n.get("top.search.placeholder"));
-        }
-
-        refreshNavigationLabels();
+        topThemeLabel.setText(I18n.get("top.theme"));
+        topLangLabel.setText(I18n.get("top.lang"));
+        expandSidebarButton.setText(I18n.get("nav.expand"));
+        sidebar.refreshLabels();
+        sidebar.setSelectedTool(currentToolId);
+        updateCurrentToolLabel();
         revalidate();
         repaint();
     }
 
-    private void refreshNavigationLabels() {
-        if (tabs == null) return;
-
-        Map<String, java.util.List<ToolPanel>> grouped = new LinkedHashMap<>();
-        for (ToolPanel t : tools) {
-            grouped.computeIfAbsent(t.getGroup(), k -> new java.util.ArrayList<>()).add(t);
-        }
-
-        int tabIndex = 0;
-        for (Map.Entry<String, java.util.List<ToolPanel>> entry : grouped.entrySet()) {
-            if (tabIndex < tabs.getTabCount()) {
-                tabs.setTitleAt(tabIndex, I18n.get("group." + entry.getKey()));
-            }
-
-            JList<String> list = groupListMap.get(entry.getKey());
-            if (list != null) {
-                int selectedIndex = list.getSelectedIndex();
-                DefaultListModel<String> model = new DefaultListModel<>();
-                for (ToolPanel tool : entry.getValue()) {
-                    model.addElement(tool.getLabel());
-                }
-                list.setModel(model);
-                if (selectedIndex >= 0 && selectedIndex < model.size()) {
-                    list.setSelectedIndex(selectedIndex);
-                }
-            }
-            tabIndex++;
-        }
-    }
-
-    /** 智能跳转选中特定的工具 */
-    private void selectTool(ToolPanel targetTool) {
-        String group = targetTool.getGroup();
-        String groupTranslated = targetTool.getGroupLabel();
-        int tabCount = tabs.getTabCount();
-        for (int i = 0; i < tabCount; i++) {
-            if (tabs.getTitleAt(i).equals(groupTranslated)) {
-                tabs.setSelectedIndex(i);
-                JList<String> list = groupListMap.get(group);
-                CardLayout cards = groupCardMap.get(group);
-                JPanel content = groupContentMap.get(group);
-                if (list != null && cards != null && content != null) {
-                    list.setSelectedValue(targetTool.getLabel(), true);
-                    cards.show(content, targetTool.getName());
-                }
-                break;
-            }
-        }
-    }
-
-    /** 中部：页签 + 列表 + 内容区 */
-    private JComponent buildCenter() {
-        Map<String, java.util.List<ToolPanel>> grouped = new LinkedHashMap<>();
-        for (ToolPanel t : tools)
-            grouped.computeIfAbsent(t.getGroup(), k -> new java.util.ArrayList<>()).add(t);
-
-        tabs = new JTabbedPane();
-        tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-        tabs.setBorder(new EmptyBorder(4, 6, 6, 6));
-
-        for (Map.Entry<String, java.util.List<ToolPanel>> entry : grouped.entrySet()) {
-            tabs.addTab(I18n.get("group." + entry.getKey()), buildGroupTab(entry.getKey(), entry.getValue()));
-        }
-        return tabs;
-    }
-
-    /** 单个大类 Tab：左侧 JList + 右侧 CardLayout */
-    private JComponent buildGroupTab(String groupName, java.util.List<ToolPanel> toolsList) {
-        JPanel holder = new JPanel(new BorderLayout(0, 0));
-
-        DefaultListModel<String> listModel = new DefaultListModel<>();
-        for (ToolPanel t : toolsList) listModel.addElement(t.getLabel());
-        JList<String> list = new JList<>(listModel);
-        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        list.setSelectedIndex(0);
-        list.setFixedCellHeight(36);
-        list.setFixedCellWidth(150);
-        list.setFont(UIUtils.plainFont().deriveFont(14f));
-        list.setBorder(new EmptyBorder(6, 8, 6, 8));
-        
-        groupListMap.put(groupName, list);
-
-        JScrollPane listScroll = new JScrollPane(list);
-        listScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        listScroll.setBorder(new MatteBorder(0, 0, 0, 1, UIManager.getColor("Component.borderColor")));
-        listScroll.setPreferredSize(new Dimension(160, 0));
-
-        CardLayout cards = new CardLayout();
-        JPanel content = new JPanel(cards);
-        content.setBorder(new EmptyBorder(2, 8, 4, 4));
-        for (ToolPanel t : toolsList) content.add(t.getView(), t.getName());
-        cards.show(content, toolsList.get(0).getName());
-        
-        groupCardMap.put(groupName, cards);
-        groupContentMap.put(groupName, content);
-
-        list.addListSelectionListener(e -> {
-            if (e.getValueIsAdjusting()) return;
-            int selectedIndex = list.getSelectedIndex();
-            if (selectedIndex >= 0) cards.show(content, toolsList.get(selectedIndex).getName());
-        });
-
-        holder.add(listScroll, BorderLayout.WEST);
-        holder.add(content, BorderLayout.CENTER);
-        return holder;
-    }
-
-    /** 状态栏（含 JVM 内存/CPU 监控） */
     private JComponent buildStatusBar() {
         statusLabel = new JLabel();
         statusLabel.setFont(UIUtils.plainFont().deriveFont(12f));
@@ -445,7 +362,6 @@ public class MainFrame extends JFrame {
                 new MatteBorder(1, 0, 0, 0, UIManager.getColor("Component.borderColor")),
                 new EmptyBorder(4, 8, 4, 8)));
 
-        // 每秒刷新内存/CPU 信息
         statusTimer = new javax.swing.Timer(2000, e -> updateStatusBar());
         statusTimer.setInitialDelay(0);
         statusTimer.start();
@@ -457,12 +373,9 @@ public class MainFrame extends JFrame {
         Runtime rt = Runtime.getRuntime();
         long used = rt.totalMemory() - rt.freeMemory();
         long max = rt.maxMemory();
-
         int memPct = max > 0 ? (int) (used * 100L / max) : 0;
-
         String jdkVer = System.getProperty("java.version");
 
-        // 进程 CPU 占用（非系统 CPU）
         String cpuStr = "";
         try {
             java.lang.management.OperatingSystemMXBean osBean =
@@ -477,7 +390,8 @@ public class MainFrame extends JFrame {
         }
 
         String cpuVal = cpuStr.isEmpty() ? "CPU --%" : cpuStr;
-        String statusText = I18n.get("status.ready", jdkVer, cpuVal, formatBytes(used), formatBytes(max), memPct);
+        String statusText = I18n.get(
+                "status.ready", jdkVer, cpuVal, formatBytes(used), formatBytes(max), memPct);
         statusLabel.setText(statusText);
     }
 

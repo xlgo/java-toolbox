@@ -43,8 +43,6 @@ class ToolSidebarTest {
             JTree tree = find(sidebar[0], JTree.class);
             TreePath path = findPath(tree, "Hash");
             tree.setSelectionPath(path);
-            sidebar[0].getActionMap().get("nav.openSelection")
-                    .actionPerformed(new java.awt.event.ActionEvent(sidebar[0], 0, ""));
         });
 
         assertEquals("hash.codec", selected.get());

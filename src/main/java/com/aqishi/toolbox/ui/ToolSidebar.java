@@ -17,8 +17,6 @@ import java.awt.event.InputEvent;
 import java.awt.event.InputMethodEvent;
 import java.awt.event.InputMethodListener;
 import java.awt.event.KeyEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.util.Collection;
 import java.util.Enumeration;
 import java.util.LinkedHashSet;
@@ -58,6 +56,7 @@ public final class ToolSidebar extends JPanel {
     private final LinkedHashSet<String> expandedGroupIds = new LinkedHashSet<>();
     private boolean inputComposing;
     private boolean rebuilding;
+    private boolean settingSelection;
     private String selectedToolId;
 
     public ToolSidebar(
@@ -119,6 +118,9 @@ public final class ToolSidebar extends JPanel {
             NavNode node = selectedNode();
             if (node != null && node.kind == Kind.TOOL) {
                 selectedToolId = node.id;
+                if (!settingSelection) {
+                    selectionListener.accept(node.id);
+                }
             } else if (node != null && node.kind == Kind.EMPTY) {
                 tree.clearSelection();
             }
@@ -134,21 +136,6 @@ public final class ToolSidebar extends JPanel {
                 rememberExpansion(event.getPath(), false);
             }
         });
-        tree.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent event) {
-                if (!SwingUtilities.isLeftMouseButton(event) || event.getClickCount() != 1) {
-                    return;
-                }
-                TreePath path = tree.getPathForLocation(event.getX(), event.getY());
-                NavNode node = node(path);
-                if (node != null && node.kind == Kind.TOOL) {
-                    tree.setSelectionPath(path);
-                    activateSelectedNode();
-                }
-            }
-        });
-
         JScrollPane scrollPane = new JScrollPane(tree);
         scrollPane.setBorder(BorderFactory.createEmptyBorder());
         scrollPane.setHorizontalScrollBarPolicy(
@@ -165,8 +152,13 @@ public final class ToolSidebar extends JPanel {
         selectedToolId = toolId;
         TreePath path = findToolPath(toolId);
         if (path != null) {
-            tree.setSelectionPath(path);
-            tree.scrollPathToVisible(path);
+            settingSelection = true;
+            try {
+                tree.setSelectionPath(path);
+                tree.scrollPathToVisible(path);
+            } finally {
+                settingSelection = false;
+            }
         }
     }
 

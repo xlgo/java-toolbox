@@ -108,7 +108,6 @@ public class BpmnPanel extends ToolPanel {
         edges.add(new BpmnEdge("Flow_3", "同意", gateway, serviceTask, 0, 3));
         edges.add(new BpmnEdge("Flow_4", "", serviceTask, end1, 1, 0));
         
-        SwingUtilities.invokeLater(this::adjustCanvasSize);
     }
 
     @Override
@@ -473,6 +472,7 @@ public class BpmnPanel extends ToolPanel {
             }
         });
 
+        adjustCanvasSize();
         return root;
     }
 

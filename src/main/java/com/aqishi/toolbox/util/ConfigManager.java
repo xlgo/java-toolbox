@@ -1,61 +1,126 @@
 package com.aqishi.toolbox.util;
 
-import java.io.*;
-import java.util.Properties;
+import com.aqishi.toolbox.vault.ApplicationPaths;
+import com.aqishi.toolbox.vault.AtomicFiles;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
- * 本地配置持久化管理器。
- * 将主题、语言、窗口大小及坐标保存到本地 `toolbox-config.properties` 文件中。
+ * 非敏感本地配置门面。
  */
 public final class ConfigManager {
-
-    private static final String CONFIG_FILE = "toolbox-config.properties";
-    private static final Properties props = new Properties();
-
-    static {
-        load();
-    }
+    private static IOException lastSaveError;
 
     private ConfigManager() {
     }
 
+    private static final class DefaultInitializationHolder {
+        private static final Initialization VALUE =
+                initialize(ApplicationPaths.systemDefault(), new AtomicFiles());
+    }
+
+    static Initialization initialize(ApplicationPaths paths, AtomicFiles atomicFiles) {
+        List<IOException> warnings = Collections.emptyList();
+        IOException directoryError = null;
+        try {
+            warnings = paths.createPrivateDirectories();
+        } catch (IOException error) {
+            directoryError = error;
+        }
+
+        ConfigStore configStore = new ConfigStore(
+                paths.getConfigFile(), paths.getLegacyConfigFile(), atomicFiles);
+        try {
+            configStore.load();
+        } catch (IOException ignored) {
+            // Keep empty preferences. Task 1 exposes write failures through save().
+        }
+        return new Initialization(configStore, warnings, directoryError);
+    }
+
+    private static Initialization initialization() {
+        return DefaultInitializationHolder.VALUE;
+    }
+
     public static synchronized void load() {
-        File file = new File(CONFIG_FILE);
-        if (file.exists()) {
-            try (InputStream is = new FileInputStream(file)) {
-                props.load(is);
-            } catch (IOException ignored) {
-            }
+        try {
+            initialization().store.load();
+        } catch (IOException ignored) {
+            // Keep the last valid in-memory preferences. Saves report their errors explicitly.
         }
     }
 
-    public static synchronized void save() {
-        try (OutputStream os = new FileOutputStream(CONFIG_FILE)) {
-            props.store(os, "Java Toolbox Configuration");
-        } catch (IOException ignored) {
+    public static synchronized boolean save() {
+        Initialization state = initialization();
+        if (state.directoryError != null) {
+            lastSaveError = state.directoryError;
+            return false;
+        }
+        try {
+            state.store.save();
+            lastSaveError = null;
+            return true;
+        } catch (IOException error) {
+            lastSaveError = error;
+            return false;
         }
     }
 
     public static synchronized String get(String key, String def) {
-        return props.getProperty(key, def);
+        return initialization().store.get(key, def);
     }
 
     public static synchronized void set(String key, String val) {
-        props.setProperty(key, val);
+        initialization().store.set(key, val);
     }
 
     public static synchronized int getInt(String key, int def) {
-        try {
-            String val = props.getProperty(key);
-            if (val != null) {
-                return Integer.parseInt(val);
-            }
-        } catch (NumberFormatException ignored) {
-        }
-        return def;
+        return initialization().store.getInt(key, def);
     }
 
     public static synchronized void setInt(String key, int val) {
-        props.setProperty(key, String.valueOf(val));
+        initialization().store.setInt(key, val);
+    }
+
+    public static synchronized void remove(String key) {
+        initialization().store.remove(key);
+    }
+
+    public static synchronized IOException getLastSaveError() {
+        return lastSaveError;
+    }
+
+    public static synchronized List<IOException> getDirectoryWarnings() {
+        return initialization().directoryWarnings;
+    }
+
+    public static synchronized IOException getDirectoryError() {
+        return initialization().directoryError;
+    }
+
+    static final class Initialization {
+        private final ConfigStore store;
+        private final List<IOException> directoryWarnings;
+        private final IOException directoryError;
+
+        private Initialization(
+                ConfigStore store, List<IOException> directoryWarnings,
+                IOException directoryError) {
+            this.store = store;
+            this.directoryWarnings = Collections.unmodifiableList(
+                    new ArrayList<>(directoryWarnings));
+            this.directoryError = directoryError;
+        }
+
+        List<IOException> getDirectoryWarnings() {
+            return directoryWarnings;
+        }
+
+        IOException getDirectoryError() {
+            return directoryError;
+        }
     }
 }

@@ -13,13 +13,9 @@ import java.util.List;
  */
 public final class ConfigManager {
     private static IOException lastSaveError;
+    private static Initialization currentInitialization;
 
     private ConfigManager() {
-    }
-
-    private static final class DefaultInitializationHolder {
-        private static final Initialization VALUE =
-                initialize(ApplicationPaths.systemDefault(), new AtomicFiles());
     }
 
     static Initialization initialize(ApplicationPaths paths, AtomicFiles atomicFiles) {
@@ -42,7 +38,27 @@ public final class ConfigManager {
     }
 
     private static Initialization initialization() {
-        return DefaultInitializationHolder.VALUE;
+        if (currentInitialization == null) {
+            currentInitialization =
+                    initialize(ApplicationPaths.systemDefault(), new AtomicFiles());
+        }
+        return currentInitialization;
+    }
+
+    static synchronized Initialization install(Initialization replacement) {
+        Initialization previous = currentInitialization;
+        currentInitialization = replacement;
+        lastSaveError = null;
+        return previous;
+    }
+
+    static synchronized void restore(Initialization previous) {
+        currentInitialization = previous;
+        lastSaveError = null;
+    }
+
+    static synchronized boolean hasInitialization() {
+        return currentInitialization != null;
     }
 
     public static synchronized void load() {

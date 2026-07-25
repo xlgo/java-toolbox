@@ -1,28 +1,41 @@
 package com.aqishi.toolbox.ui;
 
+import com.aqishi.toolbox.util.ConfigManagerTestSupport;
+import com.aqishi.toolbox.vault.ApplicationPaths;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import javax.swing.*;
 import java.awt.*;
+import java.nio.file.Path;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 class MainFrameStructureTest {
+    @TempDir
+    Path temp;
 
     @Test
     void usesUnifiedSidebarAndLazyContentInsteadOfTabbedNavigation() throws Exception {
-        AtomicReference<MainFrame> frameRef = new AtomicReference<>();
-        SwingUtilities.invokeAndWait(() -> frameRef.set(new MainFrame()));
-        MainFrame frame = frameRef.get();
-        try {
-            assertNotNull(find(frame.getContentPane(), ToolSidebar.class));
-            assertNotNull(find(frame.getContentPane(), ToolContentHost.class));
-            assertNull(find(frame.getContentPane(), JTabbedPane.class));
-            assertNotNull(findButton(frame.getContentPane(), "☰"));
-        } finally {
-            SwingUtilities.invokeAndWait(frame::dispose);
+        ApplicationPaths paths = ApplicationPaths.resolve(
+                System.getProperty("os.name"), temp.toString(),
+                Collections.<String, String>emptyMap(), temp);
+        try (AutoCloseable ignored = ConfigManagerTestSupport.install(paths)) {
+            AtomicReference<MainFrame> frameRef = new AtomicReference<>();
+            SwingUtilities.invokeAndWait(() -> frameRef.set(new MainFrame()));
+            MainFrame frame = frameRef.get();
+            try {
+                assertNotNull(find(frame.getContentPane(), ToolSidebar.class));
+                assertNotNull(find(frame.getContentPane(), ToolContentHost.class));
+                assertNull(find(frame.getContentPane(), JTabbedPane.class));
+                assertNotNull(findButton(frame.getContentPane(), "☰"));
+            } finally {
+                SwingUtilities.invokeAndWait(frame::dispose);
+                SwingUtilities.invokeAndWait(() -> { });
+            }
         }
     }
 

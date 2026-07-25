@@ -10,7 +10,9 @@ import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AtomicFilesTest {
@@ -44,5 +46,29 @@ class AtomicFilesTest {
         assertTrue(fallbackUsed.get());
         assertArrayEquals(expected, Files.readAllBytes(target));
         assertFalse(Files.exists(source));
+    }
+
+    @Test
+    void failedReplacementPreservesTargetAndRemovesTemporaryFile() throws Exception {
+        Path target = temp.resolve("config.properties");
+        byte[] original = new byte[]{9, 8, 7};
+        Files.write(target, original);
+        IOException failure = new IOException("simulated replacement failure");
+        AtomicFiles files = new AtomicFiles() {
+            @Override
+            public void replace(Path source, Path destination) throws IOException {
+                throw failure;
+            }
+        };
+
+        IOException thrown = assertThrows(
+                IOException.class, () -> files.write(target, new byte[]{1, 2, 3}));
+
+        assertEquals(failure, thrown);
+        assertArrayEquals(original, Files.readAllBytes(target));
+        try (java.util.stream.Stream<Path> children = Files.list(temp)) {
+            assertFalse(children.anyMatch(path ->
+                    path.getFileName().toString().startsWith("config.properties.tmp-")));
+        }
     }
 }

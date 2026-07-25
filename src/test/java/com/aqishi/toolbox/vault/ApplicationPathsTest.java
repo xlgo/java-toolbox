@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ApplicationPathsTest {
     @TempDir
@@ -90,9 +91,69 @@ class ApplicationPathsTest {
     }
 
     @Test
+    void relativeEnvironmentRootsFallBackToAbsoluteHome() {
+        Map<String, String> windowsEnv = new HashMap<>();
+        windowsEnv.put("APPDATA", "relative/appdata");
+        ApplicationPaths windowsPaths = ApplicationPaths.resolve(
+                "Windows 11", "C:\\Users\\dev", windowsEnv, Paths.get("D:\\portable"));
+        assertEquals("C:/Users/dev/.java-toolbox",
+                portable(windowsPaths.getDataDirectory()));
+
+        Map<String, String> linuxEnv = new HashMap<>();
+        linuxEnv.put("XDG_DATA_HOME", "relative/data");
+        linuxEnv.put("XDG_CONFIG_HOME", "relative/config");
+        ApplicationPaths linuxPaths = ApplicationPaths.resolve(
+                "Linux", "/home/dev", linuxEnv, Paths.get("/opt/toolbox"));
+        assertEquals("/home/dev/.local/share/java-toolbox",
+                portable(linuxPaths.getDataDirectory()));
+        assertEquals("/home/dev/.config/java-toolbox/toolbox-config.properties",
+                portable(linuxPaths.getConfigFile()));
+    }
+
+    @Test
+    void rejectsResolutionWhenNoAbsoluteRootIsAvailable() {
+        Map<String, String> environment = new HashMap<>();
+        environment.put("XDG_DATA_HOME", "relative/data");
+        environment.put("XDG_CONFIG_HOME", "relative/config");
+
+        assertThrows(IllegalArgumentException.class, () -> ApplicationPaths.resolve(
+                "Linux", "", environment, temp));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationPaths.resolve(
+                "Windows 11", "relative/home",
+                Collections.singletonMap("APPDATA", "relative/appdata"), temp));
+    }
+
+    @Test
+    void systemDefaultUsesOnlyAnAbsoluteConfiguredTestRoot() {
+        String previous = System.getProperty(ApplicationPaths.CONFIG_ROOT_PROPERTY);
+        Path isolatedRoot = temp.resolve("isolated-profile").toAbsolutePath();
+        try {
+            System.setProperty(ApplicationPaths.CONFIG_ROOT_PROPERTY, isolatedRoot.toString());
+            ApplicationPaths paths = ApplicationPaths.systemDefault();
+            assertEquals(isolatedRoot, paths.getDataDirectory());
+            assertEquals(isolatedRoot.resolve("toolbox-config.properties"),
+                    paths.getConfigFile());
+            assertEquals(isolatedRoot.resolve("toolbox-config.properties"),
+                    paths.getLegacyConfigFile());
+            assertEquals(isolatedRoot.resolve("toolbox-passwords.enc"),
+                    paths.getLegacyPasswordFile());
+
+            System.setProperty(ApplicationPaths.CONFIG_ROOT_PROPERTY, "relative-profile");
+            assertThrows(IllegalArgumentException.class, ApplicationPaths::systemDefault);
+        } finally {
+            if (previous == null) {
+                System.clearProperty(ApplicationPaths.CONFIG_ROOT_PROPERTY);
+            } else {
+                System.setProperty(ApplicationPaths.CONFIG_ROOT_PROPERTY, previous);
+            }
+        }
+    }
+
+    @Test
     void createsPrivateDirectoriesWherePosixPermissionsAreSupported() throws Exception {
         ApplicationPaths paths = ApplicationPaths.resolve(
-                "Linux", temp.toString(), Collections.<String, String>emptyMap(), temp);
+                System.getProperty("os.name"), temp.toString(),
+                Collections.<String, String>emptyMap(), temp);
         paths.createPrivateDirectories();
 
         if (Files.getFileStore(paths.getDataDirectory())

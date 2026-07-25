@@ -20,6 +20,7 @@ import java.util.Set;
  * Legacy paths deliberately remain rooted in that directory for migration only.
  */
 public final class ApplicationPaths {
+    public static final String CONFIG_ROOT_PROPERTY = "java.toolbox.configRoot";
     private static final String CONFIG_FILE_NAME = "toolbox-config.properties";
     private static final String VAULT_FILE_NAME = "toolbox-vault.json.enc";
     private static final String LOCK_FILE_NAME = "toolbox-vault.lock";
@@ -36,11 +37,21 @@ public final class ApplicationPaths {
     }
 
     public static ApplicationPaths systemDefault() {
+        Path workingDirectory = Paths.get("").toAbsolutePath();
+        String configuredRoot = nonBlank(System.getProperty(CONFIG_ROOT_PROPERTY));
+        if (configuredRoot != null) {
+            Path root = Paths.get(configuredRoot);
+            if (!root.isAbsolute()) {
+                throw new IllegalArgumentException(
+                        CONFIG_ROOT_PROPERTY + " must be an absolute path");
+            }
+            return new ApplicationPaths(root, root, root);
+        }
         return resolve(
                 System.getProperty("os.name", ""),
                 System.getProperty("user.home", ""),
                 System.getenv(),
-                Paths.get("").toAbsolutePath());
+                workingDirectory);
     }
 
     public static ApplicationPaths resolve(
@@ -52,28 +63,30 @@ public final class ApplicationPaths {
         Objects.requireNonNull(workingDirectory, "workingDirectory");
 
         String normalizedOs = osName.toLowerCase(Locale.ROOT);
-        Path home = Paths.get(userHome);
+        boolean windows = normalizedOs.contains("win");
+        Path home = absoluteRoot(userHome, windows);
         Path data;
         Path config;
 
-        if (normalizedOs.contains("win")) {
-            String appData = nonBlank(environment.get("APPDATA"));
+        if (windows) {
+            Path appData = absoluteRoot(environment.get("APPDATA"), true);
             data = appData == null
-                    ? home.resolve(".java-toolbox")
-                    : Paths.get(appData).resolve("JavaToolbox");
+                    ? requireHome(home, "APPDATA").resolve(".java-toolbox")
+                    : appData.resolve("JavaToolbox");
             config = data;
         } else if (normalizedOs.contains("mac")) {
-            data = home.resolve("Library").resolve("Application Support").resolve("JavaToolbox");
+            data = requireHome(home, "user.home")
+                    .resolve("Library").resolve("Application Support").resolve("JavaToolbox");
             config = data;
         } else {
-            String xdgData = nonBlank(environment.get("XDG_DATA_HOME"));
-            String xdgConfig = nonBlank(environment.get("XDG_CONFIG_HOME"));
+            Path xdgData = absoluteRoot(environment.get("XDG_DATA_HOME"), false);
+            Path xdgConfig = absoluteRoot(environment.get("XDG_CONFIG_HOME"), false);
             data = (xdgData == null
-                    ? home.resolve(".local").resolve("share")
-                    : Paths.get(xdgData)).resolve("java-toolbox");
+                    ? requireHome(home, "XDG_DATA_HOME").resolve(".local").resolve("share")
+                    : xdgData).resolve("java-toolbox");
             config = (xdgConfig == null
-                    ? home.resolve(".config")
-                    : Paths.get(xdgConfig)).resolve("java-toolbox");
+                    ? requireHome(home, "XDG_CONFIG_HOME").resolve(".config")
+                    : xdgConfig).resolve("java-toolbox");
         }
 
         return new ApplicationPaths(data, config, workingDirectory);
@@ -81,6 +94,33 @@ public final class ApplicationPaths {
 
     private static String nonBlank(String value) {
         return value == null || value.trim().isEmpty() ? null : value;
+    }
+
+    private static Path absoluteRoot(String value, boolean windows) {
+        String candidate = nonBlank(value);
+        if (candidate == null) {
+            return null;
+        }
+        boolean absolute;
+        if (windows) {
+            absolute = candidate.length() >= 3
+                    && Character.isLetter(candidate.charAt(0))
+                    && candidate.charAt(1) == ':'
+                    && (candidate.charAt(2) == '\\' || candidate.charAt(2) == '/')
+                    || candidate.startsWith("\\\\")
+                    || candidate.startsWith("//");
+        } else {
+            absolute = candidate.startsWith("/");
+        }
+        return absolute ? Paths.get(candidate) : null;
+    }
+
+    private static Path requireHome(Path home, String unavailableRoot) {
+        if (home == null) {
+            throw new IllegalArgumentException(
+                    unavailableRoot + " is not absolute and no absolute user.home is available");
+        }
+        return home;
     }
 
     public Path getConfigFile() {

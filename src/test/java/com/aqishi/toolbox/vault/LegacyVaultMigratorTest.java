@@ -101,6 +101,36 @@ class LegacyVaultMigratorTest {
         }
     }
 
+    @Test
+    void survivesRestartWithoutPlaintextSecrets() throws Exception {
+        try (VaultTestSupport first = new VaultTestSupport(temp)) {
+            writeLegacyPasswords(first.paths().getLegacyPasswordFile(), "old-master");
+            writeLegacyTotp(first.paths().getLegacyConfigFile());
+            LegacyVaultMigrator.MigrationResult result = migrator(first)
+                    .migrate("old-master".toCharArray());
+            result.getOpenedVault().close();
+        }
+
+        try (VaultTestSupport second = new VaultTestSupport(temp)) {
+            VaultRepository.OpenedVault reopened = second.repository()
+                    .open("old-master".toCharArray());
+            assertEquals("pw", reopened.getData().copyPasswordAccounts()
+                    .get(0).getPassword());
+            assertEquals("JBSWY3DPEHPK3PXP", reopened.getData().copyTotpAccounts()
+                    .get(0).getSecret());
+            reopened.close();
+        }
+
+        try (java.util.stream.Stream<Path> files = Files.walk(temp)) {
+            for (Path file : (Iterable<Path>) files.filter(Files::isRegularFile)::iterator) {
+                if (file.getFileName().toString().endsWith(".enc")) continue;
+                String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+                assertFalse(content.contains("JBSWY3DPEHPK3PXP"));
+                assertFalse(content.contains("old-master"));
+            }
+        }
+    }
+
     private LegacyVaultMigrator migrator(VaultTestSupport support) {
         return new LegacyVaultMigrator(
                 support.paths(), support.repository(), new AtomicFiles(), new VaultCrypto());

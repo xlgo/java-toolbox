@@ -45,6 +45,9 @@ import com.aqishi.toolbox.monitor.VideoMonitorPanel;
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.vault.SecureClipboard;
+import com.aqishi.toolbox.vault.VaultBootstrap;
+import com.aqishi.toolbox.vault.VaultService;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -58,6 +61,9 @@ import java.awt.event.KeyEvent;
  * 所有颜色由 FlatLaf 外观包提供，切换主题即整窗刷新。
  */
 public class MainFrame extends JFrame {
+
+    private final VaultService vaultService;
+    private final SecureClipboard secureClipboard;
 
     private JLabel statusLabel;
     private JLabel currentToolLabel;
@@ -77,7 +83,9 @@ public class MainFrame extends JFrame {
 
     private void createTools() {
         java.util.function.Supplier<ToolPanel>[] creators = new java.util.function.Supplier[]{
-            CryptoPanel::new, SymmetricPanel::new, AsymmetricPanel::new, AccountManagerPanel::new, TotpPanel::new,
+            CryptoPanel::new, SymmetricPanel::new, AsymmetricPanel::new,
+            () -> new AccountManagerPanel(vaultService, secureClipboard),
+            () -> new TotpPanel(vaultService, secureClipboard),
             ConvertPanel::new, TimePanel::new, Base64ImagePanel::new, FormatConvertPanel::new,
             JsonPanel::new, XmlPanel::new, SqlPanel::new, RegexPanel::new, JwtPanel::new,
             CronPanel::new, TextDiffPanel::new, DockerComposePanel::new, SubnetPanel::new,
@@ -100,7 +108,17 @@ public class MainFrame extends JFrame {
     }
 
     public MainFrame() {
+        this(VaultBootstrap.createDefault());
+    }
+
+    private MainFrame(VaultBootstrap.Components components) {
+        this(components.getService(), components.getClipboard());
+    }
+
+    MainFrame(VaultService vaultService, SecureClipboard secureClipboard) {
         super(I18n.get("app.title"));
+        this.vaultService = java.util.Objects.requireNonNull(vaultService, "vaultService");
+        this.secureClipboard = java.util.Objects.requireNonNull(secureClipboard, "secureClipboard");
         createTools();
         navigationModel = new ToolNavigationModel(java.util.Arrays.asList(tools));
 
@@ -137,6 +155,7 @@ public class MainFrame extends JFrame {
                 ConfigManager.setInt("y", p.y);
                 persistNavigationState();
                 ConfigManager.save();
+                vaultService.close();
             }
         });
 
@@ -149,6 +168,17 @@ public class MainFrame extends JFrame {
             ssTimer.setRepeats(false);
             ssTimer.start();
         }
+    }
+
+    VaultService getVaultServiceForTest() {
+        return vaultService;
+    }
+
+    @Override
+    public void dispose() {
+        if (statusTimer != null) statusTimer.stop();
+        vaultService.close();
+        super.dispose();
     }
 
     private void takeScreenshot(String path) {

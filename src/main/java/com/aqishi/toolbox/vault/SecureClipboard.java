@@ -77,10 +77,9 @@ public final class SecureClipboard {
     }
 
     private static final class AwtClipboardGateway implements ClipboardGateway {
-        private final Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-
         @Override
         public String readText() throws Exception {
+            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
             if (!clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
                 return "";
             }
@@ -90,11 +89,13 @@ public final class SecureClipboard {
 
         @Override
         public void writeText(String value) {
+            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
             clipboard.setContents(new StringSelection(value), null);
         }
 
         @Override
         public void clear() {
+            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
             clipboard.setContents(new StringSelection(""), null);
         }
     }

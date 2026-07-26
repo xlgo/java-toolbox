@@ -2,6 +2,7 @@ package com.aqishi.toolbox.ui;
 
 import com.aqishi.toolbox.util.ConfigManagerTestSupport;
 import com.aqishi.toolbox.vault.ApplicationPaths;
+import com.aqishi.toolbox.vault.VaultUiTestSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -13,6 +14,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 class MainFrameStructureTest {
     @TempDir
@@ -35,6 +37,21 @@ class MainFrameStructureTest {
             } finally {
                 SwingUtilities.invokeAndWait(frame::dispose);
                 SwingUtilities.invokeAndWait(() -> { });
+            }
+        }
+    }
+
+    @Test
+    void usesOneInjectedVaultSessionForBothSensitiveTools() throws Exception {
+        try (VaultUiTestSupport support = new VaultUiTestSupport(temp.resolve("vault"))) {
+            AtomicReference<MainFrame> frameRef = new AtomicReference<>();
+            SwingUtilities.invokeAndWait(() -> frameRef.set(
+                    new MainFrame(support.service(), support.clipboard())));
+            MainFrame frame = frameRef.get();
+            try {
+                assertSame(support.service(), frame.getVaultServiceForTest());
+            } finally {
+                SwingUtilities.invokeAndWait(frame::dispose);
             }
         }
     }

@@ -127,6 +127,7 @@ public final class VaultRepository implements AutoCloseable {
     @Override
     public synchronized void close() {
         closed = true;
+        fileLock.close();
     }
 
     private VaultEnvelope encrypt(VaultData data, byte[] key, byte[] salt,

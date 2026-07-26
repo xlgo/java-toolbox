@@ -3,6 +3,14 @@ package com.aqishi.toolbox.misc;
 import com.aqishi.toolbox.crypto.OtpUtils;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.VaultAccessPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
@@ -14,7 +22,6 @@ import com.aqishi.toolbox.vault.VaultListener;
 import com.aqishi.toolbox.vault.VaultService;
 import com.aqishi.toolbox.vault.VaultState;
 
-import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -23,20 +30,18 @@ import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
-import javax.swing.border.EmptyBorder;
 import java.awt.BorderLayout;
 import java.awt.Dialog;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
-import java.awt.Insets;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.util.ArrayList;
@@ -47,6 +52,9 @@ import java.util.UUID;
 
 /** TOTP accounts UI backed exclusively by the shared encrypted vault. */
 public final class TotpPanel extends ToolPanel {
+    /** 验证码字号：这是本页唯一需要一眼扫到的信息，明显大于正文 */
+    private static final float CODE_FONT_SIZE = 28f;
+
     private final VaultService service;
     private final SecureClipboard clipboard;
     private final List<TotpAccount> accounts = new ArrayList<>();
@@ -71,35 +79,42 @@ public final class TotpPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel content = new JPanel(new BorderLayout(0, UIUtils.SPACE_SM));
-        content.setBorder(UIUtils.CONTENT_PADDING);
-        content.add(buildToolbar(), BorderLayout.NORTH);
+        JPanel root = Layouts.page();
+
         grid = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 12));
-        scroll = new JScrollPane(grid);
-        scroll.setBorder(BorderFactory.createLineBorder(
-                javax.swing.UIManager.getColor("Component.borderColor"), 1));
-        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        grid.setOpaque(false);
+        // 网格贴顶放：视口比内容高时 JViewport 会把视图拉到与自己等高，
+        // GridLayout 随之把每行拉成几百像素，验证码卡片里就会空出一大块
+        JPanel gridHolder = Layouts.box();
+        gridHolder.add(grid, BorderLayout.NORTH);
+        // 卡片网格自带内边距，用透明滚动区承载才不会在卡片上盖出一块控件底色
+        scroll = Fields.scrollTransparent(gridHolder);
         scroll.getViewport().addComponentListener(new ComponentAdapter() {
             @Override public void componentResized(ComponentEvent event) { adjustColumns(); }
         });
-        content.add(scroll, BorderLayout.CENTER);
+
+        // 账号列表独占一张铺满型卡片，添加 / 导入 / 全局显示开关收进标题栏，
+        // 页面就不再需要一条单独的工具条，验证码网格吃掉全部剩余高度
+        Card list = Card.flush("身份验证账户");
+        list.setContent(scroll);
+        for (JComponent action : buildToolbarActions()) {
+            list.addHeaderAction(action);
+        }
+        root.add(list, BorderLayout.CENTER);
+
         refreshTimer = new Timer(250, event -> tick());
         service.addListener(listener);
         refreshFromService();
-        return new VaultAccessPanel(service, content);
+        return new VaultAccessPanel(service, root);
     }
 
-    private JComponent buildToolbar() {
-        JPanel toolbar = new JPanel(new BorderLayout(UIUtils.SPACE_SM, 0));
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, UIUtils.SPACE_XS, 0));
-        JButton add = UIUtils.button("手动添加", 96);
-        JButton importLink = UIUtils.button("导入链接", 96);
+    /** 卡片标题栏动作，按从左到右的顺序返回；主操作「手动添加」在最右 */
+    private List<JComponent> buildToolbarActions() {
+        JButton add = Buttons.primary("手动添加");
+        JButton importLink = Buttons.secondary("导入链接");
         add.addActionListener(event -> showEditor(null));
         importLink.addActionListener(event -> importLink());
-        actions.add(add);
-        actions.add(importLink);
-        toolbar.add(actions, BorderLayout.WEST);
-        showDirectly = new JCheckBox("直接显示动态验证码", globalShowDirectly);
+        showDirectly = Fields.check("直接显示动态验证码", globalShowDirectly);
         showDirectly.addActionListener(event -> {
             globalShowDirectly = showDirectly.isSelected();
             ConfigManager.set("totp.show_directly", Boolean.toString(globalShowDirectly));
@@ -107,8 +122,11 @@ public final class TotpPanel extends ToolPanel {
             service.touch();
             cards.forEach(card -> card.setDefaultVisibility(globalShowDirectly));
         });
-        toolbar.add(showDirectly, BorderLayout.EAST);
-        return toolbar;
+        List<JComponent> actions = new ArrayList<>();
+        actions.add(showDirectly);
+        actions.add(importLink);
+        actions.add(add);
+        return actions;
     }
 
     private void onVaultStateChanged(VaultState state) {
@@ -130,12 +148,11 @@ public final class TotpPanel extends ToolPanel {
         cards.clear();
         if (accounts.isEmpty()) {
             grid.setLayout(new GridBagLayout());
-            grid.setBorder(new EmptyBorder(60, 20, 60, 20));
-            JLabel empty = new JLabel("暂无身份验证账户，请使用上方按钮添加或导入。");
-            empty.setForeground(javax.swing.UIManager.getColor("Label.disabledForeground"));
+            grid.setBorder(KitBorders.padding(60, 20, 60, 20));
+            JLabel empty = Fields.caption("暂无身份验证账户，请使用上方按钮添加或导入。");
             grid.add(empty);
         } else {
-            grid.setBorder(new EmptyBorder(8, 8, 8, 8));
+            grid.setBorder(KitBorders.padding(Tokens.SPACE_MD));
             for (TotpAccount account : accounts) {
                 AccountCard card = new AccountCard(account);
                 cards.add(card);
@@ -179,35 +196,36 @@ public final class TotpPanel extends ToolPanel {
         JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(getView()),
                 existing == null ? "添加验证器账户" : "编辑验证器账户",
                 Dialog.ModalityType.APPLICATION_MODAL);
-        JPanel form = new JPanel(new GridBagLayout());
-        form.setBorder(new EmptyBorder(12, 14, 12, 14));
-        JTextField label = new JTextField(existing == null ? "" : existing.getLabel(), 22);
-        JTextField issuer = new JTextField(existing == null ? "" : existing.getIssuer(), 22);
-        JTextField secret = new JTextField(existing == null ? "" : existing.getSecret(), 22);
-        JComboBox<String> algorithm = new JComboBox<>(new String[]{"SHA1", "SHA256", "SHA512"});
-        JComboBox<Integer> digits = new JComboBox<>(new Integer[]{6, 8});
-        JTextField period = new JTextField(
-                Integer.toString(existing == null ? 30 : existing.getPeriod()), 8);
-        JCheckBox direct = new JCheckBox("默认显示验证码",
+        JPanel form = Layouts.box(0, Tokens.SPACE_LG);
+        form.setOpaque(true);
+        form.setBorder(KitBorders.padding(Tokens.SPACE_LG));
+        JTextField label = Fields.text(existing == null ? "" : existing.getLabel());
+        JTextField issuer = Fields.text(existing == null ? "" : existing.getIssuer());
+        JTextField secret = Fields.mono(existing == null ? "" : existing.getSecret());
+        JComboBox<String> algorithm = Fields.combo(new String[]{"SHA1", "SHA256", "SHA512"}, 120);
+        JComboBox<Integer> digits = Fields.combo(new Integer[]{6, 8}, 90);
+        JTextField period = Fields.text(
+                Integer.toString(existing == null ? 30 : existing.getPeriod()));
+        JCheckBox direct = Fields.check("默认显示验证码",
                 existing == null || existing.isShowDirectly());
         if (existing != null) {
             algorithm.setSelectedItem(existing.getAlgorithm());
             digits.setSelectedItem(existing.getDigits());
         }
-        addField(form, 0, "名称：", label);
-        addField(form, 1, "发行方：", issuer);
-        addField(form, 2, "Base32 密钥：", secret);
-        addField(form, 3, "算法：", algorithm);
-        addField(form, 4, "位数：", digits);
-        addField(form, 5, "周期（秒）：", period);
-        GridBagConstraints directConstraints = constraints(0, 6);
-        directConstraints.gridwidth = 2;
-        form.add(direct, directConstraints);
-        JButton save = new JButton("保存");
-        GridBagConstraints button = constraints(0, 7);
-        button.gridwidth = 2;
-        button.anchor = GridBagConstraints.CENTER;
-        form.add(save, button);
+        // 下拉框用 rowCompact 保持自身宽度；三个文本框拉满，标签列右对齐后整体对齐
+        FormGrid fields = new FormGrid();
+        fields.row("名称：", label);
+        fields.row("发行方：", issuer);
+        fields.row("Base32 密钥：", secret);
+        fields.rowCompact("算法：", algorithm);
+        fields.rowCompact("位数：", digits);
+        fields.row("周期（秒）：", period);
+        fields.fullRow(direct);
+        form.add(fields, BorderLayout.CENTER);
+        JButton save = Buttons.primary("保存");
+        ActionBar actions = new ActionBar();
+        actions.right(save);
+        form.add(actions, BorderLayout.SOUTH);
         save.addActionListener(event -> {
             String accountLabel = label.getText().trim();
             String accountSecret = secret.getText().replace(" ", "").replace("-", "").toUpperCase();
@@ -307,67 +325,56 @@ public final class TotpPanel extends ToolPanel {
         }
     }
 
-    private static void addField(JPanel form, int row, String label, JComponent field) {
-        GridBagConstraints left = constraints(0, row);
-        left.weightx = 0;
-        form.add(new JLabel(label), left);
-        GridBagConstraints right = constraints(1, row);
-        right.weightx = 1;
-        form.add(field, right);
-    }
-
-    private static GridBagConstraints constraints(int column, int row) {
-        GridBagConstraints constraints = new GridBagConstraints();
-        constraints.gridx = column;
-        constraints.gridy = row;
-        constraints.insets = new Insets(5, 6, 5, 6);
-        constraints.fill = GridBagConstraints.HORIZONTAL;
-        return constraints;
-    }
-
-    private final class AccountCard extends JPanel {
+    /**
+     * 单个验证器账户卡片：标题带放账户名与编辑 / 删除，中间是大号等宽验证码，
+     * 紧跟一条剩余有效期进度条，底部状态条放显示切换、秒数与复制。
+     */
+    private final class AccountCard extends Card {
         private final TotpAccount account;
         private final JLabel code = new JLabel("", SwingConstants.CENTER);
         private final JLabel remaining = new JLabel("", SwingConstants.CENTER);
+        private final JProgressBar countdown = new JProgressBar();
         private boolean revealed;
 
         private AccountCard(TotpAccount account) {
-            super(new BorderLayout(8, 8));
+            super(account.getLabel(), null);
             this.account = account;
             this.revealed = globalShowDirectly && account.isShowDirectly();
-            setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(
-                            javax.swing.UIManager.getColor("Component.borderColor")),
-                    new EmptyBorder(10, 12, 10, 12)));
-            JPanel header = new JPanel(new BorderLayout(6, 0));
-            JLabel title = new JLabel(account.getLabel());
-            title.setFont(UIUtils.titleFont().deriveFont(14f));
-            header.add(title, BorderLayout.CENTER);
-            JPanel commands = new JPanel(new FlowLayout(FlowLayout.RIGHT, 3, 0));
-            JButton edit = new JButton("编辑");
-            JButton delete = new JButton("删除");
+
+            JButton edit = Buttons.ghost("编辑");
+            JButton delete = Buttons.danger("删除");
             edit.addActionListener(event -> showEditor(account));
             delete.addActionListener(event -> deleteAccount(account));
-            commands.add(edit);
-            commands.add(delete);
-            header.add(commands, BorderLayout.EAST);
-            add(header, BorderLayout.NORTH);
+            addHeaderAction(edit);
+            addHeaderAction(delete);
 
-            code.setFont(new Font(Font.MONOSPACED, Font.BOLD, 26));
-            add(code, BorderLayout.CENTER);
-            JPanel footer = new JPanel(new BorderLayout(6, 0));
-            JButton reveal = new JButton("显示/隐藏");
-            JButton copy = new JButton("复制");
+            code.setFont(Tokens.fontMono().deriveFont(Font.BOLD, CODE_FONT_SIZE));
+            code.setForeground(Tokens.foreground());
+            // 进度条紧贴验证码：剩余秒数用长度表达，比只读数字更容易被余光捕捉
+            countdown.setMinimum(0);
+            countdown.setMaximum(account.getPeriod());
+            countdown.setBorderPainted(false);
+            countdown.setStringPainted(false);
+            JPanel body = Layouts.box(0, Tokens.SPACE_SM);
+            body.add(code, BorderLayout.CENTER);
+            body.add(countdown, BorderLayout.SOUTH);
+            setContent(body);
+
+            JButton reveal = Buttons.ghost("显示/隐藏");
+            JButton copy = Buttons.secondary("复制");
             reveal.addActionListener(event -> {
                 revealed = !revealed;
                 service.touch();
                 refreshCode();
             });
             copy.addActionListener(event -> copyCode(account));
+            remaining.setFont(Tokens.fontCaption());
+            remaining.setForeground(Tokens.mutedForeground());
+            JPanel footer = Layouts.box(Tokens.SPACE_SM, 0);
             footer.add(reveal, BorderLayout.WEST);
             footer.add(remaining, BorderLayout.CENTER);
             footer.add(copy, BorderLayout.EAST);
-            add(footer, BorderLayout.SOUTH);
+            setFooter(footer);
             refreshCode();
         }
 
@@ -378,7 +385,9 @@ public final class TotpPanel extends ToolPanel {
             if (revealed && value.length() == 8) value = value.substring(0, 4) + " " + value.substring(4);
             code.setText(value);
             long seconds = System.currentTimeMillis() / 1000L;
-            remaining.setText((account.getPeriod() - seconds % account.getPeriod()) + "s");
+            long left = account.getPeriod() - seconds % account.getPeriod();
+            remaining.setText(left + "s");
+            countdown.setValue((int) left);
         }
 
         private void setDefaultVisibility(boolean visible) {

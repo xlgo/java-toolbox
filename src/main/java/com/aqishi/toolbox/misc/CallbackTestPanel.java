@@ -1,6 +1,13 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
@@ -59,114 +66,100 @@ public class CallbackTestPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 顶部控制栏 =====
-        JPanel ctrl = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 4));
-        ctrl.add(new JLabel("服务端口:"));
-        portField = new JTextField("8080", 6);
-        ctrl.add(portField);
-
-        toggleBtn = UIUtils.button("启动服务", 90);
-        toggleBtn.addActionListener(e -> toggleServer());
-        ctrl.add(toggleBtn);
-
+        // ===== 顶部：服务开关卡片，启停是全页面唯一的主操作，放标题右侧 =====
+        portField = Fields.text("8080");
         serverStatusLabel = new JLabel("状态: 已停止");
-        serverStatusLabel.setFont(UIUtils.plainFont());
-        ctrl.add(serverStatusLabel);
-        root.add(ctrl, BorderLayout.NORTH);
+        serverStatusLabel.setFont(Tokens.fontBody());
 
-        // ===== 中间主工作区 =====
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        mainSplit.setDividerLocation(380);
+        toggleBtn = Buttons.primary("启动服务");
+        toggleBtn.addActionListener(e -> toggleServer());
 
-        // 1. 左侧：配置区与历史列表
-        JPanel leftPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.insets = new Insets(2, 2, 2, 2);
+        // 端口是定长输入，靠左固定；剩余宽度留给随运行状态变长的监听地址
+        JPanel portRow = Layouts.box(Tokens.SPACE_MD, 0);
+        portRow.add(portField, BorderLayout.WEST);
+        portRow.add(serverStatusLabel, BorderLayout.CENTER);
 
-        // 1.1 Mock 响应自定义配置
-        JPanel configPanel = new JPanel(new GridBagLayout());
-        configPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")),
-                "自定义响应数据", 0, 0, UIUtils.plainFont(), UIManager.getColor("Component.accentColor")));
-        
-        GridBagConstraints cgbc = new GridBagConstraints();
-        cgbc.fill = GridBagConstraints.HORIZONTAL;
-        cgbc.insets = new Insets(4, 4, 4, 4);
+        FormGrid serverForm = new FormGrid();
+        serverForm.row("服务端口:", portRow);
 
-        cgbc.gridx = 0; cgbc.gridy = 0;
-        configPanel.add(new JLabel("状态码:"), cgbc);
-        cgbc.gridx = 1;
-        respCodeField = new JTextField("200");
-        configPanel.add(respCodeField, cgbc);
+        Card serverCard = Card.titled("回调服务");
+        serverCard.setContent(serverForm);
+        serverCard.addHeaderAction(toggleBtn);
 
-        cgbc.gridx = 0; cgbc.gridy = 1;
-        configPanel.add(new JLabel("Content-Type:"), cgbc);
-        cgbc.gridx = 1;
-        respContentTypeField = new JTextField("application/json");
-        configPanel.add(respContentTypeField, cgbc);
+        // ===== 左侧：Mock 响应配置 + 流量记录，上下可拖动分配高度 =====
+        respCodeField = Fields.text("200");
+        respContentTypeField = Fields.text("application/json");
 
-        cgbc.gridx = 0; cgbc.gridy = 2; cgbc.gridwidth = 2;
-        configPanel.add(new JLabel("响应体:"), cgbc);
+        FormGrid mockForm = new FormGrid();
+        mockForm.row("状态码:", respCodeField);
+        mockForm.row("Content-Type:", respContentTypeField);
 
-        cgbc.gridy = 3; cgbc.weighty = 1.0; cgbc.fill = GridBagConstraints.BOTH;
-        respBodyArea = new JTextArea("{\n  \"status\": \"success\",\n  \"message\": \"Callback received\"\n}", 4, 20);
-        respBodyArea.setFont(UIUtils.monoFont());
-        configPanel.add(new JScrollPane(respBodyArea), cgbc);
+        respBodyArea = Fields.area(4, 20);
+        respBodyArea.setText("{\n  \"status\": \"success\",\n  \"message\": \"Callback received\"\n}");
 
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 1.0; gbc.weighty = 0.45;
-        leftPanel.add(configPanel, gbc);
+        // 响应体是这张卡片里唯一需要长高的控件，单独放 CENTER
+        JPanel respBodyBox = Layouts.box(0, Tokens.SPACE_XS);
+        respBodyBox.add(Fields.caption("响应体:"), BorderLayout.NORTH);
+        respBodyBox.add(boxedScroll(respBodyArea), BorderLayout.CENTER);
 
-        // 1.2 历史回调列表
-        JPanel listPanel = new JPanel(new BorderLayout(4, 4));
-        listPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")),
-                "请求流量记录", 0, 0, UIUtils.plainFont(), UIManager.getColor("Component.accentColor")));
+        JPanel mockBody = Layouts.box(0, Tokens.SPACE_MD);
+        mockBody.add(mockForm, BorderLayout.NORTH);
+        mockBody.add(respBodyBox, BorderLayout.CENTER);
+
+        Card mockCard = Card.titled("自定义响应数据");
+        mockCard.setContent(mockBody);
 
         requestListModel = new DefaultListModel<>();
         requestList = new JList<>(requestListModel);
         requestList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         requestList.addListSelectionListener(this::handleListSelection);
-        requestList.setFont(UIUtils.plainFont());
-        
-        listPanel.add(new JScrollPane(requestList), BorderLayout.CENTER);
+        requestList.setFont(Tokens.fontBody());
 
-        clearBtn = UIUtils.button("清空历史记录", 110);
+        clearBtn = Buttons.danger("清空历史记录");
         clearBtn.addActionListener(e -> clearRecords());
-        JPanel bBox = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-        bBox.add(clearBtn);
-        listPanel.add(bBox, BorderLayout.SOUTH);
 
-        gbc.gridy = 1; gbc.weighty = 0.55;
-        leftPanel.add(listPanel, gbc);
+        Card recordsCard = Card.flush("请求流量记录");
+        recordsCard.setContent(Fields.scroll(requestList));
+        recordsCard.addHeaderAction(clearBtn);
 
-        mainSplit.setLeftComponent(leftPanel);
-
-        // 2. 右侧：请求详情回显区
+        // ===== 右侧：请求详情回显，三个页签铺满整张卡片 =====
         JTabbedPane rightTabs = new JTabbedPane();
-        
-        detailsArea = new JTextArea();
-        detailsArea.setEditable(false);
-        detailsArea.setFont(UIUtils.monoFont());
-        rightTabs.addTab("请求概要 (Summary)", new JScrollPane(detailsArea));
+        rightTabs.setBorder(null);
+        // 详情区在分栏右侧，窗口一窄三个页签就会折成两行并压进内容区，改成单行滚动
+        rightTabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
 
-        headersArea = new JTextArea();
-        headersArea.setEditable(false);
-        headersArea.setFont(UIUtils.monoFont());
-        rightTabs.addTab("请求头 (Headers)", new JScrollPane(headersArea));
+        detailsArea = Fields.output(8, 30);
+        rightTabs.addTab("请求概要 (Summary)", Fields.scroll(detailsArea));
 
-        bodyArea = new JTextArea();
-        bodyArea.setEditable(false);
-        bodyArea.setFont(UIUtils.monoFont());
-        rightTabs.addTab("请求体 (Body)", new JScrollPane(bodyArea));
+        headersArea = Fields.output(8, 30);
+        rightTabs.addTab("请求头 (Headers)", Fields.scroll(headersArea));
 
-        mainSplit.setRightComponent(rightTabs);
-        root.add(mainSplit, BorderLayout.CENTER);
+        bodyArea = Fields.output(8, 30);
+        rightTabs.addTab("请求体 (Body)", Fields.scroll(bodyArea));
+
+        Card detailCard = Card.plain().setFlush(true);
+        detailCard.setContent(rightTabs);
+
+        root.add(serverCard, BorderLayout.NORTH);
+        root.add(Layouts.splitHorizontal(
+                Layouts.splitVertical(mockCard, recordsCard, 0.45), detailCard, 0.35),
+                BorderLayout.CENTER);
 
         return root;
+    }
+
+    /**
+     * 卡片内部嵌的文本域滚动区。
+     *
+     * <p>卡片底色与文本域底色相同，不描一条细线的话输入框会整个「消失」在卡片里；
+     * 这里只用最弱的分隔色画 1px，不会和卡片描边叠成双层边框。</p>
+     */
+    private static JScrollPane boxedScroll(JTextArea area) {
+        JScrollPane scroll = Fields.scroll(area);
+        scroll.setBorder(KitBorders.lineSubtle(1, 1, 1, 1));
+        return scroll;
     }
 
     private synchronized void toggleServer() {

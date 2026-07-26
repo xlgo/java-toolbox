@@ -1,6 +1,14 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.util.I18n;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -117,258 +125,244 @@ public class DatabasePanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // 1. Collapsible Connection Panel
-        JPanel connPanel = new JPanel(new BorderLayout());
-        connPanel.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor"), 1));
-
-        // Header Panel (Toggles collapse)
-        connHeaderPanel = new JPanel(new BorderLayout());
-        connHeaderPanel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        connHeaderPanel.setBackground(UIManager.getColor("Panel.background"));
-        connHeaderPanel.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
-        connToggleLabel = new JLabel("▼ 数据库连接配置 (点击折叠)");
-        connToggleLabel.setFont(UIUtils.titleFont());
-        connHeaderPanel.add(connToggleLabel, BorderLayout.WEST);
-        connPanel.add(connHeaderPanel, BorderLayout.NORTH);
-
-        // Body Panel (GridBag Layout Inputs)
-        connBodyPanel = new JPanel(new GridBagLayout());
-        connBodyPanel.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(4, 6, 4, 6);
-
-        // Row 0: Profiles
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        connBodyPanel.add(new JLabel("已存配置:"), gbc);
-        
-        profileCombo = new JComboBox<>();
-        profileCombo.setPreferredSize(new Dimension(150, 30));
-        profileCombo.addActionListener(e -> onProfileSelected());
-        gbc.gridx = 1; gbc.weightx = 0.5;
-        connBodyPanel.add(profileCombo, gbc);
-
-        JPanel profileBtnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        saveProfileBtn = new JButton("保存配置");
-        delProfileBtn = new JButton("删除配置");
-        profileBtnPanel.add(saveProfileBtn);
-        profileBtnPanel.add(delProfileBtn);
-        gbc.gridx = 2; gbc.gridwidth = 4; gbc.weightx = 0.5;
-        connBodyPanel.add(profileBtnPanel, gbc);
-
-        // Row 1: DB Type, Host, Port
-        gbc.gridwidth = 1;
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
-        connBodyPanel.add(new JLabel("数据库类型:"), gbc);
-
-        dbTypeCombo = new JComboBox<>(new String[]{"MySQL", "PostgreSQL", "Oracle", "Custom"});
-        gbc.gridx = 1; gbc.weightx = 0.3;
-        connBodyPanel.add(dbTypeCombo, gbc);
-
-        gbc.gridx = 2; gbc.weightx = 0;
-        connBodyPanel.add(new JLabel("主机:"), gbc);
-
-        hostField = new JTextField("127.0.0.1", 12);
-        gbc.gridx = 3; gbc.weightx = 0.4;
-        connBodyPanel.add(hostField, gbc);
-
-        gbc.gridx = 4; gbc.weightx = 0;
-        connBodyPanel.add(new JLabel("端口:"), gbc);
-
-        portField = new JTextField("3306", 5);
-        gbc.gridx = 5; gbc.weightx = 0.3;
-        connBodyPanel.add(portField, gbc);
-
-        // Row 2: Database, Username, Password
-        gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0;
-        connBodyPanel.add(new JLabel("库名/服务名:"), gbc);
-
-        databaseField = new JTextField("test", 10);
-        gbc.gridx = 1; gbc.weightx = 0.3;
-        connBodyPanel.add(databaseField, gbc);
-
-        gbc.gridx = 2; gbc.weightx = 0;
-        connBodyPanel.add(new JLabel("用户名:"), gbc);
-
-        userField = new JTextField("root", 10);
-        gbc.gridx = 3; gbc.weightx = 0.4;
-        connBodyPanel.add(userField, gbc);
-
-        gbc.gridx = 4; gbc.weightx = 0;
-        connBodyPanel.add(new JLabel("密码:"), gbc);
-
-        passField = new JPasswordField(10);
-        gbc.gridx = 5; gbc.weightx = 0.3;
-        connBodyPanel.add(passField, gbc);
-
-        // Row 3: Driver Class, Driver Jar
-        gbc.gridx = 0; gbc.gridy = 3; gbc.weightx = 0;
-        connBodyPanel.add(new JLabel("驱动类名:"), gbc);
-
-        driverClassField = new JTextField("com.mysql.cj.jdbc.Driver");
-        gbc.gridx = 1; gbc.gridwidth = 2; gbc.weightx = 0.5;
-        connBodyPanel.add(driverClassField, gbc);
-
-        gbc.gridwidth = 1;
-        gbc.gridx = 3; gbc.weightx = 0;
-        connBodyPanel.add(new JLabel("驱动 JAR 路径:"), gbc);
-
-        JPanel jarPanel = new JPanel(new BorderLayout(4, 0));
-        jarPathField = new JTextField();
-        jarPathField.setToolTipText("对于非内置的数据库，可在此指定其 JDBC 驱动的 JAR 包路径");
-        browseJarBtn = new JButton("浏览...");
-        browseJarBtn.addActionListener(e -> browseJar());
-        jarPanel.add(jarPathField, BorderLayout.CENTER);
-        jarPanel.add(browseJarBtn, BorderLayout.EAST);
-        gbc.gridx = 4; gbc.gridwidth = 2; gbc.weightx = 0.5;
-        connBodyPanel.add(jarPanel, gbc);
-
-        // Row 4: JDBC URL, Buttons
-        gbc.gridwidth = 1;
-        gbc.gridx = 0; gbc.gridy = 4; gbc.weightx = 0;
-        connBodyPanel.add(new JLabel("JDBC URL:"), gbc);
-
-        urlField = new JTextField("jdbc:mysql://127.0.0.1:3306/test?useSSL=false&serverTimezone=UTC&characterEncoding=utf-8");
-        gbc.gridx = 1; gbc.gridwidth = 3; gbc.weightx = 0.8;
-        connBodyPanel.add(urlField, gbc);
-
-        JPanel actionBtnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        testBtn = UIUtils.button("测试连接", 90);
-        connBtn = UIUtils.button("连接", 90);
-        actionBtnPanel.add(testBtn);
-        actionBtnPanel.add(connBtn);
-        gbc.gridx = 4; gbc.gridwidth = 2; gbc.weightx = 0.2;
-        connBodyPanel.add(actionBtnPanel, gbc);
-
-        connPanel.add(connBodyPanel, BorderLayout.CENTER);
-        root.add(connPanel, BorderLayout.NORTH);
-
-        // 2. Main Workspace Split: Left (Metadata Tree), Right (Editor & Results)
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        mainSplit.setDividerLocation(240);
-
-        // Left Component: Metadata Tree Browser
-        JPanel leftPanel = new JPanel(new BorderLayout(6, 6));
-        leftPanel.setBorder(BorderFactory.createTitledBorder("数据源浏览器"));
-
-        // Header Panel for Database & Schema Switchers
-        JPanel leftHeaderPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints lhGbc = new GridBagConstraints();
-        lhGbc.fill = GridBagConstraints.HORIZONTAL;
-        lhGbc.insets = new Insets(2, 2, 2, 2);
-
-        lhGbc.gridx = 0; lhGbc.gridy = 0; lhGbc.weightx = 0;
-        leftHeaderPanel.add(new JLabel("数据库:"), lhGbc);
-
-        dbSwitchCombo = new JComboBox<>();
-        dbSwitchCombo.setPreferredSize(new Dimension(140, 28));
-        lhGbc.gridx = 1; lhGbc.weightx = 1.0;
-        leftHeaderPanel.add(dbSwitchCombo, lhGbc);
-
-        lhGbc.gridx = 0; lhGbc.gridy = 1; lhGbc.weightx = 0;
-        leftHeaderPanel.add(new JLabel("模式/Schema:"), lhGbc);
-
-        schemaSwitchCombo = new JComboBox<>();
-        schemaSwitchCombo.setPreferredSize(new Dimension(140, 28));
-        lhGbc.gridx = 1; lhGbc.weightx = 1.0;
-        leftHeaderPanel.add(schemaSwitchCombo, lhGbc);
-
-        // Search panel for filtering tree nodes
-        JPanel searchPanel = new JPanel(new BorderLayout(4, 0));
-        tableSearchField = new JTextField();
-        tableSearchField.putClientProperty("JTextField.placeholderText", "过滤元数据...");
-        refreshTablesBtn = new JButton("刷新");
-        searchPanel.add(tableSearchField, BorderLayout.CENTER);
-        searchPanel.add(refreshTablesBtn, BorderLayout.EAST);
-
-        lhGbc.gridx = 0; lhGbc.gridy = 2; lhGbc.gridwidth = 2; lhGbc.weightx = 1.0;
-        leftHeaderPanel.add(searchPanel, lhGbc);
-        leftPanel.add(leftHeaderPanel, BorderLayout.NORTH);
-
-        // Metadata JTree
-        treeRoot = new DefaultMutableTreeNode("未连接");
-        treeModel = new DefaultTreeModel(treeRoot);
-        metadataTree = new JTree(treeModel);
-        metadataTree.setCellRenderer(new MetadataTreeCellRenderer());
-        leftPanel.add(new JScrollPane(metadataTree), BorderLayout.CENTER);
-
-        mainSplit.setLeftComponent(leftPanel);
-
-        // Right Component: Editor Tabs (Top) & Results (Bottom)
-        JSplitPane rightSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        rightSplit.setDividerLocation(220);
-
-        editorTabbedPane = new JTabbedPane();
-
-        // Sub-Tab 1: SQL Editor Panel
-        JPanel editorPanel = new JPanel(new BorderLayout(4, 4));
-        sqlEditor = new JTextArea();
-        sqlEditor.setFont(UIUtils.monoFont());
-        sqlEditor.setText("SELECT * FROM test LIMIT 100;");
-        editorPanel.add(new JScrollPane(sqlEditor), BorderLayout.CENTER);
-
-        JPanel editorCtrlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        runBtn = UIUtils.button("运行 SQL", 90);
-        formatBtn = UIUtils.button("格式化", 80);
-        clearSqlBtn = UIUtils.button("清空", 80);
-        editorCtrlPanel.add(runBtn);
-        editorCtrlPanel.add(formatBtn);
-        editorCtrlPanel.add(clearSqlBtn);
-        editorPanel.add(editorCtrlPanel, BorderLayout.SOUTH);
-        editorTabbedPane.addTab("SQL 编辑器", editorPanel);
-
-        // Sub-Tab 2: Visual Query Tab
-        editorTabbedPane.addTab("可视化查询 (条件编辑器)", buildVisualQueryTab());
-
-        rightSplit.setTopComponent(editorTabbedPane);
-
-        // Results Container
-        JPanel resultsPanel = new JPanel(new BorderLayout(4, 4));
-        resultsPanel.setBorder(BorderFactory.createTitledBorder("执行结果"));
-
-        rightTabbedPane = new JTabbedPane();
-        
-        // Tab 1: JTable for results
-        JPanel resultTab = new JPanel(new BorderLayout(4, 4));
-        resultTable = new JTable();
-        resultTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF); // allow horizontal scroll bar
-        resultTab.add(new JScrollPane(resultTable), BorderLayout.CENTER);
-        
-        resultStatusLabel = new JLabel("未执行任何查询。");
-        resultStatusLabel.setFont(UIUtils.plainFont());
-        resultTab.add(resultStatusLabel, BorderLayout.SOUTH);
-        rightTabbedPane.addTab("查询数据", resultTab);
-
-        // Tab 2: Console Log
-        consoleOutput = new JTextArea();
-        consoleOutput.setFont(UIUtils.monoFont());
-        consoleOutput.setEditable(false);
-        rightTabbedPane.addTab("控制台日志", new JScrollPane(consoleOutput));
-
-        resultsPanel.add(rightTabbedPane, BorderLayout.CENTER);
-        rightSplit.setBottomComponent(resultsPanel);
-
-        mainSplit.setRightComponent(rightSplit);
-        root.add(mainSplit, BorderLayout.CENTER);
+        // 数据库客户端的常规三段式：连接配置吃首选高度放页首，
+        // 下方工作区（左元数据树 / 右上编辑器 / 右下结果）吸收全部剩余空间。
+        root.add(buildConnectionCard(), BorderLayout.NORTH);
+        root.add(initialSplit(Layouts.splitHorizontal(
+                buildBrowserCard(),
+                initialSplit(Layouts.splitVertical(buildEditorCard(), buildResultCard(), 0.35), 0.48),
+                0.22), 0.22), BorderLayout.CENTER);
 
         // --- Hook Listeners ---
         setupListeners();
-        
+
         // --- Init SQL Autocomplete ---
         initAutocomplete();
 
         // --- Load Profiles ---
         loadProfilesFromPrefs();
-        
+
         // Initial setup for default selection
         if (dbTypeCombo.getItemCount() > 0 && profileCombo.getItemCount() == 0) {
             dbTypeCombo.setSelectedIndex(0);
         }
 
         return root;
+    }
+
+    /**
+     * 首次拿到尺寸时把分隔条按比例摆一次，之后交回 {@code resizeWeight}。
+     *
+     * <p>{@code JSplitPane} 的初始分隔位置取自子组件首选尺寸：可视化查询页签的首选高度
+     * 比 SQL 编辑器大得多，不校正的话结果区一上来只剩一条缝。比例值还要跟第一个子组件的
+     * 最小尺寸取大，否则窄窗口下左侧树栏会被压到标签都放不下。</p>
+     */
+    private static JSplitPane initialSplit(final JSplitPane split, final double location) {
+        split.addComponentListener(new java.awt.event.ComponentAdapter() {
+            private boolean applied;
+
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent event) {
+                if (applied || split.getWidth() <= 0 || split.getHeight() <= 0) {
+                    return;
+                }
+                applied = true;
+                boolean horizontal = split.getOrientation() == JSplitPane.HORIZONTAL_SPLIT;
+                int size = horizontal ? split.getWidth() : split.getHeight();
+                Component first = split.getLeftComponent();
+                Dimension min = first == null ? new Dimension(0, 0) : first.getMinimumSize();
+                // 最小尺寸最多只能占到一半，否则窗口很矮时第一个子组件会把第二个整个顶出去
+                int floor = Math.min(horizontal ? min.width : min.height, size / 2);
+                split.setDividerLocation(Math.max((int) (size * location), floor));
+            }
+        });
+        return split;
+    }
+
+    /**
+     * 连接配置卡片。
+     *
+     * <p>标题带本身要响应点击折叠，所以用铺满型无标题卡片 + 自建标题带，而不是
+     * {@code Card.titled} 的静态标题；折叠时只隐藏 {@code connBodyPanel}，
+     * 卡片就只剩一条标题带，不会留下一圈空的内边距。</p>
+     */
+    private Card buildConnectionCard() {
+        // ===== 标题带：左侧折叠开关，右侧配置档案管理（下拉固定宽度 + 保存 / 删除）=====
+        connToggleLabel = new JLabel("▼ 数据库连接配置 (点击折叠)");
+        connToggleLabel.setFont(Tokens.fontSectionTitle());
+        connToggleLabel.setForeground(Tokens.foreground());
+
+        profileCombo = Fields.combo(new String[0], 180);
+        profileCombo.addActionListener(e -> onProfileSelected());
+        saveProfileBtn = Buttons.secondary("保存配置");
+        delProfileBtn = Buttons.danger("删除配置");
+        ActionBar profileActions = new ActionBar();
+        profileActions.left(Fields.label("已存配置"));
+        profileActions.left(profileCombo);
+        profileActions.right(saveProfileBtn);
+        profileActions.right(delProfileBtn);
+
+        connHeaderPanel = Layouts.box(Tokens.SPACE_SM, 0);
+        connHeaderPanel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        connHeaderPanel.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD - 2, Tokens.CARD_PADDING, Tokens.SPACE_SM, Tokens.CARD_PADDING));
+        connHeaderPanel.add(connToggleLabel, BorderLayout.WEST);
+        connHeaderPanel.add(profileActions, BorderLayout.EAST);
+
+        // ===== 连接动作跟在 JDBC URL 行尾：URL 就是连接目标，动作紧随其后最直观 =====
+        testBtn = Buttons.secondary("测试连接");
+        connBtn = Buttons.primary("连接");
+        ActionBar connActions = new ActionBar();
+        connActions.left(testBtn);
+        connActions.left(connBtn);
+
+        dbTypeCombo = Fields.combo(new String[]{"MySQL", "PostgreSQL", "Oracle", "Custom"}, 160);
+        hostField = Fields.text("127.0.0.1");
+        portField = Fields.text("3306");
+        databaseField = Fields.text("test");
+        userField = Fields.text("root");
+        passField = Fields.password();
+        driverClassField = Fields.text("com.mysql.cj.jdbc.Driver");
+        jarPathField = Fields.text("");
+        jarPathField.setToolTipText("对于非内置的数据库，可在此指定其 JDBC 驱动的 JAR 包路径");
+        browseJarBtn = Buttons.secondary("浏览...");
+        browseJarBtn.addActionListener(e -> browseJar());
+        // 先建空框再填初值：Fields.text 会把首选宽度锁在初始文本的宽度上，
+        // 这条 URL 有 80 多个字符，直接传进去会把整张表单的首选宽度顶到窗口之外，
+        // GridBagLayout 随即退化到最小尺寸，行尾按钮就会被压到 64px 截断文案
+        urlField = Fields.text("");
+        urlField.setText("jdbc:mysql://127.0.0.1:3306/test?useSSL=false&serverTimezone=UTC&characterEncoding=utf-8");
+
+        // 左列＝连到哪里，右列＝用什么身份；这六项都是纯输入框，分两列后卡片高度减半
+        FormGrid target = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        target.rowCompact("数据库类型", dbTypeCombo);
+        target.row("主机", hostField);
+        target.row("端口", portField);
+
+        FormGrid credential = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        credential.row("库名/服务名", databaseField);
+        credential.row("用户名", userField);
+        credential.row("密码", passField);
+
+        // 带行尾按钮的行与 JDBC URL 都跨整卡宽度：
+        // 把它们塞进半栏会把两列的首选宽度顶到窗口之外，GridBagLayout 一旦退化到最小尺寸
+        // 就会先把按钮压到 64px，"测试连接" 之类的文案会被截断。
+        FormGrid form = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        form.fullRow(Layouts.columns(Tokens.SPACE_XL, target, credential));
+        form.row("驱动类名", driverClassField);
+        form.row("驱动 JAR 路径", jarPathField, browseJarBtn);
+        form.row("JDBC URL", urlField, connActions);
+
+        JPanel formBox = Layouts.box();
+        formBox.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.CARD_PADDING, Tokens.CARD_PADDING));
+        formBox.add(form, BorderLayout.CENTER);
+
+        // 细线放在 body 里而不是标题带下面，折叠后才会跟着一起消失
+        connBodyPanel = Layouts.box();
+        connBodyPanel.add(new Card.Hairline(), BorderLayout.NORTH);
+        connBodyPanel.add(formBox, BorderLayout.CENTER);
+
+        JPanel body = Layouts.box();
+        body.add(connHeaderPanel, BorderLayout.NORTH);
+        body.add(connBodyPanel, BorderLayout.CENTER);
+
+        Card card = Card.plain().setFlush(true);
+        card.setContent(body);
+        return card;
+    }
+
+    /** 左栏：库 / 模式切换 + 过滤框在上，元数据树铺满剩余高度 */
+    private Card buildBrowserCard() {
+        dbSwitchCombo = Fields.combo(new String[0], 140);
+        schemaSwitchCombo = Fields.combo(new String[0], 140);
+        tableSearchField = Fields.text("", "过滤元数据...");
+        refreshTablesBtn = Buttons.ghost("刷新");
+
+        FormGrid nav = new FormGrid(Tokens.SPACE_SM, Tokens.SPACE_SM);
+        nav.row("数据库", dbSwitchCombo);
+        nav.row("模式/Schema", schemaSwitchCombo);
+        nav.fullRow(tableSearchField);
+
+        JPanel navBox = Layouts.box();
+        navBox.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.SPACE_MD, Tokens.CARD_PADDING));
+        navBox.add(nav, BorderLayout.CENTER);
+
+        JPanel head = Layouts.box();
+        head.add(navBox, BorderLayout.CENTER);
+        head.add(new Card.Hairline(), BorderLayout.SOUTH);
+
+        treeRoot = new DefaultMutableTreeNode("未连接");
+        treeModel = new DefaultTreeModel(treeRoot);
+        metadataTree = new JTree(treeModel);
+        metadataTree.setCellRenderer(new MetadataTreeCellRenderer());
+
+        JPanel body = Layouts.box();
+        body.add(head, BorderLayout.NORTH);
+        body.add(Fields.scroll(metadataTree), BorderLayout.CENTER);
+
+        Card card = Card.flush("数据源浏览器");
+        card.addHeaderAction(refreshTablesBtn);
+        card.setContent(body);
+        return card;
+    }
+
+    /** 右上：SQL 编辑器 / 可视化查询两个页签，三个编辑动作提到卡片标题右侧 */
+    private Card buildEditorCard() {
+        sqlEditor = new JTextArea();
+        sqlEditor.setFont(Tokens.fontMono());
+        // 给编辑器一个 5 行的首选高度：纵向分隔条初始位置由上半区首选高度决定，
+        // 行数给大了结果区就会被挤到只剩一条缝
+        sqlEditor.setRows(5);
+        sqlEditor.setBorder(KitBorders.padding(
+                Tokens.SPACE_SM, Tokens.SPACE_SM, Tokens.SPACE_SM, Tokens.SPACE_SM));
+        sqlEditor.setText("SELECT * FROM test LIMIT 100;");
+
+        editorTabbedPane = new JTabbedPane();
+        editorTabbedPane.setBorder(null);
+        editorTabbedPane.addTab("SQL 编辑器", Fields.scroll(sqlEditor));
+        editorTabbedPane.addTab("可视化查询 (条件编辑器)", buildVisualQueryTab());
+
+        runBtn = Buttons.primary("运行 SQL");
+        formatBtn = Buttons.secondary("格式化");
+        clearSqlBtn = Buttons.ghost("清空");
+
+        Card card = Card.flush("SQL 工作区");
+        // addHeaderAction 从左往右排，主操作最后加才会落在最右
+        card.addHeaderAction(clearSqlBtn);
+        card.addHeaderAction(formatBtn);
+        card.addHeaderAction(runBtn);
+        card.setContent(editorTabbedPane);
+        return card;
+    }
+
+    /** 右下：结果表格 / 控制台日志，行数与耗时走卡片底部状态条 */
+    private Card buildResultCard() {
+        resultTable = new JTable();
+        resultTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF); // allow horizontal scroll bar
+
+        consoleOutput = new JTextArea();
+        consoleOutput.setFont(Tokens.fontMono());
+        consoleOutput.setEditable(false);
+        consoleOutput.setBorder(KitBorders.padding(
+                Tokens.SPACE_SM, Tokens.SPACE_SM, Tokens.SPACE_SM, Tokens.SPACE_SM));
+
+        rightTabbedPane = new JTabbedPane();
+        rightTabbedPane.setBorder(null);
+        rightTabbedPane.addTab("查询数据", Fields.scroll(resultTable));
+        rightTabbedPane.addTab("控制台日志", Fields.scroll(consoleOutput));
+
+        resultStatusLabel = new JLabel("未执行任何查询。");
+        resultStatusLabel.setFont(Tokens.fontCaption());
+        resultStatusLabel.setForeground(Tokens.mutedForeground());
+
+        Card card = Card.flush("执行结果");
+        card.setContent(rightTabbedPane);
+        card.setFooter(resultStatusLabel);
+        return card;
     }
 
     private void setupListeners() {
@@ -1429,35 +1423,37 @@ public class DatabasePanel extends ToolPanel {
 
     // --- Condition Editor Tab ---
     private JComponent buildVisualQueryTab() {
-        JPanel panel = new JPanel(new BorderLayout(8, 8));
-        panel.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+        // 页签内高度很紧张（上面还有卡片标题带和页签条），所以用比 Layouts.page() 更小的
+        // 内边距与行距，保证条件卡片在默认分隔比例下仍然完整可见
+        JPanel panel = Layouts.box(Tokens.SPACE_SM, Tokens.SPACE_SM);
+        panel.setBorder(KitBorders.padding(Tokens.SPACE_SM));
 
-        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        topPanel.add(new JLabel("目标表:"));
-        visualTableCombo = new JComboBox<>();
-        visualTableCombo.setPreferredSize(new Dimension(180, 28));
+        visualTableCombo = Fields.combo(new String[0], 200);
         visualTableCombo.addActionListener(e -> onVisualTableSelected());
-        topPanel.add(visualTableCombo);
-
-        JButton addCondBtn = new JButton("+ 新增条件");
+        JButton addCondBtn = Buttons.secondary("+ 新增条件");
         addCondBtn.addActionListener(e -> addVisualConditionRow());
-        topPanel.add(addCondBtn);
 
-        panel.add(topPanel, BorderLayout.NORTH);
-
+        // 条件列表用铺满型卡片而不是 TitledBorder：卡片自己画背景，
+        // 透明滚动区里的条件行才不会露出一块 LAF 控件底色。
+        // 目标表与「新增条件」都是这张卡片的操作，一并提到标题右侧——页签里就只剩
+        // 「一张卡片 + 一行动作」，上半区高度被压缩时卡片也不会被挤成一条缝。
         visualConditionsContainer = new JPanel();
+        visualConditionsContainer.setOpaque(false);
         visualConditionsContainer.setLayout(new BoxLayout(visualConditionsContainer, BoxLayout.Y_AXIS));
-        JScrollPane scrollPane = new JScrollPane(visualConditionsContainer);
-        scrollPane.setBorder(BorderFactory.createTitledBorder("过滤条件 (AND 拼接)"));
-        panel.add(scrollPane, BorderLayout.CENTER);
+        Card condCard = Card.flush("过滤条件 (AND 拼接)");
+        condCard.addHeaderAction(Fields.label("目标表"));
+        condCard.addHeaderAction(visualTableCombo);
+        condCard.addHeaderAction(addCondBtn);
+        condCard.setContent(Fields.scrollTransparent(visualConditionsContainer));
 
-        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 4));
-        JButton genSqlBtn = UIUtils.button("生成 SQL", 100);
-        JButton execVisualBtn = UIUtils.button("立即查询", 100);
+        JButton genSqlBtn = Buttons.secondary("生成 SQL");
+        JButton execVisualBtn = Buttons.primary("立即查询");
+        ActionBar bottomBar = new ActionBar();
+        bottomBar.right(genSqlBtn);
+        bottomBar.right(execVisualBtn);
 
-        bottomPanel.add(genSqlBtn);
-        bottomPanel.add(execVisualBtn);
-        panel.add(bottomPanel, BorderLayout.SOUTH);
+        panel.add(condCard, BorderLayout.CENTER);
+        panel.add(bottomBar, BorderLayout.SOUTH);
 
         genSqlBtn.addActionListener(e -> generateVisualSql(true));
         execVisualBtn.addActionListener(e -> executeVisualSql());
@@ -1969,23 +1965,15 @@ public class DatabasePanel extends ToolPanel {
         public JTextField valField;
 
         public ConditionRow(List<String> cols, java.util.function.Consumer<ConditionRow> onDelete) {
-            panel = new JPanel(new GridBagLayout());
-            panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
-            GridBagConstraints gbc = new GridBagConstraints();
-            gbc.insets = new Insets(2, 4, 2, 4);
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-
-            colCombo = new JComboBox<>();
-            colCombo.setPreferredSize(new Dimension(140, 26));
+            colCombo = Fields.combo(new String[0], 150);
             updateColumns(cols);
 
-            opCombo = new JComboBox<>(new String[]{"=", "!=", ">", ">=", "<", "<=", "LIKE", "IS NULL", "IS NOT NULL"});
-            opCombo.setPreferredSize(new Dimension(110, 26));
+            opCombo = Fields.combo(
+                    new String[]{"=", "!=", ">", ">=", "<", "<=", "LIKE", "IS NULL", "IS NOT NULL"}, 120);
 
-            valField = new JTextField(12);
-            valField.setPreferredSize(new Dimension(120, 26));
+            valField = Fields.text("");
 
-            JButton delBtn = new JButton("删除");
+            JButton delBtn = Buttons.danger("删除");
             delBtn.addActionListener(e -> onDelete.accept(this));
 
             opCombo.addActionListener(e -> {
@@ -1997,17 +1985,16 @@ public class DatabasePanel extends ToolPanel {
                 }
             });
 
-            gbc.gridx = 0; gbc.weightx = 0.3;
-            panel.add(colCombo, gbc);
-
-            gbc.gridx = 1; gbc.weightx = 0.2;
-            panel.add(opCombo, gbc);
-
-            gbc.gridx = 2; gbc.weightx = 0.4;
-            panel.add(valField, gbc);
-
-            gbc.gridx = 3; gbc.weightx = 0.1;
-            panel.add(delBtn, gbc);
+            // ActionBar 会把下拉框卡在固定宽度、只让取值输入框吃掉多余空间，
+            // 并把自身最大高度收到一行，堆进 BoxLayout 才不会被拉高
+            ActionBar bar = new ActionBar();
+            bar.left(colCombo);
+            bar.left(opCombo);
+            bar.left(valField);
+            bar.right(delBtn);
+            bar.setBorder(KitBorders.padding(
+                    Tokens.SPACE_XS, Tokens.SPACE_SM, Tokens.SPACE_XS, Tokens.SPACE_SM));
+            panel = bar;
         }
 
         public void updateColumns(List<String> cols) {

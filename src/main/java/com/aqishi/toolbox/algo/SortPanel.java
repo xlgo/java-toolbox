@@ -1,7 +1,13 @@
 package com.aqishi.toolbox.algo;
 
 import com.aqishi.toolbox.ui.ToolPanel;
-import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 
 import javax.swing.*;
 import java.awt.*;
@@ -27,36 +33,67 @@ public class SortPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 控制区 =====
-        JPanel ctrl = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        // ===== 控制区：参数按表单列对齐后放 NORTH，动画画布才能拿到全部剩余高度 =====
         JSlider size = new JSlider(8, 80, 30);
         size.setMajorTickSpacing(16);
         size.setPaintTicks(true);
-        JComboBox<String> algo = new JComboBox<>(
-                new String[]{"冒泡排序", "选择排序", "插入排序", "快速排序", "归并排序"});
-        JButton gen = UIUtils.button("生成随机", 100);
-        JButton start = UIUtils.button("开始排序", 100);
-        JButton stop = UIUtils.button("停止", 80);
+        size.setOpaque(false);
+        JComboBox<String> algo = Fields.combo(
+                new String[]{"冒泡排序", "选择排序", "插入排序", "快速排序", "归并排序"}, 150);
+        JButton gen = Buttons.secondary("生成随机");
+        JButton start = Buttons.primary("开始排序");
+        JButton stop = Buttons.secondary("停止");
         JLabel speedL = new JLabel("速度 (次/秒): 15");
+        speedL.setFont(Tokens.fontCaption());
+        speedL.setForeground(Tokens.mutedForeground());
         JSlider speed = new JSlider(1, 60, 15);
         speed.setMajorTickSpacing(10);
         speed.setPaintTicks(true);
-        ctrl.add(new JLabel("数量")); ctrl.add(size);
-        ctrl.add(algo); ctrl.add(gen); ctrl.add(start); ctrl.add(stop);
-        ctrl.add(speedL); ctrl.add(speed);
-        root.add(ctrl, BorderLayout.NORTH);
+        speed.setOpaque(false);
+
+        FormGrid form = new FormGrid();
+        form.row("数量", size);
+        // 下拉框靠左包一层，保留自身宽度而不是被表单拉满整行
+        form.row("算法", leading(algo));
+        // 速度值随滑块变化，放行尾即时反馈
+        form.row("速度", speed, speedL);
+
+        Card config = Card.titled("排序参数");
+        config.setContent(form);
+        config.addHeaderAction(gen);
+        config.addHeaderAction(stop);
+        config.addHeaderAction(start);
 
         // ===== 画布 =====
         Canvas canvas = new Canvas();
-        root.add(canvas, BorderLayout.CENTER);
+        canvas.setBackground(Tokens.cardBackground());
 
-        // ===== 状态栏 =====
+        // ===== 状态栏：并入画布卡片底部，比独立一条更贴近它描述的内容 =====
         JLabel status = new JLabel("就绪");
-        status.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
-        root.add(status, BorderLayout.SOUTH);
+        status.setFont(Tokens.fontCaption());
+        status.setForeground(Tokens.mutedForeground());
+        status.setBorder(BorderFactory.createCompoundBorder(
+                KitBorders.lineSubtle(1, 0, 0, 0),
+                KitBorders.padding(Tokens.SPACE_SM, Tokens.CARD_PADDING,
+                        Tokens.SPACE_SM, Tokens.CARD_PADDING)));
+
+        // 柱形图从 x=0 一直画到画布右缘，外面套一层留白容器，柱子才不会贴死卡片描边
+        JPanel canvasPad = Layouts.box();
+        canvasPad.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.SPACE_SM, Tokens.CARD_PADDING));
+        canvasPad.add(canvas, BorderLayout.CENTER);
+
+        JPanel canvasBody = Layouts.box();
+        canvasBody.add(canvasPad, BorderLayout.CENTER);
+        canvasBody.add(status, BorderLayout.SOUTH);
+
+        Card visual = Card.flush("排序过程");
+        visual.setContent(canvasBody);
+
+        root.add(config, BorderLayout.NORTH);
+        root.add(visual, BorderLayout.CENTER);
 
         // ===== 状态 =====
         Timer[] timerHolder = new Timer[1];
@@ -111,6 +148,24 @@ public class SortPanel extends ToolPanel {
         });
 
         return root;
+    }
+
+    /**
+     * 把窄控件左对齐地包一层，使其在 FormGrid 里保留自身首选宽度。
+     *
+     * <p>{@code FlowLayout} 的 hgap 会同时留在行首，导致包过的控件比同列的滑块右移，
+     * 所以这里 hgap 取 0，控件之间的间距改用 strut 补。</p>
+     */
+    private static JPanel leading(Component... items) {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        panel.setOpaque(false);
+        for (int i = 0; i < items.length; i++) {
+            if (i > 0) {
+                panel.add(Box.createHorizontalStrut(Tokens.SPACE_SM));
+            }
+            panel.add(items[i]);
+        }
+        return panel;
     }
 
     private Function<int[], Snapshot> pickSorter(String name) {
@@ -311,6 +366,7 @@ public class SortPanel extends ToolPanel {
             for (int v : array) max = Math.max(max, v);
 
             // 动态获取当前主题关联的颜色
+            // 这三种颜色承载语义（常规 / 对比中 / 交换移动），保持原有取色链与兜底值不变
             Color regularColor = UIManager.getColor("Component.accentColor");
             if (regularColor == null) regularColor = UIManager.getColor("Component.infoColor");
             if (regularColor == null) regularColor = new Color(66, 133, 244); // 默认蓝色
@@ -334,22 +390,22 @@ public class SortPanel extends ToolPanel {
             }
 
             // 绘制图例
-            g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+            g.setFont(Tokens.fontCaption());
             int legendY = 15;
-            
+
             g.setColor(regularColor);
             g.fillRect(15, legendY, 12, 12);
-            g.setColor(getForeground());
+            g.setColor(Tokens.foreground());
             g.drawString("常规元素", 32, legendY + 11);
 
             g.setColor(compareColor);
             g.fillRect(105, legendY, 12, 12);
-            g.setColor(getForeground());
+            g.setColor(Tokens.foreground());
             g.drawString("对比中", 122, legendY + 11);
 
             g.setColor(swapColor);
             g.fillRect(185, legendY, 12, 12);
-            g.setColor(getForeground());
+            g.setColor(Tokens.foreground());
             g.drawString("交换/移动", 202, legendY + 11);
         }
     }

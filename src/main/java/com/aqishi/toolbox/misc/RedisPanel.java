@@ -1,6 +1,14 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.Tuple;
@@ -33,6 +41,8 @@ public class RedisPanel extends ToolPanel {
     private JPasswordField passField;
     private JComboBox<Integer> dbCombo;
     private JButton connBtn;
+    /** 连接状态：常驻连接卡片标题右侧，文字 + 语义色双重表达 */
+    private JLabel connStatusLabel;
     private boolean isConnected = false;
 
     private JTextField searchField;
@@ -90,6 +100,7 @@ public class RedisPanel extends ToolPanel {
     // Console
     private JTextArea consoleOutput;
     private JTextField consoleInput;
+    private JButton runCmdBtn;
 
     private Jedis jedis;
     private String connHost;
@@ -105,169 +116,216 @@ public class RedisPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // 1. Connection Panel (North)
-        JPanel connPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        connPanel.setBorder(BorderFactory.createTitledBorder("Redis 连接配置"));
+        // 连接配置固定在顶部，高度自适应；主体是「键浏览 → 值详情」的左右两栏
+        root.add(buildConnectionCard(), BorderLayout.NORTH);
+        root.add(Layouts.splitHorizontal(buildKeyBrowser(), buildWorkspace(), 0.3), BorderLayout.CENTER);
 
-        profileCombo = new JComboBox<>();
-        profileCombo.setPreferredSize(new Dimension(130, 30));
-        saveProfileBtn = new JButton("保存配置");
-        delProfileBtn = new JButton("删除配置");
+        // Initialize connection state & actions
+        toggleState(false);
+        initActions(runCmdBtn);
 
-        hostField = new JTextField("127.0.0.1", 12);
-        portField = new JTextField("6379", 5);
-        passField = new JPasswordField(10);
-        
+        return root;
+    }
+
+    /** 标签页内容容器：比 page() 更薄的一层内边距，免得和外层页边距叠加过厚 */
+    private static JPanel tabPage() {
+        JPanel page = Layouts.box(0, Tokens.SPACE_MD);
+        page.setBorder(KitBorders.padding(Tokens.SPACE_MD));
+        return page;
+    }
+
+    // ==================== 顶部：连接配置卡片 ====================
+
+    /** 连接卡片：三行表单 + 标题右侧的「连接 / 断开」主操作与状态文字 */
+    private Card buildConnectionCard() {
+        profileCombo = Fields.combo(new String[0], 160);
+        saveProfileBtn = Buttons.secondary("保存配置");
+        delProfileBtn = Buttons.danger("删除配置");
+
+        hostField = Fields.text("127.0.0.1");
+        portField = Fields.text("6379");
+        passField = Fields.password();
+
         Integer[] dbs = new Integer[16];
         for (int i = 0; i < 16; i++) dbs[i] = i;
-        dbCombo = new JComboBox<>(dbs);
+        dbCombo = Fields.combo(dbs, 80);
 
-        connBtn = UIUtils.button("连接", 80);
+        connBtn = Buttons.primary("连接");
 
-        connPanel.add(new JLabel("已存配置:"));
-        connPanel.add(profileCombo);
-        connPanel.add(saveProfileBtn);
-        connPanel.add(delProfileBtn);
-        connPanel.add(new JLabel(" | 主机:"));
-        connPanel.add(hostField);
-        connPanel.add(new JLabel("端口:"));
-        connPanel.add(portField);
-        connPanel.add(new JLabel("密码:"));
-        connPanel.add(passField);
-        connPanel.add(new JLabel("DB:"));
-        connPanel.add(dbCombo);
-        connPanel.add(connBtn);
+        // 连接状态先用文字说清楚，再叠加语义色：只靠颜色的话色觉障碍用户读不出来。
+        // 必须在 addHeaderAction 之前填好文案——卡片会按加入时的首选宽度锁定最大宽度
+        connStatusLabel = new JLabel();
+        connStatusLabel.setFont(Tokens.fontCaption());
+        bindConnectionStatus();
 
-        root.add(connPanel, BorderLayout.NORTH);
+        // 主机/端口、密码/DB 各自成对，定长的一半靠右，可变长的一半吃掉剩余宽度
+        JPanel hostRow = Layouts.box(Tokens.SPACE_MD, 0);
+        hostRow.add(hostField, BorderLayout.CENTER);
+        hostRow.add(trailingField("端口:", portField), BorderLayout.EAST);
 
-        // Main Workspace Split: Left (Keys), Right (Value Details & Console)
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        mainSplit.setDividerLocation(260);
+        JPanel passRow = Layouts.box(Tokens.SPACE_MD, 0);
+        passRow.add(passField, BorderLayout.CENTER);
+        passRow.add(trailingField("DB:", dbCombo), BorderLayout.EAST);
 
-        // 2. Left Panel: Key Browser
-        JPanel leftPanel = new JPanel(new BorderLayout(6, 6));
-        leftPanel.setBorder(BorderFactory.createTitledBorder("键浏览器"));
+        FormGrid form = new FormGrid();
+        form.rowCompact("已存配置:", profileCombo, Layouts.wrapRow(saveProfileBtn, delProfileBtn));
+        form.row("主机:", hostRow);
+        form.row("密码:", passRow);
 
-        JPanel leftTopPanel = new JPanel(new BorderLayout(4, 4));
+        Card card = Card.titled("Redis 连接配置");
+        card.setContent(form);
+        card.addHeaderAction(connStatusLabel);
+        card.addHeaderAction(connBtn);
+        return card;
+    }
 
-        JPanel searchPanel = new JPanel(new BorderLayout(4, 0));
-        searchField = new JTextField("*");
-        searchField.putClientProperty("JTextField.placeholderText", "匹配模式, 如 *");
-        refreshBtn = new JButton("刷新");
-        searchPanel.add(searchField, BorderLayout.CENTER);
-        searchPanel.add(refreshBtn, BorderLayout.EAST);
-        leftTopPanel.add(searchPanel, BorderLayout.NORTH);
+    /**
+     * 让行尾按钮在窄窗口下保持完整文案。
+     *
+     * <p>{@code GridBagLayout} 在容器小于首选尺寸时会整体退回「最小尺寸」布局，
+     * 没有权重的行尾列会被压到最小宽度、文字省略成「修…」；把最小宽度提到首选宽度后，
+     * 有权重的输入列会先让出空间。</p>
+     */
+    private static JButton keepWidth(JButton button) {
+        button.setMinimumSize(button.getPreferredSize());
+        return button;
+    }
 
-        JPanel treeCtrlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        treeCheck = new JCheckBox("树形展示");
-        delimiterField = new JTextField(":", 2);
+    /** 行尾的「小标签 + 定长输入」组合，保持标签紧贴输入框 */
+    private static JPanel trailingField(String label, JComponent field) {
+        JPanel group = Layouts.box(Tokens.SPACE_SM, 0);
+        group.add(Fields.label(label), BorderLayout.WEST);
+        group.add(field, BorderLayout.EAST);
+        return group;
+    }
+
+    /**
+     * 连接状态跟随「连接 / 断开」按钮的文案变化。
+     *
+     * <p>监听按钮文案而不是往 toggleState()/connectRedis() 里插 UI 代码，是为了不碰连接管理逻辑。</p>
+     */
+    private void bindConnectionStatus() {
+        updateConnStatus();
+        connBtn.addPropertyChangeListener("text", e -> updateConnStatus());
+    }
+
+    private void updateConnStatus() {
+        String text = connBtn.getText();
+        if ("断开".equals(text)) {
+            connStatusLabel.setText("状态：已连接");
+            connStatusLabel.setForeground(Tokens.success());
+        } else if ("连接中...".equals(text)) {
+            connStatusLabel.setText("状态：连接中");
+            connStatusLabel.setForeground(Tokens.warning());
+        } else {
+            connStatusLabel.setText("状态：未连接");
+            connStatusLabel.setForeground(Tokens.danger());
+        }
+    }
+
+    // ==================== 左栏：键浏览器 ====================
+
+    /** 左栏：匹配模式 + 列表/树两种视图 + 增删按钮，全部装进一张卡片 */
+    private Card buildKeyBrowser() {
+        searchField = Fields.text("*", "匹配模式, 如 *");
+        refreshBtn = Buttons.secondary("刷新");
+
+        JPanel searchRow = Layouts.box(Tokens.SPACE_SM, 0);
+        searchRow.add(searchField, BorderLayout.CENTER);
+        searchRow.add(refreshBtn, BorderLayout.EAST);
+
+        treeCheck = Fields.check("树形展示", false);
+        delimiterField = Fields.text(":");
         delimiterField.setToolTipText("命名空间分隔符");
         delimiterField.setEnabled(false); // initially disabled since treeCheck is not selected
-        treeCtrlPanel.add(treeCheck);
-        treeCtrlPanel.add(new JLabel("分隔符:"));
-        treeCtrlPanel.add(delimiterField);
-        leftTopPanel.add(treeCtrlPanel, BorderLayout.SOUTH);
 
-        leftPanel.add(leftTopPanel, BorderLayout.NORTH);
+        // 分隔符输入吃掉复选框之后的剩余宽度，窄栏下也不会把标签挤没
+        JPanel treeRow = Layouts.box(Tokens.SPACE_MD, 0);
+        treeRow.add(treeCheck, BorderLayout.WEST);
+        JPanel delimiterGroup = Layouts.box(Tokens.SPACE_SM, 0);
+        delimiterGroup.add(Fields.label("分隔符:"), BorderLayout.WEST);
+        delimiterGroup.add(delimiterField, BorderLayout.CENTER);
+        treeRow.add(delimiterGroup, BorderLayout.CENTER);
 
         listOrTreeLayout = new CardLayout();
         listOrTreeCardPanel = new JPanel(listOrTreeLayout);
+        listOrTreeCardPanel.setOpaque(false);
 
         keyListModel = new DefaultListModel<>();
         keyList = new JList<>(keyListModel);
         keyList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        listOrTreeCardPanel.add(new JScrollPane(keyList), "LIST");
+        // 卡片底色与列表底色相同，放进有内边距的卡片要靠细描边才看得出边界
+        listOrTreeCardPanel.add(Fields.scrollBoxed(keyList), "LIST");
 
         treeModel = new DefaultTreeModel(new RedisKeyNode("Keys", null));
         keyTree = new JTree(treeModel);
         keyTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
         keyTree.setCellRenderer(new RedisTreeCellRenderer());
-        listOrTreeCardPanel.add(new JScrollPane(keyTree), "TREE");
+        listOrTreeCardPanel.add(Fields.scrollBoxed(keyTree), "TREE");
 
-        leftPanel.add(listOrTreeCardPanel, BorderLayout.CENTER);
+        addKeyBtn = Buttons.secondary("添加 Key");
+        delKeyBtn = Buttons.danger("删除 Key");
 
-        JPanel keyActionPanel = new JPanel(new GridLayout(1, 2, 4, 0));
-        addKeyBtn = new JButton("添加 Key");
-        delKeyBtn = new JButton("删除 Key");
-        keyActionPanel.add(addKeyBtn);
-        keyActionPanel.add(delKeyBtn);
-        leftPanel.add(keyActionPanel, BorderLayout.SOUTH);
+        JPanel body = Layouts.box(0, Tokens.SPACE_SM);
+        body.add(Layouts.stack(Tokens.SPACE_SM, searchRow, treeRow), BorderLayout.NORTH);
+        body.add(listOrTreeCardPanel, BorderLayout.CENTER);
+        // 两个按钮等宽平分整行，与原来的 GridLayout(1,2) 一致
+        body.add(Layouts.columns(Tokens.SPACE_SM, addKeyBtn, delKeyBtn), BorderLayout.SOUTH);
 
-        mainSplit.setLeftComponent(leftPanel);
+        Card card = Card.titled("键浏览器");
+        card.setContent(body);
+        return card;
+    }
 
-        // 3. Right Panel: Workspace Tabs (Value & Console)
+    // ==================== 右栏：值编辑与命令控制台 ====================
+
+    private JComponent buildWorkspace() {
         JTabbedPane rightTabbedPane = new JTabbedPane();
+        rightTabbedPane.setBorder(null);
+        rightTabbedPane.addTab("数据编辑器", buildValueTab());
+        rightTabbedPane.addTab("命令控制台", buildConsoleTab());
+        return rightTabbedPane;
+    }
 
-        // Tab A: Value Editor
-        JPanel valEditTab = new JPanel(new BorderLayout(8, 8));
-        valEditTab.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
-
-        // Metadata Subpanel (Key info & TTL)
-        JPanel metaPanel = new JPanel(new GridBagLayout());
-        metaPanel.setBorder(BorderFactory.createTitledBorder("键信息"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(4, 6, 4, 6);
-
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        metaPanel.add(new JLabel("名称:"), gbc);
+    /** 数据编辑器：上面是键信息表单，下面按值类型切换的编辑区占满剩余空间 */
+    private JComponent buildValueTab() {
         keyNameLabel = new JLabel("未选择");
-        keyNameLabel.setFont(UIUtils.plainFont().deriveFont(Font.BOLD));
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        metaPanel.add(keyNameLabel, gbc);
-
-        gbc.gridx = 2; gbc.gridy = 0; gbc.weightx = 0;
-        metaPanel.add(new JLabel("类型:"), gbc);
+        keyNameLabel.setFont(Tokens.fontBodyStrong());
         keyTypeLabel = new JLabel("none");
-        keyTypeLabel.setFont(UIUtils.plainFont().deriveFont(Font.BOLD));
-        gbc.gridx = 3; gbc.weightx = 0.5;
-        metaPanel.add(keyTypeLabel, gbc);
+        keyTypeLabel.setFont(Tokens.fontBodyStrong());
+        ttlField = Fields.text("");
+        updateTtlBtn = keepWidth(Buttons.secondary("修改 TTL / 持续化"));
 
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
-        metaPanel.add(new JLabel("TTL (秒):"), gbc);
-        ttlField = new JTextField(8);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        metaPanel.add(ttlField, gbc);
+        FormGrid metaForm = new FormGrid();
+        metaForm.row("名称:", keyNameLabel, trailingLabel("类型:", keyTypeLabel));
+        metaForm.row("TTL (秒):", ttlField, updateTtlBtn);
 
-        updateTtlBtn = new JButton("修改 TTL / 持续化");
-        gbc.gridx = 2; gbc.gridwidth = 2; gbc.weightx = 0.5;
-        metaPanel.add(updateTtlBtn, gbc);
+        Card metaCard = Card.titled("键信息");
+        metaCard.setContent(metaForm);
 
-        valEditTab.add(metaPanel, BorderLayout.NORTH);
-
-        // Value Card Container
+        // ----- 六种值类型共用一个 CardLayout，卡片外壳只画一次 -----
         valueCardLayout = new CardLayout();
         valueCardPanel = new JPanel(valueCardLayout);
+        valueCardPanel.setOpaque(false);
 
-        // Card 1: None/Placeholder
         JPanel noneCard = new JPanel(new GridBagLayout());
-        noneCard.add(new JLabel("请从左侧选择一个 Key 或连接到 Redis"));
+        noneCard.setOpaque(false);
+        noneCard.add(Fields.caption("请从左侧选择一个 Key 或连接到 Redis"));
         valueCardPanel.add(noneCard, "NONE");
 
-        // Card 2: String Editor
-        JPanel stringCard = new JPanel(new BorderLayout(4, 4));
         stringArea = new JTextArea();
-        stringCard.add(new JScrollPane(stringArea), BorderLayout.CENTER);
-        valueCardPanel.add(stringCard, "STRING");
+        stringArea.setFont(Tokens.fontMono());
+        stringArea.setBorder(KitBorders.padding(Tokens.SPACE_SM));
+        valueCardPanel.add(Fields.scroll(stringArea), "STRING");
 
-        // Card 3: Hash Editor
-        JPanel hashCard = new JPanel(new BorderLayout(4, 4));
         hashModel = new DefaultTableModel(new Object[]{"字段 (Field)", "值 (Value)"}, 0);
         hashTable = new JTable(hashModel);
-        hashCard.add(new JScrollPane(hashTable), BorderLayout.CENTER);
-        JPanel hashBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        addHashRowBtn = new JButton("+ 添加字段");
-        delHashRowBtn = new JButton("- 删除字段");
-        hashBtnRow.add(addHashRowBtn);
-        hashBtnRow.add(delHashRowBtn);
-        hashCard.add(hashBtnRow, BorderLayout.SOUTH);
-        valueCardPanel.add(hashCard, "HASH");
+        addHashRowBtn = Buttons.secondary("+ 添加字段");
+        delHashRowBtn = Buttons.danger("- 删除字段");
+        valueCardPanel.add(tableEditor(hashTable, addHashRowBtn, delHashRowBtn), "HASH");
 
-        // Card 4: List Editor
-        JPanel listCard = new JPanel(new BorderLayout(4, 4));
         listModel = new DefaultTableModel(new Object[]{"索引 (Index)", "值 (Value)"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -275,78 +333,80 @@ public class RedisPanel extends ToolPanel {
             }
         };
         listTable = new JTable(listModel);
-        listCard.add(new JScrollPane(listTable), BorderLayout.CENTER);
-        JPanel listBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        addListRowBtn = new JButton("+ 追加元素");
-        delListRowBtn = new JButton("- 删除所选");
-        listBtnRow.add(addListRowBtn);
-        listBtnRow.add(delListRowBtn);
-        listCard.add(listBtnRow, BorderLayout.SOUTH);
-        valueCardPanel.add(listCard, "LIST");
+        addListRowBtn = Buttons.secondary("+ 追加元素");
+        delListRowBtn = Buttons.danger("- 删除所选");
+        valueCardPanel.add(tableEditor(listTable, addListRowBtn, delListRowBtn), "LIST");
 
-        // Card 5: Set Editor
-        JPanel setCard = new JPanel(new BorderLayout(4, 4));
         setModel = new DefaultTableModel(new Object[]{"成员 (Member)"}, 0);
         setTable = new JTable(setModel);
-        setCard.add(new JScrollPane(setTable), BorderLayout.CENTER);
-        JPanel setBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        addSetRowBtn = new JButton("+ 添加成员");
-        delSetRowBtn = new JButton("- 删除所选");
-        setBtnRow.add(addSetRowBtn);
-        setBtnRow.add(delSetRowBtn);
-        setCard.add(setBtnRow, BorderLayout.SOUTH);
-        valueCardPanel.add(setCard, "SET");
+        addSetRowBtn = Buttons.secondary("+ 添加成员");
+        delSetRowBtn = Buttons.danger("- 删除所选");
+        valueCardPanel.add(tableEditor(setTable, addSetRowBtn, delSetRowBtn), "SET");
 
-        // Card 6: ZSet Editor
-        JPanel zsetCard = new JPanel(new BorderLayout(4, 4));
         zsetModel = new DefaultTableModel(new Object[]{"分值 (Score)", "成员 (Member)"}, 0);
         zsetTable = new JTable(zsetModel);
-        zsetCard.add(new JScrollPane(zsetTable), BorderLayout.CENTER);
-        JPanel zsetBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        addZsetRowBtn = new JButton("+ 添加成员");
-        delZsetRowBtn = new JButton("- 删除所选");
-        zsetBtnRow.add(addZsetRowBtn);
-        zsetBtnRow.add(delZsetRowBtn);
-        zsetCard.add(zsetBtnRow, BorderLayout.SOUTH);
-        valueCardPanel.add(zsetCard, "ZSET");
+        addZsetRowBtn = Buttons.secondary("+ 添加成员");
+        delZsetRowBtn = Buttons.danger("- 删除所选");
+        valueCardPanel.add(tableEditor(zsetTable, addZsetRowBtn, delZsetRowBtn), "ZSET");
 
-        valEditTab.add(valueCardPanel, BorderLayout.CENTER);
+        // 保存动作放卡片标题右侧，避免在页面底部单独占一整行
+        saveValueBtn = Buttons.primary("保存当前键的值");
+        Card valueCard = Card.flush("当前键的值");
+        valueCard.setContent(valueCardPanel);
+        valueCard.addHeaderAction(saveValueBtn);
 
-        // South Button (Save value)
-        JPanel savePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        saveValueBtn = UIUtils.button("保存当前键的值", 150);
-        savePanel.add(saveValueBtn);
-        valEditTab.add(savePanel, BorderLayout.SOUTH);
+        JPanel page = tabPage();
+        page.add(metaCard, BorderLayout.NORTH);
+        page.add(valueCard, BorderLayout.CENTER);
+        return page;
+    }
 
-        rightTabbedPane.addTab("数据编辑器", valEditTab);
+    /** 表格型值编辑器：表格铺满，增删按钮压在底部并用细线与表格分开 */
+    private static JComponent tableEditor(JTable table, JButton add, JButton remove) {
+        ActionBar actions = new ActionBar();
+        actions.left(add);
+        actions.left(remove);
+        actions.setBorder(BorderFactory.createCompoundBorder(
+                KitBorders.lineSubtle(1, 0, 0, 0),
+                KitBorders.padding(Tokens.SPACE_SM, Tokens.CARD_PADDING, Tokens.SPACE_SM, Tokens.CARD_PADDING)));
 
-        // Tab B: Console
-        JPanel consoleTab = new JPanel(new BorderLayout(6, 6));
+        JPanel panel = Layouts.box();
+        panel.add(Fields.scroll(table), BorderLayout.CENTER);
+        panel.add(actions, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    /** 行尾的「小标签 + 取值文字」组合，用于键信息里的类型显示 */
+    private static JPanel trailingLabel(String label, JLabel value) {
+        JPanel group = Layouts.box(Tokens.SPACE_SM, 0);
+        group.add(Fields.label(label), BorderLayout.WEST);
+        group.add(value, BorderLayout.CENTER);
+        return group;
+    }
+
+    /** 命令控制台：输出铺满卡片，输入行固定在卡片底部状态条位置 */
+    private JComponent buildConsoleTab() {
         consoleOutput = new JTextArea();
         consoleOutput.setEditable(false);
-        consoleOutput.setFont(UIUtils.monoFont().deriveFont(12f));
+        consoleOutput.setFont(Tokens.fontMono().deriveFont(12f));
+        consoleOutput.setBorder(KitBorders.padding(Tokens.SPACE_SM));
         consoleOutput.setText("=== Redis 命令终端 ===\n支持直接输入 Redis 常见命令，如: PING, INFO, KEYS *, GET key 等\n\n");
-        consoleTab.add(new JScrollPane(consoleOutput), BorderLayout.CENTER);
 
-        JPanel cmdInputRow = new JPanel(new BorderLayout(4, 0));
-        consoleInput = new JTextField();
-        consoleInput.setFont(UIUtils.monoFont().deriveFont(13f));
-        JButton runCmdBtn = new JButton("执行");
+        consoleInput = Fields.mono("");
+        runCmdBtn = Buttons.primary("执行");
+
+        JPanel cmdInputRow = Layouts.box(Tokens.SPACE_SM, 0);
         cmdInputRow.add(new JLabel(" Redis > "), BorderLayout.WEST);
         cmdInputRow.add(consoleInput, BorderLayout.CENTER);
         cmdInputRow.add(runCmdBtn, BorderLayout.EAST);
-        consoleTab.add(cmdInputRow, BorderLayout.SOUTH);
 
-        rightTabbedPane.addTab("命令控制台", consoleTab);
+        Card card = Card.plain().setFlush(true);
+        card.setContent(Fields.scroll(consoleOutput));
+        card.setFooter(cmdInputRow);
 
-        mainSplit.setRightComponent(rightTabbedPane);
-        root.add(mainSplit, BorderLayout.CENTER);
-
-        // Initialize connection state & actions
-        toggleState(false);
-        initActions(runCmdBtn);
-
-        return root;
+        JPanel page = tabPage();
+        page.add(card, BorderLayout.CENTER);
+        return page;
     }
 
     private void toggleState(boolean connected) {

@@ -1,6 +1,11 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.util.UIUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,26 +43,35 @@ public class JsonPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // 按钮栏
-        JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton pretty = UIUtils.button("美化", 80);
-        JButton compact = UIUtils.button("压缩", 80);
-        JButton copy = UIUtils.button("复制结果", 100);
-        JButton clear = UIUtils.button("清空", 80);
-        btns.add(pretty); btns.add(compact); btns.add(copy); btns.add(clear);
-        root.add(btns, BorderLayout.NORTH);
+        // ===== 顶部操作卡片 =====
+        // 四个动作都作用于整个页面，收进一张卡的操作条里；
+        // 放 NORTH 而不是 CENTER，下面的输入 / 结果才能吃掉全部剩余高度。
+        JButton pretty = Buttons.primary("美化");
+        JButton compact = Buttons.secondary("压缩");
+        JButton copy = Buttons.ghost("复制结果");
+        JButton clear = Buttons.ghost("清空");
+
+        ActionBar bar = new ActionBar();
+        bar.left(Fields.caption("美化输出为可折叠的代码树，压缩输出为单行文本"));
+        bar.right(clear);
+        bar.right(copy);
+        bar.right(compact);
+        bar.right(pretty);
+        Card config = Card.titled("JSON 格式化");
+        config.setContent(bar);
 
         // 输入区域
-        JTextArea input = new JTextArea(6, 40);
-        input.setFont(UIUtils.monoFont());
+        JTextArea input = Fields.area(6, 40);
         input.setText("{\n  \"projectName\": \"JavaToolbox\",\n  \"version\": \"1.2.0\",\n  \"active\": true,\n  \"server\": {\n    \"port\": 8080,\n    \"host\": \"localhost\",\n    \"enableTls\": false,\n    \"sslConfig\": null\n  },\n  \"modules\": [\n    {\n      \"id\": \"bpmn\",\n      \"name\": \"BPMN 2.0 Designer\",\n      \"tags\": [\"workflow\", \"editor\", \"xml\"]\n    },\n    {\n      \"id\": \"k8s\",\n      \"name\": \"Kubernetes Generator\",\n      \"tags\": [\"yaml\", \"k8s\", \"deploy\"]\n    }\n  ],\n  \"systemMetrics\": {\n    \"cpu\": {\n      \"cores\": 8,\n      \"loadPercent\": 24.5\n    },\n    \"memory\": {\n      \"totalGb\": 16,\n      \"usedGb\": 6.2\n    }\n  }\n}");
 
-        // 输出区域：使用 CardLayout 来切换折叠树和普通单行文本
+        // 输出区域：使用 CardLayout 来切换折叠树和普通单行文本。
+        // 两个视图各自套一张 flush 卡片，切换 card 时标题也跟着换，
+        // 因此事件代码不需要额外维护标题文案。
         cardLayout = new CardLayout();
         outputCardPanel = new JPanel(cardLayout);
+        outputCardPanel.setOpaque(false);
 
         // 1. 美化可折叠代码树卡片
         prettyTree = new JTree(new DefaultMutableTreeNode("JSON"));
@@ -74,23 +88,25 @@ public class JsonPanel extends ToolPanel {
         renderer.setClosedIcon(null);
         renderer.setLeafIcon(null);
 
-        JScrollPane treeScroll = new JScrollPane(prettyTree);
-        treeScroll.setBorder(BorderFactory.createTitledBorder("结果 (点击左侧三角箭头折叠/展开)"));
-        outputCardPanel.add(treeScroll, "PRETTY");
+        Card treeCard = Card.flush("结果 (点击左侧三角箭头折叠/展开)");
+        treeCard.setContent(Fields.scroll(prettyTree));
+        outputCardPanel.add(treeCard, "PRETTY");
 
         // 2. 压缩视图卡片
         compactPane = new JTextPane();
         compactPane.setEditable(false);
         compactPane.setFont(UIUtils.monoFont());
-        JScrollPane textScroll = new JScrollPane(compactPane);
-        textScroll.setBorder(BorderFactory.createTitledBorder("结果 (压缩)"));
-        outputCardPanel.add(textScroll, "COMPACT");
+        Card compactCard = Card.flush("结果 (压缩)");
+        compactCard.setContent(Fields.scroll(compactPane));
+        outputCardPanel.add(compactCard, "COMPACT");
 
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                UIUtils.scrollText(input, "输入 JSON"),
-                outputCardPanel);
-        split.setResizeWeight(0.35);
-        root.add(split, BorderLayout.CENTER);
+        Card inputCard = Card.flush("输入 JSON");
+        inputCard.setContent(Fields.scroll(input));
+
+        // 左输入 / 右结果：横向分栏后拖窗口时两侧同时变宽，
+        // 长的 JSON 行与深层嵌套的树节点都少一次横向滚动。
+        root.add(config, BorderLayout.NORTH);
+        root.add(Layouts.splitHorizontal(inputCard, outputCardPanel, 0.5), BorderLayout.CENTER);
 
         pretty.addActionListener(e -> {
             String jsonText = input.getText().trim();

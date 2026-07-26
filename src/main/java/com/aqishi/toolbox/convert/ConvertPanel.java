@@ -1,6 +1,13 @@
 package com.aqishi.toolbox.convert;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -28,33 +35,44 @@ public class ConvertPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 10));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
+        // 两类转换差异较大，保留标签页；去掉 JTabbedPane 自身的描边，
+        // 内边距统一交给每个标签页内部的 tabPage()，避免和 page() 的外边距叠加过厚。
         JTabbedPane tabs = new JTabbedPane();
+        tabs.setBorder(null);
         tabs.addTab("进制转换", buildRadixTab());
         tabs.addTab("编码转换", buildEncodingTab());
         root.add(tabs, BorderLayout.CENTER);
         return root;
     }
 
+    /** 标签页内容容器：只补一层比 page() 更薄的内边距，纵向留出卡片间距 */
+    private static JPanel tabPage() {
+        JPanel page = Layouts.box(0, Tokens.SPACE_LG);
+        page.setBorder(KitBorders.padding(Tokens.SPACE_MD));
+        return page;
+    }
+
     /** 进制转换 */
     private JComponent buildRadixTab() {
-        JPanel p = new JPanel(new GridBagLayout());
-        GridBagConstraints c = new GridBagConstraints();
-        c.insets = new Insets(4, 4, 4, 4);
-        c.fill = GridBagConstraints.HORIZONTAL;
+        JPanel p = tabPage();
 
-        JTextField dec = field(), oct = field(), hex = field(), bin = field();
+        JTextField dec = Fields.mono("");
+        JTextField oct = Fields.mono("");
+        JTextField hex = Fields.mono("");
+        JTextField bin = Fields.mono("");
 
-        c.gridx = 0; c.gridy = 0; p.add(label("十进制"), c);
-        c.gridx = 1; c.weightx = 1; p.add(dec, c);
-        c.gridx = 0; c.gridy = 1; c.weightx = 0; p.add(label("八进制"), c);
-        c.gridx = 1; c.weightx = 1; p.add(oct, c);
-        c.gridx = 0; c.gridy = 2; c.weightx = 0; p.add(label("十六进制"), c);
-        c.gridx = 1; c.weightx = 1; p.add(hex, c);
-        c.gridx = 0; c.gridy = 3; c.weightx = 0; p.add(label("二进制"), c);
-        c.gridx = 1; c.weightx = 1; p.add(bin, c);
+        // 四个进制既是输入也是输出，排成一张 FormGrid 让标签右对齐、输入框等宽等高
+        FormGrid form = new FormGrid();
+        form.row("十进制", dec);
+        form.row("八进制", oct);
+        form.row("十六进制", hex);
+        form.row("二进制", bin);
+        form.caption("在任一输入框按回车，其余三个立即同步");
+        // 这个标签页没有独立的结果区，四行输入自己就是结果；
+        // 用 glue 把行钉在卡片顶部，卡片再吃满剩余高度，避免整块背景空着
+        form.glue();
 
         // 任一输入框回车即同步其它三个
         dec.addActionListener(e -> syncFrom(Long.parseLong(dec.getText().trim()), dec, oct, hex, bin));
@@ -62,7 +80,7 @@ public class ConvertPanel extends ToolPanel {
         hex.addActionListener(e -> syncFrom(Long.parseLong(hex.getText().trim(), 16), dec, oct, hex, bin));
         bin.addActionListener(e -> syncFrom(Long.parseLong(bin.getText().replace(" ", "").trim(), 2), dec, oct, hex, bin));
 
-        JButton sync = UIUtils.button("转换", 90);
+        JButton sync = Buttons.primary("转换");
         sync.addActionListener(e -> {
             try {
                 if (!dec.getText().trim().isEmpty())
@@ -78,7 +96,11 @@ public class ConvertPanel extends ToolPanel {
             }
         });
 
-        c.gridx = 0; c.gridy = 4; c.gridwidth = 2; p.add(sync, c);
+        // 主操作挂在卡片标题右侧
+        Card card = Card.titled("进制互转");
+        card.setContent(form);
+        card.addHeaderAction(sync);
+        p.add(card, BorderLayout.CENTER);
         return p;
     }
 
@@ -105,24 +127,32 @@ public class ConvertPanel extends ToolPanel {
 
     /** 编码转换 */
     private JComponent buildEncodingTab() {
-        JPanel p = new JPanel(new BorderLayout(8, 8));
+        JPanel p = tabPage();
 
-        JTextArea input = new JTextArea(4, 30);
-        input.setFont(UIUtils.monoFont());
-        p.add(UIUtils.scrollText(input, "原始文本"), BorderLayout.NORTH);
+        JTextArea input = Fields.area(4, 30);
+        JTextArea out = Fields.output(6, 30);
 
-        JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
+        // 五个操作互相平级，首个设为主操作，其余次操作；
+        // 仍然放在同一个容器里，下面按 getText() 分发的事件绑定不用改
+        JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, Tokens.SPACE_SM, 0));
+        btns.setOpaque(false);
         String[] ops = {"UTF-8", "GBK", "ISO-8859-1", "URL", "反转义URL"};
-        for (String op : ops) {
-            JButton b = UIUtils.button(op, 100);
+        for (int i = 0; i < ops.length; i++) {
+            JButton b = i == 0 ? Buttons.primary(ops[i]) : Buttons.secondary(ops[i]);
             btns.add(b);
         }
-        p.add(btns, BorderLayout.CENTER);
 
-        JTextArea out = new JTextArea(6, 30);
-        out.setFont(UIUtils.monoFont());
-        out.setEditable(false);
-        p.add(UIUtils.scrollText(out, "结果"), BorderLayout.SOUTH);
+        Card config = Card.titled("编码方式", "前三个按所选字符集输出十六进制字节，后两个做 URL 编解码");
+        config.setContent(btns);
+
+        // 原文与结果左右并排，窗口拉宽时两侧同时变宽
+        Card inputCard = Card.flush("原始文本");
+        inputCard.setContent(Fields.scroll(input));
+        Card outCard = Card.flush("结果");
+        outCard.setContent(Fields.scroll(out));
+
+        p.add(config, BorderLayout.NORTH);
+        p.add(Layouts.splitHorizontal(inputCard, outCard, 0.5), BorderLayout.CENTER);
 
         // 绑定事件
         for (Component comp : btns.getComponents()) {
@@ -164,17 +194,5 @@ public class ConvertPanel extends ToolPanel {
             sb.append(String.format("%02X ", b & 0xff));
         }
         return sb.toString().trim();
-    }
-
-    private static JLabel label(String t) {
-        JLabel l = new JLabel(t);
-        l.setFont(UIUtils.plainFont());
-        return l;
-    }
-
-    private static JTextField field() {
-        JTextField f = new JTextField();
-        f.setFont(UIUtils.monoFont());
-        return f;
     }
 }

@@ -1,6 +1,11 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -23,32 +28,38 @@ public class DockerComposePanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 顶部：操作按钮 =====
-        JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton convert = UIUtils.button("转换为 Compose", 130);
-        JButton copy = UIUtils.button("复制结果", 100);
-        JButton clear = UIUtils.button("清空", 80);
-        btns.add(convert); btns.add(copy); btns.add(clear);
-        root.add(btns, BorderLayout.NORTH);
-
-        // ===== 中间：输入输出 =====
-        JTextArea input = new JTextArea(8, 40);
-        input.setFont(UIUtils.monoFont());
-        input.setLineWrap(true);
+        JTextArea input = Fields.area(8, 40);
         input.setText("docker run -d --name nginx-server -p 8080:80 -v /my/data:/usr/share/nginx/html -e TZ=Asia/Shanghai --restart always nginx:latest");
 
-        JTextArea out = new JTextArea(10, 40);
-        out.setFont(UIUtils.monoFont());
-        out.setEditable(false);
+        JTextArea out = Fields.output(10, 40);
 
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                UIUtils.scrollText(input, "输入 Docker Run 命令"),
-                UIUtils.scrollText(out, "输出 Docker Compose YAML"));
-        split.setResizeWeight(0.4);
-        root.add(split, BorderLayout.CENTER);
+        JButton convert = Buttons.primary("转换为 Compose");
+        JButton copy = Buttons.ghost("复制结果");
+        JButton clear = Buttons.ghost("清空");
+
+        // ===== 顶部操作卡片 =====
+        // 这个工具没有可调参数，所以卡片里只放一行操作条：左侧说明支持的参数，右侧是按钮。
+        // 按钮留在顶部而不是页面中央，命令与结果才能各自占满下方的空间。
+        ActionBar bar = new ActionBar();
+        bar.left(Fields.caption("识别 --name / -p / -v / -e / --restart / --network / --privileged / -h 等常用参数"));
+        bar.right(clear);
+        bar.right(convert);
+        Card config = Card.titled("Docker Run 转 Compose");
+        config.setContent(bar);
+
+        // ===== 命令与 YAML 左右并排 =====
+        // 两侧都是等宽文本，横向分栏时窗口一变宽两边同时受益；复制动作跟着结果卡片走。
+        Card inputCard = Card.flush("输入 Docker Run 命令");
+        inputCard.setContent(Fields.scroll(input));
+
+        Card outputCard = Card.flush("输出 Docker Compose YAML");
+        outputCard.setContent(Fields.scroll(out));
+        outputCard.addHeaderAction(copy);
+
+        root.add(config, BorderLayout.NORTH);
+        root.add(Layouts.splitHorizontal(inputCard, outputCard, 0.5), BorderLayout.CENTER);
 
         convert.addActionListener(e -> {
             try {

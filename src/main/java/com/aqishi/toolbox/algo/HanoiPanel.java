@@ -1,10 +1,16 @@
 package com.aqishi.toolbox.algo;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -73,63 +79,66 @@ public class HanoiPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 顶部控制面板 =====
-        JPanel ctrl = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-
-        ctrl.add(new JLabel("盘子数量:"));
+        // ===== 顶部控制面板：参数与播放控制按表单列对齐，画布因此能占满剩余高度 =====
         Integer[] diskOptions = new Integer[MAX_DISKS - MIN_DISKS + 1];
         for (int i = 0; i <= MAX_DISKS - MIN_DISKS; i++) {
             diskOptions[i] = MIN_DISKS + i;
         }
-        diskCountBox = new JComboBox<>(diskOptions);
+        diskCountBox = Fields.combo(diskOptions, 90);
         diskCountBox.setSelectedItem(4);
         diskCountBox.addActionListener(e -> resetGame((Integer) diskCountBox.getSelectedItem()));
-        ctrl.add(diskCountBox);
 
-        ctrl.add(new JLabel("模式:"));
-        modeBox = new JComboBox<>(new String[]{"手动操作", "自动演示"});
+        modeBox = Fields.combo(new String[]{"手动操作", "自动演示"}, 130);
         modeBox.addActionListener(e -> {
             isAutoMode = modeBox.getSelectedIndex() == 1;
             resetGame((Integer) diskCountBox.getSelectedItem());
             updateControlsState();
         });
-        ctrl.add(modeBox);
 
-        resetBtn = UIUtils.button("重置", 70);
+        resetBtn = Buttons.secondary("重置");
         resetBtn.addActionListener(e -> resetGame((Integer) diskCountBox.getSelectedItem()));
-        ctrl.add(resetBtn);
 
-        JButton helpBtn = UIUtils.button("玩法说明", 90);
+        JButton helpBtn = Buttons.ghost("玩法说明");
         helpBtn.addActionListener(e -> showHelpDialog());
-        ctrl.add(helpBtn);
 
         // 自动演示专属按钮
-        startBtn = UIUtils.button("开始演示", 90);
+        startBtn = Buttons.primary("开始演示");
         startBtn.addActionListener(e -> startAnimation());
-        ctrl.add(startBtn);
 
-        pauseBtn = UIUtils.button("暂停", 70);
+        pauseBtn = Buttons.secondary("暂停");
         pauseBtn.addActionListener(e -> pauseAnimation());
-        ctrl.add(pauseBtn);
 
-        stepBtn = UIUtils.button("单步", 70);
+        stepBtn = Buttons.secondary("单步");
         stepBtn.addActionListener(e -> stepAnimation());
-        ctrl.add(stepBtn);
 
-        ctrl.add(new JLabel("速度:"));
         speedSlider = new JSlider(100, 2000, 1000); // 100ms - 2000ms
-        speedSlider.setPreferredSize(new Dimension(100, 26));
+        speedSlider.setOpaque(false);
         speedSlider.addChangeListener(e -> {
             if (timer != null && timer.isRunning()) {
                 timer.setDelay(speedSlider.getValue());
             }
         });
-        ctrl.add(speedSlider);
 
-        root.add(ctrl, BorderLayout.NORTH);
+        // 分成左右两栏：控制项只占两行高，剩下的高度全留给画布
+        // （四行一栏时，520px 高的窄窗口会把 rodHeight 压到盘子只剩几像素）
+        FormGrid basics = new FormGrid();
+        // 下拉框靠左包一层，保留自身宽度而不是被表单拉满整行
+        basics.row("盘子数量", leading(diskCountBox));
+        basics.row("模式", leading(modeBox));
+
+        FormGrid playback = new FormGrid();
+        playback.row("速度", speedSlider);
+        // 三个播放按钮同属自动演示，合成一组挂在同一行，避免散落成一排 FlowLayout
+        playback.row("自动演示", leading(startBtn, pauseBtn, stepBtn));
+
+        Card config = Card.titled("汉诺塔设置");
+        config.setContent(Layouts.columns(Tokens.SPACE_XL, basics, playback));
+        config.addHeaderAction(helpBtn);
+        config.addHeaderAction(resetBtn);
+
+        root.add(config, BorderLayout.NORTH);
 
         // ===== 中间渲染画布 =====
         canvas = new HanoiCanvas();
@@ -225,19 +234,53 @@ public class HanoiPanel extends ToolPanel {
         };
         canvas.addMouseListener(mouseHandler);
         canvas.addMouseMotionListener(mouseHandler);
-        root.add(canvas, BorderLayout.CENTER);
 
-        // ===== 底部状态栏 =====
+        // ===== 底部状态栏：并入画布卡片，进度/评级紧挨着它描述的那张图 =====
         statusLabel = new JLabel("就绪");
-        statusLabel.setBorder(new EmptyBorder(4, 8, 4, 8));
-        statusLabel.setFont(UIUtils.plainFont());
-        root.add(statusLabel, BorderLayout.SOUTH);
+        statusLabel.setFont(Tokens.fontBody());
+        statusLabel.setForeground(Tokens.foreground());
+        statusLabel.setBorder(BorderFactory.createCompoundBorder(
+                KitBorders.lineSubtle(1, 0, 0, 0),
+                KitBorders.padding(Tokens.SPACE_SM, Tokens.CARD_PADDING,
+                        Tokens.SPACE_SM, Tokens.CARD_PADDING)));
+
+        // 底座按画布宽度铺开，外面套一层留白容器，底座两端才不会顶到卡片描边
+        JPanel canvasPad = Layouts.box();
+        canvasPad.setBorder(KitBorders.padding(Tokens.SPACE_SM, Tokens.SPACE_SM,
+                Tokens.SPACE_SM, Tokens.SPACE_SM));
+        canvasPad.add(canvas, BorderLayout.CENTER);
+
+        JPanel canvasBody = Layouts.box();
+        canvasBody.add(canvasPad, BorderLayout.CENTER);
+        canvasBody.add(statusLabel, BorderLayout.SOUTH);
+
+        Card board = Card.flush("演示区");
+        board.setContent(canvasBody);
+        root.add(board, BorderLayout.CENTER);
 
         // 初始化按钮状态
         updateControlsState();
         updateStatus();
 
         return root;
+    }
+
+    /**
+     * 把窄控件左对齐地包一层，使其在 FormGrid 里保留自身首选宽度。
+     *
+     * <p>{@code FlowLayout} 的 hgap 会同时留在行首，导致包过的控件比同列的滑块右移，
+     * 所以这里 hgap 取 0，控件之间的间距改用 strut 补。</p>
+     */
+    private static JPanel leading(Component... items) {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        panel.setOpaque(false);
+        for (int i = 0; i < items.length; i++) {
+            if (i > 0) {
+                panel.add(Box.createHorizontalStrut(Tokens.SPACE_SM));
+            }
+            panel.add(items[i]);
+        }
+        return panel;
     }
 
     private void showHelpDialog() {
@@ -427,7 +470,8 @@ public class HanoiPanel extends ToolPanel {
     private class HanoiCanvas extends JPanel {
 
         public HanoiCanvas() {
-            setBackground(UIManager.getColor("Panel.background"));
+            // 画布现在坐在卡片里，底色跟随卡片而不是工作区
+            setBackground(Tokens.cardBackground());
         }
 
         @Override
@@ -445,9 +489,8 @@ public class HanoiPanel extends ToolPanel {
             int baseY = h - 45;
             g2.fillRoundRect(23, baseY + 5, w - 46, baseHeight, 10, 10);
 
-            // 绘制底座渐变块
-            Color c1 = UIManager.getColor("Component.borderColor");
-            if (c1 == null) c1 = Color.GRAY;
+            // 绘制底座渐变块（描边色走 Tokens，Metal 兜底外观下 Component.borderColor 为 null 会导致底座失色）
+            Color c1 = Tokens.border();
             Color c2 = new Color(Math.max(0, c1.getRed() - 35), Math.max(0, c1.getGreen() - 35), Math.max(0, c1.getBlue() - 35));
             GradientPaint baseGp = new GradientPaint(0, baseY, c1, 0, baseY + baseHeight, c2);
             g2.setPaint(baseGp);
@@ -474,25 +517,24 @@ public class HanoiPanel extends ToolPanel {
             g2.setFont(UIUtils.titleFont());
             for (int i = 0; i < 3; i++) {
                 // 绘制插座金属环座
-                Color ringColor = UIManager.getColor("Component.borderColor");
-                if (ringColor == null) ringColor = Color.GRAY;
+                Color ringColor = Tokens.border();
                 g2.setColor(ringColor.darker());
                 g2.fillRoundRect(rodX[i] - 16, baseY - 5, 32, 7, 3, 3);
                 g2.setColor(new Color(255, 255, 255, 60));
                 g2.drawRoundRect(rodX[i] - 16, baseY - 5, 32, 7, 3, 3);
 
-                // 如果是手动模式且选中了这根柱子，进行高亮显示
+                // 如果是手动模式且选中了这根柱子，进行高亮显示（选中=强调色，未选中=描边色）
                 if (i == selectedRod) {
-                    g2.setColor(UIManager.getColor("Component.accentColor"));
+                    g2.setColor(Tokens.accent());
                 } else {
-                    g2.setColor(UIManager.getColor("Component.borderColor"));
+                    g2.setColor(Tokens.border());
                 }
 
                 // 绘制柱子
                 g2.fillRect(rodX[i] - rodThickness / 2, rodTopY, rodThickness, rodHeight);
 
                 // 绘制柱子下面的字母标签
-                g2.setColor(UIManager.getColor("Label.foreground"));
+                g2.setColor(Tokens.foreground());
                 String label = String.valueOf((char) ('A' + i));
                 FontMetrics fm = g2.getFontMetrics();
                 int labelX = rodX[i] - fm.stringWidth(label) / 2;

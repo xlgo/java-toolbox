@@ -1,14 +1,17 @@
 package com.aqishi.toolbox.calc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
-import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineManager;
 import javax.script.ScriptException;
 import javax.swing.*;
 import java.awt.*;
-import java.util.Arrays;
 
 /**
  * 科学计算器面板：支持表达式求值（基于 Nashorn/兼容引擎）+ 常用数学函数按钮。
@@ -24,15 +27,21 @@ public class CalculatorPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        JTextField expr = new JTextField();
-        expr.setFont(UIUtils.monoFont().deriveFont(16f));
+        // ===== 显示卡片：表达式是视觉焦点，单独一张卡放在最上方 =====
+        JTextField expr = Fields.mono("");
+        expr.setFont(Tokens.fontMono().deriveFont(Font.BOLD, 20f));
         expr.setHorizontalAlignment(JTextField.RIGHT);
-        root.add(expr, BorderLayout.NORTH);
+        // 只放大高度，宽度仍由卡片的 BorderLayout 拉伸；不加高的话 20pt 数字会被 32px 的常规控件高度切掉
+        int displayHeight = Tokens.CONTROL_HEIGHT + Tokens.SPACE_MD;
+        expr.setPreferredSize(new Dimension(expr.getPreferredSize().width, displayHeight));
+        expr.setMinimumSize(new Dimension(56, displayHeight));
 
-        // 按钮区：5x6 网格
+        Card displayCard = Card.titled("表达式", "回车或按 = 求值");
+        displayCard.setContent(expr);
+
+        // ===== 按键卡片：保持 GridLayout，等宽等高并随窗口拉伸 =====
         String[] keys = {
                 "C", "(", ")", "/",
                 "7", "8", "9", "*",
@@ -41,19 +50,29 @@ public class CalculatorPanel extends ToolPanel {
                 "0", ".", "=", "sqrt",
                 "pow", "pi", "e", "<-"
         };
-        JPanel pad = new JPanel(new GridLayout(6, 4, 4, 4));
+        JPanel pad = new JPanel(new GridLayout(6, 4, Tokens.SPACE_SM, Tokens.SPACE_SM));
+        pad.setOpaque(false);
         for (String k : keys) {
-            JButton b = new JButton(k);
-            b.setFont(UIUtils.plainFont().deriveFont(14f));
-            b.setFocusPainted(false);
+            JButton b;
+            if ("=".equals(k)) {
+                b = Buttons.primary(k);          // 键盘区唯一的主操作
+            } else if ("C".equals(k)) {
+                b = Buttons.danger(k);           // 清空整条表达式，标为危险动作
+            } else {
+                b = Buttons.secondary(k);
+            }
             pad.add(b);
         }
-        root.add(pad, BorderLayout.CENTER);
+        Card padCard = Card.titled("按键");
+        padCard.setContent(pad);
 
-        JTextArea history = new JTextArea(5, 30);
-        history.setFont(UIUtils.monoFont());
-        history.setEditable(false);
-        root.add(UIUtils.scrollText(history, "历史记录"), BorderLayout.SOUTH);
+        // ===== 历史卡片：与键盘并排，纵向留给它整屏高度，长记录不必频繁滚动 =====
+        JTextArea history = Fields.output(5, 30);
+        Card historyCard = Card.flush("历史记录");
+        historyCard.setContent(Fields.scroll(history));
+
+        root.add(displayCard, BorderLayout.NORTH);
+        root.add(Layouts.columns(Tokens.SPACE_LG, padCard, historyCard), BorderLayout.CENTER);
 
         // 按钮事件
         for (Component comp : pad.getComponents()) {

@@ -1,6 +1,12 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -22,39 +28,35 @@ public class ColorPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 12));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        JPanel form = new JPanel(new GridBagLayout());
-        GridBagConstraints c = new GridBagConstraints();
-        c.insets = new Insets(6, 6, 6, 6);
-        c.fill = GridBagConstraints.HORIZONTAL;
-
+        // ===== 配置卡片：三种色值表示各占一行，行尾统一挂复制按钮 =====
         hexF = field(); rgbF = field(); hslF = field();
 
-        JButton copyHexBtn = UIUtils.button("复制", 60);
-        JButton copyRgbBtn = UIUtils.button("复制", 60);
-        JButton copyHslBtn = UIUtils.button("复制", 60);
+        JButton copyHexBtn = Buttons.ghost("复制");
+        JButton copyRgbBtn = Buttons.ghost("复制");
+        JButton copyHslBtn = Buttons.ghost("复制");
 
         copyHexBtn.addActionListener(e -> UIUtils.copyToClipboard(hexF.getText()));
         copyRgbBtn.addActionListener(e -> UIUtils.copyToClipboard(rgbF.getText()));
         copyHslBtn.addActionListener(e -> UIUtils.copyToClipboard(hslF.getText()));
 
-        c.gridx = 0; c.gridy = 0; c.weightx = 0; form.add(label("HEX (#RRGGBB)"), c);
-        c.gridx = 1; c.weightx = 1; form.add(hexF, c);
-        c.gridx = 2; c.weightx = 0; form.add(copyHexBtn, c);
+        FormGrid form = new FormGrid();
+        form.row("HEX (#RRGGBB)", hexF, copyHexBtn);
+        form.row("RGB (r,g,b)", rgbF, copyRgbBtn);
+        form.row("HSL (h,s%,l%)", hslF, copyHslBtn);
 
-        c.gridx = 0; c.gridy = 1; c.weightx = 0; form.add(label("RGB (r,g,b)"), c);
-        c.gridx = 1; c.weightx = 1; form.add(rgbF, c);
-        c.gridx = 2; c.weightx = 0; form.add(copyRgbBtn, c);
+        JButton chooseBtn = Buttons.primary("选择颜色...");
+        chooseBtn.addActionListener(e -> chooseColor());
 
-        c.gridx = 0; c.gridy = 2; c.weightx = 0; form.add(label("HSL (h,s%,l%)"), c);
-        c.gridx = 1; c.weightx = 1; form.add(hslF, c);
-        c.gridx = 2; c.weightx = 0; form.add(copyHslBtn, c);
+        Card values = Card.titled("色值");
+        values.setContent(form);
+        values.addHeaderAction(chooseBtn);
 
+        // ===== 结果卡片：色块吃掉剩余高度，调色板贴在底部 =====
         preview = new JLabel("  预览 (点击选择)  ");
         preview.setOpaque(true);
-        preview.setPreferredSize(new Dimension(150, 40));
+        preview.setFont(Tokens.fontBody());
         preview.setHorizontalAlignment(SwingConstants.CENTER);
         preview.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         preview.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -64,36 +66,40 @@ public class ColorPanel extends ToolPanel {
             }
         });
 
-        JButton chooseBtn = UIUtils.button("选择颜色...", 120);
-        chooseBtn.addActionListener(e -> chooseColor());
+        // 调色板：常用色快速选取
+        JPanel palette = new JPanel(new FlowLayout(FlowLayout.LEFT, Tokens.SPACE_XS, 0));
+        palette.setOpaque(false);
+        String[] paletteColors = {"#000000", "#FFFFFF", "#FF0000", "#00FF00", "#0000FF",
+                "#FFFF00", "#FF00FF", "#00FFFF", "#4285F4", "#34A853", "#FBBC05", "#EA4335"};
+        for (String pc : paletteColors) {
+            JButton b = new JButton();
+            // 色块本身就是取值，背景色属于业务数据，不走 Tokens
+            b.setBackground(Color.decode(pc));
+            b.setOpaque(true);
+            b.setFocusPainted(false);
+            b.setPreferredSize(new Dimension(40, Tokens.CONTROL_HEIGHT_SM));
+            b.setToolTipText(pc);
+            b.addActionListener(e -> fromHex(pc));
+            palette.add(b);
+        }
 
-        c.gridx = 0; c.gridy = 3; c.gridwidth = 1; c.weightx = 0.5;
-        form.add(preview, c);
-        c.gridx = 1; c.gridy = 3; c.gridwidth = 2; c.weightx = 0.5;
-        form.add(chooseBtn, c);
+        JPanel previewBody = Layouts.box(0, Tokens.SPACE_MD);
+        previewBody.add(preview, BorderLayout.CENTER);
+        previewBody.add(palette, BorderLayout.SOUTH);
+
+        Card previewCard = Card.titled("预览与常用色");
+        previewCard.setContent(previewBody);
 
         hexF.addActionListener(e -> fromHex(hexF.getText()));
         rgbF.addActionListener(e -> fromRgb(rgbF.getText()));
         hslF.addActionListener(e -> fromHsl(hslF.getText()));
 
+        // 预览控件必须先建好：apply() 会写它的背景与前景
         hexF.setText("#4285F4");
         fromHex("#4285F4");
 
-        root.add(form, BorderLayout.NORTH);
-
-        // 调色板：常用色快速选取
-        JPanel palette = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
-        String[] paletteColors = {"#000000", "#FFFFFF", "#FF0000", "#00FF00", "#0000FF",
-                "#FFFF00", "#FF00FF", "#00FFFF", "#4285F4", "#34A853", "#FBBC05", "#EA4335"};
-        for (String pc : paletteColors) {
-            JButton b = new JButton();
-            b.setBackground(Color.decode(pc));
-            b.setPreferredSize(new Dimension(40, 28));
-            b.setToolTipText(pc);
-            b.addActionListener(e -> fromHex(pc));
-            palette.add(b);
-        }
-        root.add(palette, BorderLayout.SOUTH);
+        root.add(values, BorderLayout.NORTH);
+        root.add(previewCard, BorderLayout.CENTER);
 
         return root;
     }
@@ -191,10 +197,7 @@ public class ColorPanel extends ToolPanel {
         return p;
     }
 
-    private static JLabel label(String t) { return new JLabel(t); }
     private static JTextField field() {
-        JTextField f = new JTextField();
-        f.setFont(UIUtils.monoFont());
-        return f;
+        return Fields.mono("");
     }
 }

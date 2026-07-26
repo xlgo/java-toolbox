@@ -1,6 +1,11 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.imageio.ImageIO;
@@ -97,61 +102,46 @@ public class MermaidPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // 1. 左侧代码编辑与控制面板
-        JPanel leftPanel = new JPanel(new BorderLayout(6, 6));
-        leftPanel.setPreferredSize(new Dimension(360, 0));
-
+        // 1. 左侧代码编辑卡片：编辑器铺满卡片，模板与进度压在卡片底部，渲染动作提到标题右侧
         codeArea = new JTextArea();
-        codeArea.setFont(new Font("Consolas", Font.PLAIN, 13));
+        codeArea.setFont(Tokens.fontMono());
         codeArea.setText(TEMPLATES.get("流程图 (Flowchart)"));
-        JScrollPane codeScroll = UIUtils.scrollText(codeArea, "Mermaid 源码编辑");
-        leftPanel.add(codeScroll, BorderLayout.CENTER);
 
-        // 按钮及模板控制区
-        JPanel controlPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(4, 0, 4, 0);
-        gbc.weightx = 1.0;
-
-        // 模板下拉行
-        gbc.gridy = 0;
-        JPanel templateRow = new JPanel(new BorderLayout(6, 0));
-        templateRow.add(new JLabel("图表模板:"), BorderLayout.WEST);
-        templateCombo = new JComboBox<>(TEMPLATES.keySet().toArray(new String[0]));
+        templateCombo = Fields.combo(TEMPLATES.keySet().toArray(new String[0]));
+        JPanel templateRow = Layouts.box(Tokens.SPACE_SM, 0);
+        templateRow.add(Fields.label("图表模板:"), BorderLayout.WEST);
         templateRow.add(templateCombo, BorderLayout.CENTER);
-        controlPanel.add(templateRow, gbc);
 
-        // 按钮行
-        gbc.gridy = 1;
-        JPanel btnRow = new JPanel(new GridLayout(1, 2, 8, 0));
-        renderBtn = UIUtils.button("渲染图表", 120);
-        exportBtn = UIUtils.button("导出图片", 120);
-        exportBtn.setEnabled(false); // 初始没有渲染出的图片时禁用
-        btnRow.add(renderBtn);
-        btnRow.add(exportBtn);
-        controlPanel.add(btnRow, gbc);
-
-        // 进度条行
-        gbc.gridy = 2;
         progressBar = new JProgressBar();
         progressBar.setIndeterminate(true);
         progressBar.setVisible(false);
-        controlPanel.add(progressBar, gbc);
 
-        leftPanel.add(controlPanel, BorderLayout.SOUTH);
+        renderBtn = Buttons.primary("渲染图表");
+        exportBtn = Buttons.secondary("导出图片");
+        exportBtn.setEnabled(false); // 初始没有渲染出的图片时禁用
+
+        // 编辑区只有 360px 宽，两个按钮放卡片标题右侧会把标题挤到省略号，因此留在卡片底部
+        JPanel editorFooter = Layouts.stack(Tokens.SPACE_SM,
+                templateRow,
+                Layouts.columns(Tokens.SPACE_SM, renderBtn, exportBtn),
+                progressBar);
+        editorFooter.setBorder(javax.swing.BorderFactory.createEmptyBorder(
+                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.CARD_PADDING, Tokens.CARD_PADDING));
+
+        Card editorCard = Card.flush("Mermaid 源码编辑");
+        JPanel editorBody = Layouts.box();
+        editorBody.add(Fields.scroll(codeArea), BorderLayout.CENTER);
+        editorBody.add(editorFooter, BorderLayout.SOUTH);
+        editorCard.setContent(editorBody);
 
         // 2. 右侧图片展示区 (自定义高清双三次平滑抗锯齿画布 + Drag-to-Scroll 手势拖拽平移)
         previewPanel = new ImagePreviewPanel();
-        
-        JScrollPane previewScroll = new JScrollPane(previewPanel);
-        previewScroll.setBorder(BorderFactory.createTitledBorder(
-                null, "图表渲染预览 (按住鼠标左键可任意拖拽平移)", javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
-                javax.swing.border.TitledBorder.DEFAULT_POSITION, UIUtils.plainFont(),
-                UIManager.getColor("Component.accentColor")));
+
+        JScrollPane previewScroll = Fields.scroll(previewPanel);
+        Card previewCard = Card.flush("图表渲染预览 (按住鼠标左键可任意拖拽平移)");
+        previewCard.setContent(previewScroll);
 
         JViewport viewport = previewScroll.getViewport();
 
@@ -205,10 +195,9 @@ public class MermaidPanel extends ToolPanel {
         previewPanel.addMouseListener(dragScrollAdapter);
         previewPanel.addMouseMotionListener(dragScrollAdapter);
 
-        // 3. 将左右面板装入 JSplitPane 容器
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, previewScroll);
-        splitPane.setDividerLocation(380);
-        splitPane.setResizeWeight(0.0);
+        // 3. 左右分栏：窗口变宽时把多出来的空间全部给预览区，编辑区保持固定宽度
+        JSplitPane splitPane = Layouts.splitHorizontal(editorCard, previewCard, 0.0);
+        splitPane.setDividerLocation(360);
         root.add(splitPane, BorderLayout.CENTER);
 
         // 4. 事件响应绑定
@@ -344,17 +333,18 @@ public class MermaidPanel extends ToolPanel {
         private BufferedImage image;
 
         public ImagePreviewPanel() {
-            setBackground(UIManager.getColor("Panel.background"));
+            setBackground(Tokens.cardBackground());
             setOpaque(true);
         }
 
         public void setImage(BufferedImage img) {
             this.image = img;
             if (img != null) {
-                setBackground(Color.WHITE); // 渲染成功后用白色纸张底色，完美展现图表
+                // 云端渲染时已强制 bgColor=white，画布底色必须同为白色才不会出现色块边框
+                setBackground(Color.WHITE);
                 setPreferredSize(new Dimension(img.getWidth() + 40, img.getHeight() + 40)); // 留有 20px 边距防拥挤
             } else {
-                setBackground(UIManager.getColor("Panel.background")); // 没有图时跟随系统主题
+                setBackground(Tokens.cardBackground()); // 没有图时跟随卡片底色
                 setPreferredSize(new Dimension(100, 100));
             }
             revalidate();
@@ -382,8 +372,8 @@ public class MermaidPanel extends ToolPanel {
                 g2.drawImage(image, x, y, null);
                 g2.dispose();
             } else {
-                g.setColor(UIManager.getColor("Label.disabledForeground"));
-                g.setFont(UIUtils.plainFont());
+                g.setColor(Tokens.mutedForeground());
+                g.setFont(Tokens.fontBody());
                 String text = "暂未生成图表，请在左侧编辑代码后点击“渲染图表”。";
                 FontMetrics fm = g.getFontMetrics();
                 int x = (getWidth() - fm.stringWidth(text)) / 2;

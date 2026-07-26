@@ -1,6 +1,12 @@
 package com.aqishi.toolbox.monitor;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.UIUtils;
 
@@ -39,6 +45,8 @@ public class VideoMonitorPanel extends ToolPanel {
     static final Color C_ACTIVE = new Color(15, 20, 28);
     static final Color C_DIM    = new Color(120, 130, 145);
     static final Color C_BRIGHT = new Color(200, 210, 220);
+    /** 画面墙底色：内容区底色，不跟随主题 */
+    static final Color GRID_BG  = new Color(18, 18, 20);
 
     private JPanel videoGrid;
     private final List<VideoCell> cells       = new ArrayList<>();
@@ -58,15 +66,15 @@ public class VideoMonitorPanel extends ToolPanel {
     // ==================== 构建主面板 ====================
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(0, 0));
-        root.add(buildToolbar(), BorderLayout.NORTH);
+        JPanel root = Layouts.page();
 
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                buildDeviceTree(), buildVideoArea());
-        split.setDividerLocation(220);
-        split.setDividerSize(4);
-        split.setResizeWeight(0.0);
-        root.add(split, BorderLayout.CENTER);
+        // 布局选择与格子操作都是低频动作，压成一条按首选高度占页首的紧凑卡片，
+        // 剩下的纵向空间整块留给画面墙。
+        root.add(buildControlCard(), BorderLayout.NORTH);
+
+        // 设备树只是「把摄像头分配进格子」的来源：weight 0 让窗口变宽时多出来的宽度全部给画面
+        root.add(Layouts.splitHorizontal(
+                buildDeviceTree(), buildVideoArea(), 0.0, 0.22), BorderLayout.CENTER);
 
         loadSavedNames();
         rebuildCombo();
@@ -74,57 +82,47 @@ public class VideoMonitorPanel extends ToolPanel {
         return root;
     }
 
-    // ==================== 顶部工具栏 ====================
-    private JPanel buildToolbar() {
-        JPanel bar = new JPanel(new BorderLayout(8, 0));
-        bar.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Component.borderColor")),
-                new javax.swing.border.EmptyBorder(6, 10, 6, 10)));
-
-        JLabel title = new JLabel("  \uD83D\uDCF9  视频监控");
-        title.setFont(UIUtils.titleFont().deriveFont(Font.BOLD, 14f));
-        bar.add(title, BorderLayout.WEST);
-
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-
-        right.add(label("布局:"));
+    // ==================== 顶部控制条 ====================
+    /**
+     * 控制卡片：左侧选布局，右侧四个格子操作。
+     *
+     * <p>用 {@code ActionBar} 而不是 {@code FlowLayout(RIGHT)}：窗口变窄时先压缩中间的弹性空间，
+     * 按钮不会折行，下拉框也不会被拉宽。</p>
+     */
+    private Card buildControlCard() {
         layoutCombo = new JComboBox<>();
-        layoutCombo.setFont(UIUtils.plainFont().deriveFont(12f));
-        layoutCombo.setPreferredSize(new Dimension(130, 28));
+        layoutCombo.setFont(Tokens.fontBody());
+        // 下拉项是「16 画面」「⭐ 我的布局」这类短文本，固定宽度即可，跟着 ActionBar 一起不被拉伸
+        layoutCombo.setPreferredSize(new Dimension(150, Tokens.CONTROL_HEIGHT));
+        layoutCombo.setMinimumSize(new Dimension(110, Tokens.CONTROL_HEIGHT));
         layoutCombo.addActionListener(e -> onComboSelected(layoutCombo.getSelectedIndex()));
-        right.add(layoutCombo);
 
-        right.add(Box.createHorizontalStrut(6));
-
-        JButton mergeBtn = UIUtils.button("合并", 52);
+        JButton mergeBtn = Buttons.primary("合并");
         mergeBtn.setToolTipText("Ctrl+点击选中多个相邻格后点此合并");
         mergeBtn.addActionListener(e -> mergeSelected());
-        right.add(mergeBtn);
 
-        JButton splitBtn = UIUtils.button("拆分", 52);
+        JButton splitBtn = Buttons.secondary("拆分");
         splitBtn.setToolTipText("将当前选中的合并格拆分回独立小格");
         splitBtn.addActionListener(e -> splitSelected());
-        right.add(splitBtn);
 
-        right.add(Box.createHorizontalStrut(6));
-
-        JButton saveBtn = UIUtils.button("保存布局", 72);
+        JButton saveBtn = Buttons.secondary("保存布局");
         saveBtn.setToolTipText("为当前布局命名保存，下次可从下拉框选用");
         saveBtn.addActionListener(e -> saveCurrentLayout());
-        right.add(saveBtn);
 
-        JButton clearBtn = UIUtils.button("清空", 52);
+        JButton clearBtn = Buttons.danger("清空");
         clearBtn.addActionListener(e -> clearAllCells());
-        right.add(clearBtn);
 
-        bar.add(right, BorderLayout.EAST);
-        return bar;
-    }
+        ActionBar bar = new ActionBar();
+        bar.left(Fields.label("布局:"));
+        bar.left(layoutCombo);
+        bar.right(clearBtn);
+        bar.right(saveBtn);
+        bar.right(splitBtn);
+        bar.right(mergeBtn);
 
-    private JLabel label(String text) {
-        JLabel l = new JLabel(text);
-        l.setFont(UIUtils.plainFont());
-        return l;
+        Card card = Card.titled("\uD83D\uDCF9 视频监控");
+        card.setContent(bar);
+        return card;
     }
 
     // ==================== 下拉框管理 ====================
@@ -171,8 +169,7 @@ public class VideoMonitorPanel extends ToolPanel {
                 "rtsp://192.168.1.111,rtsp://192.168.1.112,rtsp://192.168.1.113,rtsp://192.168.1.114");
 
         JTree tree = new JTree(root);
-        tree.setFont(UIUtils.plainFont().deriveFont(12f));
-        tree.setRowHeight(26);
+        tree.setFont(Tokens.fontBody());
         tree.setRootVisible(true);
         tree.setShowsRootHandles(true);
         tree.expandRow(0);
@@ -201,21 +198,10 @@ public class VideoMonitorPanel extends ToolPanel {
             }
         });
 
-        JScrollPane sp = new JScrollPane(tree);
-        sp.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1,
-                UIManager.getColor("Component.borderColor")));
-
-        JPanel wrap = new JPanel(new BorderLayout());
-        JLabel hdr = new JLabel("  设备列表");
-        hdr.setFont(UIUtils.plainFont().deriveFont(Font.BOLD, 12f));
-        hdr.setOpaque(true);
-        hdr.setBackground(UIManager.getColor("Panel.background"));
-        hdr.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Component.borderColor")),
-                new javax.swing.border.EmptyBorder(5, 8, 5, 8)));
-        wrap.add(hdr, BorderLayout.NORTH);
-        wrap.add(sp, BorderLayout.CENTER);
-        return wrap;
+        // 原来的「设备列表」标题带与右侧分隔线交给卡片：标题带样式统一，也不会和分隔条画出双线
+        Card card = Card.flush("设备列表");
+        card.setContent(Fields.scroll(tree));
+        return card;
     }
 
     private void addArea(DefaultMutableTreeNode root, String areaName, String names, String urls) {
@@ -229,14 +215,22 @@ public class VideoMonitorPanel extends ToolPanel {
     }
 
     // ==================== 右侧视频区 ====================
+    /**
+     * 画面墙：无标题的铺满型卡片，把整块剩余空间交给画面。
+     *
+     * <p>底色保持原来的近黑色——这里是视频内容区而不是界面壳层，用卡片底色会让空格子发白、
+     * 也看不出画面边界。</p>
+     */
     private JComponent buildVideoArea() {
         videoGrid = new JPanel(new GridBagLayout());
-        videoGrid.setBackground(new Color(18, 18, 20));
+        videoGrid.setBackground(GRID_BG);
         videoGrid.setBorder(BorderFactory.createEmptyBorder(3, 3, 3, 3));
-        JScrollPane sp = new JScrollPane(videoGrid);
-        sp.setBorder(null);
-        sp.getViewport().setBackground(new Color(18, 18, 20));
-        return sp;
+        JScrollPane sp = Fields.scroll(videoGrid);
+        sp.getViewport().setBackground(GRID_BG);
+
+        Card card = Card.plain().setFlush(true);
+        card.setContent(sp);
+        return card;
     }
 
     // ==================== 预设布局 ====================

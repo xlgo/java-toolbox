@@ -1,6 +1,11 @@
 package com.aqishi.toolbox.convert;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.util.UIUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -35,50 +40,45 @@ public class FormatConvertPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 顶部控制栏 =====
-        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        
-        JLabel fromLabel = new JLabel("源格式:");
-        fromLabel.setFont(UIUtils.plainFont());
-        JComboBox<String> fromCombo = new JComboBox<>(new String[]{"JSON", "XML", "YAML", "CSV", "Properties"});
-        fromCombo.setFont(UIUtils.plainFont());
-        
-        JLabel toLabel = new JLabel(" 目标格式:");
-        toLabel.setFont(UIUtils.plainFont());
-        JComboBox<String> toCombo = new JComboBox<>(new String[]{"YAML", "JSON", "XML", "CSV", "Properties"});
-        toCombo.setFont(UIUtils.plainFont());
-        
-        JButton btn = UIUtils.button("转换", 80);
-        JButton copy = UIUtils.button("复制结果", 100);
-        JButton clear = UIUtils.button("清空", 80);
+        // ===== 顶部配置卡片：源格式 / 目标格式 + 主操作 =====
+        // 两个下拉框用 FormGrid 排成两行，标签右对齐、控件左边缘对齐；
+        // 下拉项都是短词，用固定宽度并外套一层左对齐容器，避免被网格拉满整行。
+        JComboBox<String> fromCombo = Fields.combo(
+                new String[]{"JSON", "XML", "YAML", "CSV", "Properties"}, 160);
+        JComboBox<String> toCombo = Fields.combo(
+                new String[]{"YAML", "JSON", "XML", "CSV", "Properties"}, 160);
 
-        top.add(fromLabel);
-        top.add(fromCombo);
-        top.add(toLabel);
-        top.add(toCombo);
-        top.add(btn);
-        top.add(copy);
-        top.add(clear);
-        
-        root.add(top, BorderLayout.NORTH);
+        JButton btn = Buttons.primary("转换");
+        JButton copy = Buttons.ghost("复制结果");
+        JButton clear = Buttons.ghost("清空");
 
-        // ===== 中间输入输出 =====
-        JTextArea input = new JTextArea(8, 40);
-        input.setFont(UIUtils.monoFont());
+        FormGrid form = new FormGrid();
+        form.row("源格式:", keepWidth(fromCombo));
+        form.row("目标格式:", keepWidth(toCombo));
+
+        Card config = Card.titled("格式互转");
+        config.setContent(form);
+        config.addHeaderAction(clear);
+        config.addHeaderAction(btn);
+
+        // ===== 输入 / 输出左右并排 =====
+        // 改成横向分栏后，窗口拉宽时两边的等宽文本同时变宽，长行不用再靠横向滚动。
+        JTextArea input = Fields.area(8, 40);
         input.setText("{\n  \"name\": \"java-toolbox\",\n  \"version\": \"1.2.0\",\n  \"author\": {\n    \"name\": \"aqishi\"\n  }\n}");
-        
-        JTextArea out = new JTextArea(10, 40);
-        out.setFont(UIUtils.monoFont());
-        out.setEditable(false);
 
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                UIUtils.scrollText(input, "输入"),
-                UIUtils.scrollText(out, "输出"));
-        split.setResizeWeight(0.4);
-        root.add(split, BorderLayout.CENTER);
+        JTextArea out = Fields.output(10, 40);
+
+        Card inputCard = Card.flush("输入");
+        inputCard.setContent(Fields.scroll(input));
+
+        Card outputCard = Card.flush("输出");
+        outputCard.setContent(Fields.scroll(out));
+        outputCard.addHeaderAction(copy);
+
+        root.add(config, BorderLayout.NORTH);
+        root.add(Layouts.splitHorizontal(inputCard, outputCard, 0.5), BorderLayout.CENTER);
 
         btn.addActionListener(e -> {
             try {
@@ -105,6 +105,14 @@ public class FormatConvertPanel extends ToolPanel {
         btn.doClick();
 
         return root;
+    }
+
+    /** 把固定宽度控件包一层左对齐容器，抵消 FormGrid 输入列的水平填充 */
+    private static JComponent keepWidth(JComponent field) {
+        JPanel wrapper = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        wrapper.setOpaque(false);
+        wrapper.add(field);
+        return wrapper;
     }
 
     private Object parseSource(String text, String format) throws Exception {

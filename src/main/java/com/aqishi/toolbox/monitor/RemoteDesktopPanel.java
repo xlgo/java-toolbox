@@ -1,11 +1,18 @@
 package com.aqishi.toolbox.monitor;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.I18n;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -118,63 +125,82 @@ public class RemoteDesktopPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel mainPanel = new JPanel(new BorderLayout(5, 5));
-        mainPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
+        JPanel root = Layouts.page();
 
-        // 顶层公共网络及信令配置栏
-        JPanel topConfig = new JPanel(new GridBagLayout());
-        topConfig.setBorder(BorderFactory.createTitledBorder(I18n.get("remote_desktop.config_border")));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-
-        gbc.gridx = 0; gbc.gridy = 0;
-        topConfig.add(new JLabel(I18n.get("remote_desktop.server_url")), gbc);
-
-        serverUrlField = new JTextField("ws://170.106.158.103:21701");
-        serverUrlField.setPreferredSize(new Dimension(220, 28));
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        topConfig.add(serverUrlField, gbc);
-
-        gbc.gridx = 2; gbc.gridy = 0; gbc.weightx = 0.0;
-        topConfig.add(new JLabel(I18n.get("remote_desktop.group_room")), gbc);
-
-        groupField = new JTextField("arges123213");
-        groupField.setPreferredSize(new Dimension(100, 28));
-        gbc.gridx = 3; gbc.weightx = 0.5;
-        topConfig.add(groupField, gbc);
-
-        gbc.gridx = 4; gbc.gridy = 0; gbc.weightx = 0.0;
-        topConfig.add(new JLabel(I18n.get("remote_desktop.my_name")), gbc);
-
-        nameField = new JTextField(System.getProperty("user.name"));
-        nameField.setPreferredSize(new Dimension(80, 28));
-        gbc.gridx = 5; gbc.weightx = 0.5;
-        topConfig.add(nameField, gbc);
-
-        connectServerBtn = new JButton(I18n.get("remote_desktop.connect_btn_connect"));
-        connectServerBtn.setPreferredSize(new Dimension(90, 28));
-        gbc.gridx = 6; gbc.weightx = 0.0;
-        topConfig.add(connectServerBtn, gbc);
-
-        clientStatusLabel = new JLabel(I18n.get("remote_desktop.status_unconnected"));
-        clientStatusLabel.setForeground(Color.GRAY);
-        clientStatusLabel.setFont(new Font("Microsoft YaHei", Font.BOLD, 12));
-        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 7;
-        topConfig.add(clientStatusLabel, gbc);
-
-        mainPanel.add(topConfig, BorderLayout.NORTH);
+        // 中转地址 / 组名 / 昵称是三个页签共同的前置条件，压在页首一张卡片里；
+        // 连接状态放卡片底部状态条：文字本身写明状态，颜色只是辅助标记
+        root.add(buildSignalConfigCard(), BorderLayout.NORTH);
 
         mainTabs = new JTabbedPane();
+        mainTabs.setBorder(null);
         mainTabs.addTab(I18n.get("remote_desktop.control_tab"), buildControlTab());
         mainTabs.addTab(I18n.get("remote_desktop.be_controlled_tab"), buildBeControlledTab());
         mainTabs.addTab(I18n.get("remote_desktop.server_tab"), buildServerTab());
 
-        mainPanel.add(mainTabs, BorderLayout.CENTER);
+        root.add(mainTabs, BorderLayout.CENTER);
 
         setupConnectionListeners();
 
-        return mainPanel;
+        return root;
+    }
+
+    /**
+     * 顶部公共配置卡片。
+     *
+     * <p>中转地址常常是一整条 ws:// URL，独占一行；组名与昵称都是短取值，并排成一行，
+     * 卡片高度因此只有两行。连接动作是这张卡片唯一的主操作，放标题右侧。</p>
+     */
+    private Card buildSignalConfigCard() {
+        serverUrlField = Fields.text("ws://170.106.158.103:21701");
+        groupField = Fields.text("arges123213");
+        nameField = Fields.text(System.getProperty("user.name"));
+
+        connectServerBtn = Buttons.primary(I18n.get("remote_desktop.connect_btn_connect"));
+
+        clientStatusLabel = new JLabel(I18n.get("remote_desktop.status_unconnected"));
+        clientStatusLabel.setFont(Tokens.fontBodyStrong());
+        clientStatusLabel.setForeground(Tokens.mutedForeground());
+
+        FormGrid room = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        room.row(I18n.get("remote_desktop.group_room"), groupField);
+
+        FormGrid identity = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        identity.row(I18n.get("remote_desktop.my_name"), nameField);
+
+        FormGrid form = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_SM);
+        form.row(I18n.get("remote_desktop.server_url"), serverUrlField);
+        form.fullRow(Layouts.columns(Tokens.SPACE_XL, room, identity));
+
+        Card card = Card.titled(I18n.get("remote_desktop.config_border"));
+        card.setContent(form);
+        card.addHeaderAction(connectServerBtn);
+        card.setFooter(clientStatusLabel);
+        return card;
+    }
+
+    /**
+     * 页签内容的统一容器。
+     *
+     * <p>左右不再加内边距——外层 {@code Layouts.page()} 已经给过，再加一层会让页签里的卡片
+     * 比上方配置卡片窄一圈；只在页签条下方留一段间距。</p>
+     */
+    private static JPanel tabPage() {
+        JPanel panel = Layouts.box(Tokens.SPACE_LG, Tokens.SPACE_LG);
+        panel.setBorder(KitBorders.padding(Tokens.SPACE_MD, 0, 0, 0));
+        return panel;
+    }
+
+    /** 日志文本域：等宽字体、按词换行，交给铺满型卡片显示 */
+    private static JTextArea logArea() {
+        JTextArea area = new JTextArea();
+        area.setEditable(false);
+        area.setFont(Tokens.fontMono());
+        // 日志里全是 ICE candidate、异常堆栈这类长行，换行才不用横向拖滚动条
+        area.setLineWrap(true);
+        area.setWrapStyleWord(true);
+        area.setBorder(KitBorders.padding(
+                Tokens.SPACE_SM, Tokens.SPACE_SM, Tokens.SPACE_SM, Tokens.SPACE_SM));
+        return area;
     }
 
     private void setupConnectionListeners() {
@@ -184,7 +210,7 @@ public class RemoteDesktopPanel extends ToolPanel {
                 connectServerBtn.setText(I18n.get("remote_desktop.connect_btn_connect"));
                 startControlBtn.setEnabled(false);
                 clientStatusLabel.setText(I18n.get("remote_desktop.status_unconnected"));
-                clientStatusLabel.setForeground(Color.GRAY);
+                clientStatusLabel.setForeground(Tokens.mutedForeground());
                 peerSelectBox.removeAllItems();
             } else {
                 try {
@@ -255,7 +281,7 @@ public class RemoteDesktopPanel extends ToolPanel {
 
                     signalClient.connect();
                     clientStatusLabel.setText(I18n.get("remote_desktop.status_connecting"));
-                    clientStatusLabel.setForeground(Color.ORANGE);
+                    clientStatusLabel.setForeground(Tokens.warning());
 
                     Timer joinTimer = new Timer(500, null);
                     joinTimer.addActionListener(evt -> {
@@ -266,7 +292,7 @@ public class RemoteDesktopPanel extends ToolPanel {
                             signalClient.join(myId, group, name);
 
                             clientStatusLabel.setText(I18n.get("remote_desktop.status_connected", group, myId));
-                            clientStatusLabel.setForeground(new Color(75, 181, 67));
+                            clientStatusLabel.setForeground(Tokens.success());
                             connectServerBtn.setText(I18n.get("remote_desktop.connect_btn_disconnect"));
                             startControlBtn.setEnabled(true);
                             joinTimer.stop();
@@ -283,35 +309,27 @@ public class RemoteDesktopPanel extends ToolPanel {
 
     // ==================== 选项卡1：控制端 ====================
     private JComponent buildControlTab() {
-        JPanel panel = new JPanel(new GridBagLayout());
-        panel.setBorder(new EmptyBorder(10, 10, 10, 10));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(8, 8, 8, 8);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
+        JPanel panel = tabPage();
 
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0.0;
-        panel.add(new JLabel(I18n.get("remote_desktop.online_peers")), gbc);
-
-        peerSelectBox = new JComboBox<>();
+        peerSelectBox = Fields.combo(new String[0]);
         peerSelectBox.addItem(I18n.get("remote_desktop.no_peers_placeholder"));
-        peerSelectBox.setPreferredSize(new Dimension(250, 32));
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        panel.add(peerSelectBox, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0.0;
-        panel.add(new JLabel(I18n.get("remote_desktop.target_id")), gbc);
-
-        targetIdField = new JTextField();
+        targetIdField = Fields.text("");
         targetIdField.putClientProperty("JTextField.placeholderText", I18n.get("remote_desktop.target_id_placeholder"));
-        targetIdField.setPreferredSize(new Dimension(250, 32));
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        panel.add(targetIdField, gbc);
 
-        startControlBtn = new JButton(I18n.get("remote_desktop.start_control_btn"));
-        startControlBtn.setPreferredSize(new Dimension(120, 32));
+        startControlBtn = Buttons.primary(I18n.get("remote_desktop.start_control_btn"));
         startControlBtn.setEnabled(false);
-        gbc.gridx = 2; gbc.weightx = 0.0;
-        panel.add(startControlBtn, gbc);
+
+        // 选设备与手填 ID 是同一件事的两种入口，共用一个标签列；
+        // 发起控制跟在设备 ID 行尾——ID 就是操作对象，动作紧随其后最直观。
+        // 卡片不再加标题：唯一能写的标题就是页签名本身，重复一遍只是噪音。
+        FormGrid form = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_SM);
+        form.row(I18n.get("remote_desktop.online_peers"), peerSelectBox);
+        form.row(I18n.get("remote_desktop.target_id"), targetIdField, startControlBtn);
+
+        Card config = Card.plain();
+        config.setContent(form);
+        panel.add(config, BorderLayout.NORTH);
 
         peerSelectBox.addActionListener(e -> {
             Object sel = peerSelectBox.getSelectedItem();
@@ -324,15 +342,10 @@ public class RemoteDesktopPanel extends ToolPanel {
             }
         });
 
-        controlLogArea = new JTextArea();
-        controlLogArea.setEditable(false);
-        JScrollPane scroll = new JScrollPane(controlLogArea);
-        scroll.setBorder(BorderFactory.createTitledBorder(I18n.get("remote_desktop.control_log_border")));
-
-        gbc.gridx = 0; gbc.gridy = 2;
-        gbc.gridwidth = 3; gbc.weighty = 1.0;
-        gbc.fill = GridBagConstraints.BOTH;
-        panel.add(scroll, gbc);
+        controlLogArea = logArea();
+        Card log = Card.flush(I18n.get("remote_desktop.control_log_border"));
+        log.setContent(Fields.scroll(controlLogArea));
+        panel.add(log, BorderLayout.CENTER);
 
         startControlBtn.addActionListener(e -> {
             String targetId = targetIdField.getText().trim();
@@ -379,28 +392,27 @@ public class RemoteDesktopPanel extends ToolPanel {
 
     // ==================== 选项卡2：被控端 ====================
     private JComponent buildBeControlledTab() {
-        JPanel panel = new JPanel(new BorderLayout(10, 10));
-        panel.setBorder(new EmptyBorder(10, 10, 10, 10));
+        JPanel panel = tabPage();
 
-        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 10));
-        top.setBorder(BorderFactory.createTitledBorder(I18n.get("remote_desktop.host_switch_border")));
-
-        allowBeControlledBtn = new JToggleButton(I18n.get("remote_desktop.host_btn_off"));
-        allowBeControlledBtn.setPreferredSize(new Dimension(140, 32));
-        top.add(allowBeControlledBtn);
+        allowBeControlledBtn = Buttons.toggle(I18n.get("remote_desktop.host_btn_off"), false);
 
         hostStatusLabel = new JLabel(I18n.get("remote_desktop.host_status_offline"));
-        hostStatusLabel.setForeground(Color.GRAY);
-        hostStatusLabel.setFont(new Font("Microsoft YaHei", Font.BOLD, 12));
-        top.add(hostStatusLabel);
+        hostStatusLabel.setFont(Tokens.fontBodyStrong());
+        hostStatusLabel.setForeground(Tokens.mutedForeground());
 
-        panel.add(top, BorderLayout.NORTH);
+        // 开关和状态是一句话的两半，紧挨着排；ActionBar 保证窄窗口下状态文字先被压缩而不是换行
+        ActionBar bar = new ActionBar();
+        bar.left(allowBeControlledBtn);
+        bar.left(hostStatusLabel);
 
-        hostLogArea = new JTextArea();
-        hostLogArea.setEditable(false);
-        JScrollPane scroll = new JScrollPane(hostLogArea);
-        scroll.setBorder(BorderFactory.createTitledBorder(I18n.get("remote_desktop.host_log_border")));
-        panel.add(scroll, BorderLayout.CENTER);
+        Card switchCard = Card.titled(I18n.get("remote_desktop.host_switch_border"));
+        switchCard.setContent(bar);
+        panel.add(switchCard, BorderLayout.NORTH);
+
+        hostLogArea = logArea();
+        Card log = Card.flush(I18n.get("remote_desktop.host_log_border"));
+        log.setContent(Fields.scroll(hostLogArea));
+        panel.add(log, BorderLayout.CENTER);
 
         allowBeControlledBtn.addActionListener(e -> {
             boolean active = allowBeControlledBtn.isSelected();
@@ -419,7 +431,7 @@ public class RemoteDesktopPanel extends ToolPanel {
     private void startHostService() {
         appendLog(hostLogArea, I18n.get("remote_desktop.host_log_starting"));
         hostStatusLabel.setText(I18n.get("remote_desktop.host_status_starting"));
-        hostStatusLabel.setForeground(Color.ORANGE);
+        hostStatusLabel.setForeground(Tokens.warning());
 
         try {
             URI uri = new URI(serverUrlField.getText().trim());
@@ -508,7 +520,7 @@ public class RemoteDesktopPanel extends ToolPanel {
 
                     hostSignalClient.join(myHostId, group, name);
                     hostStatusLabel.setText(I18n.get("remote_desktop.host_status_waiting", group, myHostId));
-                    hostStatusLabel.setForeground(new Color(75, 181, 67));
+                    hostStatusLabel.setForeground(Tokens.success());
                     appendLog(hostLogArea, I18n.get("remote_desktop.host_log_join_success", group, myHostId));
                     hostJoinTimer.stop();
                 }
@@ -934,34 +946,30 @@ public class RemoteDesktopPanel extends ToolPanel {
             hostSignalClient = null;
         }
         hostStatusLabel.setText(I18n.get("remote_desktop.host_status_offline"));
-        hostStatusLabel.setForeground(Color.GRAY);
+        hostStatusLabel.setForeground(Tokens.mutedForeground());
         appendLog(hostLogArea, I18n.get("remote_desktop.host_log_stopped"));
     }
 
     // ==================== 选项卡3：本地信令服务 ====================
     private JComponent buildServerTab() {
-        JPanel panel = new JPanel(new BorderLayout(10, 10));
-        panel.setBorder(new EmptyBorder(10, 10, 10, 10));
+        JPanel panel = tabPage();
 
-        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 10));
-        top.setBorder(BorderFactory.createTitledBorder(I18n.get("remote_desktop.server_config_border")));
+        // 端口是四位数字，用 rowCompact 保持首选宽度，不拉满整行
+        localPortField = Fields.text("21701");
+        startServerBtn = Buttons.primary(I18n.get("remote_desktop.server_btn_start"));
 
-        top.add(new JLabel(I18n.get("remote_desktop.server_port")));
-        localPortField = new JTextField("21701");
-        localPortField.setPreferredSize(new Dimension(80, 28));
-        top.add(localPortField);
+        FormGrid form = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_SM);
+        form.rowCompact(I18n.get("remote_desktop.server_port"), localPortField);
 
-        startServerBtn = new JButton(I18n.get("remote_desktop.server_btn_start"));
-        startServerBtn.setPreferredSize(new Dimension(120, 28));
-        top.add(startServerBtn);
+        Card config = Card.titled(I18n.get("remote_desktop.server_config_border"));
+        config.setContent(form);
+        config.addHeaderAction(startServerBtn);
+        panel.add(config, BorderLayout.NORTH);
 
-        panel.add(top, BorderLayout.NORTH);
-
-        serverLogArea = new JTextArea();
-        serverLogArea.setEditable(false);
-        JScrollPane scroll = new JScrollPane(serverLogArea);
-        scroll.setBorder(BorderFactory.createTitledBorder(I18n.get("remote_desktop.server_log_border")));
-        panel.add(scroll, BorderLayout.CENTER);
+        serverLogArea = logArea();
+        Card log = Card.flush(I18n.get("remote_desktop.server_log_border"));
+        log.setContent(Fields.scroll(serverLogArea));
+        panel.add(log, BorderLayout.CENTER);
 
         startServerBtn.addActionListener(e -> {
             if (localSignalServer != null) {

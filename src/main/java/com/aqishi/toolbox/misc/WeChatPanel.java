@@ -1,6 +1,14 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -90,6 +98,8 @@ public class WeChatPanel extends ToolPanel {
     @Override
     protected JComponent build() {
         tabbedPane = new JTabbedPane();
+        // 页签自身不再画边框：外边距统一由每个页签内部的 Layouts.page() 提供
+        tabbedPane.setBorder(null);
 
         JPanel sendPanel = buildSendPanel();
         JPanel contactPanel = buildContactPanel();
@@ -103,161 +113,21 @@ public class WeChatPanel extends ToolPanel {
         return tabbedPane;
     }
 
+    /**
+     * 群发助手页：参数在上，左侧「发什么」、右侧「发得怎么样」。
+     *
+     * <p>只有发送参数按首选高度固定在页首；待发送列表与全局附件都属于「这次要发的内容」，
+     * 叠在左栏，执行日志独占右栏。全部结果区都放进分隔条而不是 {@code NORTH}，
+     * 窗口变矮时它们一起收缩，不会出现配置区把内容区挤到只剩一条缝的情况。</p>
+     */
     private JPanel buildSendPanel() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // 1. Top Settings Panel
-        JPanel settingsPanel = new JPanel(new GridBagLayout());
-        settingsPanel.setBorder(BorderFactory.createTitledBorder("微信群发配置参数"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(4, 8, 4, 8);
-
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        settingsPanel.add(new JLabel("唤醒微信快捷键:"), gbc);
-        JTextField wakeupKeyField = new JTextField("Ctrl + Alt + W");
-        wakeupKeyField.setEditable(false);
-        wakeupKeyField.setPreferredSize(new Dimension(100, 26));
-        gbc.gridx = 1; gbc.weightx = 0.2;
-        settingsPanel.add(wakeupKeyField, gbc);
-
-        gbc.gridx = 2; gbc.weightx = 0;
-        settingsPanel.add(new JLabel("检索延时(毫秒):"), gbc);
-        searchDelayField = new JTextField("800");
-        searchDelayField.setPreferredSize(new Dimension(80, 26));
-        gbc.gridx = 3; gbc.weightx = 0.2;
-        settingsPanel.add(searchDelayField, gbc);
-
-        gbc.gridx = 4; gbc.weightx = 0;
-        settingsPanel.add(new JLabel("微信发送按键:"), gbc);
-        sendKeyCombo = new JComboBox<>(new String[]{"Enter", "Ctrl + Enter"});
-        sendKeyCombo.setPreferredSize(new Dimension(100, 26));
-        gbc.gridx = 5; gbc.weightx = 0.2;
-        settingsPanel.add(sendKeyCombo, gbc);
-
-        // Row 2 Settings
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
-        settingsPanel.add(new JLabel("搜索框快捷键:"), gbc);
-        JTextField searchKeyField = new JTextField("Ctrl + F");
-        searchKeyField.setEditable(false);
-        gbc.gridx = 1; gbc.weightx = 0.2;
-        settingsPanel.add(searchKeyField, gbc);
-
-        gbc.gridx = 2; gbc.weightx = 0;
-        settingsPanel.add(new JLabel("唤醒延时(毫秒):"), gbc);
-        wakeupDelayField = new JTextField("500");
-        gbc.gridx = 3; gbc.weightx = 0.2;
-        settingsPanel.add(wakeupDelayField, gbc);
-
-        gbc.gridx = 4; gbc.weightx = 0;
-        settingsPanel.add(new JLabel("发送间隔(毫秒):"), gbc);
-        intervalField = new JTextField("2000");
-        gbc.gridx = 5; gbc.weightx = 0.2;
-        settingsPanel.add(intervalField, gbc);
-
-        // Row 3 Settings: Safety options
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 1; gbc.weightx = 0;
-        settingsPanel.add(new JLabel("安全模式:"), gbc);
-
-        confirmBeforeSendCb = new JCheckBox("发送前人工确认 (防错发/防失效)");
-        confirmBeforeSendCb.setSelected(false);
-        gbc.gridx = 1; gbc.gridwidth = 3; gbc.weightx = 0.5;
-        settingsPanel.add(confirmBeforeSendCb, gbc);
-
-        JLabel tipsLabel = new JLabel("<html><b>防错提示：</b>强烈建议使用微信唯一备注名！若搜索不到弹窗，本工具会自动发送 Esc 关闭恢复。</html>");
-        tipsLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
-        gbc.gridx = 4; gbc.gridwidth = 2; gbc.weightx = 0.5;
-        settingsPanel.add(tipsLabel, gbc);
-
-        // 全局图片附件面板
-        JPanel globalImgPanel = new JPanel(new BorderLayout(6, 6));
-        globalImgPanel.setBorder(BorderFactory.createTitledBorder("全局附加图片 (发送时将连同文本依次发送)"));
-
-        JPanel ctrlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        enableGlobalImgCb = new JCheckBox("启用全局图片附件");
-        addGlobalImgBtn = new JButton("添加图片");
-        delGlobalImgBtn = new JButton("删除");
-        clearGlobalImgBtn = new JButton("清空");
-        ctrlPanel.add(enableGlobalImgCb);
-        ctrlPanel.add(addGlobalImgBtn);
-        ctrlPanel.add(delGlobalImgBtn);
-        ctrlPanel.add(clearGlobalImgBtn);
-        globalImgPanel.add(ctrlPanel, BorderLayout.NORTH);
-
-        globalImgListModel = new DefaultListModel<>();
-        globalImgList = new JList<>(globalImgListModel);
-        globalImgList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        JScrollPane scrollList = new JScrollPane(globalImgList);
-        scrollList.setPreferredSize(new Dimension(0, 65)); // 紧凑高度
-        globalImgPanel.add(scrollList, BorderLayout.CENTER);
-
-        // 组合 settingsPanel 和 globalImgPanel
-        JPanel northPanel = new JPanel(new BorderLayout(4, 4));
-        northPanel.add(settingsPanel, BorderLayout.NORTH);
-        northPanel.add(globalImgPanel, BorderLayout.SOUTH);
-
-        root.add(northPanel, BorderLayout.NORTH);
-
-        // 2. Middle Split: Contacts Table & Logs
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        splitPane.setDividerLocation(260);
-
-        // Table Panel
-        JPanel tablePanel = new JPanel(new BorderLayout(4, 4));
-        tableModel = new DefaultTableModel(new String[]{"ID", "联系人/备注(精准名称)", "发送内容", "状态", "发送时间"}, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return column == 1 || column == 2; // Only allow editing name and message
-            }
-        };
-        contactTable = new JTable(tableModel);
-        contactTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        JScrollPane tableScroll = new JScrollPane(contactTable);
-        tablePanel.add(tableScroll, BorderLayout.CENTER);
-
-        // Table actions
-        JPanel tableActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        addRowBtn = new JButton("添加一行");
-        addImgRowBtn = new JButton("添加图片行");
-        clearBtn = new JButton("清空表格");
-        importBtn = new JButton("导入 Excel");
-        exportTplBtn = new JButton("导出模板");
-        tableActions.add(addRowBtn);
-        tableActions.add(addImgRowBtn);
-        tableActions.add(clearBtn);
-        tableActions.add(importBtn);
-        tableActions.add(exportTplBtn);
-        tablePanel.add(tableActions, BorderLayout.SOUTH);
-
-        splitPane.setTopComponent(tablePanel);
-
-        // Log / Console Panel
-        JPanel logPanel = new JPanel(new BorderLayout(4, 4));
-        logPanel.setBorder(BorderFactory.createTitledBorder("执行日志与注意事项"));
-        logArea = new JTextArea();
-        logArea.setEditable(false);
-        logArea.setFont(UIUtils.monoFont());
-        logPanel.add(new JScrollPane(logArea), BorderLayout.CENTER);
-
-        // Action Toolbar
-        JPanel actionToolbar = new JPanel(new BorderLayout(6, 6));
-        progressBar = new JProgressBar();
-        progressBar.setStringPainted(true);
-        progressBar.setPreferredSize(new Dimension(200, 26));
-        actionToolbar.add(progressBar, BorderLayout.CENTER);
-
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        startBtn = UIUtils.button("开始群发", 100);
-        stopBtn = UIUtils.button("停止群发", 100);
-        stopBtn.setEnabled(false);
-        btnPanel.add(startBtn);
-        btnPanel.add(stopBtn);
-        actionToolbar.add(btnPanel, BorderLayout.EAST);
-        logPanel.add(actionToolbar, BorderLayout.SOUTH);
-
-        splitPane.setBottomComponent(logPanel);
-        root.add(splitPane, BorderLayout.CENTER);
+        root.add(buildSendConfigCard(), BorderLayout.NORTH);
+        root.add(Layouts.splitHorizontal(
+                clampedSplit(Layouts.splitVertical(
+                        buildSendTableCard(), buildGlobalImageCard(), 1.0), 0.68),
+                buildSendLogCard(), 0.5, 0.55), BorderLayout.CENTER);
 
         // Print initial warning logs
         logArea.setText("【使用说明与注意事项】\n" +
@@ -271,62 +141,210 @@ public class WeChatPanel extends ToolPanel {
         return root;
     }
 
+    /**
+     * 首次拿到实际尺寸时按比例摆一次分隔条，并把位置夹在两侧最小尺寸之间。
+     *
+     * <p>{@code JSplitPane.setDividerLocation(double)} 只按比例算，不看子组件最小尺寸：
+     * 窗口很矮时下方卡片会被压得比「标题带 + 底部按钮条」还短，两者直接重叠。
+     * 这里优先保住第二个组件放得下，再保第一个，两边都放不下时各占一半。</p>
+     */
+    private static JSplitPane clampedSplit(final JSplitPane split, final double ratio) {
+        split.addComponentListener(new java.awt.event.ComponentAdapter() {
+            private boolean placed;
+
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent event) {
+                boolean horizontal = split.getOrientation() == JSplitPane.HORIZONTAL_SPLIT;
+                int size = horizontal ? split.getWidth() : split.getHeight();
+                if (placed || size <= 0) {
+                    return;
+                }
+                placed = true;
+                int usable = size - split.getDividerSize();
+                int minFirst = minExtent(split.getLeftComponent(), horizontal);
+                int minSecond = minExtent(split.getRightComponent(), horizontal);
+                int location = Math.min((int) (size * ratio), usable - minSecond);
+                location = Math.max(location, Math.min(minFirst, usable / 2));
+                split.setDividerLocation(location);
+            }
+
+            private int minExtent(Component component, boolean horizontal) {
+                if (component == null) {
+                    return 0;
+                }
+                Dimension min = component.getMinimumSize();
+                return horizontal ? min.width : min.height;
+            }
+        });
+        return split;
+    }
+
+    /**
+     * 群发参数卡片：左列＝按哪些键，右列＝各段等待多久。
+     *
+     * <p>六项参数两两同类，分两列后卡片高度减半；开始 / 停止是整页的主操作，
+     * 放卡片标题右侧，不再单独占一行按钮条。</p>
+     */
+    private Card buildSendConfigCard() {
+        JTextField wakeupKeyField = Fields.text("Ctrl + Alt + W");
+        wakeupKeyField.setEditable(false);
+        JTextField searchKeyField = Fields.text("Ctrl + F");
+        searchKeyField.setEditable(false);
+        sendKeyCombo = Fields.combo(new String[]{"Enter", "Ctrl + Enter"}, 140);
+
+        wakeupDelayField = Fields.text("500");
+        searchDelayField = Fields.text("800");
+        intervalField = Fields.text("2000");
+
+        // 六项都是短取值（快捷键文本、三四位毫秒数），用 rowCompact 保持首选宽度，
+        // 拉满半栏只会让「500」这样的输入横跨小半个窗口
+        FormGrid keys = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        keys.rowCompact("唤醒微信快捷键", wakeupKeyField);
+        keys.rowCompact("搜索框快捷键", searchKeyField);
+        keys.rowCompact("微信发送按键", sendKeyCombo);
+
+        FormGrid delays = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        delays.rowCompact("唤醒延时(毫秒)", wakeupDelayField);
+        delays.rowCompact("检索延时(毫秒)", searchDelayField);
+        delays.rowCompact("发送间隔(毫秒)", intervalField);
+
+        confirmBeforeSendCb = Fields.check("发送前人工确认 (防错发/防失效)", false);
+
+        FormGrid form = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_SM);
+        form.fullRow(Layouts.columns(Tokens.SPACE_XL, keys, delays));
+        form.row("安全模式", Layouts.wrapRow(confirmBeforeSendCb));
+        form.fullRow(new WrapNote(
+                "<html><b>防错提示：</b>强烈建议使用微信唯一备注名！若搜索不到弹窗，本工具会自动发送 Esc 关闭恢复。</html>"));
+
+        startBtn = Buttons.primary("开始群发");
+        stopBtn = Buttons.danger("停止群发");
+        stopBtn.setEnabled(false);
+
+        Card card = Card.titled("微信群发配置参数");
+        card.setContent(form);
+        // addHeaderAction 从左往右排，主操作最后加才落在最右
+        card.addHeaderAction(stopBtn);
+        card.addHeaderAction(startBtn);
+        return card;
+    }
+
+    /**
+     * 全局附件卡片：启用开关与三个列表操作提到标题带，路径列表铺满卡片。
+     *
+     * <p>高度交给上方的纵向分隔条按比例分配，不再写死一个「紧凑高度」——
+     * 附件多的时候用户可以自己把分隔条往上拖。</p>
+     */
+    private Card buildGlobalImageCard() {
+        enableGlobalImgCb = Fields.check("启用全局图片附件", false);
+        addGlobalImgBtn = Buttons.secondary("添加图片");
+        delGlobalImgBtn = Buttons.secondary("删除");
+        clearGlobalImgBtn = Buttons.danger("清空");
+
+        globalImgListModel = new DefaultListModel<>();
+        globalImgList = new JList<>(globalImgListModel);
+        globalImgList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        globalImgList.setFont(Tokens.fontBody());
+
+        // 标题保持原文案的一整句：拆成标题 + 副标题会多占一行高度，
+        // 这张卡片在矮窗口下本来就只剩「标题带 + 按钮条」的空间
+        Card card = Card.flush("全局附加图片 (发送时将连同文本依次发送)");
+        // 只有启用开关放标题带；三个按钮再塞进去会在窄窗口把标题挤成 0 宽，
+        // 底部用 wrapRow 则可以折行
+        card.addHeaderAction(enableGlobalImgCb);
+        card.setContent(Fields.scroll(globalImgList));
+        card.setFooter(Layouts.wrapRow(addGlobalImgBtn, delGlobalImgBtn, clearGlobalImgBtn));
+        return card;
+    }
+
+    /**
+     * 待发送列表卡片。
+     *
+     * <p>整表级别的导入 / 导出放标题带，按行编辑的三个动作放底部状态条；
+     * 这张卡片只占分隔条左侧一半宽度，底部用 {@code wrapRow} 才能在窄窗口下折行而不是被裁掉。</p>
+     */
+    private Card buildSendTableCard() {
+        tableModel = new DefaultTableModel(new String[]{"ID", "联系人/备注(精准名称)", "发送内容", "状态", "发送时间"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return column == 1 || column == 2; // Only allow editing name and message
+            }
+        };
+        contactTable = new JTable(tableModel);
+        contactTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
+        addRowBtn = Buttons.secondary("添加一行");
+        addImgRowBtn = Buttons.secondary("添加图片行");
+        clearBtn = Buttons.danger("清空表格");
+        importBtn = Buttons.secondary("导入 Excel");
+        exportTplBtn = Buttons.ghost("导出模板");
+
+        Card card = Card.flush("待发送联系人");
+        card.addHeaderAction(exportTplBtn);
+        card.addHeaderAction(importBtn);
+        card.setContent(Fields.scroll(contactTable));
+        card.setFooter(Layouts.wrapRow(addRowBtn, addImgRowBtn, clearBtn));
+        return card;
+    }
+
+    /** 执行日志卡片：日志铺满，进度条作为底部状态条 */
+    private Card buildSendLogCard() {
+        logArea = new JTextArea();
+        logArea.setEditable(false);
+        logArea.setFont(Tokens.fontMono());
+        // 日志现在只占分隔条右半边，长行按词换行才看得全，不必横向拖滚动条
+        logArea.setLineWrap(true);
+        logArea.setWrapStyleWord(true);
+        logArea.setBorder(KitBorders.padding(
+                Tokens.SPACE_SM, Tokens.SPACE_SM, Tokens.SPACE_SM, Tokens.SPACE_SM));
+
+        progressBar = new JProgressBar();
+        progressBar.setStringPainted(true);
+
+        Card card = Card.flush("执行日志与注意事项");
+        card.setContent(Fields.scroll(logArea));
+        card.setFooter(progressBar);
+        return card;
+    }
+
+    /**
+     * 通讯录管理页：导入入口在上，联系人表格吸收全部剩余空间。
+     *
+     * <p>这一页只有一块结果区（表格），所以不做左右分栏；过滤条紧贴表格上沿放在同一张卡片内，
+     * 批量动作与统计走卡片底部状态条。</p>
+     */
     private JPanel buildContactPanel() {
-        JPanel panel = new JPanel(new BorderLayout(8, 8));
-        panel.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
+        root.add(buildContactImportCard(), BorderLayout.NORTH);
+        root.add(buildContactTableCard(), BorderLayout.CENTER);
+        return root;
+    }
 
-        // 1. Top Panel: Database File Selector & Load
-        JPanel topPanel = new JPanel(new GridBagLayout());
-        topPanel.setBorder(BorderFactory.createTitledBorder("数据导入与说明"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(6, 8, 6, 8);
-
+    /** 导入入口卡片：三个入口按钮文案都很长，用 wrapRow 让窄窗口折行而不是被右边界裁掉 */
+    private Card buildContactImportCard() {
         wxcDbPathField = new JTextField(); // Keep initialized to avoid NPE
-        
-        JPanel importBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        wxcBrowseBtn = new JButton("导入外部通讯录文件 (Excel/CSV/TXT)...");
-        wxcLoadBtn = new JButton("从剪贴板/文本批量导入...");
-        wxcAutoCollectBtn = new JButton("模拟人工点击获取...");
-        importBtnRow.add(wxcBrowseBtn);
-        importBtnRow.add(wxcLoadBtn);
-        importBtnRow.add(wxcAutoCollectBtn);
 
-        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 4; gbc.weightx = 1.0;
-        topPanel.add(importBtnRow, gbc);
+        wxcBrowseBtn = Buttons.primary("导入外部通讯录文件 (Excel/CSV/TXT)...");
+        wxcLoadBtn = Buttons.secondary("从剪贴板/文本批量导入...");
+        wxcAutoCollectBtn = Buttons.secondary("模拟人工点击获取...");
 
-        // Usage Tip Label
-        JLabel tipLabel = new JLabel("<html><b>使用说明：</b>此处用于直接导入外部通讯录列表。您可以使用任何工具导出通讯录为 Excel、CSV 或 TXT 文件后在此导入，或者直接在弹窗中从剪贴板复制粘贴通讯录文本列表。支持字段自适应匹配（如昵称、微信号、备注、性别）。</html>");
-        tipLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
-        gbc.gridy = 1;
-        topPanel.add(tipLabel, gbc);
+        FormGrid form = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_SM);
+        form.fullRow(Layouts.wrapRow(wxcBrowseBtn, wxcLoadBtn, wxcAutoCollectBtn));
+        form.fullRow(new WrapNote("<html><b>使用说明：</b>此处用于直接导入外部通讯录列表。您可以使用任何工具导出通讯录为 Excel、CSV 或 TXT 文件后在此导入，或者直接在弹窗中从剪贴板复制粘贴通讯录文本列表。支持字段自适应匹配（如昵称、微信号、备注、性别）。</html>"));
 
-        panel.add(topPanel, BorderLayout.NORTH);
+        Card card = Card.titled("数据导入与说明");
+        card.setContent(form);
+        return card;
+    }
 
-        // 2. Center Panel: Filters & Table
-        JPanel centerPanel = new JPanel(new BorderLayout(6, 6));
-
-        // Filter bar
-        JPanel filterBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        filterBar.add(new JLabel("搜索(昵称/备注/微信号):"));
-        wxcSearchField = new JTextField(15);
-        wxcSearchField.setPreferredSize(new Dimension(150, 26));
-        filterBar.add(wxcSearchField);
-
-        filterBar.add(new JLabel("关系分类:"));
-        wxcFilterCombo = new JComboBox<>(new String[]{"全部联系人", "仅限好友", "仅限群聊", "仅限公众号"});
-        wxcFilterCombo.setPreferredSize(new Dimension(110, 26));
-        filterBar.add(wxcFilterCombo);
-
-        wxcSelectAllBtn = new JButton("全选/反选");
-        wxcSelectAllBtn.setPreferredSize(new Dimension(95, 26));
-        filterBar.add(wxcSelectAllBtn);
+    /** 联系人表格卡片：过滤条在表格上沿，批量动作与进度走底部状态条 */
+    private Card buildContactTableCard() {
+        wxcSearchField = Fields.text("");
+        wxcFilterCombo = Fields.combo(new String[]{"全部联系人", "仅限好友", "仅限群聊", "仅限公众号"}, 140);
+        wxcSelectAllBtn = Buttons.secondary("全选/反选");
 
         wxcStatsLabel = new JLabel("当前显示: 0 | 已选择: 0");
-        wxcStatsLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
-        filterBar.add(wxcStatsLabel);
-
-        centerPanel.add(filterBar, BorderLayout.NORTH);
+        wxcStatsLabel.setFont(Tokens.fontCaption());
+        wxcStatsLabel.setForeground(Tokens.mutedForeground());
 
         // Table
         wxcTableModel = new DefaultTableModel(new Object[]{"选择", "昵称", "微信号", "备注名", "标签", "UserName(隐藏)"}, 0) {
@@ -361,38 +379,94 @@ public class WeChatPanel extends ToolPanel {
         wxcTable.getColumnModel().getColumn(5).setMaxWidth(0);
         wxcTable.getColumnModel().getColumn(5).setPreferredWidth(0);
 
-        JScrollPane tableScroll = new JScrollPane(wxcTable);
-        centerPanel.add(tableScroll, BorderLayout.CENTER);
+        // ===== 过滤条：贴着表格上沿，用细线与表格分开 =====
+        ActionBar filterBar = new ActionBar();
+        filterBar.left(Fields.label("搜索(昵称/备注/微信号):"));
+        filterBar.left(wxcSearchField);
+        filterBar.left(Fields.label("关系分类:"));
+        filterBar.left(wxcFilterCombo);
 
-        panel.add(centerPanel, BorderLayout.CENTER);
+        JPanel filterBox = Layouts.box();
+        filterBox.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.SPACE_MD, Tokens.CARD_PADDING));
+        filterBox.add(filterBar, BorderLayout.CENTER);
 
-        // 3. Bottom Panel: Actions & Progress
-        JPanel bottomPanel = new JPanel(new BorderLayout(6, 6));
+        JPanel head = Layouts.box();
+        head.add(filterBox, BorderLayout.CENTER);
+        head.add(new Card.Hairline(), BorderLayout.SOUTH);
 
-        JPanel actionBtnLeftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        wxcAddToSendBtn = UIUtils.button("添加到群发列表", 140);
-        actionBtnLeftPanel.add(wxcAddToSendBtn);
+        JPanel body = Layouts.box();
+        body.add(head, BorderLayout.NORTH);
+        body.add(Fields.scroll(wxcTable), BorderLayout.CENTER);
 
-        JPanel actionBtnRightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
-        wxcExportBtn = new JButton("导出通讯录 Excel");
-        wxcDownloadAvatarBtn = new JButton("批量下载头像");
-        actionBtnRightPanel.add(wxcExportBtn);
-        actionBtnRightPanel.add(wxcDownloadAvatarBtn);
+        // ===== 底部状态条：左侧统计，右侧批量动作；进度条默认隐藏，不占高度 =====
+        wxcAddToSendBtn = Buttons.primary("添加到群发列表");
+        wxcExportBtn = Buttons.secondary("导出通讯录 Excel");
+        wxcDownloadAvatarBtn = Buttons.secondary("批量下载头像");
 
-        JPanel actionBtnContainer = new JPanel(new BorderLayout());
-        actionBtnContainer.add(actionBtnLeftPanel, BorderLayout.WEST);
-        actionBtnContainer.add(actionBtnRightPanel, BorderLayout.EAST);
-        bottomPanel.add(actionBtnContainer, BorderLayout.NORTH);
+        ActionBar actions = new ActionBar();
+        actions.left(wxcStatsLabel);
+        actions.right(wxcDownloadAvatarBtn);
+        actions.right(wxcExportBtn);
+        actions.right(wxcAddToSendBtn);
 
         wxcProgressBar = new JProgressBar();
         wxcProgressBar.setStringPainted(true);
-        wxcProgressBar.setPreferredSize(new Dimension(200, 24));
         wxcProgressBar.setVisible(false);
-        bottomPanel.add(wxcProgressBar, BorderLayout.SOUTH);
 
-        panel.add(bottomPanel, BorderLayout.SOUTH);
+        JPanel footer = Layouts.box(0, Tokens.SPACE_SM);
+        footer.add(actions, BorderLayout.CENTER);
+        footer.add(wxcProgressBar, BorderLayout.SOUTH);
 
-        return panel;
+        Card card = Card.flush("联系人列表");
+        card.addHeaderAction(wxcSelectAllBtn);
+        card.setContent(body);
+        card.setFooter(footer);
+        return card;
+    }
+
+    /**
+     * 会随宽度换行的 HTML 说明文字。
+     *
+     * <p>{@link JLabel} 的首选宽度按「整段排成一行」计算，放进按首选尺寸分配空间的表单里，
+     * 长说明会被右边界直接裁掉。这里在拿到实际宽度后让 HTML 视图按该宽度重排，
+     * 把折行后的真实高度回报给上层；宽度变化时主动 revalidate 触发重算。</p>
+     */
+    private static final class WrapNote extends JLabel {
+
+        WrapNote(String html) {
+            super(html);
+            setFont(Tokens.fontCaption());
+            setForeground(Tokens.mutedForeground());
+            setVerticalAlignment(TOP);
+            addComponentListener(new java.awt.event.ComponentAdapter() {
+                @Override
+                public void componentResized(java.awt.event.ComponentEvent event) {
+                    revalidate();
+                }
+            });
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            Dimension natural = super.getPreferredSize();
+            int width = getWidth();
+            javax.swing.text.View view = (javax.swing.text.View)
+                    getClientProperty(javax.swing.plaf.basic.BasicHTML.propertyKey);
+            if (width <= 0 || view == null) {
+                return natural;
+            }
+            Insets insets = getInsets();
+            view.setSize(width - insets.left - insets.right, 0);
+            int height = (int) Math.ceil(view.getPreferredSpan(javax.swing.text.View.Y_AXIS));
+            return new Dimension(width, height + insets.top + insets.bottom);
+        }
+
+        /** 最小宽度压到很小，网格退化到最小尺寸时说明文字先折行，而不是把同列的输入挤没 */
+        @Override
+        public Dimension getMinimumSize() {
+            return new Dimension(48, getPreferredSize().height);
+        }
     }
 
     private void setupContactListeners() {

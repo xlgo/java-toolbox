@@ -1,6 +1,14 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,8 +24,6 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import javax.swing.RowFilter;
@@ -58,6 +64,8 @@ public class KafkaPanel extends ToolPanel {
     private JTextArea customPropsArea;
     private JButton testBtn;
     private JButton connBtn;
+    /** 连接状态：常驻连接卡片标题带右侧，文字 + 语义色双重表达 */
+    private JLabel connStatusLabel;
 
     private boolean isConnected = false;
     private AdminClient adminClient = null;
@@ -128,173 +136,216 @@ public class KafkaPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // 1. Collapsible Connection Panel
-        JPanel connPanel = new JPanel(new BorderLayout());
-        connPanel.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor"), 1));
+        // 连接配置固定在顶部（高度自适应，可整块折叠）：连上之后把纵向空间全部让给下面的工作区
+        root.add(buildConnectionCard(), BorderLayout.NORTH);
 
-        // Header Panel (Toggles collapse)
-        connHeaderPanel = new JPanel(new BorderLayout());
-        connHeaderPanel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        connHeaderPanel.setBackground(UIManager.getColor("Panel.background"));
-        connHeaderPanel.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
+        // 运维控制台的固定动线是「选对象 → 看详情」，左窄右宽用可拖动分隔条按 3:7 分栏
+        root.add(Layouts.splitHorizontal(buildBrowser(), buildWorkspace(), 0.3), BorderLayout.CENTER);
+
+        // --- Hook Listeners ---
+        setupListeners();
+
+        // --- Load Profiles ---
+        loadProfilesFromPrefs();
+
+        return root;
+    }
+
+    /** 标签页内容容器：比 page() 更薄的一层内边距，免得和外层页边距叠加过厚 */
+    private static JPanel tabPage() {
+        JPanel page = Layouts.box(0, Tokens.SPACE_MD);
+        page.setBorder(KitBorders.padding(Tokens.SPACE_MD));
+        return page;
+    }
+
+    /** 卡片底部状态文字：小一号字 + 次要色，不跟表格内容抢视线 */
+    private static JLabel statusLabel(String text) {
+        JLabel label = new JLabel(text);
+        label.setFont(Tokens.fontCaption());
+        label.setForeground(Tokens.mutedForeground());
+        return label;
+    }
+
+    // ==================== 顶部：连接配置卡片 ====================
+
+    /**
+     * 连接卡片：标题带本身就是折叠开关，右侧常驻连接状态。
+     *
+     * <p>没有直接用 {@code Card.titled(...)}，因为标题文案要跟着折叠状态变
+     * （「点击折叠 / 点击展开」），所以自己拼一条与卡片标题带等高的行，
+     * 再用 {@link Card.Hairline} 跟表单分隔，视觉上与其它卡片一致。</p>
+     */
+    private Card buildConnectionCard() {
         connToggleLabel = new JLabel("▼ Kafka 连接配置 (点击折叠)");
-        connToggleLabel.setFont(UIUtils.titleFont());
+        connToggleLabel.setFont(Tokens.fontSectionTitle());
+        connToggleLabel.setForeground(Tokens.foreground());
+
+        // 连接状态先用文字说清楚，再叠加语义色：只靠颜色的话色觉障碍用户读不出来
+        connStatusLabel = new JLabel();
+        connStatusLabel.setFont(Tokens.fontCaption());
+
+        connHeaderPanel = new JPanel(new BorderLayout(Tokens.SPACE_SM, 0));
+        connHeaderPanel.setOpaque(false);
+        connHeaderPanel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        connHeaderPanel.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD - 2, Tokens.CARD_PADDING, Tokens.SPACE_SM, Tokens.CARD_PADDING));
         connHeaderPanel.add(connToggleLabel, BorderLayout.WEST);
-        connPanel.add(connHeaderPanel, BorderLayout.NORTH);
+        connHeaderPanel.add(connStatusLabel, BorderLayout.EAST);
 
-        // Body Panel (Inputs)
-        connBodyPanel = new JPanel(new GridBagLayout());
-        connBodyPanel.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(4, 6, 4, 6);
-
-        // Row 0: Profiles
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        connBodyPanel.add(new JLabel("已存配置:"), gbc);
-        
-        profileCombo = new JComboBox<>();
-        profileCombo.setPreferredSize(new Dimension(150, 28));
+        // 三行共用同一个标签列，长标签（自定义属性）也能和输入列严格对齐
+        profileCombo = Fields.combo(new String[0], 180);
         profileCombo.addActionListener(e -> onProfileSelected());
-        gbc.gridx = 1; gbc.weightx = 0.5;
-        connBodyPanel.add(profileCombo, gbc);
+        saveProfileBtn = Buttons.secondary("保存配置");
+        delProfileBtn = Buttons.danger("删除配置");
 
-        JPanel profileBtnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        saveProfileBtn = new JButton("保存配置");
-        delProfileBtn = new JButton("删除配置");
-        profileBtnPanel.add(saveProfileBtn);
-        profileBtnPanel.add(delProfileBtn);
-        gbc.gridx = 2; gbc.gridwidth = 2; gbc.weightx = 0.5;
-        connBodyPanel.add(profileBtnPanel, gbc);
-
-        // Row 1: Servers
-        gbc.gridwidth = 1;
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
-        connBodyPanel.add(new JLabel("Bootstrap Servers:"), gbc);
-
-        serversField = new JTextField("127.0.0.1:9092");
-        serversField.setPreferredSize(new Dimension(220, 28));
-        gbc.gridx = 1; gbc.gridwidth = 2; gbc.weightx = 1.0;
-        connBodyPanel.add(serversField, gbc);
-
-        JPanel actionBtnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        testBtn = UIUtils.button("测试连接", 90);
-        connBtn = UIUtils.button("连接", 90);
-        actionBtnPanel.add(testBtn);
-        actionBtnPanel.add(connBtn);
-        gbc.gridx = 3; gbc.gridwidth = 1; gbc.weightx = 0.2;
-        connBodyPanel.add(actionBtnPanel, gbc);
-
-        // Row 2: Custom Properties
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 1; gbc.weightx = 0;
-        connBodyPanel.add(new JLabel("自定义属性 (Key=Value):"), gbc);
+        serversField = Fields.text("127.0.0.1:9092");
+        testBtn = Buttons.secondary("测试连接");
+        connBtn = Buttons.primary("连接");
 
         customPropsArea = new JTextArea(2, 40);
-        customPropsArea.setFont(UIUtils.monoFont());
+        customPropsArea.setFont(Tokens.fontMono());
         customPropsArea.putClientProperty("JTextArea.placeholderText", "例如: \nrequest.timeout.ms=6000\nsecurity.protocol=PLAINTEXT");
-        JScrollPane propsScroll = new JScrollPane(customPropsArea);
-        propsScroll.setPreferredSize(new Dimension(0, 50));
-        gbc.gridx = 1; gbc.gridwidth = 3; gbc.weightx = 1.0;
-        connBodyPanel.add(propsScroll, gbc);
 
-        connPanel.add(connBodyPanel, BorderLayout.CENTER);
-        root.add(connPanel, BorderLayout.NORTH);
+        FormGrid form = new FormGrid();
+        form.rowCompact("已存配置:", profileCombo, Layouts.wrapRow(saveProfileBtn, delProfileBtn));
+        form.row("Bootstrap Servers:", serversField, Layouts.wrapRow(testBtn, connBtn));
+        // 卡片底色与文本域底色相同，属性框放进有内边距的卡片时要靠细描边才看得出边界
+        form.row("自定义属性 (Key=Value):", Fields.scrollBoxed(customPropsArea));
 
-        // 2. Main Workspace Split: Left (Browser), Right (Content & Logs)
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        mainSplit.setDividerLocation(260);
+        connBodyPanel = Layouts.box();
+        connBodyPanel.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.CARD_PADDING, Tokens.CARD_PADDING));
+        connBodyPanel.add(form, BorderLayout.CENTER);
 
-        // Left Component: JTabbedPane (Topics vs Groups)
+        JPanel headerBlock = Layouts.box();
+        headerBlock.add(connHeaderPanel, BorderLayout.CENTER);
+        headerBlock.add(new Card.Hairline(), BorderLayout.SOUTH);
+
+        // 折叠时 connBodyPanel 整块隐藏，卡片自动收成一条标题带
+        JPanel body = Layouts.box();
+        body.add(headerBlock, BorderLayout.NORTH);
+        body.add(connBodyPanel, BorderLayout.CENTER);
+
+        Card card = Card.plain().setFlush(true);
+        card.setContent(body);
+
+        bindConnectionStatus();
+        return card;
+    }
+
+    /**
+     * 连接状态跟随「连接 / 断开」按钮的文案变化。
+     *
+     * <p>监听按钮文案而不是往 connect()/disconnect() 里插一行，是为了完全不碰连接管理代码。</p>
+     */
+    private void bindConnectionStatus() {
+        updateConnStatus();
+        connBtn.addPropertyChangeListener("text", e -> updateConnStatus());
+    }
+
+    private void updateConnStatus() {
+        boolean connected = "断开".equals(connBtn.getText());
+        connStatusLabel.setText(connected ? "状态：已连接" : "状态：未连接");
+        connStatusLabel.setForeground(connected ? Tokens.success() : Tokens.danger());
+    }
+
+    // ==================== 左栏：对象浏览 ====================
+
+    /** 左栏：主题 / 消费组两个列表，各自带过滤框与刷新按钮 */
+    private JComponent buildBrowser() {
         leftTabbedPane = new JTabbedPane();
+        leftTabbedPane.setBorder(null);
 
-        // Left Tab 1: Topics
-        JPanel topicsPanel = new JPanel(new BorderLayout(6, 6));
-        topicsPanel.setBorder(new EmptyBorder(4, 4, 4, 4));
-
-        JPanel topicHeaderPanel = new JPanel(new BorderLayout(4, 0));
-        topicSearchField = new JTextField();
-        topicSearchField.putClientProperty("JTextField.placeholderText", "过滤主题...");
-        refreshTopicsBtn = new JButton("刷新");
-        topicHeaderPanel.add(topicSearchField, BorderLayout.CENTER);
-        topicHeaderPanel.add(refreshTopicsBtn, BorderLayout.EAST);
-        topicsPanel.add(topicHeaderPanel, BorderLayout.NORTH);
-
+        topicSearchField = Fields.text("", "过滤主题...");
+        refreshTopicsBtn = Buttons.secondary("刷新");
         topicListModel = new DefaultListModel<>();
         topicList = new JList<>(topicListModel);
         topicList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        topicsPanel.add(new JScrollPane(topicList), BorderLayout.CENTER);
-        leftTabbedPane.addTab("主题 (Topics)", topicsPanel);
+        leftTabbedPane.addTab("主题 (Topics)", listTab(topicSearchField, refreshTopicsBtn, topicList));
 
-        // Left Tab 2: Consumer Groups
-        JPanel groupsPanel = new JPanel(new BorderLayout(6, 6));
-        groupsPanel.setBorder(new EmptyBorder(4, 4, 4, 4));
-
-        JPanel groupHeaderPanel = new JPanel(new BorderLayout(4, 0));
-        groupSearchField = new JTextField();
-        groupSearchField.putClientProperty("JTextField.placeholderText", "过滤消费组...");
-        refreshGroupsBtn = new JButton("刷新");
-        groupHeaderPanel.add(groupSearchField, BorderLayout.CENTER);
-        groupHeaderPanel.add(refreshGroupsBtn, BorderLayout.EAST);
-        groupsPanel.add(groupHeaderPanel, BorderLayout.NORTH);
-
+        groupSearchField = Fields.text("", "过滤消费组...");
+        refreshGroupsBtn = Buttons.secondary("刷新");
         groupListModel = new DefaultListModel<>();
         groupList = new JList<>(groupListModel);
         groupList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        groupsPanel.add(new JScrollPane(groupList), BorderLayout.CENTER);
-        leftTabbedPane.addTab("消费组 (Groups)", groupsPanel);
+        leftTabbedPane.addTab("消费组 (Groups)", listTab(groupSearchField, refreshGroupsBtn, groupList));
 
-        mainSplit.setLeftComponent(leftTabbedPane);
+        return leftTabbedPane;
+    }
 
-        // Right Component: Tabs
+    /** 列表页：过滤框吃掉整行宽度、刷新按钮贴右，列表卡片吸收剩余高度 */
+    private static JComponent listTab(JTextField search, JButton refresh, JList<String> list) {
+        JPanel bar = Layouts.box(Tokens.SPACE_SM, 0);
+        bar.add(search, BorderLayout.CENTER);
+        bar.add(refresh, BorderLayout.EAST);
+
+        Card card = Card.plain().setFlush(true);
+        card.setContent(Fields.scroll(list));
+
+        JPanel page = tabPage();
+        page.add(bar, BorderLayout.NORTH);
+        page.add(card, BorderLayout.CENTER);
+        return page;
+    }
+
+    // ==================== 右栏：详情与操作 ====================
+
+    /** 右栏：Lag / 消息 / 生产 / 订阅者 / 日志五个视图，保留原有的标签页结构 */
+    private JComponent buildWorkspace() {
         rightTabbedPane = new JTabbedPane();
+        rightTabbedPane.setBorder(null);
+        rightTabbedPane.addTab("消费 Lag 详情", buildLagTab());
+        rightTabbedPane.addTab("消息查看", buildViewerTab());
+        rightTabbedPane.addTab("发送消息模拟", buildProducerTab());
+        rightTabbedPane.addTab("主题订阅者", buildSubscribersTab());
+        rightTabbedPane.addTab("控制台日志", buildConsoleTab());
+        return rightTabbedPane;
+    }
 
-        // Right Tab 1: Group Lag Viewer
-        JPanel lagPanel = new JPanel(new BorderLayout(6, 6));
-        lagPanel.setBorder(new EmptyBorder(6, 6, 6, 6));
+    /** 消费 Lag：单表铺满，提示语挂在卡片底部状态条上，不再单独占一行 */
+    private JComponent buildLagTab() {
         lagTableModel = new DefaultTableModel(new String[]{"主题", "分区 ID", "已提交 Offset", "最新 Log End Offset", "消费 Lag"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) { return false; }
         };
         lagTable = new JTable(lagTableModel);
-        lagPanel.add(new JScrollPane(lagTable), BorderLayout.CENTER);
-        lagStatusLabel = new JLabel("选择左侧消费组查看消费详情。(提示: 双击主题可直接切换到相应主题)");
-        lagPanel.add(lagStatusLabel, BorderLayout.SOUTH);
-        rightTabbedPane.addTab("消费 Lag 详情", lagPanel);
+        lagStatusLabel = statusLabel("选择左侧消费组查看消费详情。(提示: 双击主题可直接切换到相应主题)");
 
-        // Right Tab 2: Message Viewer (消息查看)
-        JPanel viewerPanel = new JPanel(new BorderLayout(8, 8));
-        viewerPanel.setBorder(new EmptyBorder(6, 6, 6, 6));
+        Card card = Card.plain().setFlush(true);
+        card.setContent(Fields.scroll(lagTable));
+        card.setFooter(lagStatusLabel);
 
-        JPanel viewerCtrlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        viewerCtrlPanel.add(new JLabel("分区:"));
-        partitionCombo = new JComboBox<>();
-        partitionCombo.setPreferredSize(new Dimension(100, 26));
-        viewerCtrlPanel.add(partitionCombo);
+        JPanel page = tabPage();
+        page.add(card, BorderLayout.CENTER);
+        return page;
+    }
 
-        viewerCtrlPanel.add(new JLabel("策略:"));
-        offsetStrategyCombo = new JComboBox<>(new String[]{"最新 50 条 (Latest 50)", "从头开始 (Earliest)", "最新 100 条 (Latest 100)", "最新 500 条 (Latest 500)"});
-        offsetStrategyCombo.setPreferredSize(new Dimension(160, 26));
+    /** 消息查看：顶部一条过滤/拉取操作条，下面「列表 + 详情」上下分栏 */
+    private JComponent buildViewerTab() {
+        // 下拉框给固定宽度（组件库允许的例外），否则会被 ActionBar 拉成几倍宽
+        partitionCombo = Fields.combo(new String[0], 110);
+        offsetStrategyCombo = Fields.combo(new String[]{"最新 50 条 (Latest 50)", "从头开始 (Earliest)", "最新 100 条 (Latest 100)", "最新 500 条 (Latest 500)"}, 170);
         offsetStrategyCombo.setSelectedItem("最新 50 条 (Latest 50)");
-        viewerCtrlPanel.add(offsetStrategyCombo);
+        msgSearchField = Fields.text("", "过滤 Value/Key...");
+        fetchBtn = Buttons.primary("拉取消息");
+        // ActionBar 只锁最大宽度，窄窗口下按钮仍会被压到最小宽度而把文案省略成「拉取...」；
+        // 主操作不该被截断，所以把最小宽度提到首选宽度，让检索框先让出空间
+        fetchBtn.setMinimumSize(fetchBtn.getPreferredSize());
 
-        viewerCtrlPanel.add(new JLabel("检索:"));
-        msgSearchField = new JTextField(12);
-        msgSearchField.putClientProperty("JTextField.placeholderText", "过滤 Value/Key...");
-        viewerCtrlPanel.add(msgSearchField);
+        // 用 ActionBar：窄窗口下先压缩检索框，「拉取消息」不会被挤到第二行，下拉框也不会被拉宽
+        ActionBar bar = new ActionBar();
+        bar.left(Fields.label("分区:"));
+        bar.left(partitionCombo);
+        bar.left(Fields.label("策略:"));
+        bar.left(offsetStrategyCombo);
+        bar.left(Fields.label("检索:"));
+        bar.left(msgSearchField);
+        bar.right(fetchBtn);
 
-        fetchBtn = UIUtils.button("拉取消息", 90);
-        viewerCtrlPanel.add(fetchBtn);
-
-        fetchStatusLabel = new JLabel("选择左侧主题。");
-        viewerCtrlPanel.add(fetchStatusLabel);
-        viewerPanel.add(viewerCtrlPanel, BorderLayout.NORTH);
-
-        // Message Split: Table (Top), Detail (Bottom)
-        JSplitPane msgSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        msgSplit.setDividerLocation(150);
+        Card controls = Card.plain();
+        controls.setContent(bar);
 
         messageTableModel = new DefaultTableModel(new String[]{"分区 ID", "Offset", "时间戳", "Headers 数量", "Key 长度", "Key", "Value 长度", "Value"}, 0) {
             @Override
@@ -314,127 +365,115 @@ public class KafkaPanel extends ToolPanel {
         messageTable = new JTable(messageTableModel);
         messageTableSorter = new TableRowSorter<>(messageTableModel);
         messageTable.setRowSorter(messageTableSorter);
-        msgSplit.setTopComponent(new JScrollPane(messageTable));
 
-        JTabbedPane messageDetailTabbedPane = new JTabbedPane();
+        fetchStatusLabel = statusLabel("选择左侧主题。");
+        Card listCard = Card.plain().setFlush(true);
+        listCard.setContent(Fields.scroll(messageTable));
+        listCard.setFooter(fetchStatusLabel);
 
         messageDetailArea = new JTextArea();
-        messageDetailArea.setFont(UIUtils.monoFont());
+        messageDetailArea.setFont(Tokens.fontMono());
         messageDetailArea.setEditable(false);
         messageDetailArea.setLineWrap(true);
         messageDetailArea.setWrapStyleWord(true);
-        messageDetailTabbedPane.addTab("消息内容 (Value)", new JScrollPane(messageDetailArea));
+        messageDetailArea.setBorder(KitBorders.padding(Tokens.SPACE_SM));
 
         messageHeadersTableModel = new DefaultTableModel(new String[]{"属性名称 (Key)", "属性值 (Value)"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) { return false; }
         };
         messageHeadersTable = new JTable(messageHeadersTableModel);
-        messageDetailTabbedPane.addTab("消息属性 (Headers)", new JScrollPane(messageHeadersTable));
 
-        msgSplit.setBottomComponent(messageDetailTabbedPane);
+        JTabbedPane messageDetailTabbedPane = new JTabbedPane();
+        messageDetailTabbedPane.setBorder(null);
+        messageDetailTabbedPane.addTab("消息内容 (Value)", Fields.scroll(messageDetailArea));
+        messageDetailTabbedPane.addTab("消息属性 (Headers)", Fields.scroll(messageHeadersTable));
 
-        viewerPanel.add(msgSplit, BorderLayout.CENTER);
-        rightTabbedPane.addTab("消息查看", viewerPanel);
+        Card detailCard = Card.plain().setFlush(true);
+        detailCard.setContent(messageDetailTabbedPane);
 
-        // Right Tab 3: Message Producer
-        JPanel producerPanel = new JPanel(new GridBagLayout());
-        producerPanel.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
-        GridBagConstraints pGbc = new GridBagConstraints();
-        pGbc.fill = GridBagConstraints.BOTH;
-        pGbc.insets = new Insets(6, 6, 6, 6);
+        JPanel page = tabPage();
+        page.add(controls, BorderLayout.NORTH);
+        page.add(Layouts.splitVertical(listCard, detailCard, 0.5), BorderLayout.CENTER);
+        return page;
+    }
 
-        pGbc.gridx = 0; pGbc.gridy = 0; pGbc.weightx = 0; pGbc.weighty = 0;
-        producerPanel.add(new JLabel("Key (可选):"), pGbc);
-
-        produceKeyField = new JTextField();
-        pGbc.gridx = 1; pGbc.weightx = 1.0;
-        producerPanel.add(produceKeyField, pGbc);
-
-        pGbc.gridx = 0; pGbc.gridy = 1; pGbc.weightx = 0; pGbc.weighty = 0.3;
-        producerPanel.add(new JLabel("自定义属性 (Headers, Key=Value):"), pGbc);
+    /** 发送消息：Key / Headers 是短表单放上面，Value 需要空间所以独占一张铺满卡片 */
+    private JComponent buildProducerTab() {
+        produceKeyField = Fields.text("");
 
         produceHeadersArea = new JTextArea(3, 40);
-        produceHeadersArea.setFont(UIUtils.monoFont());
+        produceHeadersArea.setFont(Tokens.fontMono());
         produceHeadersArea.putClientProperty("JTextArea.placeholderText", "例如:\ntraceId=123456\napp=toolbox\ncontent-type=application/json");
-        pGbc.gridx = 1; pGbc.weightx = 1.0;
-        producerPanel.add(new JScrollPane(produceHeadersArea), pGbc);
 
-        pGbc.gridx = 0; pGbc.gridy = 2; pGbc.weightx = 0; pGbc.weighty = 0.7;
-        producerPanel.add(new JLabel("Value (内容):"), pGbc);
+        FormGrid form = new FormGrid();
+        form.row("Key (可选):", produceKeyField);
+        form.row("自定义属性 (Headers, Key=Value):", Fields.scrollBoxed(produceHeadersArea));
+
+        Card metaCard = Card.titled("消息元数据");
+        metaCard.setContent(form);
 
         produceValueArea = new JTextArea();
-        produceValueArea.setFont(UIUtils.monoFont());
+        produceValueArea.setFont(Tokens.fontMono());
         produceValueArea.setLineWrap(true);
         produceValueArea.setWrapStyleWord(true);
-        pGbc.gridx = 1; pGbc.weightx = 1.0;
-        producerPanel.add(new JScrollPane(produceValueArea), pGbc);
+        produceValueArea.setBorder(KitBorders.padding(Tokens.SPACE_SM));
 
-        pGbc.gridx = 1; pGbc.gridy = 3; pGbc.weighty = 0; pGbc.fill = GridBagConstraints.HORIZONTAL;
-        JPanel prodActionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        produceSendBtn = UIUtils.button("发送消息", 100);
-        produceStatusLabel = new JLabel("");
-        prodActionPanel.add(produceStatusLabel);
-        prodActionPanel.add(produceSendBtn);
-        producerPanel.add(prodActionPanel, pGbc);
+        produceSendBtn = Buttons.primary("发送消息");
+        produceStatusLabel = statusLabel("");
 
-        rightTabbedPane.addTab("发送消息模拟", producerPanel);
+        // 发送按钮放卡片标题右侧，发送结果放底部状态条，正文区因此能占满剩余高度
+        Card valueCard = Card.flush("Value (内容)");
+        valueCard.setContent(Fields.scroll(produceValueArea));
+        valueCard.addHeaderAction(produceSendBtn);
+        valueCard.setFooter(produceStatusLabel);
 
-        // Right Tab 4: Topic Subscribers
-        JPanel subscribersPanel = new JPanel(new BorderLayout(6, 6));
-        subscribersPanel.setBorder(new EmptyBorder(6, 6, 6, 6));
+        JPanel page = tabPage();
+        page.add(metaCard, BorderLayout.NORTH);
+        page.add(valueCard, BorderLayout.CENTER);
+        return page;
+    }
 
-        JSplitPane subSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        subSplit.setDividerLocation(140);
-
-        JPanel subGroupPanel = new JPanel(new BorderLayout(4, 4));
-        subGroupPanel.setBorder(BorderFactory.createTitledBorder("订阅了该主题的消费组"));
+    /** 主题订阅者：消费组与其成员是主从关系，用上下分栏代替两个 TitledBorder */
+    private JComponent buildSubscribersTab() {
         subscriberGroupTableModel = new DefaultTableModel(new String[]{"消费组 ID", "状态 (State)", "订阅类型", "当前总成员数"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) { return false; }
         };
         subscriberGroupTable = new JTable(subscriberGroupTableModel);
         subscriberGroupTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        subGroupPanel.add(new JScrollPane(subscriberGroupTable), BorderLayout.CENTER);
-        subSplit.setTopComponent(subGroupPanel);
+        Card groupCard = Card.flush("订阅了该主题的消费组");
+        groupCard.setContent(Fields.scroll(subscriberGroupTable));
 
-        JPanel subMemberPanel = new JPanel(new BorderLayout(4, 4));
-        subMemberPanel.setBorder(BorderFactory.createTitledBorder("选中消费组的活跃消费者成员 (分配了该主题分区)"));
         subscriberMemberTableModel = new DefaultTableModel(new String[]{"消费者成员 ID", "客户端 ID (ClientId)", "主机 (Host)", "分配的分区"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) { return false; }
         };
         subscriberMemberTable = new JTable(subscriberMemberTableModel);
         subscriberMemberTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        subMemberPanel.add(new JScrollPane(subscriberMemberTable), BorderLayout.CENTER);
-        subSplit.setBottomComponent(subMemberPanel);
+        subscribersStatusLabel = statusLabel("在左侧选择主题以查询订阅者详情。");
+        Card memberCard = Card.flush("选中消费组的活跃消费者成员 (分配了该主题分区)");
+        memberCard.setContent(Fields.scroll(subscriberMemberTable));
+        memberCard.setFooter(subscribersStatusLabel);
 
-        subscribersPanel.add(subSplit, BorderLayout.CENTER);
+        JPanel page = tabPage();
+        page.add(Layouts.splitVertical(groupCard, memberCard, 0.45), BorderLayout.CENTER);
+        return page;
+    }
 
-        subscribersStatusLabel = new JLabel("在左侧选择主题以查询订阅者详情。");
-        subscribersPanel.add(subscribersStatusLabel, BorderLayout.SOUTH);
-
-        rightTabbedPane.addTab("主题订阅者", subscribersPanel);
-
-        // Right Tab 5: Bottom Console Logs
-        JPanel consolePanel = new JPanel(new BorderLayout(6, 6));
-        consolePanel.setBorder(new EmptyBorder(6, 6, 6, 6));
+    /** 控制台日志：铺满型卡片，长堆栈才有地方展开 */
+    private JComponent buildConsoleTab() {
         consoleOutput = new JTextArea();
-        consoleOutput.setFont(UIUtils.monoFont());
+        consoleOutput.setFont(Tokens.fontMono());
         consoleOutput.setEditable(false);
-        consolePanel.add(new JScrollPane(consoleOutput), BorderLayout.CENTER);
-        rightTabbedPane.addTab("控制台日志", consolePanel);
+        consoleOutput.setBorder(KitBorders.padding(Tokens.SPACE_SM));
 
-        mainSplit.setRightComponent(rightTabbedPane);
-        root.add(mainSplit, BorderLayout.CENTER);
+        Card card = Card.plain().setFlush(true);
+        card.setContent(Fields.scroll(consoleOutput));
 
-        // --- Hook Listeners ---
-        setupListeners();
-
-        // --- Load Profiles ---
-        loadProfilesFromPrefs();
-
-        return root;
+        JPanel page = tabPage();
+        page.add(card, BorderLayout.CENTER);
+        return page;
     }
 
     private void setupListeners() {

@@ -2,6 +2,14 @@ package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.VaultAccessPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.vault.PasswordAccount;
@@ -22,7 +30,6 @@ import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
-import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.RowFilter;
@@ -34,10 +41,6 @@ import javax.swing.table.TableRowSorter;
 import java.awt.BorderLayout;
 import java.awt.Desktop;
 import java.awt.Dialog;
-import java.awt.FlowLayout;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -49,6 +52,11 @@ import java.util.regex.Pattern;
 
 /** Password records UI backed exclusively by the shared encrypted vault. */
 public final class AccountManagerPanel extends ToolPanel {
+    /** 密码列的掩码：详情区与表格用同一份，明文永远不进入界面 */
+    private static final String MASK = "********";
+    /** 未选中任何账号时详情区显示的占位符 */
+    private static final String NO_VALUE = "—";
+
     private final VaultService service;
     private final SecureClipboard clipboard;
     private final List<PasswordAccount> accounts = new ArrayList<>();
@@ -65,6 +73,10 @@ public final class AccountManagerPanel extends ToolPanel {
     private JButton copyPassword;
     private JButton copyUrl;
     private JButton visit;
+    private JLabel detailName;
+    private JLabel detailUsername;
+    private JLabel detailPassword;
+    private JLabel detailUrl;
     private boolean updatingCategory;
 
     public AccountManagerPanel(VaultService service, SecureClipboard clipboard) {
@@ -76,62 +88,39 @@ public final class AccountManagerPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel content = new JPanel(new BorderLayout(0, UIUtils.SPACE_SM));
-        content.setBorder(UIUtils.CONTENT_PADDING);
-        content.add(buildToolbar(), BorderLayout.NORTH);
-        content.add(buildTable(), BorderLayout.CENTER);
+        JPanel root = Layouts.page();
+        // 左表格右详情：账号条数多时列表要占大头，右侧只承担「看选中项 + 取值」两件事
+        root.add(Layouts.splitHorizontal(buildListCard(), buildDetailCard(), 0.7),
+                BorderLayout.CENTER);
         service.addListener(listener);
         refreshFromService();
-        return new VaultAccessPanel(service, content);
+        return new VaultAccessPanel(service, root);
     }
 
-    private JComponent buildToolbar() {
-        JPanel toolbar = new JPanel(new BorderLayout(UIUtils.SPACE_SM, 0));
-        JPanel filters = new JPanel(new FlowLayout(FlowLayout.LEFT, UIUtils.SPACE_XS, 0));
-        search = new JTextField(18);
-        search.putClientProperty("JTextField.placeholderText", "搜索名称、账号或网址");
+    /** 账号列表卡片：标题右侧放增删改，卡片内顶部放搜索与分类过滤，表格铺满剩余空间 */
+    private JComponent buildListCard() {
+        search = Fields.text("", "搜索名称、账号或网址");
         search.getAccessibleContext().setAccessibleName("搜索账号");
-        category = new JComboBox<>();
-        category.setPreferredSize(new java.awt.Dimension(128, 32));
-        filters.add(new JLabel("搜索："));
-        filters.add(search);
-        filters.add(new JLabel("分类："));
-        filters.add(category);
-        toolbar.add(filters, BorderLayout.CENTER);
+        category = Fields.combo(new String[0], 128);
 
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, UIUtils.SPACE_XS, 0));
-        JButton add = UIUtils.button("添加", 72);
-        edit = UIUtils.button("编辑", 72);
-        delete = UIUtils.button("删除", 72);
-        add.addActionListener(event -> showEditor(null, -1));
-        edit.addActionListener(event -> {
-            int row = selectedModelRow();
-            if (row >= 0) showEditor(accounts.get(row), row);
-        });
-        delete.addActionListener(event -> deleteSelected());
-        actions.add(add);
-        actions.add(edit);
-        actions.add(delete);
-        toolbar.add(actions, BorderLayout.EAST);
+        ActionBar filters = new ActionBar();
+        filters.left(Fields.label("搜索："));
+        filters.left(search);
+        filters.right(Fields.label("分类："));
+        filters.right(category);
+        JPanel filterRow = Layouts.box();
+        filterRow.add(filters, BorderLayout.CENTER);
+        // 过滤条属于列表卡片的一部分，用细线跟表格分开；卡片是 flush 型，内边距得自己补
+        filterRow.setBorder(BorderFactory.createCompoundBorder(
+                KitBorders.lineSubtle(0, 0, 1, 0),
+                KitBorders.padding(Tokens.SPACE_SM, Tokens.CARD_PADDING,
+                        Tokens.SPACE_SM, Tokens.CARD_PADDING)));
 
-        search.getDocument().addDocumentListener(new DocumentListener() {
-            @Override public void insertUpdate(DocumentEvent event) { applyFilter(); }
-            @Override public void removeUpdate(DocumentEvent event) { applyFilter(); }
-            @Override public void changedUpdate(DocumentEvent event) { applyFilter(); }
-        });
-        category.addActionListener(event -> {
-            if (!updatingCategory) applyFilter();
-        });
-        return toolbar;
-    }
-
-    private JComponent buildTable() {
         model = new DefaultTableModel(
                 new Object[]{"名称", "账号", "密码", "网址"}, 0) {
             @Override public boolean isCellEditable(int row, int column) { return false; }
         };
         table = new JTable(model);
-        table.setRowHeight(28);
         table.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
         sorter = new TableRowSorter<>(model);
         table.setRowSorter(sorter);
@@ -142,24 +131,84 @@ public final class AccountManagerPanel extends ToolPanel {
             }
         });
 
-        JPanel wrapper = new JPanel(new BorderLayout(0, UIUtils.SPACE_XS));
-        wrapper.add(new JScrollPane(table), BorderLayout.CENTER);
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, UIUtils.SPACE_XS, 0));
-        copyUser = UIUtils.button("复制账号", 92);
-        copyPassword = UIUtils.button("复制密码", 92);
-        copyUrl = UIUtils.button("复制网址", 92);
-        visit = UIUtils.button("打开网址", 92);
+        JPanel body = Layouts.box();
+        body.add(filterRow, BorderLayout.NORTH);
+        body.add(Fields.scroll(table), BorderLayout.CENTER);
+
+        JButton add = Buttons.primary("添加");
+        edit = Buttons.secondary("编辑");
+        delete = Buttons.danger("删除");
+        add.addActionListener(event -> showEditor(null, -1));
+        edit.addActionListener(event -> {
+            int row = selectedModelRow();
+            if (row >= 0) showEditor(accounts.get(row), row);
+        });
+        delete.addActionListener(event -> deleteSelected());
+
+        Card card = Card.flush("账号列表");
+        card.setContent(body);
+        // addHeaderAction 从左往右排，主操作最后添加才落在最右侧
+        card.addHeaderAction(delete);
+        card.addHeaderAction(edit);
+        card.addHeaderAction(add);
+
+        search.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent event) { applyFilter(); }
+            @Override public void removeUpdate(DocumentEvent event) { applyFilter(); }
+            @Override public void changedUpdate(DocumentEvent event) { applyFilter(); }
+        });
+        category.addActionListener(event -> {
+            if (!updatingCategory) applyFilter();
+        });
+        return card;
+    }
+
+    /**
+     * 账号详情卡片：只读展示选中行，密码位始终是掩码。
+     *
+     * <p>取值动作全部走剪贴板（{@link SecureClipboard}），所以四个按钮排成 2×2，
+     * 分栏被拖窄时也不会被裁掉。</p>
+     */
+    private JComponent buildDetailCard() {
+        detailName = detailValue();
+        detailUsername = detailValue();
+        detailPassword = detailValue();
+        detailUrl = detailValue();
+
+        FormGrid form = new FormGrid();
+        form.row("名称：", detailName);
+        form.row("账号：", detailUsername);
+        form.row("密码：", detailPassword);
+        form.row("网址：", detailUrl);
+
+        copyUser = Buttons.secondary("复制账号");
+        copyPassword = Buttons.secondary("复制密码");
+        copyUrl = Buttons.secondary("复制网址");
+        visit = Buttons.secondary("打开网址");
         copyUser.addActionListener(event -> copySelected(1));
         copyPassword.addActionListener(event -> copySelected(2));
         copyUrl.addActionListener(event -> copySelected(3));
         visit.addActionListener(event -> visitSelected());
-        actions.add(copyUser);
-        actions.add(copyPassword);
-        actions.add(copyUrl);
-        actions.add(visit);
-        wrapper.add(actions, BorderLayout.SOUTH);
+        JPanel actions = Layouts.rows(Tokens.SPACE_SM,
+                Layouts.columns(Tokens.SPACE_SM, copyUser, copyPassword),
+                Layouts.columns(Tokens.SPACE_SM, copyUrl, visit));
+
+        // 表单和取值按钮一起贴顶：分栏把卡片拉高时空白落在下方，
+        // 按钮不会被吊到卡片底部、离开它所描述的字段
+        JPanel body = Layouts.box();
+        body.add(Layouts.stack(Tokens.SPACE_LG, form, actions), BorderLayout.NORTH);
+
+        Card card = Card.titled("账号详情", "只读预览，密码不显示明文");
+        card.setContent(body);
         updateActions();
-        return wrapper;
+        return card;
+    }
+
+    private static JLabel detailValue() {
+        JLabel label = new JLabel(NO_VALUE);
+        label.setFont(Tokens.fontBody());
+        label.setForeground(Tokens.foreground());
+        return label;
     }
 
     private void onVaultStateChanged(VaultState state) {
@@ -177,7 +226,7 @@ public final class AccountManagerPanel extends ToolPanel {
         model.setRowCount(0);
         for (PasswordAccount account : accounts) {
             model.addRow(new Object[]{account.getName(), account.getUsername(),
-                    "********", account.getUrl()});
+                    MASK, account.getUrl()});
         }
         refreshCategories();
         updateActions();
@@ -217,21 +266,23 @@ public final class AccountManagerPanel extends ToolPanel {
         service.touch();
         JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(getView()),
                 account == null ? "添加账号" : "编辑账号", Dialog.ModalityType.APPLICATION_MODAL);
-        JPanel form = new JPanel(new GridBagLayout());
-        form.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
+        JPanel form = Layouts.box(0, Tokens.SPACE_LG);
+        form.setOpaque(true);
+        form.setBorder(KitBorders.padding(Tokens.SPACE_LG));
         JTextField name = new JTextField(account == null ? "" : account.getName(), 22);
         JTextField username = new JTextField(account == null ? "" : account.getUsername(), 22);
         JPasswordField password = new JPasswordField(account == null ? "" : account.getPassword(), 22);
         JTextField url = new JTextField(account == null ? "" : account.getUrl(), 22);
-        addField(form, 0, "名称：", name);
-        addField(form, 1, "账号：", username);
-        addField(form, 2, "密码：", password);
-        addField(form, 3, "网址：", url);
-        JButton save = new JButton("保存");
-        GridBagConstraints c = constraints(0, 4);
-        c.gridwidth = 2;
-        c.anchor = GridBagConstraints.CENTER;
-        form.add(save, c);
+        FormGrid fields = new FormGrid();
+        fields.row("名称：", name);
+        fields.row("账号：", username);
+        fields.row("密码：", password);
+        fields.row("网址：", url);
+        form.add(fields, BorderLayout.CENTER);
+        JButton save = Buttons.primary("保存");
+        ActionBar actions = new ActionBar();
+        actions.right(save);
+        form.add(actions, BorderLayout.SOUTH);
         save.addActionListener(event -> {
             String label = name.getText().trim();
             if (label.isEmpty()) {
@@ -314,34 +365,27 @@ public final class AccountManagerPanel extends ToolPanel {
     }
 
     private void updateActions() {
-        boolean selected = selectedModelRow() >= 0;
+        int row = selectedModelRow();
+        boolean selected = row >= 0 && row < accounts.size();
         for (JButton button : Arrays.asList(
                 edit, delete, copyUser, copyPassword, copyUrl, visit)) {
             if (button != null) button.setEnabled(selected);
         }
+        updateDetail(selected ? accounts.get(row) : null);
+    }
+
+    /** 详情区跟随选中行刷新；密码位固定为掩码，明文只经由 SecureClipboard 流出 */
+    private void updateDetail(PasswordAccount account) {
+        if (detailName == null) return;
+        detailName.setText(account == null ? NO_VALUE : account.getName());
+        detailUsername.setText(account == null ? NO_VALUE : account.getUsername());
+        detailPassword.setText(account == null ? NO_VALUE : MASK);
+        detailUrl.setText(account == null ? NO_VALUE : account.getUrl());
     }
 
     private void showSaveError(Throwable error) {
         Throwable cause = error instanceof CompletionException ? error.getCause() : error;
         UIUtils.error(getView(), cause == null
                 ? I18n.get("vault.error.generic") : I18n.get("vault.error.generic"));
-    }
-
-    private static void addField(JPanel form, int row, String label, JComponent field) {
-        GridBagConstraints left = constraints(0, row);
-        left.weightx = 0;
-        form.add(new JLabel(label), left);
-        GridBagConstraints right = constraints(1, row);
-        right.weightx = 1;
-        form.add(field, right);
-    }
-
-    private static GridBagConstraints constraints(int column, int row) {
-        GridBagConstraints c = new GridBagConstraints();
-        c.gridx = column;
-        c.gridy = row;
-        c.insets = new Insets(5, 6, 5, 6);
-        c.fill = GridBagConstraints.HORIZONTAL;
-        return c;
     }
 }

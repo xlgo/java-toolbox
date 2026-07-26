@@ -84,7 +84,6 @@ public final class ThemeManager {
     /** 初始化默认主题（main 启动时调用一次） */
     public static void setupDefault() {
         try {
-            applyCustomDefaults();
             String savedTheme = ConfigManager.get("theme", "IntelliJ（默认）");
             Theme t = get(savedTheme);
             if (t == null) {
@@ -98,10 +97,12 @@ public final class ThemeManager {
                 laf = (FlatLaf) clazz.getDeclaredConstructor().newInstance();
             }
             FlatLaf.setup(laf);
+            applyCustomDefaults();
             current = t;
         } catch (Throwable e) {
             try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
             catch (Exception ignored) { }
+            applyCustomDefaults();
         }
     }
 
@@ -111,7 +112,6 @@ public final class ThemeManager {
         if (t == null) return;
         try {
             FlatAnimatedLafChange.showSnapshot();
-            applyCustomDefaults();
 
             FlatLaf laf;
             if (t.lafClass != null) {
@@ -123,9 +123,11 @@ public final class ThemeManager {
                 laf = (FlatLaf) clazz.getDeclaredConstructor().newInstance();
             }
             FlatLaf.setup(laf);
+            // 必须在 setup 之后写入：setLookAndFeel 会重建 defaults 表
+            applyCustomDefaults();
             FlatLaf.updateUI();
             current = t;
-            
+
             // 保存配置
             ConfigManager.set("theme", t.name);
             ConfigManager.save();
@@ -138,9 +140,73 @@ public final class ThemeManager {
         }
     }
 
+    /**
+     * 全局外观默认值：圆角、控件高度、滚动条、表格、标签页。
+     *
+     * <p>这些键都是 FlatLaf 专有键，其它 LAF 会直接忽略，因此不会破坏兜底外观。
+     * 在这里统一设置，可以让尚未逐个重构的工具面板也获得一致的控件观感。</p>
+     */
     private static void applyCustomDefaults() {
-        UIManager.put("Button.minimumHeight", 32);
-        UIManager.put("TextField.minimumHeight", 32);
-        UIManager.put("ComboBox.minimumHeight", 32);
+        int control = com.aqishi.toolbox.ui.kit.Tokens.CONTROL_HEIGHT;
+        int arc = com.aqishi.toolbox.ui.kit.Tokens.RADIUS_CONTROL;
+
+        // 控件最小高度：让同一行的按钮、输入框、下拉框视觉等高
+        UIManager.put("Button.minimumHeight", control);
+        UIManager.put("TextField.minimumHeight", control);
+        UIManager.put("PasswordField.minimumHeight", control);
+        UIManager.put("FormattedTextField.minimumHeight", control);
+        UIManager.put("ComboBox.minimumHeight", control);
+        UIManager.put("Spinner.minimumHeight", control);
+
+        // 圆角
+        UIManager.put("Button.arc", arc);
+        UIManager.put("Component.arc", arc);
+        UIManager.put("TextComponent.arc", arc);
+        UIManager.put("CheckBox.arc", 4);
+        UIManager.put("ProgressBar.arc", arc);
+        UIManager.put("ProgressBar.horizontalSize", new java.awt.Dimension(146, 6));
+
+        // 焦点描边收细一点，减少高密度表单里的视觉噪音
+        UIManager.put("Component.focusWidth", 1);
+        UIManager.put("Component.innerFocusWidth", 1);
+
+        // 滚动条：细、圆角、悬停才显轨道
+        UIManager.put("ScrollBar.width", 11);
+        UIManager.put("ScrollBar.thumbArc", 999);
+        UIManager.put("ScrollBar.thumbInsets", new javax.swing.plaf.InsetsUIResource(2, 2, 2, 2));
+        UIManager.put("ScrollBar.trackArc", 999);
+        UIManager.put("ScrollBar.showButtons", Boolean.FALSE);
+        UIManager.put("ScrollPane.smoothScrolling", Boolean.TRUE);
+
+        // 列表与树：更舒展的行高，导航更好点
+        UIManager.put("Tree.rowHeight", com.aqishi.toolbox.ui.kit.Tokens.NAV_ROW_HEIGHT);
+        UIManager.put("Tree.selectionArc", arc);
+        UIManager.put("Tree.paintSelectionBackground", Boolean.TRUE);
+        UIManager.put("List.selectionArc", arc);
+
+        // 表格：去掉纵向网格线，改用行高与细横线表达结构
+        UIManager.put("Table.rowHeight", com.aqishi.toolbox.ui.kit.Tokens.TABLE_ROW_HEIGHT);
+        UIManager.put("Table.showHorizontalLines", Boolean.TRUE);
+        UIManager.put("Table.showVerticalLines", Boolean.FALSE);
+        UIManager.put("Table.intercellSpacing", new java.awt.Dimension(0, 1));
+        UIManager.put("TableHeader.height", 28);
+        UIManager.put("TableHeader.separatorColor", com.aqishi.toolbox.ui.kit.Tokens.borderSubtle());
+
+        // 标签页：下划线样式比方框样式更贴近现代桌面产品
+        UIManager.put("TabbedPane.tabHeight", 34);
+        UIManager.put("TabbedPane.tabType", "underlined");
+        UIManager.put("TabbedPane.showTabSeparators", Boolean.FALSE);
+        UIManager.put("TabbedPane.tabsPopupPolicy", "asNeeded");
+        UIManager.put("TabbedPane.scrollButtonsPolicy", "asNeeded");
+        UIManager.put("TabbedPane.tabAreaInsets", new javax.swing.plaf.InsetsUIResource(0, 4, 0, 0));
+
+        // 分隔条：细线，仍可拖动
+        UIManager.put("SplitPane.oneTouchButtonSize", 0);
+        UIManager.put("SplitPaneDivider.gripDotCount", 0);
+
+        // 弹出与工具提示
+        UIManager.put("PopupMenu.borderInsets", new javax.swing.plaf.InsetsUIResource(4, 2, 4, 2));
+        UIManager.put("ToolTip.border", new javax.swing.plaf.BorderUIResource(
+                javax.swing.BorderFactory.createEmptyBorder(6, 8, 6, 8)));
     }
 }

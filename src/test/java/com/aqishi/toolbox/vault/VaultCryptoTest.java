@@ -2,18 +2,100 @@ package com.aqishi.toolbox.vault;
 
 import org.junit.jupiter.api.Test;
 
+import javax.crypto.AEADBadTagException;
+import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
+import javax.crypto.CipherSpi;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+import javax.crypto.ShortBufferException;
 import java.nio.charset.StandardCharsets;
+import java.security.AlgorithmParameters;
+import java.security.GeneralSecurityException;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.Key;
+import java.security.NoSuchAlgorithmException;
+import java.security.Provider;
+import java.security.ProviderException;
+import java.security.SecureRandom;
+import java.security.spec.AlgorithmParameterSpec;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class VaultCryptoTest {
 
     private final VaultCrypto crypto = new VaultCrypto();
+
+    @Test
+    void createsAesGcmThroughThePackagePrivateJcaBoundary() throws Exception {
+        AtomicInteger creations = new AtomicInteger();
+        VaultCrypto boundaryCrypto = new VaultCrypto(() -> {
+            creations.incrementAndGet();
+            return Cipher.getInstance("AES/GCM/NoPadding");
+        });
+        byte[] key = boundaryCrypto.randomBytes(16);
+        byte[] nonce = boundaryCrypto.randomBytes(12);
+        byte[] aad = new byte[0];
+
+        byte[] ciphertext = boundaryCrypto.encrypt(new byte[0], key, nonce, aad);
+        boundaryCrypto.decrypt(ciphertext, key, nonce, aad);
+
+        assertEquals(2, creations.get());
+    }
+
+    @Test
+    void mapsEncryptionJcaAvailabilityFailuresToUnsupportedFormat() {
+        assertAvailabilityFailure(() -> encryptWith(factoryFailure(
+                new NoSuchAlgorithmException("algorithm unavailable"))));
+        assertAvailabilityFailure(() -> encryptWith(factoryFailure(
+                new NoSuchPaddingException("padding unavailable"))));
+        assertAvailabilityFailure(() -> encryptWith(cipherFailure(Failure.INVALID_KEY)));
+        assertAvailabilityFailure(() -> encryptWith(cipherFailure(Failure.INVALID_PARAMETER)));
+        assertAvailabilityFailure(() -> encryptWith(cipherFailure(Failure.PROVIDER_REJECTION)));
+    }
+
+    @Test
+    void mapsDecryptionJcaAvailabilityFailuresToUnsupportedFormat() {
+        assertAvailabilityFailure(() -> decryptWith(factoryFailure(
+                new NoSuchAlgorithmException("algorithm unavailable"))));
+        assertAvailabilityFailure(() -> decryptWith(factoryFailure(
+                new NoSuchPaddingException("padding unavailable"))));
+        assertAvailabilityFailure(() -> decryptWith(cipherFailure(Failure.INVALID_KEY)));
+        assertAvailabilityFailure(() -> decryptWith(cipherFailure(Failure.INVALID_PARAMETER)));
+        assertAvailabilityFailure(() -> decryptWith(cipherFailure(Failure.PROVIDER_REJECTION)));
+    }
+
+    @Test
+    void mapsGcmTagFailuresToAuthenticationFailureWithoutProviderCause() {
+        assertAuthenticationFailed(() -> decryptWith(cipherFailure(Failure.AEAD_BAD_TAG)));
+        assertAuthenticationFailed(() -> decryptWith(cipherFailure(Failure.BAD_PADDING)));
+    }
+
+    @Test
+    void mapsEncryptionProcessingFailureToNonRetryableWriteFailure() {
+        VaultException error = assertThrows(VaultException.class,
+                () -> encryptWith(cipherFailure(Failure.ILLEGAL_BLOCK_SIZE)));
+
+        assertEquals(VaultErrorCode.WRITE_FAILED, error.getCode());
+        assertFalse(error.isRetryable());
+    }
+
+    @Test
+    void doesNotMislabelDecryptionProcessingFailureAsAuthenticationFailure() {
+        VaultException error = assertThrows(VaultException.class,
+                () -> decryptWith(cipherFailure(Failure.ILLEGAL_BLOCK_SIZE)));
+
+        assertEquals(VaultErrorCode.READ_FAILED, error.getCode());
+        assertFalse(error.isRetryable());
+    }
 
     @Test
     void derivesKnownPbkdf2HmacSha256Vector() throws Exception {
@@ -214,6 +296,13 @@ class VaultCryptoTest {
         VaultException error = assertThrows(VaultException.class, operation::run);
         assertEquals(VaultErrorCode.AUTHENTICATION_FAILED, error.getCode());
         assertFalse(error.isRetryable());
+        assertNull(error.getCause());
+    }
+
+    private static void assertAvailabilityFailure(ThrowingOperation operation) {
+        VaultException error = assertThrows(VaultException.class, operation::run);
+        assertEquals(VaultErrorCode.UNSUPPORTED_FORMAT, error.getCode());
+        assertFalse(error.isRetryable());
     }
 
     private static void assertDoesNotContain(Throwable error, String sensitiveValue) {
@@ -231,6 +320,179 @@ class VaultCryptoTest {
             result.append(String.format("%02x", item & 0xff));
         }
         return result.toString();
+    }
+
+    private static VaultCrypto factoryFailure(GeneralSecurityException error) {
+        return new VaultCrypto(() -> {
+            throw error;
+        });
+    }
+
+    private static VaultCrypto cipherFailure(Failure failure) {
+        return new VaultCrypto(() -> new TestCipher(new FailingCipherSpi(failure)));
+    }
+
+    private static void encryptWith(VaultCrypto target) throws VaultException {
+        target.encrypt(new byte[0], new byte[16], new byte[12], new byte[0]);
+    }
+
+    private static void decryptWith(VaultCrypto target) throws VaultException {
+        target.decrypt(new byte[16], new byte[16], new byte[12], new byte[0]);
+    }
+
+    private enum Failure {
+        INVALID_KEY,
+        INVALID_PARAMETER,
+        PROVIDER_REJECTION,
+        AEAD_BAD_TAG,
+        BAD_PADDING,
+        ILLEGAL_BLOCK_SIZE
+    }
+
+    @SuppressWarnings("deprecation")
+    private static final class TestCipher extends Cipher {
+        private static final Provider PROVIDER = new Provider(
+                "VaultCryptoTest", 1.0, "Test-only cipher provider") {
+            private static final long serialVersionUID = 1L;
+        };
+
+        private TestCipher(CipherSpi cipherSpi) {
+            super(cipherSpi, PROVIDER, "AES/GCM/NoPadding");
+        }
+    }
+
+    private static final class FailingCipherSpi extends CipherSpi {
+        private final Failure failure;
+
+        private FailingCipherSpi(Failure failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        protected void engineSetMode(String mode) {
+        }
+
+        @Override
+        protected void engineSetPadding(String padding) {
+        }
+
+        @Override
+        protected int engineGetBlockSize() {
+            return 16;
+        }
+
+        @Override
+        protected int engineGetOutputSize(int inputLen) {
+            return inputLen;
+        }
+
+        @Override
+        protected byte[] engineGetIV() {
+            return new byte[12];
+        }
+
+        @Override
+        protected AlgorithmParameters engineGetParameters() {
+            return null;
+        }
+
+        @Override
+        protected void engineInit(int opmode, Key key, SecureRandom random)
+                throws InvalidKeyException {
+            failForKeyOrProvider();
+        }
+
+        @Override
+        protected void engineInit(
+                int opmode,
+                Key key,
+                AlgorithmParameterSpec params,
+                SecureRandom random)
+                throws InvalidKeyException, InvalidAlgorithmParameterException {
+            failForInitialization();
+        }
+
+        @Override
+        protected void engineInit(
+                int opmode,
+                Key key,
+                AlgorithmParameters params,
+                SecureRandom random)
+                throws InvalidKeyException, InvalidAlgorithmParameterException {
+            failForInitialization();
+        }
+
+        @Override
+        protected byte[] engineUpdate(byte[] input, int inputOffset, int inputLen) {
+            return Arrays.copyOfRange(input, inputOffset, inputOffset + inputLen);
+        }
+
+        @Override
+        protected int engineUpdate(
+                byte[] input,
+                int inputOffset,
+                int inputLen,
+                byte[] output,
+                int outputOffset) throws ShortBufferException {
+            if (output.length - outputOffset < inputLen) {
+                throw new ShortBufferException();
+            }
+            System.arraycopy(input, inputOffset, output, outputOffset, inputLen);
+            return inputLen;
+        }
+
+        @Override
+        protected byte[] engineDoFinal(byte[] input, int inputOffset, int inputLen)
+                throws IllegalBlockSizeException, BadPaddingException {
+            failForProcessing();
+            return Arrays.copyOfRange(input, inputOffset, inputOffset + inputLen);
+        }
+
+        @Override
+        protected int engineDoFinal(
+                byte[] input,
+                int inputOffset,
+                int inputLen,
+                byte[] output,
+                int outputOffset)
+                throws ShortBufferException, IllegalBlockSizeException, BadPaddingException {
+            failForProcessing();
+            return engineUpdate(input, inputOffset, inputLen, output, outputOffset);
+        }
+
+        @Override
+        protected void engineUpdateAAD(byte[] src, int offset, int len) {
+        }
+
+        private void failForKeyOrProvider() throws InvalidKeyException {
+            if (failure == Failure.INVALID_KEY) {
+                throw new InvalidKeyException("provider rejected key");
+            }
+            if (failure == Failure.PROVIDER_REJECTION) {
+                throw new ProviderException("provider unavailable");
+            }
+        }
+
+        private void failForInitialization()
+                throws InvalidKeyException, InvalidAlgorithmParameterException {
+            failForKeyOrProvider();
+            if (failure == Failure.INVALID_PARAMETER) {
+                throw new InvalidAlgorithmParameterException("provider rejected parameters");
+            }
+        }
+
+        private void failForProcessing()
+                throws IllegalBlockSizeException, BadPaddingException {
+            if (failure == Failure.AEAD_BAD_TAG) {
+                throw new AEADBadTagException("provider tag detail");
+            }
+            if (failure == Failure.BAD_PADDING) {
+                throw new BadPaddingException("provider tag detail");
+            }
+            if (failure == Failure.ILLEGAL_BLOCK_SIZE) {
+                throw new IllegalBlockSizeException("provider processing detail");
+            }
+        }
     }
 
     private interface ThrowingOperation {

@@ -41,6 +41,7 @@ public final class VaultAccessPanel extends JPanel {
     private final JPasswordField setupPassword = new JPasswordField(22);
     private final JPasswordField setupConfirm = new JPasswordField(22);
     private final JPasswordField migrationPassword = new JPasswordField(22);
+    private final JPasswordField migrationConfirmation = new JPasswordField(22);
     private final JPasswordField unlockPassword = new JPasswordField(22);
     private String visibleCardName;
     private boolean disposed;
@@ -93,6 +94,7 @@ public final class VaultAccessPanel extends JPanel {
         JPanel fields = new JPanel(new GridBagLayout());
         GridBagConstraints c = constraints();
         addField(fields, c, 0, I18n.get("vault.masterPassword"), migrationPassword);
+        addField(fields, c, 1, I18n.get("vault.confirmPassword"), migrationConfirmation);
         JButton migrate = UIUtils.button(I18n.get("vault.migrate"), 132);
         migrate.addActionListener(event -> migrate());
         migrationPassword.addActionListener(event -> migrate());
@@ -209,14 +211,23 @@ public final class VaultAccessPanel extends JPanel {
 
     private void migrate() {
         char[] password = migrationPassword.getPassword();
+        char[] confirmation = migrationConfirmation.getPassword();
         if (password.length == 0) {
             VaultCrypto.wipe(password);
+            VaultCrypto.wipe(confirmation);
             UIUtils.error(this, I18n.get("vault.password.empty"));
+            return;
+        }
+        if (service.getMigrationMode() == com.aqishi.toolbox.vault.LegacyVaultMigrator.MigrationMode.TOTP_ONLY
+                && !Arrays.equals(password, confirmation)) {
+            VaultCrypto.wipe(password);
+            VaultCrypto.wipe(confirmation);
+            UIUtils.error(this, I18n.get("vault.password.mismatch"));
             return;
         }
         showCard(BUSY);
         service.migrate(password).whenComplete((ignored, error) ->
-                completePasswordAction(migrationPassword, null, null, error));
+                completePasswordAction(migrationPassword, migrationConfirmation, confirmation, error));
     }
 
     private void unlock() {
@@ -242,6 +253,9 @@ public final class VaultAccessPanel extends JPanel {
             if (error != null) {
                 UIUtils.error(this, safeMessage(error));
                 showState(service.getState());
+            } else if (!service.getCleanupWarnings().isEmpty()) {
+                UIUtils.info(this, I18n.get("vault.cleanup.warning") + "\n"
+                        + String.join("\n", service.getCleanupWarnings()));
             }
         });
     }

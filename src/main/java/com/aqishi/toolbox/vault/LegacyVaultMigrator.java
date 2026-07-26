@@ -48,8 +48,29 @@ public final class LegacyVaultMigrator {
             MigrationMode mode = probe();
             if (mode == MigrationMode.CLEANUP_REQUIRED) {
                 VaultRepository.OpenedVault opened = repository.open(password.clone());
-                List<String> warnings = finishConfigurationCleanup();
-                return new MigrationResult(mode, opened, warnings);
+                try {
+                    VaultData authoritative = opened.getData();
+                    if (Files.isRegularFile(paths.getLegacyPasswordFile())) {
+                        passwordSource = readSource(paths.getLegacyPasswordFile());
+                        List<PasswordAccount> legacy = new LegacyPasswordReader().read(
+                                paths.getLegacyPasswordFile(), password.clone());
+                        requirePasswordsIncluded(authoritative, legacy);
+                        backup("legacy-password", passwordSource, password.clone());
+                    }
+                    LegacyTotpReader totpReader =
+                            new LegacyTotpReader(paths.getLegacyConfigFile());
+                    if (totpReader.hasAccounts()) {
+                        configSource = readSource(paths.getLegacyConfigFile());
+                        List<TotpAccount> legacy = totpReader.readAccounts();
+                        requireTotpsIncluded(authoritative, legacy);
+                        backup("legacy-config", configSource, password.clone());
+                    }
+                    List<String> warnings = finishConfigurationCleanup();
+                    return new MigrationResult(mode, opened, warnings);
+                } catch (VaultException error) {
+                    opened.close();
+                    throw error;
+                }
             }
 
             List<PasswordAccount> passwords = Collections.emptyList();
@@ -99,6 +120,7 @@ public final class LegacyVaultMigrator {
         byte[] nonce = crypto.randomBytes(VaultEnvelope.NONCE_BYTES);
         byte[] key = null;
         byte[] encoded = null;
+        byte[] ciphertext = null;
         Path backup = paths.getBackupDirectory().resolve(
                 prefix + "-" + System.currentTimeMillis() + "-" + UUID.randomUUID()
                         + ".json.enc");
@@ -106,13 +128,12 @@ public final class LegacyVaultMigrator {
             key = crypto.deriveKey(password, salt, VaultEnvelope.NEW_FILE_ITERATIONS);
             VaultEnvelope header = VaultEnvelope.newEnvelope(
                     VaultEnvelope.NEW_FILE_ITERATIONS, salt, nonce, new byte[]{1});
-            byte[] ciphertext = crypto.encrypt(source, key, nonce, header.aad());
+            ciphertext = crypto.encrypt(source, key, nonce, header.aad());
             VaultEnvelope envelope = VaultEnvelope.newEnvelope(
                     VaultEnvelope.NEW_FILE_ITERATIONS, salt, nonce, ciphertext);
             encoded = mapper.writeValueAsBytes(envelope);
             atomicFiles.write(backup, encoded);
             verifyBackup(backup, key);
-            VaultCrypto.wipe(ciphertext);
         } catch (VaultException error) {
             deleteQuietly(backup);
             throw error;
@@ -124,18 +145,69 @@ public final class LegacyVaultMigrator {
             VaultCrypto.wipe(password);
             VaultCrypto.wipe(key);
             VaultCrypto.wipe(encoded);
+            VaultCrypto.wipe(ciphertext);
         }
     }
 
     private void verifyBackup(Path backup, byte[] key) throws Exception {
-        byte[] encoded = Files.readAllBytes(backup);
-        VaultEnvelope envelope = mapper.readValue(encoded, VaultEnvelope.class);
-        envelope.validate();
-        byte[] plaintext = crypto.decrypt(
-                Base64.getDecoder().decode(envelope.getCiphertext()), key,
-                Base64.getDecoder().decode(envelope.getNonce()), envelope.aad());
-        VaultCrypto.wipe(encoded);
-        VaultCrypto.wipe(plaintext);
+        byte[] encoded = null;
+        byte[] plaintext = null;
+        try {
+            encoded = Files.readAllBytes(backup);
+            VaultEnvelope envelope = mapper.readValue(encoded, VaultEnvelope.class);
+            envelope.validate();
+            plaintext = crypto.decrypt(
+                    Base64.getDecoder().decode(envelope.getCiphertext()), key,
+                    Base64.getDecoder().decode(envelope.getNonce()), envelope.aad());
+        } finally {
+            VaultCrypto.wipe(encoded);
+            VaultCrypto.wipe(plaintext);
+        }
+    }
+
+    private static void requirePasswordsIncluded(
+            VaultData authoritative, List<PasswordAccount> legacy) throws VaultException {
+        List<PasswordAccount> installed = authoritative.copyPasswordAccounts();
+        for (PasswordAccount candidate : legacy) {
+            boolean found = false;
+            for (PasswordAccount account : installed) {
+                if (Objects.equals(candidate.getName(), account.getName())
+                        && Objects.equals(candidate.getUsername(), account.getUsername())
+                        && Objects.equals(candidate.getPassword(), account.getPassword())
+                        && Objects.equals(candidate.getUrl(), account.getUrl())) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) throw incompleteCleanup();
+        }
+    }
+
+    private static void requireTotpsIncluded(
+            VaultData authoritative, List<TotpAccount> legacy) throws VaultException {
+        List<TotpAccount> installed = authoritative.copyTotpAccounts();
+        for (TotpAccount candidate : legacy) {
+            boolean found = false;
+            for (TotpAccount account : installed) {
+                if (Objects.equals(candidate.getId(), account.getId())
+                        && Objects.equals(candidate.getLabel(), account.getLabel())
+                        && Objects.equals(candidate.getSecret(), account.getSecret())
+                        && Objects.equals(candidate.getIssuer(), account.getIssuer())
+                        && Objects.equals(candidate.getAlgorithm(), account.getAlgorithm())
+                        && candidate.getDigits() == account.getDigits()
+                        && candidate.getPeriod() == account.getPeriod()
+                        && candidate.isShowDirectly() == account.isShowDirectly()) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) throw incompleteCleanup();
+        }
+    }
+
+    private static VaultException incompleteCleanup() {
+        return new VaultException(VaultErrorCode.MIGRATION_FAILED,
+                "Legacy records are not present in the authoritative vault", true);
     }
 
     private List<String> finishConfigurationCleanup() throws VaultException {

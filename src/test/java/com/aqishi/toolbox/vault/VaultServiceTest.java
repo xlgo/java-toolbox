@@ -126,6 +126,33 @@ class VaultServiceTest {
         }
     }
 
+    @Test
+    void existingVaultWithLegacySourcesRequiresMigrationCleanup() throws Exception {
+        try (VaultTestSupport support = new VaultTestSupport(temp)) {
+            support.repository().create(new VaultData(), "master".toCharArray()).close();
+            java.util.Properties properties = new java.util.Properties();
+            properties.setProperty("totp.accounts", "[]");
+            properties.setProperty("theme", "Arc");
+            java.nio.file.Files.createDirectories(
+                    support.paths().getLegacyConfigFile().getParent());
+            try (java.io.OutputStream output = java.nio.file.Files.newOutputStream(
+                    support.paths().getLegacyConfigFile())) {
+                properties.store(output, "legacy");
+            }
+            // An empty [] does not represent a sensitive source and is not cleanup-required.
+            java.nio.file.Files.delete(support.paths().getLegacyConfigFile());
+            properties.setProperty("totp.accounts", "[{\"id\":\"1\",\"label\":\"Mail\","
+                    + "\"secret\":\"JBSWY3DPEHPK3PXP\"}]");
+            try (java.io.OutputStream output = java.nio.file.Files.newOutputStream(
+                    support.paths().getLegacyConfigFile())) {
+                properties.store(output, "legacy");
+            }
+            VaultService service = service(support, new TestClock(), new TestScheduler());
+            assertEquals(VaultState.MIGRATION_REQUIRED, service.getState());
+            service.close();
+        }
+    }
+
     private static VaultService service(VaultTestSupport support,
                                         TestClock clock,
                                         TestScheduler scheduler) throws Exception {

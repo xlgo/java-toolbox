@@ -131,6 +131,22 @@ class LegacyVaultMigratorTest {
         }
     }
 
+    @Test
+    void cleanupRefusesToDeleteLegacyRecordsMissingFromExistingVault() throws Exception {
+        try (VaultTestSupport support = new VaultTestSupport(temp)) {
+            support.repository().create(new VaultData(), "master".toCharArray()).close();
+            writeLegacyPasswords(support.paths().getLegacyPasswordFile(), "master");
+
+            VaultException error = assertThrows(VaultException.class,
+                    () -> migrator(support).migrate("master".toCharArray()));
+
+            assertEquals(VaultErrorCode.MIGRATION_FAILED, error.getCode());
+            assertTrue(Files.exists(support.paths().getLegacyPasswordFile()));
+            assertTrue(support.repository().open("master".toCharArray())
+                    .getData().copyPasswordAccounts().isEmpty());
+        }
+    }
+
     private LegacyVaultMigrator migrator(VaultTestSupport support) {
         return new LegacyVaultMigrator(
                 support.paths(), support.repository(), new AtomicFiles(), new VaultCrypto());

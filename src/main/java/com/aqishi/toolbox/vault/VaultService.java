@@ -22,6 +22,7 @@ public final class VaultService implements AutoCloseable {
 
     private volatile VaultState state;
     private volatile LegacyVaultMigrator.MigrationMode migrationMode;
+    private List<String> cleanupWarnings = Collections.emptyList();
     private VaultRepository.OpenedVault opened;
     private VaultData snapshot;
     private CompletableFuture<?> activeOperation;
@@ -45,7 +46,7 @@ public final class VaultService implements AutoCloseable {
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         setIdleMinutes(initialIdleMinutes);
         migrationMode = migrator.probe();
-        state = !repository.exists() && migrationMode != LegacyVaultMigrator.MigrationMode.NONE
+        state = migrationMode != LegacyVaultMigrator.MigrationMode.NONE
                 ? VaultState.MIGRATION_REQUIRED : VaultState.LOCKED;
         scheduler.scheduleAtFixedRate(this::checkIdleTimeout,
                 30, 30, TimeUnit.SECONDS);
@@ -78,8 +79,17 @@ public final class VaultService implements AutoCloseable {
             LegacyVaultMigrator.MigrationResult result =
                     migrator.migrate(password.clone());
             installOpened(result.getOpenedVault());
-            migrationMode = LegacyVaultMigrator.MigrationMode.NONE;
+            cleanupWarnings = result.getWarnings();
+            migrationMode = result.getWarnings().isEmpty()
+                    ? LegacyVaultMigrator.MigrationMode.NONE
+                    : LegacyVaultMigrator.MigrationMode.CLEANUP_REQUIRED;
         });
+    }
+
+    public List<String> getCleanupWarnings() {
+        synchronized (mutex) {
+            return Collections.unmodifiableList(new ArrayList<>(cleanupWarnings));
+        }
     }
 
     public CompletableFuture<Void> replacePasswordAccounts(
@@ -194,8 +204,9 @@ public final class VaultService implements AutoCloseable {
                 opened = null;
             }
             snapshot = null;
-            if (state != VaultState.LOCKED) {
-                state = VaultState.LOCKED;
+            VaultState lockedState = fallbackLockedState();
+            if (state != lockedState) {
+                state = lockedState;
                 notify = true;
             }
         }
@@ -262,14 +273,27 @@ public final class VaultService implements AutoCloseable {
             backgroundExecutor.execute(() -> {
                 try {
                     operation.run();
+                    VaultException closedFailure = null;
                     synchronized (mutex) {
-                        if (opened != null) state = VaultState.UNLOCKED;
-                        else state = fallbackLockedState();
+                        if (closed) {
+                            if (opened != null) {
+                                opened.close();
+                                opened = null;
+                                snapshot = null;
+                            }
+                            state = VaultState.LOCKED;
+                            closedFailure = new VaultException(VaultErrorCode.READ_ONLY,
+                                    "Vault service is closed", false);
+                        } else {
+                            state = opened != null ? VaultState.UNLOCKED : fallbackLockedState();
+                        }
                     }
-                    future.complete(null);
+                    if (closedFailure == null) future.complete(null);
+                    else future.completeExceptionally(closedFailure);
                 } catch (Throwable error) {
                     synchronized (mutex) {
-                        state = opened == null ? fallbackLockedState() : VaultState.UNLOCKED;
+                        state = closed ? VaultState.LOCKED
+                                : (opened == null ? fallbackLockedState() : VaultState.UNLOCKED);
                     }
                     future.completeExceptionally(error);
                 } finally {
@@ -286,7 +310,7 @@ public final class VaultService implements AutoCloseable {
             wipe(sensitive);
             synchronized (mutex) {
                 activeOperation = null;
-                state = fallbackLockedState();
+                state = closed ? VaultState.LOCKED : fallbackLockedState();
             }
             future.completeExceptionally(error);
             notifyListeners(state);
@@ -294,8 +318,13 @@ public final class VaultService implements AutoCloseable {
         return future;
     }
 
-    private void installOpened(VaultRepository.OpenedVault replacement) {
+    private void installOpened(VaultRepository.OpenedVault replacement) throws VaultException {
         synchronized (mutex) {
+            if (closed) {
+                replacement.close();
+                throw new VaultException(VaultErrorCode.READ_ONLY,
+                        "Vault service is closed", false);
+            }
             if (opened != null) opened.close();
             opened = replacement;
             snapshot = replacement.getData();
@@ -341,9 +370,13 @@ public final class VaultService implements AutoCloseable {
     }
 
     private VaultState fallbackLockedState() {
-        return !repository.exists()
-                && migrationMode != LegacyVaultMigrator.MigrationMode.NONE
-                ? VaultState.MIGRATION_REQUIRED : VaultState.LOCKED;
+        try {
+            migrationMode = migrator.probe();
+            return migrationMode != LegacyVaultMigrator.MigrationMode.NONE
+                    ? VaultState.MIGRATION_REQUIRED : VaultState.LOCKED;
+        } catch (VaultException error) {
+            return VaultState.ERROR_READ_ONLY;
+        }
     }
 
     private void notifyListeners(VaultState value) {

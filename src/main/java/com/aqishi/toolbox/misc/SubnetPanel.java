@@ -1,7 +1,11 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
-import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.Layouts;
 
 import javax.swing.*;
 import java.awt.*;
@@ -19,41 +23,28 @@ public class SubnetPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 顶部：输入 =====
-        JPanel top = new JPanel(new BorderLayout(8, 8));
-        top.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+        // ===== 配置卡片：输入 + 格式说明 =====
+        // 说明文字交给 FormGrid.caption，自动与输入列左边缘对齐，不再手工调字号与颜色
+        JTextField input = Fields.mono("192.168.1.100/24");
 
-        JLabel label = new JLabel("IP/CIDR:");
-        label.setFont(UIUtils.plainFont());
-        JTextField input = new JTextField("192.168.1.100/24");
-        input.setFont(UIUtils.monoFont());
-        input.setPreferredSize(new Dimension(0, 32));
+        FormGrid form = new FormGrid();
+        form.row("IP/CIDR", input);
+        form.caption("格式说明：输入带掩码的 IP 地址，例如 192.168.1.100/24 或 10.0.0.1/8");
 
-        JButton btn = UIUtils.button("计算", 80);
+        JButton btn = Buttons.primary("计算");
+        Card config = Card.titled("子网参数");
+        config.setContent(form);
+        config.addHeaderAction(btn);
 
-        JPanel inputRow = new JPanel(new BorderLayout(6, 0));
-        inputRow.add(label, BorderLayout.WEST);
-        inputRow.add(input, BorderLayout.CENTER);
-        inputRow.add(btn, BorderLayout.EAST);
+        // ===== 结果卡片：等宽明细占满剩余高度 =====
+        JTextArea out = Fields.output(12, 60);
+        Card result = Card.flush("子网划分详细信息");
+        result.setContent(Fields.scroll(out));
 
-        top.add(inputRow, BorderLayout.NORTH);
-
-        JLabel desc = new JLabel("格式说明：输入带掩码的 IP 地址，例如 192.168.1.100/24 或 10.0.0.1/8");
-        desc.setFont(UIUtils.plainFont().deriveFont(11f));
-        desc.setForeground(UIManager.getColor("Label.disabledForeground"));
-        top.add(desc, BorderLayout.SOUTH);
-
-        root.add(top, BorderLayout.NORTH);
-
-        // ===== 中间：计算结果 =====
-        JTextArea out = new JTextArea();
-        out.setFont(UIUtils.monoFont());
-        out.setEditable(false);
-        JScrollPane scroll = UIUtils.scrollText(out, "子网划分详细信息");
-        root.add(scroll, BorderLayout.CENTER);
+        root.add(config, BorderLayout.NORTH);
+        root.add(result, BorderLayout.CENTER);
 
         btn.addActionListener(e -> {
             out.setText(calculateSubnet(input.getText().trim()));

@@ -1,6 +1,12 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -38,119 +44,83 @@ public class PasswordPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 12));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 顶部：配置区 =====
-        JPanel configPanel = new JPanel(new GridBagLayout());
-        configPanel.setBorder(BorderFactory.createTitledBorder("密码生成配置"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(6, 8, 6, 8);
-
-        // 1. 长度滑块
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        configPanel.add(new JLabel("密码长度："), gbc);
-
-        gbc.gridx = 1; gbc.weightx = 1.0;
+        // ===== 配置卡片 =====
+        // 长度滑块占满输入列，实时位数跟在行尾，滑动时不会把标签列推来推去
         lenSlider = new JSlider(8, 64, 16);
         lenSlider.setPaintTicks(true);
         lenSlider.setMajorTickSpacing(8);
         lenSlider.setMinorTickSpacing(2);
-        configPanel.add(lenSlider, gbc);
+        lenSlider.setOpaque(false);
+        lenLabel = Fields.label("16 位 ");
 
-        gbc.gridx = 2; gbc.weightx = 0;
-        lenLabel = new JLabel("16 位 ");
-        lenLabel.setFont(UIUtils.plainFont());
-        configPanel.add(lenLabel, gbc);
+        upperCheck = Fields.check("包含大写 (A-Z)", true);
+        lowerCheck = Fields.check("包含小写 (a-z)", true);
+        digitCheck = Fields.check("包含数字 (0-9)", true);
+        specialCheck = Fields.check("包含特殊字符", true);
+        JPanel charsetRow = new WrapRow(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        charsetRow.add(upperCheck);
+        charsetRow.add(lowerCheck);
+        charsetRow.add(digitCheck);
+        charsetRow.add(specialCheck);
 
-        // 2. 字符集选择
-        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 3;
-        JPanel checkPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
-        upperCheck = new JCheckBox("包含大写 (A-Z)", true);
-        lowerCheck = new JCheckBox("包含小写 (a-z)", true);
-        digitCheck = new JCheckBox("包含数字 (0-9)", true);
-        specialCheck = new JCheckBox("包含特殊字符", true);
-
-        upperCheck.setFont(UIUtils.plainFont());
-        lowerCheck.setFont(UIUtils.plainFont());
-        digitCheck.setFont(UIUtils.plainFont());
-        specialCheck.setFont(UIUtils.plainFont());
-
-        checkPanel.add(upperCheck);
-        checkPanel.add(lowerCheck);
-        checkPanel.add(digitCheck);
-        checkPanel.add(specialCheck);
-        configPanel.add(checkPanel, gbc);
-
-        // 3. 自定义特殊字符配置 (流式布局 + 全选/反选)
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 1; gbc.weightx = 0;
-        configPanel.add(new JLabel("选择特殊字符："), gbc);
-
-        JPanel specialConfigPanel = new JPanel(new BorderLayout(8, 0));
-        JPanel specialGrid = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        // 13 个单字符复选框条目多，用可换行的流式行，窄窗口下折行而不是被裁掉
+        JPanel specialRow = new WrapRow(Tokens.SPACE_SM, Tokens.SPACE_XS);
         char[] specialArray = DEFAULT_SPECIAL.toCharArray();
         specialCharChecks = new JCheckBox[specialArray.length];
         for (int i = 0; i < specialArray.length; i++) {
-            specialCharChecks[i] = new JCheckBox(String.valueOf(specialArray[i]), true);
-            specialCharChecks[i].setFont(UIUtils.monoFont().deriveFont(13f));
-            specialGrid.add(specialCharChecks[i]);
+            specialCharChecks[i] = Fields.check(String.valueOf(specialArray[i]), true);
+            specialCharChecks[i].setFont(Tokens.fontMono());
+            specialRow.add(specialCharChecks[i]);
         }
 
-        JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        JButton selectAllBtn = new JButton("全选");
-        JButton invertBtn = new JButton("反选");
-        selectAllBtn.setFont(UIUtils.plainFont().deriveFont(12f));
-        invertBtn.setFont(UIUtils.plainFont().deriveFont(12f));
-        selectAllBtn.setMargin(new Insets(2, 6, 2, 6));
-        invertBtn.setMargin(new Insets(2, 6, 2, 6));
-        actionPanel.add(selectAllBtn);
-        actionPanel.add(invertBtn);
+        JButton selectAllBtn = Buttons.ghost("全选");
+        JButton invertBtn = Buttons.ghost("反选");
+        // 等宽两列而不是 FlowLayout：窄窗口下两个按钮一起变窄，不会有一个被整体丢掉
+        JPanel specialActions = Layouts.columns(Tokens.SPACE_XS, selectAllBtn, invertBtn);
 
-        specialConfigPanel.add(specialGrid, BorderLayout.CENTER);
-        specialConfigPanel.add(actionPanel, BorderLayout.EAST);
+        FormGrid form = new FormGrid();
+        form.row("密码长度", lenSlider, lenLabel);
+        form.fullRow(charsetRow);
+        form.row("选择特殊字符", specialRow, specialActions);
 
-        gbc.gridx = 1; gbc.gridwidth = 2; gbc.weightx = 1.0;
-        configPanel.add(specialConfigPanel, gbc);
+        Card configCard = Card.titled("密码生成配置");
+        configCard.setContent(form);
 
-        root.add(configPanel, BorderLayout.NORTH);
-
-        // ===== 中部：生成与展示区 =====
-        JPanel centerPanel = new JPanel(new GridBagLayout());
-        centerPanel.setBorder(BorderFactory.createTitledBorder("生成的密码"));
-        GridBagConstraints gbc2 = new GridBagConstraints();
-        gbc2.fill = GridBagConstraints.HORIZONTAL;
-        gbc2.insets = new Insets(8, 8, 8, 8);
-
-        // 密码输出框
-        gbc2.gridx = 0; gbc2.gridy = 0; gbc2.weightx = 1.0;
-        passwordField = new JTextField();
-        passwordField.setFont(UIUtils.monoFont().deriveFont(15f)); // 稍微大一点
+        // ===== 结果卡片：密码 + 强度指示，主操作放标题右侧 =====
+        passwordField = Fields.mono("");
+        passwordField.setFont(Tokens.fontMono().deriveFont(15f)); // 稍微大一点
         passwordField.setEditable(false);
-        centerPanel.add(passwordField, gbc2);
 
-        // 操作按钮列
-        gbc2.gridx = 1; gbc2.weightx = 0;
-        JPanel btnCol = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        JButton genBtn = UIUtils.button("生成密码", 100);
-        JButton copyBtn = UIUtils.button("复制密码", 100);
-        btnCol.add(genBtn);
-        btnCol.add(copyBtn);
-        centerPanel.add(btnCol, gbc2);
-
-        // 3. 强度条
-        gbc2.gridx = 0; gbc2.gridy = 1; gbc2.gridwidth = 2; gbc2.weightx = 1.0;
-        JPanel strengthPanel = new JPanel(new BorderLayout(8, 0));
         strengthLabel = new JLabel("密码强度：未评估");
-        strengthLabel.setFont(UIUtils.plainFont());
+        strengthLabel.setFont(Tokens.fontBody());
         strengthBar = new JProgressBar(0, 100);
         strengthBar.setValue(0);
+        strengthBar.setOpaque(false);
+        // 只用来锁定 14px 的条高，宽度由 BorderLayout.CENTER 拉伸
         strengthBar.setPreferredSize(new Dimension(150, 14));
-        strengthPanel.add(strengthLabel, BorderLayout.WEST);
-        strengthPanel.add(strengthBar, BorderLayout.CENTER);
-        centerPanel.add(strengthPanel, gbc2);
+        JPanel strengthRow = Layouts.box(Tokens.SPACE_MD, 0);
+        strengthRow.add(strengthLabel, BorderLayout.WEST);
+        strengthRow.add(strengthBar, BorderLayout.CENTER);
 
-        root.add(centerPanel, BorderLayout.CENTER);
+        JButton genBtn = Buttons.primary("生成密码");
+        JButton copyBtn = Buttons.secondary("复制密码");
+
+        Card resultCard = Card.titled("生成的密码");
+        JPanel resultBody = Layouts.box(0, Tokens.SPACE_MD);
+        resultBody.add(passwordField, BorderLayout.NORTH);
+        resultBody.add(strengthRow, BorderLayout.CENTER);
+        resultCard.setContent(resultBody);
+        resultCard.addHeaderAction(genBtn);
+        resultCard.addHeaderAction(copyBtn);
+
+        // 这个工具的结果只有一行密码 + 一条强度指示，让卡片去吸收整页高度只会留下大片空白；
+        // 两张卡片按自然高度顶到页首，剩余空间交回页面底色。
+        JPanel column = Layouts.box(0, Tokens.SPACE_LG);
+        column.add(configCard, BorderLayout.NORTH);
+        column.add(resultCard, BorderLayout.CENTER);
+        root.add(column, BorderLayout.NORTH);
 
         // ===== 事件处理 =====
         lenSlider.addChangeListener(e -> {
@@ -294,17 +264,101 @@ public class PasswordPanel extends ToolPanel {
         }
     }
 
+    /** 强度着色走语义色令牌，跟随主题切换；文字描述保持不变 */
     private void updateStrengthUI(String strength) {
         strengthLabel.setText("密码强度：" + strength);
+        Color tone;
         if (strength.startsWith("高")) {
             strengthBar.setValue(100);
-            strengthBar.setForeground(new Color(46, 125, 50)); // 绿色
+            tone = Tokens.success();
         } else if (strength.startsWith("中")) {
             strengthBar.setValue(60);
-            strengthBar.setForeground(new Color(230, 81, 0)); // 橙色
+            tone = Tokens.warning();
         } else {
             strengthBar.setValue(25);
-            strengthBar.setForeground(new Color(198, 40, 40)); // 红色
+            tone = Tokens.danger();
+        }
+        strengthBar.setForeground(tone);
+        strengthLabel.setForeground(tone);
+    }
+
+    /**
+     * 会换行、且把换行算进首选高度的横向控件行。
+     *
+     * <p>原生 {@link FlowLayout} 虽然会折行，但首选高度永远按一行算；放进
+     * {@code FormGrid}（按首选高度分配行高）之后，折下去的那一行会被直接裁掉。
+     * 这里按实际可用宽度重算高度，并在宽度变化时主动 revalidate。</p>
+     */
+    private static final class WrapRow extends JPanel {
+
+        WrapRow(int hgap, int vgap) {
+            super(new FlowLayout(FlowLayout.LEFT, hgap, vgap));
+            setOpaque(false);
+            addComponentListener(new java.awt.event.ComponentAdapter() {
+                @Override
+                public void componentResized(java.awt.event.ComponentEvent event) {
+                    // 首次布局时宽度还是 0，拿不到真实可用宽度；拿到之后再算一次行高
+                    revalidate();
+                }
+            });
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            FlowLayout layout = (FlowLayout) getLayout();
+            Insets insets = getInsets();
+            int usable = getWidth() - insets.left - insets.right - layout.getHgap() * 2;
+            if (usable <= 0) {
+                return super.getPreferredSize();
+            }
+
+            int rowWidth = 0;
+            int rowHeight = 0;
+            int width = 0;
+            int height = 0;
+            for (int i = 0; i < getComponentCount(); i++) {
+                Component child = getComponent(i);
+                if (!child.isVisible()) {
+                    continue;
+                }
+                Dimension size = child.getPreferredSize();
+                if (rowWidth > 0 && rowWidth + layout.getHgap() + size.width > usable) {
+                    width = Math.max(width, rowWidth);
+                    height += (height > 0 ? layout.getVgap() : 0) + rowHeight;
+                    rowWidth = 0;
+                    rowHeight = 0;
+                }
+                rowWidth += (rowWidth > 0 ? layout.getHgap() : 0) + size.width;
+                rowHeight = Math.max(rowHeight, size.height);
+            }
+            width = Math.max(width, rowWidth);
+            height += (height > 0 ? layout.getVgap() : 0) + rowHeight;
+
+            return new Dimension(
+                    width + insets.left + insets.right + layout.getHgap() * 2,
+                    height + insets.top + insets.bottom + layout.getVgap() * 2);
+        }
+
+        /**
+         * 最窄只要求放得下最宽的一个条目，其余靠换行消化。
+         *
+         * <p>否则窄窗口下 {@code GridBagLayout} 会改用最小尺寸排版，把整整一行控件的宽度
+         * 当成不可压缩的硬需求，进而挤掉同一行行尾的按钮。</p>
+         */
+        @Override
+        public Dimension getMinimumSize() {
+            FlowLayout layout = (FlowLayout) getLayout();
+            Insets insets = getInsets();
+            int widest = 0;
+            for (int i = 0; i < getComponentCount(); i++) {
+                Component child = getComponent(i);
+                if (child.isVisible()) {
+                    widest = Math.max(widest, child.getPreferredSize().width);
+                }
+            }
+            return new Dimension(
+                    widest + insets.left + insets.right + layout.getHgap() * 2,
+                    getPreferredSize().height);
         }
     }
 }

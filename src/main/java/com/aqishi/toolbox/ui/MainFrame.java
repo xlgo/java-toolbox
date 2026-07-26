@@ -42,6 +42,8 @@ import com.aqishi.toolbox.misc.WeChatPanel;
 import com.aqishi.toolbox.misc.XmlPanel;
 import com.aqishi.toolbox.monitor.RemoteDesktopPanel;
 import com.aqishi.toolbox.monitor.VideoMonitorPanel;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
@@ -65,10 +67,16 @@ public class MainFrame extends JFrame {
     private final VaultService vaultService;
     private final SecureClipboard secureClipboard;
 
-    private JLabel statusLabel;
     private JLabel currentToolLabel;
+    private JLabel breadcrumbGroupLabel;
+    private JLabel breadcrumbSeparatorLabel;
     private JLabel topThemeLabel;
     private JLabel topLangLabel;
+    private JLabel statusReadyLabel;
+    private JLabel statusJdkLabel;
+    private JLabel statusCpuLabel;
+    private JLabel statusMemoryLabel;
+    private java.util.List<JLabel> statusSegments;
     private JButton expandSidebarButton;
     private ToolNavigationModel navigationModel;
     private ToolSidebar sidebar;
@@ -231,7 +239,8 @@ public class MainFrame extends JFrame {
         sidebar.setPreferredSize(new Dimension(UIUtils.SIDEBAR_DEFAULT_WIDTH, 0));
 
         contentHost = new ToolContentHost(java.util.Arrays.asList(tools));
-        contentHost.setBorder(new EmptyBorder(2, UIUtils.SPACE_SM, UIUtils.SPACE_XS, UIUtils.SPACE_XS));
+        // 外边距由每个工具面板自己的页面容器提供，这里不再叠加，避免双层留白
+        contentHost.setBorder(BorderFactory.createEmptyBorder());
 
         JPanel contentArea = new JPanel(new BorderLayout(0, 0));
         contentArea.add(buildToolBar(), BorderLayout.NORTH);
@@ -259,32 +268,62 @@ public class MainFrame extends JFrame {
         return workspaceSplit;
     }
 
+    /**
+     * 当前工具栏：左侧「分组 / 工具」面包屑，右侧主题与语言。
+     *
+     * <p>面包屑用字重和颜色区分层级（分组弱、工具强），比原来的纯文本拼接更容易定位当前位置。</p>
+     */
     private JComponent buildToolBar() {
-        JPanel bar = new JPanel(new BorderLayout(UIUtils.SPACE_SM, 0));
+        JPanel bar = new JPanel(new BorderLayout(UIUtils.SPACE_MD, 0));
+        bar.setOpaque(false);
         bar.setBorder(new EmptyBorder(
-                UIUtils.SPACE_SM, UIUtils.SPACE_MD,
-                UIUtils.SPACE_SM, UIUtils.SPACE_MD));
+                UIUtils.SPACE_MD, UIUtils.SPACE_LG,
+                UIUtils.SPACE_MD, UIUtils.SPACE_LG));
 
         JPanel location = new JPanel(new BorderLayout(UIUtils.SPACE_SM, 0));
+        location.setOpaque(false);
         expandSidebarButton = new JButton("☰");
         expandSidebarButton.setToolTipText(I18n.get("nav.expand"));
         expandSidebarButton.getAccessibleContext().setAccessibleName(I18n.get("nav.expand"));
         expandSidebarButton.addActionListener(event -> setSidebarCollapsed(false));
+        expandSidebarButton.setFocusPainted(false);
+        expandSidebarButton.putClientProperty("JButton.buttonType", "toolBarButton");
+        expandSidebarButton.setPreferredSize(
+                new Dimension(Tokens.CONTROL_HEIGHT, Tokens.CONTROL_HEIGHT));
         expandSidebarButton.setVisible(false);
+
+        breadcrumbGroupLabel = new JLabel();
+        breadcrumbGroupLabel.setFont(Tokens.fontBody());
+        breadcrumbGroupLabel.setForeground(Tokens.mutedForeground());
+        breadcrumbSeparatorLabel = new JLabel("/");
+        breadcrumbSeparatorLabel.setFont(Tokens.fontBody());
+        breadcrumbSeparatorLabel.setForeground(Tokens.borderSubtle());
         currentToolLabel = new JLabel();
-        currentToolLabel.setFont(UIUtils.titleFont());
+        currentToolLabel.setFont(Tokens.fontTitle());
+        currentToolLabel.setForeground(Tokens.foreground());
+
+        JPanel breadcrumb = new JPanel(new FlowLayout(FlowLayout.LEFT, UIUtils.SPACE_SM, 0));
+        breadcrumb.setOpaque(false);
+        breadcrumb.add(breadcrumbGroupLabel);
+        breadcrumb.add(breadcrumbSeparatorLabel);
+        breadcrumb.add(currentToolLabel);
+
         location.add(expandSidebarButton, BorderLayout.WEST);
-        location.add(currentToolLabel, BorderLayout.CENTER);
+        location.add(breadcrumb, BorderLayout.CENTER);
         bar.add(location, BorderLayout.CENTER);
 
-        JPanel settings = new JPanel(new FlowLayout(FlowLayout.RIGHT, UIUtils.SPACE_XS, 0));
+        JPanel settings = new JPanel(new FlowLayout(FlowLayout.RIGHT, UIUtils.SPACE_SM, 0));
+        settings.setOpaque(false);
         topThemeLabel = new JLabel(I18n.get("top.theme"));
-        topThemeLabel.setFont(UIUtils.plainFont());
+        topThemeLabel.setFont(Tokens.fontCaption());
+        topThemeLabel.setForeground(Tokens.mutedForeground());
         JComboBox<String> themeBox = new JComboBox<>(ThemeManager.names());
         themeBox.setSelectedItem(ThemeManager.current().name);
-        themeBox.setPreferredSize(new Dimension(160, 32));
+        themeBox.setFont(Tokens.fontBody());
+        themeBox.setPreferredSize(new Dimension(172, Tokens.CONTROL_HEIGHT));
         themeBox.addActionListener(event -> {
             ThemeManager.apply((String) themeBox.getSelectedItem());
+            restyleAfterThemeChange();
             SwingUtilities.invokeLater(() -> {
                 if (!sidebarCollapsed) workspaceSplit.setDividerLocation(expandedSidebarWidth);
             });
@@ -293,11 +332,13 @@ public class MainFrame extends JFrame {
         settings.add(themeBox);
 
         topLangLabel = new JLabel(I18n.get("top.lang"));
-        topLangLabel.setFont(UIUtils.plainFont());
+        topLangLabel.setFont(Tokens.fontCaption());
+        topLangLabel.setForeground(Tokens.mutedForeground());
         JComboBox<String> langBox = new JComboBox<>(new String[]{"简体中文", "English"});
         langBox.setSelectedIndex(
                 "en_US".equals(ConfigManager.get("locale", "zh_CN")) ? 1 : 0);
-        langBox.setPreferredSize(new Dimension(100, 32));
+        langBox.setFont(Tokens.fontBody());
+        langBox.setPreferredSize(new Dimension(108, Tokens.CONTROL_HEIGHT));
         langBox.addActionListener(event -> {
             String target = "English".equals(langBox.getSelectedItem()) ? "en_US" : "zh_CN";
             if (!target.equals(ConfigManager.get("locale", "zh_CN"))) {
@@ -312,9 +353,38 @@ public class MainFrame extends JFrame {
         bar.add(settings, BorderLayout.EAST);
 
         JPanel wrapper = new JPanel(new BorderLayout(0, 0));
+        wrapper.setOpaque(false);
         wrapper.add(bar, BorderLayout.CENTER);
-        wrapper.add(new JSeparator(), BorderLayout.SOUTH);
+        wrapper.add(new Card.Hairline(), BorderLayout.SOUTH);
         return wrapper;
+    }
+
+    /** 主题切换后重新取色：这些标签的前景色是手动设置的，不会随 LAF 自动更新 */
+    private void restyleAfterThemeChange() {
+        if (breadcrumbGroupLabel != null) {
+            breadcrumbGroupLabel.setForeground(Tokens.mutedForeground());
+        }
+        if (breadcrumbSeparatorLabel != null) {
+            breadcrumbSeparatorLabel.setForeground(Tokens.borderSubtle());
+        }
+        if (currentToolLabel != null) {
+            currentToolLabel.setForeground(Tokens.foreground());
+        }
+        if (topThemeLabel != null) {
+            topThemeLabel.setForeground(Tokens.mutedForeground());
+        }
+        if (topLangLabel != null) {
+            topLangLabel.setForeground(Tokens.mutedForeground());
+        }
+        if (statusSegments != null) {
+            for (JLabel label : statusSegments) {
+                label.setForeground(Tokens.mutedForeground());
+            }
+        }
+        if (sidebar != null) {
+            sidebar.restyle();
+        }
+        repaint();
     }
 
     private void selectTool(String toolId) {
@@ -329,9 +399,14 @@ public class MainFrame extends JFrame {
 
     private void updateCurrentToolLabel() {
         ToolPanel tool = navigationModel.findTool(currentToolId);
-        String label = tool == null ? "" : tool.getGroupLabel() + " / " + tool.getLabel();
-        currentToolLabel.setText(label);
-        currentToolLabel.setToolTipText(label);
+        String group = tool == null ? "" : tool.getGroupLabel();
+        String name = tool == null ? "" : tool.getLabel();
+        breadcrumbGroupLabel.setText(group);
+        breadcrumbSeparatorLabel.setVisible(!group.isEmpty() && !name.isEmpty());
+        currentToolLabel.setText(name);
+        String full = group.isEmpty() ? name : group + " / " + name;
+        currentToolLabel.setToolTipText(full);
+        breadcrumbGroupLabel.setToolTipText(full);
     }
 
     private void setSidebarCollapsed(boolean collapsed) {
@@ -388,18 +463,71 @@ public class MainFrame extends JFrame {
         repaint();
     }
 
+    /**
+     * 状态栏：左侧运行状态，右侧运行时指标，各段之间用细竖线分隔。
+     *
+     * <p>原来是一整条拼接字符串，分段之后每项都能独立本地化，也更容易扫读。</p>
+     */
     private JComponent buildStatusBar() {
-        statusLabel = new JLabel();
-        statusLabel.setFont(UIUtils.plainFont().deriveFont(12f));
-        statusLabel.setBorder(BorderFactory.createCompoundBorder(
-                new MatteBorder(1, 0, 0, 0, UIManager.getColor("Component.borderColor")),
-                new EmptyBorder(4, 8, 4, 8)));
+        statusReadyLabel = statusSegment();
+        statusJdkLabel = statusSegment();
+        statusCpuLabel = statusSegment();
+        statusMemoryLabel = statusSegment();
+        statusSegments = java.util.Arrays.asList(
+                statusReadyLabel, statusJdkLabel, statusCpuLabel, statusMemoryLabel);
+
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        left.setOpaque(false);
+        left.add(statusReadyLabel);
+
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        right.setOpaque(false);
+        right.add(statusJdkLabel);
+        right.add(statusDivider());
+        right.add(statusCpuLabel);
+        right.add(statusDivider());
+        right.add(statusMemoryLabel);
+
+        JPanel bar = new JPanel(new BorderLayout(UIUtils.SPACE_MD, 0));
+        bar.setOpaque(false);
+        bar.setBorder(new EmptyBorder(
+                UIUtils.SPACE_XS + 1, UIUtils.SPACE_LG, UIUtils.SPACE_XS + 1, UIUtils.SPACE_LG));
+        bar.add(left, BorderLayout.WEST);
+        bar.add(right, BorderLayout.EAST);
+
+        JPanel wrapper = new JPanel(new BorderLayout(0, 0));
+        wrapper.setOpaque(false);
+        wrapper.add(new Card.Hairline(), BorderLayout.NORTH);
+        wrapper.add(bar, BorderLayout.CENTER);
 
         statusTimer = new javax.swing.Timer(2000, e -> updateStatusBar());
         statusTimer.setInitialDelay(0);
         statusTimer.start();
 
-        return statusLabel;
+        return wrapper;
+    }
+
+    private JLabel statusSegment() {
+        JLabel label = new JLabel();
+        label.setFont(Tokens.fontCaption());
+        label.setForeground(Tokens.mutedForeground());
+        return label;
+    }
+
+    private JComponent statusDivider() {
+        JComponent divider = new JComponent() {
+            @Override
+            public Dimension getPreferredSize() {
+                return new Dimension(UIUtils.SPACE_MD * 2 + 1, Tokens.fontCaption().getSize());
+            }
+
+            @Override
+            protected void paintComponent(Graphics g) {
+                g.setColor(Tokens.borderSubtle());
+                g.fillRect(getWidth() / 2, 1, 1, getHeight() - 2);
+            }
+        };
+        return divider;
     }
 
     private void updateStatusBar() {
@@ -407,25 +535,32 @@ public class MainFrame extends JFrame {
         long used = rt.totalMemory() - rt.freeMemory();
         long max = rt.maxMemory();
         int memPct = max > 0 ? (int) (used * 100L / max) : 0;
-        String jdkVer = System.getProperty("java.version");
 
-        String cpuStr = "";
+        statusReadyLabel.setText(localized("status.ready.short", "就绪"));
+        statusJdkLabel.setText("JDK " + System.getProperty("java.version"));
+
+        double cpuLoad = -1;
         try {
             java.lang.management.OperatingSystemMXBean osBean =
                     java.lang.management.ManagementFactory.getOperatingSystemMXBean();
             if (osBean instanceof com.sun.management.OperatingSystemMXBean) {
-                double cpuLoad = ((com.sun.management.OperatingSystemMXBean) osBean).getProcessCpuLoad();
-                if (cpuLoad >= 0) {
-                    cpuStr = String.format("CPU %.1f%%", cpuLoad * 100);
-                }
+                cpuLoad = ((com.sun.management.OperatingSystemMXBean) osBean).getProcessCpuLoad();
             }
         } catch (Exception ignored) {
         }
+        statusCpuLabel.setText(cpuLoad >= 0
+                ? String.format("CPU %.1f%%", cpuLoad * 100)
+                : "CPU --%");
 
-        String cpuVal = cpuStr.isEmpty() ? "CPU --%" : cpuStr;
-        String statusText = I18n.get(
-                "status.ready", jdkVer, cpuVal, formatBytes(used), formatBytes(max), memPct);
-        statusLabel.setText(statusText);
+        String memoryTemplate = localized("status.memory", "内存 {0} / {1} ({2}%)");
+        statusMemoryLabel.setText(java.text.MessageFormat.format(
+                memoryTemplate, formatBytes(used), formatBytes(max), memPct));
+    }
+
+    /** 取本地化文案，键缺失时回退到内置中文，避免界面上出现原始 key */
+    private static String localized(String key, String fallback) {
+        String value = I18n.get(key);
+        return key.equals(value) ? fallback : value;
     }
 
     private static String formatBytes(long bytes) {

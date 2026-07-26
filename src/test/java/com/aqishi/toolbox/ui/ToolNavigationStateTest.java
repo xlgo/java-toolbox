@@ -13,9 +13,9 @@ class ToolNavigationStateTest {
 
     @Test
     void clampsSidebarWidthToSupportedRange() {
-        assertEquals(190, ToolNavigationState.clampSidebarWidth(100));
+        assertEquals(200, ToolNavigationState.clampSidebarWidth(100));
         assertEquals(228, ToolNavigationState.clampSidebarWidth(228));
-        assertEquals(320, ToolNavigationState.clampSidebarWidth(500));
+        assertEquals(340, ToolNavigationState.clampSidebarWidth(500));
     }
 
     @Test

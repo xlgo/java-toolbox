@@ -1,6 +1,12 @@
 package com.aqishi.toolbox.algo;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -20,23 +26,33 @@ public class SearchPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 10));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JTextField arrField = new JTextField("3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5", 24);
-        JTextField target = new JTextField("5", 6);
-        JComboBox<String> mode = new JComboBox<>(new String[]{"二分查找", "线性查找"});
-        JButton run = UIUtils.button("查找", 80);
-        top.add(new JLabel("数组(逗号分隔)")); top.add(arrField);
-        top.add(new JLabel("目标")); top.add(target);
-        top.add(mode); top.add(run);
-        root.add(top, BorderLayout.NORTH);
+        // ===== 参数卡片：三个输入按表单列对齐，比原来一排 FlowLayout 更容易读 =====
+        JTextField arrField = Fields.mono("3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5");
+        JTextField target = Fields.mono("5");
+        JComboBox<String> mode = Fields.combo(new String[]{"二分查找", "线性查找"}, 140);
+        JButton run = Buttons.primary("查找");
 
-        JTextArea out = new JTextArea(14, 50);
-        out.setFont(UIUtils.monoFont());
-        out.setEditable(false);
-        root.add(UIUtils.scrollText(out, "查找过程"), BorderLayout.CENTER);
+        FormGrid form = new FormGrid();
+        form.row("数组(逗号分隔)", arrField);
+        // 目标值与算法都是窄控件，靠左包一层，免得被表单的水平填充拉成整行宽
+        form.row("目标", leading(target));
+        form.row("算法", leading(mode));
+        form.caption("二分查找会先把数组排序，再逐步输出区间收缩过程");
+
+        Card config = Card.titled("查找参数");
+        config.setContent(form);
+        config.addHeaderAction(run);
+
+        // ===== 过程卡片：逐步日志行数多，放 CENTER 独占剩余高度 =====
+        // 行数只决定首选高度，实际高度由 CENTER 拉伸；取小值免得空结果区就先冒出滚动条
+        JTextArea out = Fields.output(10, 50);
+        Card process = Card.flush("查找过程");
+        process.setContent(Fields.scroll(out));
+
+        root.add(config, BorderLayout.NORTH);
+        root.add(process, BorderLayout.CENTER);
 
         run.addActionListener(e -> {
             try {
@@ -84,5 +100,23 @@ public class SearchPanel extends ToolPanel {
         });
 
         return root;
+    }
+
+    /**
+     * 把窄控件左对齐地包一层，使其在 FormGrid 里保留自身首选宽度。
+     *
+     * <p>{@code FlowLayout} 的 hgap 会同时留在行首，导致包过的控件比同列的普通输入框右移，
+     * 所以这里 hgap 取 0，控件之间的间距改用 strut 补。</p>
+     */
+    private static JPanel leading(Component... items) {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        panel.setOpaque(false);
+        for (int i = 0; i < items.length; i++) {
+            if (i > 0) {
+                panel.add(Box.createHorizontalStrut(Tokens.SPACE_SM));
+            }
+            panel.add(items[i]);
+        }
+        return panel;
     }
 }

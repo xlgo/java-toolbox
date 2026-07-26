@@ -1,10 +1,16 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
-import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -36,42 +42,20 @@ public class CronPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 顶部：输入栏 =====
-        JPanel top = new JPanel(new BorderLayout(8, 8));
-        top.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
-        
-        JLabel label = new JLabel("Cron 表达式:");
-        label.setFont(UIUtils.plainFont());
-        input = new JTextField("0 */5 * * * ?");
-        input.setFont(UIUtils.monoFont());
-        input.setPreferredSize(new Dimension(0, 32));
-        
-        btn = UIUtils.button("解析", 80);
-        
-        JPanel inputRow = new JPanel(new BorderLayout(6, 0));
-        inputRow.add(label, BorderLayout.WEST);
-        inputRow.add(input, BorderLayout.CENTER);
-        inputRow.add(btn, BorderLayout.EAST);
-        
-        top.add(inputRow, BorderLayout.NORTH);
-        
-        JLabel desc = new JLabel("格式说明：[秒] 分 时 天 月 周（支持 5 位 or 6 位，例如 */5 * * * *）");
-        desc.setFont(UIUtils.plainFont().deriveFont(11f));
-        desc.setForeground(UIManager.getColor("Label.disabledForeground"));
-        top.add(desc, BorderLayout.SOUTH);
-        
-        root.add(top, BorderLayout.NORTH);
+        // ===== 表达式卡片 =====
+        // 这个输入框同时是「手工录入」和「可视化配置的表达式预览」——
+        // 下面每改一个字段都会回写到这里，所以它单独成卡放在最上方，格式说明降为副标题。
+        input = Fields.mono("0 */5 * * * ?");
+        btn = Buttons.primary("解析");
 
-        // ===== 中部：可视化配置与解析结果 =====
-        JPanel centerPanel = new JPanel(new BorderLayout(8, 8));
+        Card exprCard = Card.titled("Cron 表达式",
+                "格式说明：[秒] 分 时 天 月 周（支持 5 位 or 6 位，例如 */5 * * * *）");
+        exprCard.setContent(input);
+        exprCard.addHeaderAction(btn);
 
-        // 1. 可视化配置 TabbedPane
-        JTabbedPane configTabs = new JTabbedPane();
-        configTabs.setFont(UIUtils.plainFont().deriveFont(13f));
-
+        // ===== 可视化配置：六个字段各占一个标签页 =====
         // 定义状态变更监听器
         CronFieldPanel.FieldChangeListener changeListener = source -> {
             // “日” 与 “周” 的互斥处理
@@ -95,6 +79,9 @@ public class CronPanel extends ToolPanel {
         monthPanel = new CronFieldPanel("month", "月", 1, 12, "月", changeListener);
         weekPanel = new CronFieldPanel("week", "周", 1, 7, "", changeListener);
 
+        JTabbedPane configTabs = new JTabbedPane();
+        // 标签外观（下划线样式、行高）由全局主题统一决定，这里只去掉自带描边
+        configTabs.setBorder(null);
         configTabs.addTab("秒", secPanel);
         configTabs.addTab("分", minPanel);
         configTabs.addTab("时", hourPanel);
@@ -102,23 +89,23 @@ public class CronPanel extends ToolPanel {
         configTabs.addTab("月", monthPanel);
         configTabs.addTab("周", weekPanel);
 
-        centerPanel.add(configTabs, BorderLayout.CENTER);
+        // ===== 结果卡片：未来执行时间列表 =====
+        out = Fields.output(16, 48);
+        Card resultCard = Card.flush("解析及未来执行时间");
+        resultCard.setContent(Fields.scroll(out));
+        // 结果区的高度下限：配置区标签页内容很高，不给下限的话分隔条初始就会把它压没
+        resultCard.setMinimumSize(new Dimension(0, Tokens.CONTROL_HEIGHT * 4));
 
-        // 2. 解析结果面板
-        out = new JTextArea();
-        out.setFont(UIUtils.monoFont());
-        out.setEditable(false);
-        JScrollPane scroll = UIUtils.scrollText(out, "解析及未来执行时间");
-        scroll.setPreferredSize(new Dimension(0, 300)); // 给结果区适当增加高度
-        centerPanel.add(scroll, BorderLayout.SOUTH);
-
-        root.add(centerPanel, BorderLayout.CENTER);
+        root.add(exprCard, BorderLayout.NORTH);
+        // 配置区（六个标签页）与结果区都需要真实高度，谁也不该被压成一条缝，
+        // 因此用可拖动的细分隔条分配剩余空间，而不是把结果区钉死在 SOUTH。
+        root.add(Layouts.splitVertical(configTabs, resultCard, 0.45), BorderLayout.CENTER);
 
         // ===== 绑定解析按钮事件 =====
         btn.addActionListener(e -> {
             try {
                 String cron = input.getText().trim();
-                
+
                 // 点击解析时反向同步到配置面板
                 if (!isRebuilding) {
                     try {
@@ -231,12 +218,11 @@ public class CronPanel extends ToolPanel {
         private JComboBox<String> weekFromCombo;
         private JComboBox<String> weekToCombo;
 
-        // 下拉多选相关组件 (弹出式 JPopupMenu)
-        private JButton selectButton;
-        private JPopupMenu selectPopup;
+        // 具体数值多选：等宽网格 + 全选/清空 + 已选摘要
         private JPanel specGrid;
         private JCheckBox[] specCheckBoxes;
         private JTextField specTextField; // 用于日的指定文本输入框
+        private JLabel specSummary;
         private JButton selectAllBtn;
         private JButton clearBtn;
 
@@ -253,47 +239,32 @@ public class CronPanel extends ToolPanel {
             this.max = max;
             this.changeListener = changeListener;
 
-            // 初始化 Radio
-            anyRadio = new JRadioButton("每" + label + " (*)");
-            anyRadio.setFont(UIUtils.plainFont().deriveFont(13f));
-            noneRadio = new JRadioButton("不指定 (?)");
-            noneRadio.setFont(UIUtils.plainFont().deriveFont(13f));
-            cycleRadio = new JRadioButton("周期：");
-            cycleRadio.setFont(UIUtils.plainFont().deriveFont(13f));
-            rangeRadio = new JRadioButton("区间：");
-            rangeRadio.setFont(UIUtils.plainFont().deriveFont(13f));
-            specRadio = new JRadioButton("指定具体数值：");
-            specRadio.setFont(UIUtils.plainFont().deriveFont(13f));
+            // 初始化 Radio（字号、焦点框统一由 Fields 决定）
+            anyRadio = Fields.radio("每" + label + " (*)", false);
+            noneRadio = Fields.radio("不指定 (?)", false);
+            cycleRadio = Fields.radio("周期：", false);
+            rangeRadio = Fields.radio("区间：", false);
+            specRadio = Fields.radio("指定具体数值：", false);
 
             // 根据类型初始化输入控制组件
             if ("week".equals(type)) {
                 String[] weekDays = {"周一 (1)", "周二 (2)", "周三 (3)", "周四 (4)", "周五 (5)", "周六 (6)", "周日 (7)"};
-                weekStartCombo = new JComboBox<>(weekDays);
-                weekFromCombo = new JComboBox<>(weekDays);
-                weekToCombo = new JComboBox<>(weekDays);
+                // 星期名长度固定，给下拉框一个固定宽度，避免被行内其它控件挤扁
+                weekStartCombo = Fields.combo(weekDays, 110);
+                weekFromCombo = Fields.combo(weekDays, 110);
+                weekToCombo = Fields.combo(weekDays, 110);
 
-                weekStartCombo.setFont(UIUtils.plainFont().deriveFont(12f));
-                weekFromCombo.setFont(UIUtils.plainFont().deriveFont(12f));
-                weekToCombo.setFont(UIUtils.plainFont().deriveFont(12f));
-
-                cycleStepSpinner = new JSpinner(new SpinnerNumberModel(1, 1, 7, 1));
+                cycleStepSpinner = Fields.spinner(1, 1, 7, 1);
             } else {
-                cycleStartSpinner = new JSpinner(new SpinnerNumberModel(min, min, max, 1));
-                cycleStepSpinner = new JSpinner(new SpinnerNumberModel(1, 1, max - min > 0 ? max - min : 1, 1));
-                rangeFromSpinner = new JSpinner(new SpinnerNumberModel(min, min, max, 1));
-                rangeToSpinner = new JSpinner(new SpinnerNumberModel(min, min, max, 1));
-                rangeStepSpinner = new JSpinner(new SpinnerNumberModel(1, 1, max - min > 0 ? max - min : 1, 1));
-
-                cycleStartSpinner.setFont(UIUtils.monoFont().deriveFont(12f));
-                cycleStepSpinner.setFont(UIUtils.monoFont().deriveFont(12f));
-                rangeFromSpinner.setFont(UIUtils.monoFont().deriveFont(12f));
-                rangeToSpinner.setFont(UIUtils.monoFont().deriveFont(12f));
-                rangeStepSpinner.setFont(UIUtils.monoFont().deriveFont(12f));
+                cycleStartSpinner = Fields.spinner(min, min, max, 1);
+                cycleStepSpinner = Fields.spinner(1, 1, max - min > 0 ? max - min : 1, 1);
+                rangeFromSpinner = Fields.spinner(min, min, max, 1);
+                rangeToSpinner = Fields.spinner(min, min, max, 1);
+                rangeStepSpinner = Fields.spinner(1, 1, max - min > 0 ? max - min : 1, 1);
             }
 
             if ("day".equals(type)) {
-                specTextField = new JTextField("1,15");
-                specTextField.setFont(UIUtils.monoFont().deriveFont(13f));
+                specTextField = Fields.mono("1,15");
                 specTextField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
                     public void insertUpdate(javax.swing.event.DocumentEvent e) { if (specRadio.isSelected()) triggerChange(); }
                     public void removeUpdate(javax.swing.event.DocumentEvent e) { if (specRadio.isSelected()) triggerChange(); }
@@ -301,40 +272,32 @@ public class CronPanel extends ToolPanel {
                 });
             } else {
                 specCheckBoxes = new JCheckBox[max - min + 1];
-                initPopupMenu(label);
+                initSpecValues();
             }
 
             initUI(label, unit);
         }
 
-        private void initPopupMenu(String label) {
-            selectButton = new JButton("选择具体数值...");
-            selectButton.setFont(UIUtils.plainFont().deriveFont(12f));
+        /**
+         * 具体数值选择器：复选框网格直接铺在标签页里。
+         *
+         * <p>用固定列数的 {@code GridLayout} 而不是流式换行行：这一组是等宽的纯数字条目，
+         * 定列后每列上下对齐；而且它的首选高度与容器宽度无关，卡片、滚动区才能算出正确高度。</p>
+         */
+        private void initSpecValues() {
+            // 列数按条目宽度定：秒 / 分 是两位数字且有 60 个，铺 15 列刚好 4 行；
+            // 时只有 24 个，12 列 2 行；月、周条目是中文，列数取少免得挤。
+            int cols = 15;
+            if ("week".equals(type)) {
+                cols = 7;
+            } else if ("month".equals(type)) {
+                cols = 6;
+            } else if ("hour".equals(type)) {
+                cols = 12;
+            }
 
-            selectPopup = new JPopupMenu();
-
-            int cols = 4;
-            if ("week".equals(type)) cols = 3;
-            else if ("month".equals(type)) cols = 3;
-            else if ("hour".equals(type)) cols = 4;
-
-            JPanel popupContent = new JPanel(new BorderLayout(4, 4));
-            popupContent.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
-
-            // 全选与清空
-            JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 0));
-            selectAllBtn = new JButton("全选");
-            clearBtn = new JButton("清空");
-            selectAllBtn.setFont(UIUtils.plainFont().deriveFont(11f));
-            clearBtn.setFont(UIUtils.plainFont().deriveFont(11f));
-            selectAllBtn.setMargin(new Insets(1, 4, 1, 4));
-            clearBtn.setMargin(new Insets(1, 4, 1, 4));
-            actionPanel.add(selectAllBtn);
-            actionPanel.add(clearBtn);
-            popupContent.add(actionPanel, BorderLayout.NORTH);
-
-            // 勾选网格
-            specGrid = new JPanel(new GridLayout(0, cols, 4, 4));
+            specGrid = new JPanel(new GridLayout(0, cols, Tokens.SPACE_SM, Tokens.SPACE_XS));
+            specGrid.setOpaque(false);
 
             for (int i = min; i <= max; i++) {
                 String text;
@@ -345,8 +308,10 @@ public class CronPanel extends ToolPanel {
                 } else {
                     text = String.format("%02d", i);
                 }
-                JCheckBox cb = new JCheckBox(text);
-                cb.setFont(UIUtils.monoFont().deriveFont(12f));
+                JCheckBox cb = Fields.check(text, false);
+                if (!"week".equals(type) && !"month".equals(type)) {
+                    cb.setFont(Tokens.fontMono()); // 纯数字用等宽字体，网格才对得齐
+                }
                 final int val = i;
                 cb.putClientProperty("value", val);
                 specCheckBoxes[i - min] = cb;
@@ -360,33 +325,10 @@ public class CronPanel extends ToolPanel {
                 });
             }
 
-            JScrollPane gridScroll = new JScrollPane(specGrid);
-            gridScroll.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
+            // 全选与清空：放到卡片标题右侧，不再占一整行
+            selectAllBtn = Buttons.secondary("全选");
+            clearBtn = Buttons.ghost("清空");
 
-            // 设置不同维度的滚动窗口首选大小，使其紧凑整齐
-            int prefW = 200;
-            int prefH = 150;
-            if ("week".equals(type)) {
-                prefW = 160;
-                prefH = 90;
-            } else if ("month".equals(type)) {
-                prefW = 180;
-                prefH = 110;
-            } else if ("hour".equals(type)) {
-                prefW = 200;
-                prefH = 120;
-            }
-            gridScroll.setPreferredSize(new Dimension(prefW, prefH));
-            popupContent.add(gridScroll, BorderLayout.CENTER);
-
-            selectPopup.add(popupContent);
-
-            // 弹出显示
-            selectButton.addActionListener(e -> {
-                selectPopup.show(selectButton, 0, selectButton.getHeight());
-            });
-
-            // 绑定全选与清空按钮事件
             selectAllBtn.addActionListener(e -> {
                 setAllCheckBoxes(true);
                 specRadio.setSelected(true);
@@ -402,20 +344,15 @@ public class CronPanel extends ToolPanel {
                 updateEnabledState();
                 triggerChange();
             });
+
+            specSummary = Fields.caption("选择值 (未选)");
         }
 
         private void initUI(String label, String unit) {
-            setLayout(new BorderLayout());
-            setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-            // 单选按钮选项区 (不再常驻庞大的复选网格，高度大幅缩短)
-            JPanel radioPanel = new JPanel(new GridBagLayout());
-            GridBagConstraints gbc = new GridBagConstraints();
-            gbc.gridx = 0;
-            gbc.gridy = 0;
-            gbc.anchor = GridBagConstraints.WEST;
-            gbc.insets = new Insets(3, 4, 3, 4);
-            gbc.weightx = 1.0;
+            setLayout(new BorderLayout(0, Tokens.SPACE_LG));
+            setOpaque(false);
+            // 标签页里再补一层比 page() 薄的内边距，避免与页面外边距叠加过厚
+            setBorder(KitBorders.padding(Tokens.SPACE_MD));
 
             ButtonGroup group = new ButtonGroup();
             group.add(anyRadio);
@@ -424,68 +361,95 @@ public class CronPanel extends ToolPanel {
             group.add(rangeRadio);
             group.add(specRadio);
 
+            // 五个取值规则是互斥选项，各占整行；行内控件与说明文字穿插成一句话读下来。
+            // 每行用 ActionBar（横向 BoxLayout）而不是流式换行行：这一句话不该被拆开，
+            // 而且它的最小高度始终只有一行，外层分隔条才敢压缩配置区、把高度让给结果区。
+            FormGrid form = new FormGrid();
+
             // 1. 每X (*)
-            radioPanel.add(anyRadio, gbc);
-            gbc.gridy++;
+            form.fullRow(new ActionBar().left(anyRadio));
 
             // 2. 不指定 (?) (仅日/周显示)
             if ("day".equals(type) || "week".equals(type)) {
-                radioPanel.add(noneRadio, gbc);
-                gbc.gridy++;
+                form.fullRow(new ActionBar().left(noneRadio));
             }
 
             // 3. 周期 (/)
-            JPanel cycleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-            cycleRow.add(cycleRadio);
-            cycleRow.add(new JLabel("从第"));
+            ActionBar cycleRow = new ActionBar();
+            cycleRow.left(cycleRadio);
+            cycleRow.left(Fields.label("从第"));
             if ("week".equals(type)) {
-                cycleRow.add(weekStartCombo);
+                cycleRow.left(weekStartCombo);
             } else {
-                cycleRow.add(cycleStartSpinner);
+                cycleRow.left(cycleStartSpinner);
             }
-            cycleRow.add(new JLabel(unit + "开始，每"));
-            cycleRow.add(cycleStepSpinner);
-            cycleRow.add(new JLabel(unit + "执行一次"));
-            radioPanel.add(cycleRow, gbc);
-            gbc.gridy++;
+            cycleRow.left(Fields.label(unit + "开始，每"));
+            cycleRow.left(cycleStepSpinner);
+            cycleRow.left(Fields.label(unit + "执行一次"));
+            form.fullRow(cycleRow);
 
             // 4. 区间 (-) 以及区间周期 (/)
-            JPanel rangeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-            rangeRow.add(rangeRadio);
-            rangeRow.add(new JLabel("从"));
+            ActionBar rangeRow = new ActionBar();
+            rangeRow.left(rangeRadio);
+            rangeRow.left(Fields.label("从"));
             if ("week".equals(type)) {
-                rangeRow.add(weekFromCombo);
+                rangeRow.left(weekFromCombo);
             } else {
-                rangeRow.add(rangeFromSpinner);
+                rangeRow.left(rangeFromSpinner);
             }
-            rangeRow.add(new JLabel(unit + "到"));
+            rangeRow.left(Fields.label(unit + "到"));
             if ("week".equals(type)) {
-                rangeRow.add(weekToCombo);
+                rangeRow.left(weekToCombo);
             } else {
-                rangeRow.add(rangeToSpinner);
+                rangeRow.left(rangeToSpinner);
             }
-            rangeRow.add(new JLabel(unit));
+            rangeRow.left(Fields.label(unit));
             if (!"week".equals(type)) {
-                rangeRow.add(new JLabel("，每隔"));
-                rangeRow.add(rangeStepSpinner);
-                rangeRow.add(new JLabel(unit + "执行一次"));
+                rangeRow.left(Fields.label("，每隔"));
+                rangeRow.left(rangeStepSpinner);
+                rangeRow.left(Fields.label(unit + "执行一次"));
             }
-            radioPanel.add(rangeRow, gbc);
-            gbc.gridy++;
+            form.fullRow(rangeRow);
 
-            // 5. 指定 (多选下拉或文本框录入)
-            JPanel specRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-            specRow.add(specRadio);
+            // 5. 指定 (日为文本框录入，其余在同卡片下半部的数值网格里勾选)
+            ActionBar specRow = new ActionBar();
+            specRow.left(specRadio);
             if ("day".equals(type)) {
-                specRow.add(new JLabel("天数输入："));
-                specRow.add(specTextField);
-                specTextField.setPreferredSize(new Dimension(220, 24));
-            } else {
-                specRow.add(selectButton);
+                specRow.left(Fields.label("天数输入："));
+                specRow.left(specTextField);
             }
-            radioPanel.add(specRow, gbc);
+            form.fullRow(specRow);
 
-            add(radioPanel, BorderLayout.NORTH);
+            // 一个字段一张卡：规则在上、具体数值网格在下。
+            // 合成一张卡而不是两张，是因为标签页里还要给下面的执行时间列表留高度，
+            // 多一张卡就要多付一层标题带 + 内边距 + 卡间距。
+            Card fieldCard = Card.titled(label, "取值范围 " + min + " - " + max);
+
+            if (specGrid != null) {
+                fieldCard.addHeaderAction(selectAllBtn);
+                fieldCard.addHeaderAction(clearBtn);
+
+                // 网格钉在顶部：卡片被拉高时不要把复选框行整体拉散；
+                // 外面套滚动区，是为了窗口很矮时也只是出滚动条而不是把行裁掉。
+                JPanel gridHolder = Layouts.box();
+                gridHolder.add(specGrid, BorderLayout.NORTH);
+                JScrollPane gridScroll = Fields.scrollTransparent(gridHolder);
+                // 网格本身「不可压缩」的话，外层分隔条会认定配置区必须占满，
+                // 把结果区挤成 0 高；这里放开最小高度，窗口矮时出滚动条即可。
+                gridScroll.setMinimumSize(new Dimension(0, 0));
+
+                JPanel body = Layouts.box(0, Tokens.SPACE_MD);
+                body.add(form, BorderLayout.NORTH);
+                body.add(gridScroll, BorderLayout.CENTER);
+                fieldCard.setContent(body);
+                fieldCard.setFooter(specSummary);
+            } else {
+                // 日没有数值网格，glue 把选项钉在卡片顶部，剩余空间留白而不是把行距拉开
+                form.glue();
+                fieldCard.setContent(form);
+            }
+
+            add(fieldCard, BorderLayout.CENTER);
 
             // ===== 绑定交互联动 =====
             anyRadio.addActionListener(e -> { updateEnabledState(); triggerChange(); });
@@ -544,8 +508,15 @@ public class CronPanel extends ToolPanel {
                 specTextField.setEnabled(specSel);
             }
 
-            if (selectButton != null) {
-                selectButton.setEnabled(specSel);
+            // 原先靠禁用「选择具体数值...」按钮来锁定这一组，网格内联后改为整组联动，语义不变
+            if (specCheckBoxes != null) {
+                for (JCheckBox cb : specCheckBoxes) {
+                    if (cb != null) cb.setEnabled(specSel);
+                }
+            }
+            if (selectAllBtn != null) {
+                selectAllBtn.setEnabled(specSel);
+                clearBtn.setEnabled(specSel);
             }
         }
 
@@ -557,8 +528,13 @@ public class CronPanel extends ToolPanel {
             }
         }
 
+        /**
+         * 刷新「已选」摘要文案（原来写在弹出按钮上，现在写在数值卡片的底部状态条）。
+         *
+         * <p>方法名沿用旧名，避免改动 {@code setFieldValue} / {@code initDefault} 等取值方法的调用点。</p>
+         */
         private void updateSelectButtonText() {
-            if ("day".equals(type) || selectButton == null) return;
+            if ("day".equals(type) || specSummary == null) return;
             StringBuilder sb = new StringBuilder();
             int count = 0;
             if (specCheckBoxes != null) {
@@ -575,13 +551,13 @@ public class CronPanel extends ToolPanel {
                 }
             }
             if (count == 0) {
-                selectButton.setText("选择值 (未选)");
+                specSummary.setText("选择值 (未选)");
             } else {
                 String listStr = sb.toString();
                 if (listStr.length() > 18) {
-                    selectButton.setText("已选 (" + count + "个): " + listStr.substring(0, 15) + "...");
+                    specSummary.setText("已选 (" + count + "个): " + listStr.substring(0, 15) + "...");
                 } else {
-                    selectButton.setText("已选 (" + count + "个): " + listStr);
+                    specSummary.setText("已选 (" + count + "个): " + listStr);
                 }
             }
         }
@@ -651,14 +627,14 @@ public class CronPanel extends ToolPanel {
                     String[] parts = value.split("/");
                     String left = parts[0];
                     int step = Integer.parseInt(parts[1]);
-                    
+
                     if (left.contains("-")) {
                         // A-B/C (区间周期)
                         rangeRadio.setSelected(true);
                         String[] range = left.split("-");
                         int from = Integer.parseInt(range[0]);
                         int to = Integer.parseInt(range[1]);
-                        
+
                         if ("week".equals(type)) {
                             if (weekFromCombo != null) weekFromCombo.setSelectedIndex(from - 1);
                             if (weekToCombo != null) weekToCombo.setSelectedIndex(to - 1);
@@ -671,7 +647,7 @@ public class CronPanel extends ToolPanel {
                         // A/B (周期)
                         cycleRadio.setSelected(true);
                         int start = "*".equals(left) ? min : Integer.parseInt(left);
-                        
+
                         if ("week".equals(type)) {
                             if (weekStartCombo != null) weekStartCombo.setSelectedIndex(start - 1);
                         } else {
@@ -685,7 +661,7 @@ public class CronPanel extends ToolPanel {
                     String[] range = value.split("-");
                     int from = Integer.parseInt(range[0]);
                     int to = Integer.parseInt(range[1]);
-                    
+
                     if ("week".equals(type)) {
                         if (weekFromCombo != null) weekFromCombo.setSelectedIndex(from - 1);
                         if (weekToCombo != null) weekToCombo.setSelectedIndex(to - 1);

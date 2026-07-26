@@ -1,5 +1,13 @@
 package com.aqishi.toolbox.ui;
 
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.vault.VaultCrypto;
@@ -8,20 +16,16 @@ import com.aqishi.toolbox.vault.VaultListener;
 import com.aqishi.toolbox.vault.VaultService;
 import com.aqishi.toolbox.vault.VaultState;
 
-import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.SwingUtilities;
-import javax.swing.border.EmptyBorder;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
-import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
-import java.awt.Insets;
 import java.awt.Window;
 import java.util.Arrays;
 import java.util.Objects;
@@ -35,14 +39,17 @@ public final class VaultAccessPanel extends JPanel {
     static final String CONTENT = "CONTENT";
     static final String ERROR = "ERROR";
 
+    /** 说明文字的换行宽度：HTML 标签不会自己换行，给一个上限免得卡片被拉成一条 */
+    private static final int HELP_WIDTH = 340;
+
     private final VaultService service;
     private final CardLayout cards = new CardLayout();
     private final VaultListener listener = this::handleState;
-    private final JPasswordField setupPassword = new JPasswordField(22);
-    private final JPasswordField setupConfirm = new JPasswordField(22);
-    private final JPasswordField migrationPassword = new JPasswordField(22);
-    private final JPasswordField migrationConfirmation = new JPasswordField(22);
-    private final JPasswordField unlockPassword = new JPasswordField(22);
+    private final JPasswordField setupPassword = Fields.password();
+    private final JPasswordField setupConfirm = Fields.password();
+    private final JPasswordField migrationPassword = Fields.password();
+    private final JPasswordField migrationConfirmation = Fields.password();
+    private final JPasswordField unlockPassword = Fields.password();
     private String visibleCardName;
     private boolean disposed;
 
@@ -79,11 +86,10 @@ public final class VaultAccessPanel extends JPanel {
     }
 
     private JComponent buildSetup() {
-        JPanel fields = new JPanel(new GridBagLayout());
-        GridBagConstraints c = constraints();
-        addField(fields, c, 0, I18n.get("vault.masterPassword"), setupPassword);
-        addField(fields, c, 1, I18n.get("vault.confirmPassword"), setupConfirm);
-        JButton create = UIUtils.button(I18n.get("vault.create"), 132);
+        FormGrid fields = new FormGrid();
+        addField(fields, I18n.get("vault.masterPassword"), setupPassword);
+        addField(fields, I18n.get("vault.confirmPassword"), setupConfirm);
+        JButton create = Buttons.primary(I18n.get("vault.create"));
         create.addActionListener(event -> create());
         setupConfirm.addActionListener(event -> create());
         return centered(I18n.get("vault.setup.title"),
@@ -91,11 +97,10 @@ public final class VaultAccessPanel extends JPanel {
     }
 
     private JComponent buildMigration() {
-        JPanel fields = new JPanel(new GridBagLayout());
-        GridBagConstraints c = constraints();
-        addField(fields, c, 0, I18n.get("vault.masterPassword"), migrationPassword);
-        addField(fields, c, 1, I18n.get("vault.confirmPassword"), migrationConfirmation);
-        JButton migrate = UIUtils.button(I18n.get("vault.migrate"), 132);
+        FormGrid fields = new FormGrid();
+        addField(fields, I18n.get("vault.masterPassword"), migrationPassword);
+        addField(fields, I18n.get("vault.confirmPassword"), migrationConfirmation);
+        JButton migrate = Buttons.primary(I18n.get("vault.migrate"));
         migrate.addActionListener(event -> migrate());
         migrationPassword.addActionListener(event -> migrate());
         return centered(I18n.get("vault.migrate.title"),
@@ -103,10 +108,9 @@ public final class VaultAccessPanel extends JPanel {
     }
 
     private JComponent buildUnlock() {
-        JPanel fields = new JPanel(new GridBagLayout());
-        GridBagConstraints c = constraints();
-        addField(fields, c, 0, I18n.get("vault.masterPassword"), unlockPassword);
-        JButton unlock = UIUtils.button(I18n.get("vault.unlock"), 132);
+        FormGrid fields = new FormGrid();
+        addField(fields, I18n.get("vault.masterPassword"), unlockPassword);
+        JButton unlock = Buttons.primary(I18n.get("vault.unlock"));
         unlock.addActionListener(event -> unlock());
         unlockPassword.addActionListener(event -> unlock());
         return centered(I18n.get("vault.unlock.title"), null, fields, unlock);
@@ -114,24 +118,30 @@ public final class VaultAccessPanel extends JPanel {
 
     private JComponent buildBusy() {
         JPanel panel = new JPanel(new GridBagLayout());
+        panel.setOpaque(false);
         JLabel label = new JLabel(I18n.get("vault.busy"));
-        label.setFont(UIUtils.titleFont().deriveFont(15f));
+        label.setFont(Tokens.fontTitle());
+        label.setForeground(Tokens.mutedForeground());
         panel.add(label);
         return panel;
     }
 
     private JComponent buildContent(JComponent content) {
-        JPanel panel = new JPanel(new BorderLayout(0, UIUtils.SPACE_XS));
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, UIUtils.SPACE_XS, 0));
-        JButton settings = UIUtils.button(I18n.get("vault.settings"), 88);
-        JButton lock = UIUtils.button(I18n.get("vault.lock"), 88);
+        JPanel panel = Layouts.box();
+        JButton settings = Buttons.ghost(I18n.get("vault.settings"));
+        JButton lock = Buttons.secondary(I18n.get("vault.lock"));
         settings.addActionListener(event -> {
             Window owner = SwingUtilities.getWindowAncestor(this);
             new VaultSettingsDialog(owner, service).setVisible(true);
         });
         lock.addActionListener(event -> service.lock());
-        actions.add(settings);
-        actions.add(lock);
+        // 保险库级别的动作贴着内容区顶部右对齐；内容自身用 Layouts.page()，
+        // 它的上外边距正好当作这条动作条与卡片之间的间隔，这里只补左右和顶部。
+        ActionBar actions = new ActionBar();
+        actions.right(settings);
+        actions.right(lock);
+        actions.setBorder(KitBorders.padding(
+                Tokens.SPACE_LG, Tokens.SPACE_LG, 0, Tokens.SPACE_LG));
         panel.add(actions, BorderLayout.NORTH);
         panel.add(content, BorderLayout.CENTER);
         return panel;
@@ -139,58 +149,49 @@ public final class VaultAccessPanel extends JPanel {
 
     private JComponent buildError() {
         JPanel panel = new JPanel(new GridBagLayout());
+        panel.setOpaque(false);
         JLabel label = new JLabel(I18n.get("vault.readOnly"));
-        label.setFont(UIUtils.plainFont());
+        label.setFont(Tokens.fontBody());
+        // 只读故障是错误态：仅着色，文案与原来完全一致
+        label.setForeground(Tokens.danger());
         panel.add(label);
         return panel;
     }
 
+    /**
+     * 解锁 / 首次设置 / 迁移三种状态共用的居中表单。
+     *
+     * <p>这三张卡都只有一两个输入框，铺满整页会显得空旷；放进一张按首选尺寸居中的卡片里，
+     * 视觉重心落在主密码输入上，主操作固定在卡片右下角。</p>
+     */
     private JComponent centered(String title, String help,
                                 JComponent fields, JButton action) {
-        JPanel outer = new JPanel(new GridBagLayout());
-        JPanel form = new JPanel(new GridBagLayout());
-        form.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(title),
-                new EmptyBorder(8, 10, 8, 10)));
-        GridBagConstraints c = constraints();
-        c.gridx = 0;
-        c.gridy = 0;
-        c.gridwidth = 2;
+        Card card = Card.titled(title);
+        JPanel body = Layouts.box(0, Tokens.SPACE_MD);
         if (help != null) {
-            JLabel helpLabel = new JLabel("<html>" + help + "</html>");
-            helpLabel.setFont(UIUtils.plainFont());
-            form.add(helpLabel, c);
-            c.gridy++;
+            JLabel helpLabel = new JLabel(
+                    "<html><div style='width:" + HELP_WIDTH + "px'>" + help + "</div></html>");
+            helpLabel.setFont(Tokens.fontCaption());
+            helpLabel.setForeground(Tokens.mutedForeground());
+            body.add(helpLabel, BorderLayout.NORTH);
         }
-        form.add(fields, c);
-        c.gridy++;
-        c.insets = new Insets(12, 8, 4, 8);
-        form.add(action, c);
-        outer.add(form);
+        body.add(fields, BorderLayout.CENTER);
+        ActionBar actions = new ActionBar();
+        actions.right(action);
+        body.add(actions, BorderLayout.SOUTH);
+        card.setContent(body);
+
+        // GridBagLayout 不带约束时按首选尺寸居中，窗口再大也不会把表单拉散
+        JPanel outer = new JPanel(new GridBagLayout());
+        outer.setOpaque(false);
+        outer.setBorder(KitBorders.padding(Tokens.SPACE_LG));
+        outer.add(card, new GridBagConstraints());
         return outer;
     }
 
-    private static GridBagConstraints constraints() {
-        GridBagConstraints c = new GridBagConstraints();
-        c.insets = new Insets(6, 8, 6, 8);
-        c.fill = GridBagConstraints.HORIZONTAL;
-        c.weightx = 1;
-        return c;
-    }
-
-    private static void addField(JPanel panel, GridBagConstraints c, int row,
-                                 String label, JPasswordField field) {
-        GridBagConstraints left = (GridBagConstraints) c.clone();
-        left.gridx = 0;
-        left.gridy = row;
-        left.weightx = 0;
-        panel.add(new JLabel(label), left);
-        GridBagConstraints right = (GridBagConstraints) c.clone();
-        right.gridx = 1;
-        right.gridy = row;
-        right.weightx = 1;
+    private static void addField(FormGrid form, String label, JPasswordField field) {
         field.getAccessibleContext().setAccessibleName(label);
-        panel.add(field, right);
+        form.row(label, field);
     }
 
     private void create() {

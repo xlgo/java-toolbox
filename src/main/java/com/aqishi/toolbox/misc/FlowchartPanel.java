@@ -1,11 +1,18 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
@@ -180,23 +187,20 @@ public class FlowchartPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(5, 5));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        // 图形编辑器的三栏结构：左图形库 → 中画布 → 右属性表单。
+        // 原来属性栏是定宽 250px 的 GridBagLayout，标签独占一行、又没有滚动，
+        // 卡在窗口高度不够时下半截样式设置直接看不到；工具栏则把模式切换、缩放、导入导出混在一条里。
+        final JPanel root = Layouts.page();
 
-        // 1. 左侧图形备选面板（图形库 Shapes Library）
-        JPanel shapesPanel = new JPanel(new BorderLayout(6, 6));
-        shapesPanel.setPreferredSize(new Dimension(190, 0));
-        shapesPanel.setBorder(BorderFactory.createTitledBorder(
-                null, "图形备用库 (可拖动)", TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION, UIUtils.plainFont(),
-                UIManager.getColor("Component.accentColor")));
-
+        // ===== 左栏：图形库（拖拽源），手风琴分组与拖放逻辑保持不变 =====
         JPanel accordionPanel = new ScrollablePanel();
+        accordionPanel.setOpaque(false);
         accordionPanel.setLayout(new BoxLayout(accordionPanel, BoxLayout.Y_AXIS));
+        accordionPanel.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.SPACE_MD, Tokens.CARD_PADDING));
 
         // 1. 基础流程
-        JPanel flowGrid = new JPanel(new GridLayout(0, 2, 4, 4));
-        flowGrid.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        JPanel flowGrid = shapeGrid();
         flowGrid.add(new ShapeDragLabel("🟢", "起止框", TYPE_START_END));
         flowGrid.add(new ShapeDragLabel("🟦", "步骤框", TYPE_PROCESS));
         flowGrid.add(new ShapeDragLabel("🔶", "判定框", TYPE_DECISION));
@@ -207,8 +211,7 @@ public class FlowchartPanel extends ToolPanel {
         addAccordionGroup("基础流程", flowGrid, accordionPanel);
 
         // 2. 系统/数据
-        JPanel sysGrid = new JPanel(new GridLayout(0, 2, 4, 4));
-        sysGrid.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        JPanel sysGrid = shapeGrid();
         sysGrid.add(new ShapeDragLabel("🛢️", "数据库", TYPE_DATABASE));
         sysGrid.add(new ShapeDragLabel("☁️", "外部系统", TYPE_CLOUD));
         sysGrid.add(new ShapeDragLabel("📑", "文档框", TYPE_DOCUMENT));
@@ -222,8 +225,7 @@ public class FlowchartPanel extends ToolPanel {
         addAccordionGroup("系统/数据", sysGrid, accordionPanel);
 
         // 3. 时序图组件
-        JPanel seqGrid = new JPanel(new GridLayout(0, 2, 4, 4));
-        seqGrid.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        JPanel seqGrid = shapeGrid();
         seqGrid.add(new ShapeDragLabel("💈", "生命线", TYPE_LIFELINE));
         seqGrid.add(new ShapeDragLabel("🧍", "角色线", TYPE_ACTOR));
         seqGrid.add(new ShapeDragLabel("▮", "激活条", TYPE_ACTIVATION));
@@ -232,241 +234,153 @@ public class FlowchartPanel extends ToolPanel {
         // 添加垂直胶水，使折叠时内容紧贴顶部，不被拉长拉高
         accordionPanel.add(Box.createVerticalGlue());
 
-        JScrollPane shapesScrollPane = new JScrollPane(accordionPanel);
-        shapesScrollPane.setBorder(BorderFactory.createEmptyBorder());
-        shapesScrollPane.getVerticalScrollBar().setUnitIncrement(10);
-        shapesPanel.add(shapesScrollPane, BorderLayout.CENTER);
-        
-        root.add(shapesPanel, BorderLayout.WEST);
+        Card shapesCard = Card.flush("图形备用库", "拖动图形到画布即可添加");
+        shapesCard.setContent(Fields.scrollTransparent(accordionPanel));
+        // 两列图形块是定宽的，列一窄就会被裁掉半个；给一个能放下两列的宽度下限（含竖向滚动条）
+        shapesCard.setMinimumSize(new Dimension(
+                accordionPanel.getPreferredSize().width + Tokens.SPACE_XL, 0));
 
-        // 2. 顶部工具栏
-        JToolBar toolBar = new JToolBar();
-        toolBar.setFloatable(false);
-        toolBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Component.borderColor")));
-
+        // ===== 模式切换：属于画布的交互模式，放画布卡片标题右侧 =====
         ButtonGroup btnGroup = new ButtonGroup();
 
         class ToolBarHelper {
             JToggleButton addToggle(String tooltip, Mode mode, String iconText) {
-                JToggleButton btn = new JToggleButton(iconText);
+                JToggleButton btn = Buttons.toggle(iconText, false);
                 btn.setToolTipText(tooltip);
-                btn.setFont(UIUtils.plainFont());
                 btn.addActionListener(e -> setMode(mode));
                 btnGroup.add(btn);
-                toolBar.add(btn);
                 return btn;
             }
         }
         ToolBarHelper helper = new ToolBarHelper();
 
-        JToggleButton selectBtn = helper.addToggle("选择/移动 (支持框选)", Mode.SELECT, " 🖲️ 选择");
+        JToggleButton selectBtn = helper.addToggle("选择/移动 (支持框选)", Mode.SELECT, "🖲️ 选择");
         selectBtn.setSelected(true);
-        toolBar.addSeparator();
 
-        JToggleButton connectBtn = helper.addToggle("建立吸附连线", Mode.CONNECT, " 🔗 建立连线");
-        toolBar.addSeparator();
-        
-        JButton layoutBtn = new JButton(" 📐 自动排版");
-        layoutBtn.setFont(UIUtils.plainFont());
+        JToggleButton connectBtn = helper.addToggle("建立吸附连线", Mode.CONNECT, "🔗 建立连线");
+
+        // ===== 顶部动作条：左侧编辑动作，右侧文件动作，销毁性操作用 danger =====
+        JButton layoutBtn = Buttons.secondary("📐 自动排版");
         layoutBtn.addActionListener(e -> autoLayout());
-        toolBar.add(layoutBtn);
 
-        JButton clearBtn = new JButton(" 🗑️ 清空");
-        clearBtn.setFont(UIUtils.plainFont());
+        JButton clearBtn = Buttons.danger("🗑️ 清空");
         clearBtn.addActionListener(e -> clearCanvas());
-        toolBar.add(clearBtn);
 
-        toolBar.addSeparator();
-
-        undoBtn = new JButton(" ↩️ 撤销");
-        undoBtn.setFont(UIUtils.plainFont());
+        undoBtn = Buttons.secondary("↩️ 撤销");
         undoBtn.setToolTipText("撤销上一步操作 (Ctrl+Z)");
         undoBtn.setEnabled(false);
         undoBtn.addActionListener(e -> undo());
-        toolBar.add(undoBtn);
 
-        redoBtn = new JButton(" ↪️ 重做");
-        redoBtn.setFont(UIUtils.plainFont());
+        redoBtn = Buttons.secondary("↪️ 重做");
         redoBtn.setToolTipText("重做上一步撤销的操作 (Ctrl+Y)");
         redoBtn.setEnabled(false);
         redoBtn.addActionListener(e -> redo());
-        toolBar.add(redoBtn);
 
-        toolBar.addSeparator();
-
-        JButton zoomInBtn = new JButton(" 🔍+ 放大");
-        zoomInBtn.setFont(UIUtils.plainFont());
+        // 缩放是画布自身的显示状态，放画布卡片底部状态条，顺手给出快捷键提示
+        JButton zoomInBtn = snugButton("🔍+ 放大", Tokens.fontBody());
         zoomInBtn.setToolTipText("放大画布 (Ctrl + Mouse Wheel Up / Ctrl + =)");
         zoomInBtn.addActionListener(e -> {
             zoomFactor = Math.min(3.0, zoomFactor + 0.1);
             adjustCanvasSize();
             canvasPanel.repaint();
         });
-        toolBar.add(zoomInBtn);
 
-        JButton zoomOutBtn = new JButton(" 🔍- 缩小");
-        zoomOutBtn.setFont(UIUtils.plainFont());
+        JButton zoomOutBtn = snugButton("🔍- 缩小", Tokens.fontBody());
         zoomOutBtn.setToolTipText("缩小画布 (Ctrl + Mouse Wheel Down / Ctrl + -)");
         zoomOutBtn.addActionListener(e -> {
             zoomFactor = Math.max(0.3, zoomFactor - 0.1);
             adjustCanvasSize();
             canvasPanel.repaint();
         });
-        toolBar.add(zoomOutBtn);
 
-        JButton zoomResetBtn = new JButton(" 100%");
-        zoomResetBtn.setFont(UIUtils.plainFont());
+        JButton zoomResetBtn = snugButton("100%", Tokens.fontBody());
         zoomResetBtn.setToolTipText("恢复原始大小 (Ctrl+0)");
         zoomResetBtn.addActionListener(e -> {
             zoomFactor = 1.0;
             adjustCanvasSize();
             canvasPanel.repaint();
         });
-        toolBar.add(zoomResetBtn);
 
-        toolBar.addSeparator();
-
-        JButton exportBtn = new JButton(" 💾 导出图片");
-        exportBtn.setFont(UIUtils.plainFont());
+        JButton exportBtn = Buttons.primary("💾 导出图片");
         exportBtn.addActionListener(e -> exportImage());
-        toolBar.add(exportBtn);
 
-        JButton importBtn = new JButton(" 📂 导入图表");
-        importBtn.setFont(UIUtils.plainFont());
+        JButton importBtn = Buttons.secondary("📂 导入图表");
         importBtn.addActionListener(e -> importDiagram());
-        toolBar.add(importBtn);
 
-        root.add(toolBar, BorderLayout.NORTH);
+        ActionBar actions = new ActionBar();
+        actions.left(layoutBtn);
+        actions.left(undoBtn);
+        actions.left(redoBtn);
+        actions.right(clearBtn);
+        actions.right(importBtn);
+        actions.right(exportBtn);
 
-        // 3. 右侧属性与样式编辑面板
-        propPanel = new JPanel(new GridBagLayout());
-        propPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createMatteBorder(0, 1, 0, 0, UIManager.getColor("Component.borderColor")),
-                "属性与样式", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION,
-                UIUtils.titleFont(), UIManager.getColor("Component.accentColor")));
-        propPanel.setPreferredSize(new Dimension(250, 0));
-        
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(4, 8, 4, 8);
-        gbc.weightx = 1.0;
-        gbc.gridx = 0;
-
-        int gridy = 0;
-
-        // 元素名/文本
-        propPanel.add(new JLabel("文本内容:"), getGbc(gbc, gridy++));
-        nameField = new JTextField();
-        nameField.setFont(UIUtils.plainFont());
-        propPanel.add(nameField, getGbc(gbc, gridy++));
-
-        // 元素ID
-        propPanel.add(new JLabel("唯一标识 ID:"), getGbc(gbc, gridy++));
-        idField = new JTextField();
-        idField.setFont(UIUtils.plainFont());
+        // ===== 右栏：属性与样式表单 =====
+        // 元素标识、节点样式、连线样式三段用小标题分隔；整块可纵向滚动，
+        // 窗口再矮也不会像原来那样把「连线路径样式」以下直接截断
+        nameField = Fields.text("");
+        idField = Fields.text("");
         idField.setEditable(false);
-        propPanel.add(idField, getGbc(gbc, gridy++));
+        edgeLabelField = Fields.text("");
 
-        // 连线文本
-        propPanel.add(new JLabel("连线标签/条件:"), getGbc(gbc, gridy++));
-        edgeLabelField = new JTextField();
-        edgeLabelField.setFont(UIUtils.plainFont());
-        propPanel.add(edgeLabelField, getGbc(gbc, gridy++));
+        nodeBgCombo = Fields.combo(new String[]{"亮蓝色", "青绿绿", "淡明黄", "罗兰紫", "警示红", "极简灰", "纯透明"});
+        JButton customBgBtn = snugButton("自定义", Tokens.fontCaption());
 
-        // 分割线
-        JSeparator sep = new JSeparator();
-        propPanel.add(sep, getGbc(gbc, gridy++));
+        nodeBorderColorCombo = Fields.combo(new String[]{"深蓝色", "森林绿", "深黄色", "罗兰紫", "警示红", "极简灰", "经典黑"});
+        JButton customBorderColorBtn = snugButton("自定义", Tokens.fontCaption());
 
-        // --- 节点样式设置 ---
-        propPanel.add(new JLabel("节点背景填充:"), getGbc(gbc, gridy++));
-        JPanel bgPanel = new JPanel(new BorderLayout(4, 0));
-        bgPanel.setOpaque(false);
-        nodeBgCombo = new JComboBox<>(new String[]{"亮蓝色", "青绿绿", "淡明黄", "罗兰紫", "警示红", "极简灰", "纯透明"});
-        nodeBgCombo.putClientProperty("JComponent.roundRect", true);
-        JButton customBgBtn = new JButton("自定义");
-        customBgBtn.setFont(UIUtils.plainFont().deriveFont(11f));
-        customBgBtn.setMargin(new Insets(2, 4, 2, 4));
-        bgPanel.add(nodeBgCombo, BorderLayout.CENTER);
-        bgPanel.add(customBgBtn, BorderLayout.EAST);
-        propPanel.add(bgPanel, getGbc(gbc, gridy++));
+        nodeBorderCombo = Fields.combo(new String[]{"实线边框", "虚线边框"});
+        nodeBorderThicknessCombo = Fields.combo(new String[]{"细线 (1.5px)", "中等 (2.5px)", "粗线 (4.0px)"});
 
-        propPanel.add(new JLabel("节点边框颜色:"), getGbc(gbc, gridy++));
-        JPanel borderColorPanel = new JPanel(new BorderLayout(4, 0));
-        borderColorPanel.setOpaque(false);
-        nodeBorderColorCombo = new JComboBox<>(new String[]{"深蓝色", "森林绿", "深黄色", "罗兰紫", "警示红", "极简灰", "经典黑"});
-        nodeBorderColorCombo.putClientProperty("JComponent.roundRect", true);
-        JButton customBorderColorBtn = new JButton("自定义");
-        customBorderColorBtn.setFont(UIUtils.plainFont().deriveFont(11f));
-        customBorderColorBtn.setMargin(new Insets(2, 4, 2, 4));
-        borderColorPanel.add(nodeBorderColorCombo, BorderLayout.CENTER);
-        borderColorPanel.add(customBorderColorBtn, BorderLayout.EAST);
-        propPanel.add(borderColorPanel, getGbc(gbc, gridy++));
+        nodeTextColorCombo = Fields.combo(new String[]{"经典黑", "经典白", "警示红", "亮蓝色"});
+        JButton customTextColorBtn = snugButton("自定义", Tokens.fontCaption());
 
-        propPanel.add(new JLabel("节点边框类型:"), getGbc(gbc, gridy++));
-        nodeBorderCombo = new JComboBox<>(new String[]{"实线边框", "虚线边框"});
-        nodeBorderCombo.putClientProperty("JComponent.roundRect", true);
-        propPanel.add(nodeBorderCombo, getGbc(gbc, gridy++));
+        nodeFontSizeSpinner = Fields.spinner(12, 8, 36, 1);
+        nodeBoldToggle = Fields.check("加粗", false);
 
-        propPanel.add(new JLabel("节点边框粗细:"), getGbc(gbc, gridy++));
-        nodeBorderThicknessCombo = new JComboBox<>(new String[]{"细线 (1.5px)", "中等 (2.5px)", "粗线 (4.0px)"});
-        nodeBorderThicknessCombo.putClientProperty("JComponent.roundRect", true);
-        propPanel.add(nodeBorderThicknessCombo, getGbc(gbc, gridy++));
+        edgeColorCombo = Fields.combo(new String[]{"经典黑", "亮蓝色", "青绿绿", "警示红"});
+        JButton customEdgeColorBtn = snugButton("自定义", Tokens.fontCaption());
 
-        propPanel.add(new JLabel("文本字体颜色:"), getGbc(gbc, gridy++));
-        JPanel textColorPanel = new JPanel(new BorderLayout(4, 0));
-        textColorPanel.setOpaque(false);
-        nodeTextColorCombo = new JComboBox<>(new String[]{"经典黑", "经典白", "警示红", "亮蓝色"});
-        nodeTextColorCombo.putClientProperty("JComponent.roundRect", true);
-        JButton customTextColorBtn = new JButton("自定义");
-        customTextColorBtn.setFont(UIUtils.plainFont().deriveFont(11f));
-        customTextColorBtn.setMargin(new Insets(2, 4, 2, 4));
-        textColorPanel.add(nodeTextColorCombo, BorderLayout.CENTER);
-        textColorPanel.add(customTextColorBtn, BorderLayout.EAST);
-        propPanel.add(textColorPanel, getGbc(gbc, gridy++));
+        edgeStrokeCombo = Fields.combo(new String[]{"实线", "虚线"});
+        edgeRoutingCombo = Fields.combo(new String[]{"直角折线", "直连实线", "贝塞尔曲线"});
 
-        propPanel.add(new JLabel("字体大小与加粗:"), getGbc(gbc, gridy++));
-        JPanel fontStylePanel = new JPanel(new BorderLayout(4, 0));
-        fontStylePanel.setOpaque(false);
-        nodeFontSizeSpinner = new JSpinner(new SpinnerNumberModel(12, 8, 36, 1));
-        nodeBoldToggle = new JCheckBox("加粗");
-        nodeBoldToggle.setFont(UIUtils.plainFont());
-        nodeBoldToggle.setOpaque(false);
-        fontStylePanel.add(nodeFontSizeSpinner, BorderLayout.CENTER);
-        fontStylePanel.add(nodeBoldToggle, BorderLayout.EAST);
-        propPanel.add(fontStylePanel, getGbc(gbc, gridy++));
-
-        // --- 连线样式设置 ---
-        propPanel.add(new JLabel("连线色彩:"), getGbc(gbc, gridy++));
-        JPanel edgeColorPanel = new JPanel(new BorderLayout(4, 0));
-        edgeColorPanel.setOpaque(false);
-        edgeColorCombo = new JComboBox<>(new String[]{"经典黑", "亮蓝色", "青绿绿", "警示红"});
-        edgeColorCombo.putClientProperty("JComponent.roundRect", true);
-        JButton customEdgeColorBtn = new JButton("自定义");
-        customEdgeColorBtn.setFont(UIUtils.plainFont().deriveFont(11f));
-        customEdgeColorBtn.setMargin(new Insets(2, 4, 2, 4));
-        edgeColorPanel.add(edgeColorCombo, BorderLayout.CENTER);
-        edgeColorPanel.add(customEdgeColorBtn, BorderLayout.EAST);
-        propPanel.add(edgeColorPanel, getGbc(gbc, gridy++));
-
-        propPanel.add(new JLabel("连线类型:"), getGbc(gbc, gridy++));
-        edgeStrokeCombo = new JComboBox<>(new String[]{"实线", "虚线"});
-        edgeStrokeCombo.putClientProperty("JComponent.roundRect", true);
-        propPanel.add(edgeStrokeCombo, getGbc(gbc, gridy++));
-
-        propPanel.add(new JLabel("连线路径样式:"), getGbc(gbc, gridy++));
-        edgeRoutingCombo = new JComboBox<>(new String[]{"直角折线", "直连实线", "贝塞尔曲线"});
-        edgeRoutingCombo.putClientProperty("JComponent.roundRect", true);
-        propPanel.add(edgeRoutingCombo, getGbc(gbc, gridy++));
-
-        propPanel.add(new JLabel("文本在连线的位置 (0%-100%):"), getGbc(gbc, gridy++));
         edgeLabelPosSlider = new JSlider(0, 100, 50);
         edgeLabelPosSlider.setOpaque(false);
-        edgeLabelPosSlider.putClientProperty("JComponent.roundRect", true);
-        propPanel.add(edgeLabelPosSlider, getGbc(gbc, gridy++));
+        // 这行标签比其它标签长一倍多，放进标签列会把整张表单的标签列撑到属性栏放不下，
+        // 所以让它和滑块各占一整行
+        JLabel edgeLabelPosLabel = new JLabel("文本在连线的位置 (0%-100%):");
+        edgeLabelPosLabel.setFont(Tokens.fontBody());
 
-        gbc.gridy = gridy++;
-        gbc.weighty = 1.0;
-        propPanel.add(new JPanel(), gbc);
+        FormGrid form = new FormGrid();
+        form.row("文本内容", nameField);
+        form.row("唯一标识 ID", idField);
+        form.row("连线标签/条件", edgeLabelField);
+
+        form.fullRow(sectionLabel("节点样式"));
+        form.row("节点背景填充", nodeBgCombo, customBgBtn);
+        form.row("节点边框颜色", nodeBorderColorCombo, customBorderColorBtn);
+        form.row("节点边框类型", nodeBorderCombo);
+        form.row("节点边框粗细", nodeBorderThicknessCombo);
+        form.row("文本字体颜色", nodeTextColorCombo, customTextColorBtn);
+        form.rowCompact("字体大小与加粗", nodeFontSizeSpinner, nodeBoldToggle);
+
+        form.fullRow(sectionLabel("连线样式"));
+        form.row("连线色彩", edgeColorCombo, customEdgeColorBtn);
+        form.row("连线类型", edgeStrokeCombo);
+        form.row("连线路径样式", edgeRoutingCombo);
+        form.fullRow(edgeLabelPosLabel);
+        form.fullRow(edgeLabelPosSlider);
+        propPanel = form;
+
+        JPanel formBox = Layouts.box();
+        formBox.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.SPACE_MD, Tokens.CARD_PADDING));
+        formBox.add(form, BorderLayout.NORTH);
+
+        Card propCard = Card.flush("属性与样式");
+        propCard.setContent(Fields.scrollVertical(formBox));
+        // 标签列 + 下拉框 + 行尾「自定义」按钮的最小宽度，低于这个值 GridBagLayout 会开始裁控件
+        propCard.setMinimumSize(new Dimension(280, 0));
 
         // 声明 focus 适配器来跟踪输入状态以实现高级撤销
         class Typelistener extends FocusAdapter implements ActionListener {
@@ -652,15 +566,29 @@ public class FlowchartPanel extends ToolPanel {
             canvasPanel.repaint();
         });
 
-        root.add(propPanel, BorderLayout.EAST);
-
-        // 4. 中间画布区
+        // ===== 中栏：画布 =====
         canvasPanel = new CanvasPanel(this);
-        scrollPane = new JScrollPane(canvasPanel);
-        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        // 画布底色跟随卡片底色，与四周的工作区底色区分开；
+        // exportImage() 始终以 Color.WHITE 铺底，导出结果不受这里影响
+        canvasPanel.setBackground(Tokens.cardBackground());
+        scrollPane = Fields.scroll(canvasPanel);
         scrollPane.getVerticalScrollBar().setUnitIncrement(16); // 增加纵向滚轮单位以提高顺滑度
         scrollPane.getHorizontalScrollBar().setUnitIncrement(16); // 增加横向滚轮单位
-        root.add(scrollPane, BorderLayout.CENTER);
+
+        Card canvasCard = Card.flush("画布");
+        canvasCard.setContent(scrollPane);
+        canvasCard.addHeaderAction(selectBtn);
+        canvasCard.addHeaderAction(connectBtn);
+
+        // 状态条只放缩放三件套：快捷键写在按钮 tooltip 里，再加一行说明会在窄窗口下把「100%」挤出去
+        ActionBar canvasStatus = new ActionBar();
+        canvasStatus.right(zoomOutBtn);
+        canvasStatus.right(zoomInBtn);
+        canvasStatus.right(zoomResetBtn);
+        canvasCard.setFooter(canvasStatus);
+
+        root.add(actions, BorderLayout.NORTH);
+        root.add(workspace(shapesCard, canvasCard, propCard), BorderLayout.CENTER);
 
         // 全局快捷键注册以支持撤销和重做 (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z)
         root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_DOWN_MASK), "undoAction");
@@ -722,15 +650,15 @@ public class FlowchartPanel extends ToolPanel {
 
     private void addAccordionGroup(String title, JPanel contentPanel, JPanel container) {
         JButton headerBtn = new JButton("▼ " + title);
-        headerBtn.setFont(UIUtils.titleFont().deriveFont(12f));
+        headerBtn.setFont(Tokens.fontSectionTitle());
         headerBtn.setHorizontalAlignment(SwingConstants.LEFT);
-        headerBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-        headerBtn.setPreferredSize(new Dimension(170, 30));
-        headerBtn.putClientProperty("JButton.buttonType", "square");
+        // 只锁高度不锁宽度：分组标题要跟着侧栏宽度一起伸缩
+        headerBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, Tokens.CONTROL_HEIGHT));
+        headerBtn.putClientProperty("JButton.borderless", Boolean.TRUE);
         headerBtn.setFocusPainted(false);
         headerBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
         contentPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        
+
         headerBtn.addActionListener(e -> {
             boolean visible = !contentPanel.isVisible();
             contentPanel.setVisible(visible);
@@ -738,21 +666,87 @@ public class FlowchartPanel extends ToolPanel {
             container.revalidate();
             container.repaint();
         });
-        
+
         container.add(headerBtn);
         container.add(contentPanel);
-        
-        Component strut = Box.createVerticalStrut(2);
+
+        Component strut = Box.createVerticalStrut(Tokens.SPACE_SM);
         if (strut instanceof JComponent) {
             ((JComponent) strut).setAlignmentX(Component.LEFT_ALIGNMENT);
         }
         container.add(strut);
     }
 
-    private GridBagConstraints getGbc(GridBagConstraints gbc, int y) {
-        gbc.gridy = y;
-        gbc.weighty = 0.0;
-        return gbc;
+    /** 图形库分组内的两列网格：{@link ShapeDragLabel} 是定宽拖拽块，两列刚好铺满侧栏 */
+    private static JPanel shapeGrid() {
+        JPanel grid = new JPanel(new GridLayout(0, 2, Tokens.SPACE_XS, Tokens.SPACE_XS));
+        grid.setOpaque(false);
+        grid.setBorder(KitBorders.padding(Tokens.SPACE_XS, 0, Tokens.SPACE_XS, 0));
+        return grid;
+    }
+
+    /** 属性表单里的分段小标题，替代原来那条看不出层级的 JSeparator */
+    private static JLabel sectionLabel(String text) {
+        JLabel label = new JLabel(text);
+        label.setFont(Tokens.fontSectionTitle());
+        label.setForeground(Tokens.foreground());
+        label.setBorder(KitBorders.padding(Tokens.SPACE_SM, 0, 0, 0));
+        return label;
+    }
+
+    /**
+     * 宽度按文案收紧的按钮，只统一高度。
+     *
+     * <p>{@code Buttons} 工厂给每个按钮兜了 84px 的最小宽度，这在密集的成组按钮里会累加：
+     * 属性栏里三行颜色的「自定义」把属性栏的最小宽度顶到 290px 以上，画布状态条里三个缩放按钮
+     * 会把「100%」整个挤出可视区。</p>
+     */
+    private static JButton snugButton(String text, Font font) {
+        JButton button = new JButton(text);
+        button.setFont(font);
+        button.setFocusPainted(false);
+        button.setMargin(new Insets(2, Tokens.SPACE_SM, 2, Tokens.SPACE_SM));
+        Dimension preferred = button.getPreferredSize();
+        button.setPreferredSize(new Dimension(preferred.width, Tokens.CONTROL_HEIGHT));
+        button.setMinimumSize(new Dimension(preferred.width, Tokens.CONTROL_HEIGHT));
+        return button;
+    }
+
+    /**
+     * 三栏工作区：左图形库 / 中画布 / 右属性。
+     *
+     * <p>不能直接嵌两层 {@code Layouts.splitHorizontal(..., 初始占比)}：初始占比是在组件第一次收到
+     * resize 事件时按当时的宽度换算的，而 resize 事件走事件队列异步派发——外层分隔条落位后要等下一轮
+     * 布局才生效，内层监听器此刻读到的仍是落位前的旧宽度，属性栏会被压成一条缝。这里在外层落位之后
+     * 用已经确定的几何直接换算内层分隔位置，并给两侧留出最小宽度。</p>
+     */
+    private static JSplitPane workspace(
+            final Component palette, Component canvas, final Component properties) {
+        final JSplitPane inner = Layouts.splitHorizontal(canvas, properties, 0.75);
+        final JSplitPane outer = Layouts.splitHorizontal(palette, inner, 0.0);
+        outer.addComponentListener(new ComponentAdapter() {
+            private boolean placed;
+
+            @Override
+            public void componentResized(ComponentEvent event) {
+                int width = outer.getWidth();
+                if (placed || width <= 0) {
+                    return;
+                }
+                placed = true;
+                int left = Math.min(
+                        Math.max((int) (width * 0.18), palette.getMinimumSize().width), width / 2);
+                outer.setDividerLocation(left);
+
+                int innerWidth = width - left - outer.getDividerSize();
+                int propertyFloor = Math.min(
+                        properties.getMinimumSize().width, (int) (innerWidth * 0.45));
+                int canvasWidth = Math.min(
+                        (int) (innerWidth * 0.72), innerWidth - propertyFloor - inner.getDividerSize());
+                inner.setDividerLocation(Math.max(canvasWidth, 0));
+            }
+        });
+        return outer;
     }
 
     void setMode(Mode mode) {
@@ -1272,14 +1266,15 @@ public class FlowchartPanel extends ToolPanel {
             super(emoji, SwingConstants.CENTER);
             this.shapeType = type;
             setToolTipText(name);
-            setFont(UIUtils.plainFont().deriveFont(15f));
+            setFont(Tokens.fontBody().deriveFont(15f));
             setPreferredSize(new Dimension(72, 32));
             setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")),
-                    BorderFactory.createEmptyBorder(3, 3, 3, 3)
+                    KitBorders.lineSubtle(1, 1, 1, 1),
+                    KitBorders.padding(3)
             ));
+            // 拖拽块用工作区底色，在白色的卡片上才看得出是一块可拿起的东西
             setOpaque(true);
-            setBackground(UIManager.getColor("Panel.background"));
+            setBackground(Tokens.surface());
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
             // 实现标准 Swing DND 拖放机制

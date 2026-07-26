@@ -1,10 +1,14 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -42,40 +46,38 @@ public class HttpTestPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 顶部：请求行 =====
-        JPanel topBar = new JPanel(new BorderLayout(8, 0));
-        methodBox = new JComboBox<>(new String[]{"GET", "POST", "PUT", "DELETE"});
-        methodBox.setPreferredSize(new Dimension(90, 32));
-        
-        urlField = new JTextField("https://httpbin.org/get");
-        urlField.setFont(UIUtils.monoFont());
-        
-        sendBtn = UIUtils.button("发送请求", 100);
+        // ===== 顶部：请求配置卡片（方法 / URL / Header / Body 是一次请求的完整描述） =====
+        methodBox = Fields.combo(new String[]{"GET", "POST", "PUT", "DELETE"}, 96);
+        urlField = Fields.mono("https://httpbin.org/get");
+
+        sendBtn = Buttons.primary("发送请求");
         sendBtn.addActionListener(e -> sendRequest());
 
-        topBar.add(methodBox, BorderLayout.WEST);
-        topBar.add(urlField, BorderLayout.CENTER);
-        topBar.add(sendBtn, BorderLayout.EAST);
-        root.add(topBar, BorderLayout.NORTH);
+        // 方法下拉定宽靠左，URL 放 CENTER 才能随窗口一起拉伸
+        JPanel urlRow = Layouts.box(Tokens.SPACE_SM, 0);
+        urlRow.add(methodBox, BorderLayout.WEST);
+        urlRow.add(urlField, BorderLayout.CENTER);
 
-        // ===== 中间：请求与响应切分面板 =====
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        mainSplit.setDividerLocation(200);
-        mainSplit.setResizeWeight(0.4);
-
-        // 1. 请求配置区
         JTabbedPane reqTabs = new JTabbedPane();
-        reqHeadersArea = new JTextArea("Content-Type: application/json\nUser-Agent: JavaToolbox/1.2\nAccept: */*");
-        reqHeadersArea.setFont(UIUtils.monoFont());
-        reqTabs.addTab("请求头 (Headers)", new JScrollPane(reqHeadersArea));
+        reqTabs.setBorder(null);
+        reqHeadersArea = Fields.area(5, 40);
+        reqHeadersArea.setText("Content-Type: application/json\nUser-Agent: JavaToolbox/1.2\nAccept: */*");
+        reqTabs.addTab("请求头 (Headers)", Fields.scroll(reqHeadersArea));
 
-        reqBodyArea = new JTextArea("{\n  \"name\": \"toolbox\",\n  \"value\": \"hello\"\n}");
-        reqBodyArea.setFont(UIUtils.monoFont());
+        reqBodyArea = Fields.area(5, 40);
+        reqBodyArea.setText("{\n  \"name\": \"toolbox\",\n  \"value\": \"hello\"\n}");
         reqBodyArea.setEnabled(false); // 默认GET，禁用请求体
-        reqTabs.addTab("请求体 (Body)", new JScrollPane(reqBodyArea));
+        reqTabs.addTab("请求体 (Body)", Fields.scroll(reqBodyArea));
+
+        JPanel reqBody = Layouts.box(0, Tokens.SPACE_MD);
+        reqBody.add(urlRow, BorderLayout.NORTH);
+        reqBody.add(reqTabs, BorderLayout.CENTER);
+
+        Card requestCard = Card.titled("请求配置");
+        requestCard.setContent(reqBody);
+        requestCard.addHeaderAction(sendBtn);
 
         methodBox.addActionListener(e -> {
             String method = (String) methodBox.getSelectedItem();
@@ -92,38 +94,32 @@ public class HttpTestPanel extends ToolPanel {
             }
         });
 
-        mainSplit.setTopComponent(reqTabs);
-
-        // 2. 响应配置区
-        JPanel respPanel = new JPanel(new BorderLayout(4, 4));
-        
-        JPanel respHeaderBar = new JPanel(new BorderLayout(8, 0));
-        respHeaderBar.setBorder(new EmptyBorder(4, 0, 4, 0));
+        // ===== 响应卡片：放 CENTER 吸收剩余高度，状态行贴在结果上方 =====
         statusLabel = new JLabel("就绪");
-        statusLabel.setFont(UIUtils.plainFont());
-        copyRespBtn = UIUtils.button("复制响应", 90);
+        statusLabel.setFont(Tokens.fontBody());
+
+        copyRespBtn = Buttons.ghost("复制响应");
         copyRespBtn.setEnabled(false);
         copyRespBtn.addActionListener(e -> UIUtils.copyToClipboard(respBodyArea.getText()));
-        
-        respHeaderBar.add(statusLabel, BorderLayout.WEST);
-        respHeaderBar.add(copyRespBtn, BorderLayout.EAST);
-        respPanel.add(respHeaderBar, BorderLayout.NORTH);
 
         JTabbedPane respTabs = new JTabbedPane();
-        respBodyArea = new JTextArea();
-        respBodyArea.setEditable(false);
-        respBodyArea.setFont(UIUtils.monoFont());
-        respTabs.addTab("响应体 (Body)", new JScrollPane(respBodyArea));
+        respTabs.setBorder(null);
+        respBodyArea = Fields.output(10, 40);
+        respTabs.addTab("响应体 (Body)", Fields.scroll(respBodyArea));
 
-        respHeadersArea = new JTextArea();
-        respHeadersArea.setEditable(false);
-        respHeadersArea.setFont(UIUtils.monoFont());
-        respTabs.addTab("响应头 (Headers)", new JScrollPane(respHeadersArea));
+        respHeadersArea = Fields.output(10, 40);
+        respTabs.addTab("响应头 (Headers)", Fields.scroll(respHeadersArea));
 
-        respPanel.add(respTabs, BorderLayout.CENTER);
-        mainSplit.setBottomComponent(respPanel);
+        JPanel respBody = Layouts.box(0, Tokens.SPACE_SM);
+        respBody.add(statusLabel, BorderLayout.NORTH);
+        respBody.add(respTabs, BorderLayout.CENTER);
 
-        root.add(mainSplit, BorderLayout.CENTER);
+        Card responseCard = Card.titled("响应");
+        responseCard.setContent(respBody);
+        responseCard.addHeaderAction(copyRespBtn);
+
+        root.add(requestCard, BorderLayout.NORTH);
+        root.add(responseCard, BorderLayout.CENTER);
         return root;
     }
 

@@ -1,10 +1,16 @@
 package com.aqishi.toolbox.crypto;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -34,105 +40,67 @@ public class SymmetricPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 顶部：参数配置与密钥区 =====
-        JPanel configPanel = new JPanel(new GridBagLayout());
-        configPanel.setBorder(BorderFactory.createTitledBorder("参数与密钥配置"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(4, 6, 4, 6);
+        algoCombo = Fields.combo(new String[]{"AES", "DES", "3DES", "SM4"});
+        modeCombo = Fields.combo(new String[]{"CBC", "ECB"});
+        paddingCombo = Fields.combo(SymmetricUtils.PADDINGS);
+        keySizeCombo = Fields.combo(new Integer[0]);
+        encodingCombo = Fields.combo(new String[]{"Base64", "Hex", "UTF-8 文本"});
 
-        // 1. 算法 & 模式 & 长度配置行
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        configPanel.add(new JLabel("算法："), gbc);
-        gbc.gridx = 1; gbc.weightx = 0.2;
-        algoCombo = new JComboBox<>(new String[]{"AES", "DES", "3DES", "SM4"});
-        configPanel.add(algoCombo, gbc);
+        // 五个参数下拉各占一行会把配置卡片撑到半屏高，
+        // 拆成左右两列后卡片只有两行，明密文区才有空间展开。
+        FormGrid cipherParams = new FormGrid();
+        cipherParams.row("算法：", algoCombo);
+        cipherParams.row("填充：", paddingCombo);
 
-        gbc.gridx = 2; gbc.weightx = 0;
-        configPanel.add(new JLabel("模式："), gbc);
-        gbc.gridx = 3; gbc.weightx = 0.2;
-        modeCombo = new JComboBox<>(new String[]{"CBC", "ECB"});
-        configPanel.add(modeCombo, gbc);
+        FormGrid modeParams = new FormGrid();
+        modeParams.row("模式：", modeCombo);
+        modeParams.row("密钥长度：", keySizeCombo);
 
-        gbc.gridx = 4; gbc.weightx = 0;
-        configPanel.add(new JLabel("填充："), gbc);
-        gbc.gridx = 5; gbc.weightx = 0.2;
-        paddingCombo = new JComboBox<>(SymmetricUtils.PADDINGS);
-        configPanel.add(paddingCombo, gbc);
-
-        gbc.gridx = 6; gbc.weightx = 0;
-        configPanel.add(new JLabel("密钥长度："), gbc);
-        gbc.gridx = 7; gbc.weightx = 0.2;
-        keySizeCombo = new JComboBox<>();
-        configPanel.add(keySizeCombo, gbc);
-
-        gbc.gridx = 8; gbc.weightx = 0;
-        configPanel.add(new JLabel("密钥格式："), gbc);
-        gbc.gridx = 9; gbc.weightx = 0.2;
-        encodingCombo = new JComboBox<>(new String[]{"Base64", "Hex", "UTF-8 文本"});
-        configPanel.add(encodingCombo, gbc);
-
-        // 2. 密钥输入框
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
-        configPanel.add(new JLabel("密钥："), gbc);
-        gbc.gridx = 1; gbc.gridwidth = 7; gbc.weightx = 1.0;
-        keyArea = new JTextArea(2, 40);
-        keyArea.setFont(UIUtils.monoFont().deriveFont(11f));
-        keyArea.setLineWrap(true);
-        configPanel.add(new JScrollPane(keyArea), gbc);
-
-        gbc.gridx = 8; gbc.gridwidth = 2; gbc.weightx = 0;
-        JPanel keyBtnCol = new JPanel(new GridLayout(2, 1, 0, 4));
-        JButton genKeyBtn = UIUtils.button("生成密钥", 90);
-        JButton copyKeyBtn = UIUtils.button("复制密钥", 90);
-        keyBtnCol.add(genKeyBtn);
-        keyBtnCol.add(copyKeyBtn);
-        configPanel.add(keyBtnCol, gbc);
-
-        // 3. IV 向量配置行
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 1; gbc.weightx = 0;
-        configPanel.add(new JLabel("IV 向量："), gbc);
-        gbc.gridx = 1; gbc.gridwidth = 6; gbc.weightx = 0.6;
-        ivField = new JTextField();
-        ivField.setFont(UIUtils.monoFont());
+        keyArea = Fields.area(2, 40);
+        ivField = Fields.mono("");
         ivField.setEnabled(false);
-        configPanel.add(ivField, gbc);
+        customIvCheckbox = Fields.check("自定义 IV（留空为自动随机 IV）", false);
 
-        gbc.gridx = 7; gbc.gridwidth = 3; gbc.weightx = 0.4;
-        customIvCheckbox = new JCheckBox("自定义 IV（留空为自动随机 IV）");
-        customIvCheckbox.setFont(UIUtils.plainFont());
-        configPanel.add(customIvCheckbox, gbc);
+        // 密钥格式 / 密钥 / IV 是同一组「密钥材料」，用整宽表单让输入列一起拉伸；
+        // IV 的开关放行尾，勾选状态与输入框保持在同一视线上。
+        FormGrid keyForm = new FormGrid();
+        keyForm.row("密钥格式：", encodingCombo);
+        keyForm.row("密钥：", boxedScroll(keyArea));
+        keyForm.row("IV 向量：", ivField, customIvCheckbox);
 
-        root.add(configPanel, BorderLayout.NORTH);
+        JButton genKeyBtn = Buttons.secondary("生成密钥");
+        JButton copyKeyBtn = Buttons.ghost("复制密钥");
 
-        // ===== 中部：输入文本区 =====
-        inputArea = new JTextArea(4, 40);
-        inputArea.setFont(UIUtils.monoFont());
-        inputArea.setLineWrap(true);
-        root.add(UIUtils.scrollText(inputArea, "输入文本（加密输明文，解密输密文）"), BorderLayout.CENTER);
+        Card configCard = Card.titled("参数与密钥配置");
+        JPanel configBody = Layouts.box(0, Tokens.SPACE_MD);
+        configBody.add(Layouts.columns(Tokens.SPACE_XL, cipherParams, modeParams), BorderLayout.NORTH);
+        configBody.add(keyForm, BorderLayout.CENTER);
+        configCard.setContent(configBody);
+        // 密钥动作只作用于本卡片，放标题右侧，避免页面中央再多一条按钮行
+        configCard.addHeaderAction(genKeyBtn);
+        configCard.addHeaderAction(copyKeyBtn);
 
-        // ===== 底部：按钮 + 输出区 =====
-        JPanel bottomPanel = new JPanel(new BorderLayout(4, 4));
+        // ===== 明文 / 密文：上下分栏，两个大文本域都能拖动分配高度 =====
+        inputArea = Fields.area(4, 40);
+        outputArea = Fields.output(6, 40);
 
-        JPanel actionBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton encryptBtn = UIUtils.button("加密", 100);
-        JButton decryptBtn = UIUtils.button("解密", 100);
-        JButton clearBtn = UIUtils.button("清空", 80);
-        actionBtnRow.add(encryptBtn);
-        actionBtnRow.add(decryptBtn);
-        actionBtnRow.add(clearBtn);
-        bottomPanel.add(actionBtnRow, BorderLayout.NORTH);
+        JButton encryptBtn = Buttons.primary("加密");
+        JButton decryptBtn = Buttons.secondary("解密");
+        JButton clearBtn = Buttons.ghost("清空");
 
-        outputArea = new JTextArea(6, 40);
-        outputArea.setFont(UIUtils.monoFont());
-        outputArea.setLineWrap(true);
-        outputArea.setEditable(false);
-        bottomPanel.add(UIUtils.scrollText(outputArea, "输出结果"), BorderLayout.CENTER);
+        Card inputCard = Card.flush("输入文本（加密输明文，解密输密文）");
+        inputCard.setContent(Fields.scroll(inputArea));
+        inputCard.addHeaderAction(encryptBtn);
+        inputCard.addHeaderAction(decryptBtn);
+        inputCard.addHeaderAction(clearBtn);
 
-        root.add(bottomPanel, BorderLayout.SOUTH);
+        Card outputCard = Card.flush("输出结果");
+        outputCard.setContent(Fields.scroll(outputArea));
+
+        root.add(configCard, BorderLayout.NORTH);
+        root.add(Layouts.splitVertical(inputCard, outputCard, 0.4), BorderLayout.CENTER);
 
         // ===== 逻辑与事件绑定 =====
         updateKeySizeOptions();
@@ -249,6 +217,18 @@ public class SymmetricPanel extends ToolPanel {
         });
 
         return root;
+    }
+
+    /**
+     * 卡片内部嵌的文本域滚动区。
+     *
+     * <p>卡片底色与文本域底色相同，不描一条细线的话密钥框会整个「消失」在卡片里；
+     * 这里只用最弱的分隔色画 1px，不会和卡片描边叠成双层边框。</p>
+     */
+    private static JScrollPane boxedScroll(JTextArea area) {
+        JScrollPane scroll = Fields.scroll(area);
+        scroll.setBorder(KitBorders.lineSubtle(1, 1, 1, 1));
+        return scroll;
     }
 
     private String getSelectedAlgo() {

@@ -5,6 +5,13 @@ import com.aqishi.toolbox.crypto.acme.AcmeChallengeHelper;
 import com.aqishi.toolbox.crypto.acme.AcmeClient;
 import com.aqishi.toolbox.crypto.acme.CloudflareDnsProvider;
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -81,10 +88,11 @@ public class CertPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
+        // 四类工作差别很大，保留标签页；标签外观交给全局主题，这里只去掉自带描边
         JTabbedPane tabs = new JTabbedPane();
+        tabs.setBorder(null);
         tabs.addTab("创建根证书", buildRootCaTab());
         tabs.addTab("签发证书", buildSignTab());
         tabs.addTab("证书解析", buildParseTab());
@@ -94,107 +102,72 @@ public class CertPanel extends ToolPanel {
         return root;
     }
 
+    /** 标签页内容容器：补一层比 page() 更薄的内边距，纵向留出卡片间距 */
+    private static JPanel tabBody() {
+        JPanel body = Layouts.box(0, Tokens.SPACE_LG);
+        body.setBorder(KitBorders.padding(Tokens.SPACE_MD));
+        return body;
+    }
+
     // ================================================================
     //  Tab 1: 创建根证书
     // ================================================================
     private JComponent buildRootCaTab() {
-        JPanel p = new JPanel(new BorderLayout(8, 8));
+        JPanel p = tabBody();
 
-        JPanel configPanel = new JPanel(new GridBagLayout());
-        configPanel.setBorder(BorderFactory.createTitledBorder("根证书配置"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(4, 6, 4, 6);
+        rootAlgCombo = Fields.combo(KEY_ALG_ITEMS, 160);
+        rootCnField = Fields.text("My Root CA");
+        rootOField = Fields.text("My Org");
+        rootOuField = Fields.text("Security");
+        rootLField = Fields.text("");
+        rootStField = Fields.text("");
+        rootCField = Fields.text("CN");
+        rootYearsSpinner = Fields.spinner(10, 1, 100, 1);
 
-        int row = 0;
+        // 主体信息共 8 项，排成两列：单列 8 行会把下面的证书 / 私钥输出挤到看不见，
+        // 而卡片横向是富余的。下拉框与微调器用 rowCompact，不拉满整列。
+        FormGrid left = new FormGrid();
+        left.rowCompact("密钥算法：", rootAlgCombo);
+        left.row("通用名称", rootCnField);
+        left.row("组织", rootOField);
+        left.row("部门", rootOuField);
+        left.glue();
 
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        configPanel.add(new JLabel("密钥算法："), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        rootAlgCombo = new JComboBox<>(KEY_ALG_ITEMS);
-        rootAlgCombo.setFont(UIUtils.plainFont());
-        configPanel.add(rootAlgCombo, gbc);
+        FormGrid right = new FormGrid();
+        right.row("城市", rootLField);
+        right.row("省份", rootStField);
+        right.row("国家代码", rootCField);
+        right.rowCompact("有效期", Layouts.wrapRow(Tokens.SPACE_SM, 0, rootYearsSpinner, Fields.caption("年")));
+        right.glue();
 
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.gridwidth = 1;
-        configPanel.add(new JLabel("通用名称"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        rootCnField = new JTextField("My Root CA");
-        configPanel.add(rootCnField, gbc);
+        JButton createBtn = Buttons.primary("生成根证书");
+        JButton clearBtn = Buttons.ghost("清空");
 
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        configPanel.add(new JLabel("组织"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        rootOField = new JTextField("My Org");
-        configPanel.add(rootOField, gbc);
+        Card config = Card.titled("根证书配置");
+        config.setContent(Layouts.columns(Tokens.SPACE_XL, left, right));
+        config.addHeaderAction(clearBtn);
+        config.addHeaderAction(createBtn);
 
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        configPanel.add(new JLabel("部门"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        rootOuField = new JTextField("Security");
-        configPanel.add(rootOuField, gbc);
+        // ===== 输出：证书与私钥等宽并排，下载动作放各自卡片标题右侧 =====
+        rootCertOut = Fields.output(8, 30);
+        rootKeyOut = Fields.output(8, 30);
 
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        configPanel.add(new JLabel("城市"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        rootLField = new JTextField();
-        configPanel.add(rootLField, gbc);
-
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        configPanel.add(new JLabel("省份"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        rootStField = new JTextField();
-        configPanel.add(rootStField, gbc);
-
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        configPanel.add(new JLabel("国家代码"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        rootCField = new JTextField("CN");
-        configPanel.add(rootCField, gbc);
-
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        configPanel.add(new JLabel("有效期"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        rootYearsSpinner = new JSpinner(new SpinnerNumberModel(10, 1, 100, 1));
-        configPanel.add(rootYearsSpinner, gbc);
-
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        JButton createBtn = UIUtils.button("生成根证书", 110);
-        JButton clearBtn = UIUtils.button("清空", 70);
-        btnPanel.add(createBtn);
-        btnPanel.add(clearBtn);
-        configPanel.add(btnPanel, gbc);
-
-        rootCertOut = new JTextArea();
-        rootCertOut.setFont(UIUtils.monoFont());
-        rootCertOut.setEditable(false);
-        JButton rootCertDlBtn = UIUtils.button("下载证书", 110);
+        JButton rootCertDlBtn = Buttons.secondary("下载证书");
         rootCertDlBtn.addActionListener(e -> downloadPem(rootCertOut.getText(), "root-ca.crt"));
 
-        rootKeyOut = new JTextArea();
-        rootKeyOut.setFont(UIUtils.monoFont());
-        rootKeyOut.setEditable(false);
-        JButton rootKeyDlBtn = UIUtils.button("下载私钥", 110);
+        JButton rootKeyDlBtn = Buttons.secondary("下载私钥");
         rootKeyDlBtn.addActionListener(e -> downloadPem(rootKeyOut.getText(), "root-ca.key"));
 
-        JPanel outPanel = new JPanel(new GridLayout(1, 2, 8, 0));
-        outPanel.add(wrapWithButtons(
-                UIUtils.scrollText(rootCertOut, "证书"), rootCertDlBtn));
-        outPanel.add(wrapWithButtons(
-                UIUtils.scrollText(rootKeyOut, "私钥"), rootKeyDlBtn));
+        Card certCard = Card.flush("证书");
+        certCard.setContent(Fields.scroll(rootCertOut));
+        certCard.addHeaderAction(rootCertDlBtn);
 
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                new JScrollPane(configPanel), outPanel);
-        split.setResizeWeight(0.4);
-        p.add(split, BorderLayout.CENTER);
+        Card keyCard = Card.flush("私钥");
+        keyCard.setContent(Fields.scroll(rootKeyOut));
+        keyCard.addHeaderAction(rootKeyDlBtn);
+
+        p.add(config, BorderLayout.NORTH);
+        p.add(Layouts.columns(Tokens.SPACE_LG, certCard, keyCard), BorderLayout.CENTER);
 
         createBtn.addActionListener(e -> doCreateRootCa());
         clearBtn.addActionListener(e -> {
@@ -209,128 +182,77 @@ public class CertPanel extends ToolPanel {
     //  Tab 2: 签发证书
     // ================================================================
     private JComponent buildSignTab() {
-        JPanel p = new JPanel(new BorderLayout(8, 8));
+        JPanel p = tabBody();
 
-        JPanel leftPanel = new JPanel(new BorderLayout(4, 4));
-        leftPanel.setBorder(BorderFactory.createTitledBorder("CA 凭证"));
+        signAlgCombo = Fields.combo(KEY_ALG_ITEMS, 160);
+        signCnField = Fields.text("myserver.example.com");
+        signOField = Fields.text("My Org");
+        signOuField = Fields.text("IT");
+        signLField = Fields.text("");
+        signStField = Fields.text("");
+        signCField = Fields.text("CN");
+        signSanField = Fields.text("DNS:example.com, DNS:*.example.com, IP:192.168.1.1");
+        signYearsSpinner = Fields.spinner(2, 1, 50, 1);
 
-        signCaCertArea = new JTextArea(6, 30);
-        signCaCertArea.setFont(UIUtils.monoFont());
-        signCaCertArea.setLineWrap(true);
-        leftPanel.add(UIUtils.scrollText(signCaCertArea, "CA 证书"), BorderLayout.NORTH);
+        FormGrid left = new FormGrid();
+        left.rowCompact("密钥算法：", signAlgCombo);
+        left.row("通用名称：", signCnField);
+        left.row("组织：", signOField);
+        left.row("部门：", signOuField);
+        left.glue();
 
-        signCaKeyArea = new JTextArea(6, 30);
-        signCaKeyArea.setFont(UIUtils.monoFont());
-        signCaKeyArea.setLineWrap(true);
-        leftPanel.add(UIUtils.scrollText(signCaKeyArea, "CA 私钥"), BorderLayout.CENTER);
+        FormGrid right = new FormGrid();
+        right.row("城市：", signLField);
+        right.row("省份：", signStField);
+        right.row("国家代码：", signCField);
+        right.rowCompact("有效期：", Layouts.wrapRow(Tokens.SPACE_SM, 0, signYearsSpinner, Fields.caption("年")));
+        right.glue();
 
-        JPanel rightPanel = new JPanel(new GridBagLayout());
-        rightPanel.setBorder(BorderFactory.createTitledBorder("新证书配置"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(3, 6, 3, 6);
+        // 主题备用名往往是一长串，横跨整行而不是挤在半列里
+        FormGrid sanForm = new FormGrid();
+        sanForm.row("主题备用名：", signSanField);
 
-        int row = 0;
+        JPanel configBody = Layouts.box(0, Tokens.SPACE_SM);
+        configBody.add(Layouts.columns(Tokens.SPACE_XL, left, right), BorderLayout.NORTH);
+        configBody.add(sanForm, BorderLayout.SOUTH);
 
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.gridwidth = 1;
-        rightPanel.add(new JLabel("密钥算法："), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        signAlgCombo = new JComboBox<>(KEY_ALG_ITEMS);
-        signAlgCombo.setFont(UIUtils.plainFont());
-        rightPanel.add(signAlgCombo, gbc);
+        JButton signBtn = Buttons.primary("签发证书");
 
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.gridwidth = 1;
-        rightPanel.add(new JLabel("通用名称："), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        signCnField = new JTextField("myserver.example.com");
-        rightPanel.add(signCnField, gbc);
+        Card config = Card.titled("新证书配置");
+        config.setContent(configBody);
+        config.addHeaderAction(signBtn);
 
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        rightPanel.add(new JLabel("组织："), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        signOField = new JTextField("My Org");
-        rightPanel.add(signOField, gbc);
+        // ===== CA 凭证（输入）与签发结果（输出）：四块 PEM 排成 2×2，等宽等高 =====
+        signCaCertArea = Fields.area(6, 30);
+        signCaKeyArea = Fields.area(6, 30);
 
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        rightPanel.add(new JLabel("部门："), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        signOuField = new JTextField("IT");
-        rightPanel.add(signOuField, gbc);
+        Card caCertCard = Card.flush("CA 证书");
+        caCertCard.setContent(Fields.scroll(signCaCertArea));
 
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        rightPanel.add(new JLabel("城市："), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        signLField = new JTextField();
-        rightPanel.add(signLField, gbc);
+        Card caKeyCard = Card.flush("CA 私钥");
+        caKeyCard.setContent(Fields.scroll(signCaKeyArea));
 
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        rightPanel.add(new JLabel("省份："), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        signStField = new JTextField();
-        rightPanel.add(signStField, gbc);
+        signCertOut = Fields.output(6, 30);
+        signKeyOut = Fields.output(6, 30);
 
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        rightPanel.add(new JLabel("国家代码："), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        signCField = new JTextField("CN");
-        rightPanel.add(signCField, gbc);
-
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.gridwidth = 2;
-        rightPanel.add(new JLabel("主题备用名："), gbc);
-        row++; gbc.gridy = row; gbc.gridwidth = 1;
-        gbc.gridx = 0; gbc.weightx = 0;
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        signSanField = new JTextField("DNS:example.com, DNS:*.example.com, IP:192.168.1.1");
-        rightPanel.add(signSanField, gbc);
-
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.gridwidth = 2;
-        rightPanel.add(new JLabel("有效期："), gbc);
-        row++; gbc.gridy = row; gbc.gridwidth = 1;
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        signYearsSpinner = new JSpinner(new SpinnerNumberModel(2, 1, 50, 1));
-        rightPanel.add(signYearsSpinner, gbc);
-
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        JButton signBtn = UIUtils.button("签发证书", 100);
-        btnPanel.add(signBtn);
-        rightPanel.add(btnPanel, gbc);
-
-        signCertOut = new JTextArea();
-        signCertOut.setFont(UIUtils.monoFont());
-        signCertOut.setEditable(false);
-        JButton signCertDlBtn = UIUtils.button("下载证书", 110);
+        JButton signCertDlBtn = Buttons.secondary("下载证书");
         signCertDlBtn.addActionListener(e -> downloadPem(signCertOut.getText(), "server.crt"));
 
-        signKeyOut = new JTextArea();
-        signKeyOut.setFont(UIUtils.monoFont());
-        signKeyOut.setEditable(false);
-        JButton signKeyDlBtn = UIUtils.button("下载私钥", 110);
+        JButton signKeyDlBtn = Buttons.secondary("下载私钥");
         signKeyDlBtn.addActionListener(e -> downloadPem(signKeyOut.getText(), "server.key"));
 
-        JPanel outPanel = new JPanel(new GridLayout(1, 2, 8, 0));
-        outPanel.add(wrapWithButtons(
-                UIUtils.scrollText(signCertOut, "证书"), signCertDlBtn));
-        outPanel.add(wrapWithButtons(
-                UIUtils.scrollText(signKeyOut, "私钥"), signKeyDlBtn));
+        Card outCertCard = Card.flush("证书");
+        outCertCard.setContent(Fields.scroll(signCertOut));
+        outCertCard.addHeaderAction(signCertDlBtn);
 
-        JSplitPane topSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                new JScrollPane(leftPanel), new JScrollPane(rightPanel));
-        topSplit.setResizeWeight(0.4);
+        Card outKeyCard = Card.flush("私钥");
+        outKeyCard.setContent(Fields.scroll(signKeyOut));
+        outKeyCard.addHeaderAction(signKeyDlBtn);
 
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topSplit, outPanel);
-        mainSplit.setResizeWeight(0.6);
-
-        p.add(mainSplit, BorderLayout.CENTER);
+        p.add(config, BorderLayout.NORTH);
+        p.add(Layouts.rows(Tokens.SPACE_LG,
+                Layouts.columns(Tokens.SPACE_LG, caCertCard, caKeyCard),
+                Layouts.columns(Tokens.SPACE_LG, outCertCard, outKeyCard)), BorderLayout.CENTER);
 
         signBtn.addActionListener(e -> doSignCertificate());
 
@@ -341,37 +263,32 @@ public class CertPanel extends ToolPanel {
     //  Tab 3: 证书解析
     // ================================================================
     private JComponent buildParseTab() {
-        JPanel p = new JPanel(new BorderLayout(8, 8));
+        JPanel p = tabBody();
 
-        JPanel inputPanel = new JPanel(new BorderLayout(4, 4));
-        parseInputArea = new JTextArea(10, 50);
-        parseInputArea.setFont(UIUtils.monoFont());
-        parseInputArea.setLineWrap(true);
+        parseInputArea = Fields.area(10, 50);
 
-        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton parseBtn = UIUtils.button("解析证书", 100);
-        JButton loadExampleBtn = UIUtils.button("载入示例", 90);
-        JButton clearBtn2 = UIUtils.button("清空", 70);
-        btnRow.add(parseBtn);
-        btnRow.add(loadExampleBtn);
-        btnRow.add(clearBtn2);
+        JButton parseBtn = Buttons.primary("解析证书");
+        JButton loadExampleBtn = Buttons.secondary("载入示例");
+        JButton clearBtn2 = Buttons.ghost("清空");
 
-        inputPanel.add(UIUtils.scrollText(parseInputArea, "粘贴证书内容"), BorderLayout.CENTER);
-        inputPanel.add(btnRow, BorderLayout.SOUTH);
+        Card inputCard = Card.flush("粘贴证书内容");
+        inputCard.setContent(Fields.scroll(parseInputArea));
+        inputCard.addHeaderAction(clearBtn2);
+        inputCard.addHeaderAction(loadExampleBtn);
+        inputCard.addHeaderAction(parseBtn);
 
-        parseOutputArea = new JTextArea();
-        parseOutputArea.setFont(UIUtils.monoFont());
-        parseOutputArea.setEditable(false);
+        parseOutputArea = Fields.output(12, 50);
 
-        JButton parseDlBtn = UIUtils.button("下载报告", 110);
+        JButton parseDlBtn = Buttons.secondary("下载报告");
         parseDlBtn.addActionListener(e -> downloadText(parseOutputArea.getText(), "cert-report.txt"));
 
-        JPanel outputPanel = wrapWithButtons(
-                UIUtils.scrollText(parseOutputArea, "解析结果"), parseDlBtn);
+        Card outputCard = Card.flush("解析结果");
+        outputCard.setContent(Fields.scroll(parseOutputArea));
+        outputCard.addHeaderAction(parseDlBtn);
 
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, inputPanel, outputPanel);
-        split.setResizeWeight(0.35);
-        p.add(split, BorderLayout.CENTER);
+        // 输入区高度自适应放上面，解析报告吃掉剩余空间
+        p.add(inputCard, BorderLayout.NORTH);
+        p.add(outputCard, BorderLayout.CENTER);
 
         parseBtn.addActionListener(e -> doParse());
         loadExampleBtn.addActionListener(e -> loadExampleCert());
@@ -389,159 +306,143 @@ public class CertPanel extends ToolPanel {
     //  Tab 4: 免费证书申请
     // ================================================================
     private JComponent buildAcmeTab() {
-        JPanel p = new JPanel(new BorderLayout(8, 8));
+        JPanel p = tabBody();
 
-        JPanel configPanel = new JPanel(new GridBagLayout());
-        configPanel.setBorder(BorderFactory.createTitledBorder("自动化申请配置"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(4, 6, 4, 6);
-
-        // 两列布局构建
-        // 行 0：CA 机构服务 | 自定义 Directory
-        gbc.gridy = 0;
-        gbc.gridx = 0; gbc.weightx = 0;
-        configPanel.add(new JLabel("CA 机构服务："), gbc);
-        gbc.gridx = 1; gbc.weightx = 0.5;
         String[] caOptions = {"Let's Encrypt 生产环境", "Let's Encrypt 测试环境", "ZeroSSL", "自定义 Directory URL"};
-        acmeCaCombo = new JComboBox<>(caOptions);
-        acmeCaCombo.setFont(UIUtils.plainFont());
-        configPanel.add(acmeCaCombo, gbc);
+        acmeCaCombo = Fields.combo(caOptions, 200);
 
-        gbc.gridx = 2; gbc.weightx = 0;
-        configPanel.add(new JLabel("自定义 Directory："), gbc);
-        gbc.gridx = 3; gbc.weightx = 0.5;
-        acmeCustomCaUrlField = new JTextField("https://acme-v02.api.letsencrypt.org/directory");
+        acmeCustomCaUrlField = Fields.text("https://acme-v02.api.letsencrypt.org/directory");
         acmeCustomCaUrlField.setEnabled(false);
-        configPanel.add(acmeCustomCaUrlField, gbc);
 
-        // 行 1：联系 Email | 申请域名
-        gbc.gridy = 1;
-        gbc.gridx = 0; gbc.weightx = 0;
-        configPanel.add(new JLabel("联系 Email："), gbc);
-        gbc.gridx = 1; gbc.weightx = 0.5;
-        acmeEmailField = new JTextField("admin@example.com");
-        configPanel.add(acmeEmailField, gbc);
+        acmeEmailField = Fields.text("admin@example.com");
+        acmeDomainsField = Fields.text("example.com, *.example.com");
 
-        gbc.gridx = 2; gbc.weightx = 0;
-        configPanel.add(new JLabel("申请域名："), gbc);
-        gbc.gridx = 3; gbc.weightx = 0.5;
-        acmeDomainsField = new JTextField("example.com, *.example.com");
-        configPanel.add(acmeDomainsField, gbc);
-
-        // 行 2：域名验证方式 | Cloudflare Token
-        gbc.gridy = 2;
-        gbc.gridx = 0; gbc.weightx = 0;
-        configPanel.add(new JLabel("域名验证方式："), gbc);
-        gbc.gridx = 1; gbc.weightx = 0.5;
         String[] challengeOptions = {
                 "DNS-01 自动验证",
                 "DNS-01 手动验证",
                 "HTTP-01 内置服务",
                 "HTTP-01 目录写入"
         };
-        acmeChallengeCombo = new JComboBox<>(challengeOptions);
-        acmeChallengeCombo.setFont(UIUtils.plainFont());
-        configPanel.add(acmeChallengeCombo, gbc);
+        acmeChallengeCombo = Fields.combo(challengeOptions, 200);
 
-        gbc.gridx = 2; gbc.weightx = 0;
-        configPanel.add(new JLabel("Cloudflare Token："), gbc);
-        gbc.gridx = 3; gbc.weightx = 0.5;
-        acmeCfTokenField = new JTextField();
+        acmeCfTokenField = Fields.text("");
         acmeCfTokenField.setToolTipText("请提供具有 Zone.DNS 权限的 Cloudflare API Token");
-        configPanel.add(acmeCfTokenField, gbc);
 
-        // 行 3：HTTP-01 参数 (独占整行不动)
-        gbc.gridy = 3;
-        gbc.gridx = 0; gbc.weightx = 0; gbc.gridwidth = 1;
-        configPanel.add(new JLabel("HTTP-01 参数："), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0; gbc.gridwidth = 3;
-        JPanel httpOptPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        httpOptPanel.add(new JLabel("内置端口:"));
-        acmeHttpPortField = new JTextField("80", 5);
+        acmeHttpPortField = Fields.text("80");
         acmeHttpPortField.setEnabled(false);
-        httpOptPanel.add(acmeHttpPortField);
-        httpOptPanel.add(new JLabel(" Web根目录:"));
-        acmeWebDirField = new JTextField("/var/www/html", 15);
+        acmeWebDirField = Fields.text("/var/www/html");
         acmeWebDirField.setEnabled(false);
-        httpOptPanel.add(acmeWebDirField);
-        configPanel.add(httpOptPanel, gbc);
 
-        // 行 4：域名密钥算法
-        gbc.gridy = 4;
-        gbc.gridx = 0; gbc.weightx = 0; gbc.gridwidth = 1;
-        configPanel.add(new JLabel("域名密钥算法："), gbc);
-        gbc.gridx = 1; gbc.weightx = 0.5; gbc.gridwidth = 1;
-        acmeKeyAlgCombo = new JComboBox<>(new String[]{"RSA 2048", "RSA 4096", "EC P-256"});
-        acmeKeyAlgCombo.setFont(UIUtils.plainFont());
-        configPanel.add(acmeKeyAlgCombo, gbc);
+        acmeKeyAlgCombo = Fields.combo(new String[]{"RSA 2048", "RSA 4096", "EC P-256"}, 160);
 
-        // 行 5：按钮操作栏 (单独占一行)
-        gbc.gridy = 5;
-        gbc.gridx = 0; gbc.weightx = 1.0; gbc.gridwidth = 4;
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        step1Btn = UIUtils.button("1. 初始化 & 提交申请", 160);
-        step2Btn = UIUtils.button("2. 确认部署并开始验证", 160);
-        JButton clearAcmeBtn = UIUtils.button("清空", 70);
+        // 配置项排成两列，左列是「选什么」，右列是「填什么」
+        FormGrid caCol = new FormGrid();
+        caCol.rowCompact("CA 机构服务：", acmeCaCombo);
+        caCol.row("联系 Email：", acmeEmailField);
+        caCol.rowCompact("域名验证方式：", acmeChallengeCombo);
+        caCol.rowCompact("域名密钥算法：", acmeKeyAlgCombo);
+        caCol.glue();
+
+        FormGrid domainCol = new FormGrid();
+        domainCol.row("自定义 Directory：", acmeCustomCaUrlField);
+        domainCol.row("申请域名：", acmeDomainsField);
+        domainCol.row("Cloudflare Token：", acmeCfTokenField);
+        domainCol.glue();
+
+        // 两个 HTTP-01 参数同属一项，横跨整行放得下，不必挤进半列
+        FormGrid httpForm = new FormGrid();
+        // 显式给 wrapRow 传 vgap=0：它回报的首选高度没把 FlowLayout 上下两道 vgap 算进去，
+        // 用默认间距时单行会比实际需要矮一截，行内输入框的底边会被卡片裁掉
+        httpForm.row("HTTP-01 参数：", Layouts.wrapRow(Tokens.SPACE_SM, 0,
+                Fields.label("内置端口:"), acmeHttpPortField,
+                Fields.label("Web根目录:"), acmeWebDirField));
+
+        JPanel configBody = Layouts.box(0, Tokens.SPACE_SM);
+        configBody.add(Layouts.columns(Tokens.SPACE_XL, caCol, domainCol), BorderLayout.NORTH);
+        configBody.add(httpForm, BorderLayout.SOUTH);
+
+        step1Btn = Buttons.primary("1. 初始化 & 提交申请");
+        // 先按倒计时文案定宽再换回正式文案，否则计时中的 "(15s)" 会把按钮文字挤掉
+        step2Btn = Buttons.primary("2. 确认部署并开始验证 (15s)");
+        step2Btn.setText("2. 确认部署并开始验证");
+        JButton clearAcmeBtn = Buttons.ghost("清空");
         step2Btn.setEnabled(false);
 
-        btnPanel.add(step1Btn);
-        btnPanel.add(step2Btn);
-        btnPanel.add(clearAcmeBtn);
-        configPanel.add(btnPanel, gbc);
+        Card step1Card = Card.titled("第 1 步：自动化申请配置",
+                "填好 CA、域名与验证方式后提交，随后按日志里的指引完成域名验证部署");
+        step1Card.setContent(configBody);
+        step1Card.addHeaderAction(step1Btn);
 
-        // 行 6：垂直方向填补，保证整个配置面板顶部对齐
-        gbc.gridy = 6;
-        gbc.gridx = 0; gbc.gridwidth = 4; gbc.weighty = 1.0;
-        configPanel.add(new JLabel(), gbc);
+        Card step2Card = Card.titled("第 2 步：确认部署并开始验证");
+        step2Card.setContent(Fields.caption(
+                "验证记录部署生效后再点右侧按钮，CA 才会来校验并签发；倒计时结束前按钮不可点。"));
+        step2Card.addHeaderAction(step2Btn);
 
-        // 中间与下方输出 (两列布局)
-        acmeLogArea = new JTextArea();
-        acmeLogArea.setFont(UIUtils.monoFont());
-        acmeLogArea.setEditable(false);
+        // ===== 日志：铺满型卡片吃掉剩余空间，整个流程都靠它反馈 =====
+        acmeLogArea = Fields.output(10, 60);
+        Card logCard = Card.flush("申请流程与日志控制台");
+        logCard.setContent(Fields.scroll(acmeLogArea));
+        logCard.addHeaderAction(clearAcmeBtn);
 
-        acmeCertOut = new JTextArea();
-        acmeCertOut.setFont(UIUtils.monoFont());
-        acmeCertOut.setEditable(false);
+        // ===== 签发结果 =====
+        acmeCertOut = Fields.output(3, 30);
+        acmeKeyOut = Fields.output(3, 30);
 
-        acmeKeyOut = new JTextArea();
-        acmeKeyOut.setFont(UIUtils.monoFont());
-        acmeKeyOut.setEditable(false);
-
-        JButton acmeCertDlBtn = UIUtils.button("下载证书", 110);
+        JButton acmeCertDlBtn = Buttons.secondary("下载证书");
         acmeCertDlBtn.addActionListener(e -> {
             String prefix = buildDefaultCertFileNamePrefix();
             downloadPem(acmeCertOut.getText(), prefix + ".pem");
         });
 
-        JButton acmeKeyDlBtn = UIUtils.button("下载私钥", 110);
+        JButton acmeKeyDlBtn = Buttons.secondary("下载私钥");
         acmeKeyDlBtn.addActionListener(e -> {
             String prefix = buildDefaultCertFileNamePrefix();
             downloadPem(acmeKeyOut.getText(), prefix + ".key");
         });
 
-        JButton acmeZipDlBtn = UIUtils.button("一键打包下载", 120);
+        JButton acmeZipDlBtn = Buttons.secondary("一键打包下载");
         acmeZipDlBtn.addActionListener(e -> {
             String prefix = buildDefaultCertFileNamePrefix();
             downloadCertZip(acmeCertOut.getText(), acmeKeyOut.getText(), prefix + ".zip");
         });
 
-        JPanel certWrap = wrapWithButtons(UIUtils.scrollText(acmeCertOut, "证书"), acmeCertDlBtn, acmeZipDlBtn);
-        JPanel keyWrap = wrapWithButtons(UIUtils.scrollText(acmeKeyOut, "私钥"), acmeKeyDlBtn);
+        Card acmeCertCard = Card.flush("证书");
+        acmeCertCard.setContent(Fields.scroll(acmeCertOut));
+        acmeCertCard.addHeaderAction(acmeZipDlBtn);
+        acmeCertCard.addHeaderAction(acmeCertDlBtn);
 
-        JPanel outResultPanel = new JPanel(new GridLayout(1, 2, 8, 0));
-        outResultPanel.add(certWrap);
-        outResultPanel.add(keyWrap);
+        Card acmeKeyCard = Card.flush("私钥");
+        acmeKeyCard.setContent(Fields.scroll(acmeKeyOut));
+        acmeKeyCard.addHeaderAction(acmeKeyDlBtn);
 
-        JSplitPane centerSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                UIUtils.scrollText(acmeLogArea, "申请流程与日志控制台"), outResultPanel);
-        centerSplit.setResizeWeight(0.5);
+        JPanel acmeResults = Layouts.columns(Tokens.SPACE_LG, acmeCertCard, acmeKeyCard);
+        // 结果区允许收得很矮：流程进行中真正要盯的是日志，证书内容随时可以往上拖开
+        acmeResults.setMinimumSize(new Dimension(0, Tokens.CONTROL_HEIGHT * 2));
 
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                new JScrollPane(configPanel), centerSplit);
-        mainSplit.setResizeWeight(0.35);
+        // 两张步骤卡片放进滚动区：窗口矮的时候它们可以让出高度给日志，
+        // 否则「配置永远按首选高度铺满」会把日志和结果一起顶出可视区域。
+        final JScrollPane stepsScroll = Fields.scrollTransparent(
+                new WidthTrackingBody(Layouts.stack(Tokens.SPACE_LG, step1Card, step2Card)));
+        stepsScroll.setMinimumSize(new Dimension(0, Tokens.CONTROL_HEIGHT * 3));
 
-        p.add(mainSplit, BorderLayout.CENTER);
+        final JComponent logAndResults = Layouts.splitVertical(logCard, acmeResults, 0.7);
+        // 权重 0：窗口变高时多出来的空间全部给日志与结果，步骤卡片保持自身高度
+        final JSplitPane acmeSplit = Layouts.splitVertical(stepsScroll, logAndResults, 0.0);
+
+        // JSplitPane 的初始分隔位置是按权重瓜分整块高度算的，不看首选尺寸：
+        // 不干预的话步骤区要么被压成一条缝、要么留出大片空白。等它第一次拿到真实高度后，
+        // 把分隔条放到「两张步骤卡片刚好完整显示」的位置，并保证日志与结果至少留出最小高度。
+        acmeSplit.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent event) {
+                acmeSplit.removeComponentListener(this);
+                int wanted = stepsScroll.getPreferredSize().height;
+                int room = acmeSplit.getHeight() - acmeSplit.getDividerSize()
+                        - logAndResults.getMinimumSize().height;
+                acmeSplit.setDividerLocation(Math.max(0, Math.min(wanted, room)));
+            }
+        });
+        p.add(acmeSplit, BorderLayout.CENTER);
 
         // 事件监听
         acmeCaCombo.addActionListener(e -> {
@@ -600,6 +501,47 @@ public class CertPanel extends ToolPanel {
         });
 
         return p;
+    }
+
+    /**
+     * 宽度跟随视口的滚动内容容器。
+     *
+     * <p>默认的 {@link JScrollPane} 会按内容首选宽度铺开并弹出横向滚动条，
+     * 但卡片里的表单本来就能自适应宽度，横向滚动纯属打扰；这里让内容宽度跟着视口走，
+     * 只在纵向不够时滚动。内容挂在 NORTH，卡片被拉高时也不会跟着抻长。</p>
+     */
+    private static final class WidthTrackingBody extends JPanel implements Scrollable {
+
+        WidthTrackingBody(Component content) {
+            super(new BorderLayout());
+            setOpaque(false);
+            add(content, BorderLayout.NORTH);
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+            return 64;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
     }
 
     private void startStep2Countdown() {
@@ -876,17 +818,6 @@ public class CertPanel extends ToolPanel {
         } catch (Exception ignored) {
             parseInputArea.setText("// 无法自动生成示例");
         }
-    }
-
-    private static JPanel wrapWithButtons(Component scrollPane, JButton... buttons) {
-        JPanel p = new JPanel(new BorderLayout(4, 2));
-        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
-        for (JButton btn : buttons) {
-            btnRow.add(btn);
-        }
-        p.add(scrollPane, BorderLayout.CENTER);
-        p.add(btnRow, BorderLayout.SOUTH);
-        return p;
     }
 
     private String buildDefaultCertFileNamePrefix() {

@@ -1,6 +1,14 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -63,6 +71,18 @@ public class K8sManagerPanel extends ToolPanel {
     private javax.swing.table.TableRowSorter<DefaultTableModel> nodeSorter;
 
     private JTabbedPane resourceTabs;
+
+    // 每个资源页签的操作按钮：在 buildResourceTabs() 里创建，再交给 initActions() 挂监听
+    private JButton refreshPodBtn, yamlPodBtn, logPodBtn, execPodBtn;
+    private JButton downloadPodFileBtn, uploadPodFileBtn, delPodBtn;
+    private JButton refreshDeployBtn, yamlDeployBtn, scaleDeployBtn, delDeployBtn;
+    private JButton refreshStatefulSetBtn, yamlStatefulSetBtn, scaleStatefulSetBtn, delStatefulSetBtn;
+    private JButton refreshDaemonSetBtn, yamlDaemonSetBtn, delDaemonSetBtn;
+    private JButton refreshCronJobBtn, yamlCronJobBtn, delCronJobBtn;
+    private JButton refreshSvcBtn, yamlSvcBtn, delSvcBtn;
+    private JButton refreshCmBtn, yamlCmBtn, delCmBtn;
+    private JButton refreshSecretBtn, yamlSecretBtn, delSecretBtn;
+    private JButton refreshNodeBtn, yamlNodeBtn;
     
     // Tables and Models
     private JTable podTable;
@@ -104,72 +124,80 @@ public class K8sManagerPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // 1. Top Panel: Connection Config
-        JPanel connPanel = new JPanel(new GridBagLayout());
-        connPanel.setBorder(BorderFactory.createTitledBorder("Kubernetes 集群配置"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(4, 6, 4, 6);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
+        // 控制台三段式：集群连接放页首（高度自适应），资源浏览器吃掉全部剩余空间。
+        root.add(buildConnectionCard(), BorderLayout.NORTH);
+        root.add(buildResourceCard(), BorderLayout.CENTER);
 
-        // Line 1: Profiles & Import
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        connPanel.add(new JLabel("集群配置:"), gbc);
-        
-        profileCombo = new JComboBox<>();
-        profileCombo.setPreferredSize(new Dimension(150, 30));
-        gbc.gridx = 1; gbc.weightx = 0.3;
-        connPanel.add(profileCombo, gbc);
+        // Actions registration
+        initActions(refreshPodBtn, yamlPodBtn, logPodBtn, delPodBtn, execPodBtn,
+                refreshDeployBtn, yamlDeployBtn, scaleDeployBtn, delDeployBtn,
+                refreshStatefulSetBtn, yamlStatefulSetBtn, scaleStatefulSetBtn, delStatefulSetBtn,
+                refreshDaemonSetBtn, yamlDaemonSetBtn, delDaemonSetBtn,
+                refreshCronJobBtn, yamlCronJobBtn, delCronJobBtn,
+                refreshSvcBtn, yamlSvcBtn, delSvcBtn,
+                refreshCmBtn, yamlCmBtn, delCmBtn,
+                refreshSecretBtn, yamlSecretBtn, delSecretBtn,
+                refreshNodeBtn, yamlNodeBtn,
+                downloadPodFileBtn, uploadPodFileBtn);
 
-        JPanel profileBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        saveProfileBtn = new JButton("保存配置");
-        delProfileBtn = new JButton("删除配置");
-        importKubeconfigBtn = new JButton("导入 Kubeconfig");
-        profileBtnRow.add(saveProfileBtn);
-        profileBtnRow.add(delProfileBtn);
-        profileBtnRow.add(importKubeconfigBtn);
-        gbc.gridx = 2; gbc.gridwidth = 2; gbc.weightx = 0.7;
-        connPanel.add(profileBtnRow, gbc);
+        toggleState(false);
+        loadProfilesFromPrefs();
 
-        // Line 2: Server Address & Token & Skip TLS
-        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 1; gbc.weightx = 0;
-        connPanel.add(new JLabel("API Server:"), gbc);
+        return root;
+    }
 
-        serverField = new JTextField("https://127.0.0.1:6443", 25);
-        gbc.gridx = 1; gbc.weightx = 0.4;
-        connPanel.add(serverField, gbc);
+    /**
+     * 集群连接卡片：配置档案一行，API Server 与 Token 分两列，安全设置独占一行。
+     *
+     * <p>「连接集群 / 断开连接」是这张卡片唯一的主操作，放在标题右侧，
+     * 表单下面就不会再多出一整行只有一个按钮的空行。</p>
+     */
+    private Card buildConnectionCard() {
+        profileCombo = Fields.combo(new String[0], 180);
+        saveProfileBtn = Buttons.secondary("保存配置");
+        delProfileBtn = Buttons.danger("删除配置");
+        importKubeconfigBtn = Buttons.secondary("导入 Kubeconfig");
+        ActionBar profileActions = new ActionBar();
+        profileActions.left(saveProfileBtn);
+        profileActions.left(delProfileBtn);
+        profileActions.left(importKubeconfigBtn);
 
-        gbc.gridx = 2; gbc.weightx = 0;
-        connPanel.add(new JLabel("Token:"), gbc);
+        serverField = Fields.text("https://127.0.0.1:6443");
+        tokenField = Fields.password();
+        skipTlsCheck = Fields.check("跳过 TLS 证书验证 (推荐开发测试环境使用)", true);
 
-        tokenField = new JPasswordField(20);
-        gbc.gridx = 3; gbc.weightx = 0.5;
-        connPanel.add(tokenField, gbc);
+        // 地址与凭据都是等长输入框，并成两列后卡片少占一行高度
+        FormGrid endpoint = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        endpoint.row("API Server", serverField);
 
-        // Line 3: TLS and Connect Button
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 1; gbc.weightx = 0;
-        connPanel.add(new JLabel("安全设置:"), gbc);
+        FormGrid credential = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        credential.row("Token", tokenField);
 
-        skipTlsCheck = new JCheckBox("跳过 TLS 证书验证 (推荐开发测试环境使用)", true);
-        gbc.gridx = 1; gbc.gridwidth = 2; gbc.weightx = 0.7;
-        connPanel.add(skipTlsCheck, gbc);
+        FormGrid form = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        form.rowCompact("集群配置", profileCombo, profileActions);
+        form.fullRow(Layouts.columns(Tokens.SPACE_XL, endpoint, credential));
+        form.row("安全设置", skipTlsCheck);
 
-        connBtn = UIUtils.button("连接集群", 100);
-        gbc.gridx = 3; gbc.gridwidth = 1; gbc.weightx = 0.3;
-        connPanel.add(connBtn, gbc);
+        connBtn = Buttons.primary("连接集群");
 
-        root.add(connPanel, BorderLayout.NORTH);
+        Card card = Card.titled("Kubernetes 集群配置");
+        card.setContent(form);
+        card.addHeaderAction(connBtn);
+        return card;
+    }
 
-        // 2. Middle Panel: Namespace Selector & Resource Explorer
-        JPanel centerPanel = new JPanel(new BorderLayout(8, 8));
-
-        JPanel nsRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        nsCombo = new JComboBox<>();
-        nsCombo.setPreferredSize(new Dimension(180, 30));
-        refreshNsBtn = new JButton("刷新空间列表");
-        applyYamlBtn = new JButton("发布资源 (Apply YAML)");
+    /**
+     * 资源浏览器卡片：命名空间与过滤条在上，九类资源用左置页签当导航。
+     *
+     * <p>页签仍是 {@code JTabbedPane}（索引与切换监听是刷新逻辑的入口），
+     * 只把标签条挪到左侧，读起来就是一列资源类型导航。</p>
+     */
+    private Card buildResourceCard() {
+        nsCombo = Fields.combo(new String[0], 180);
+        refreshNsBtn = Buttons.secondary("刷新空间列表");
+        applyYamlBtn = Buttons.primary("发布资源 (Apply YAML)");
         applyYamlBtn.addActionListener(e -> {
             if (!isConnected) {
                 UIUtils.info(null, "请先连接 K8s 集群！");
@@ -178,9 +206,7 @@ public class K8sManagerPanel extends ToolPanel {
             showApplyYamlDialog();
         });
 
-        searchField = new JTextField();
-        searchField.setPreferredSize(new Dimension(180, 30));
-        searchField.putClientProperty("JTextField.placeholderText", "过滤检索当前列表...");
+        searchField = Fields.text("", "过滤检索当前列表...");
         searchField.putClientProperty("JTextField.showClearButton", true);
         searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             public void insertUpdate(javax.swing.event.DocumentEvent e) { filter(); }
@@ -204,235 +230,179 @@ public class K8sManagerPanel extends ToolPanel {
             }
         });
 
-        nsRow.add(new JLabel("命名空间 (Namespace):"));
-        nsRow.add(nsCombo);
-        nsRow.add(refreshNsBtn);
-        nsRow.add(applyYamlBtn);
-        nsRow.add(new JLabel("  |  "));
-        nsRow.add(new JLabel("检索 (Filter):"));
-        nsRow.add(searchField);
-        centerPanel.add(nsRow, BorderLayout.NORTH);
+        // 命名空间选择与检索框同属「当前视图范围」，并成一条工具栏；
+        // 检索框放 CENTER 吃掉剩余宽度，窄窗口下先被压缩的是它而不是按钮
+        JPanel scope = Layouts.box(Tokens.SPACE_SM, 0);
+        ActionBar nsGroup = new ActionBar();
+        nsGroup.left(Fields.label("命名空间 (Namespace)"));
+        nsGroup.left(nsCombo);
+        nsGroup.left(refreshNsBtn);
+        nsGroup.left(Fields.label("检索 (Filter)"));
+        scope.add(nsGroup, BorderLayout.WEST);
+        scope.add(searchField, BorderLayout.CENTER);
 
-        resourceTabs = new JTabbedPane();
-        
+        JPanel scopeBox = Layouts.box();
+        scopeBox.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.SPACE_MD, Tokens.CARD_PADDING));
+        scopeBox.add(scope, BorderLayout.CENTER);
+
+        JPanel head = Layouts.box();
+        head.add(scopeBox, BorderLayout.CENTER);
+        head.add(new Card.Hairline(), BorderLayout.SOUTH);
+
+        resourceTabs = new JTabbedPane(JTabbedPane.LEFT);
+        resourceTabs.setBorder(null);
+        buildResourceTabs();
+
+        JPanel body = Layouts.box();
+        body.add(head, BorderLayout.NORTH);
+        body.add(resourceTabs, BorderLayout.CENTER);
+
+        Card card = Card.flush("集群资源");
+        card.addHeaderAction(applyYamlBtn);
+        card.setContent(body);
+        return card;
+    }
+
+    /** 九个资源页签的表格、排序器与操作按钮 */
+    private void buildResourceTabs() {
         // Tab A: Pods
-        JPanel podTab = new JPanel(new BorderLayout(6, 6));
-        podModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "状态 (Status)", "重启次数 (Restarts)", "Pod IP", "节点 (Node)", "存活时间 (Age)"}, 0) {
-            @Override
-            public boolean isCellEditable(int r, int c) { return false; }
-        };
-        podTable = new JTable(podModel);
-        podTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        podModel = readOnlyModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "状态 (Status)", "重启次数 (Restarts)", "Pod IP", "节点 (Node)", "存活时间 (Age)"});
+        podTable = resourceTable(podModel);
         podSorter = new javax.swing.table.TableRowSorter<>(podModel);
         podTable.setRowSorter(podSorter);
-        podTab.add(new JScrollPane(podTable), BorderLayout.CENTER);
-        JPanel podBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton refreshPodBtn = new JButton("刷新");
-        JButton yamlPodBtn = new JButton("查看 YAML");
-        JButton logPodBtn = new JButton("查看日志");
-        JButton execPodBtn = new JButton("控制台 (Exec)");
-        JButton downloadPodFileBtn = new JButton("下载文件");
-        JButton uploadPodFileBtn = new JButton("上传文件");
-        JButton delPodBtn = new JButton("删除 Pod");
-        podBtnRow.add(refreshPodBtn);
-        podBtnRow.add(yamlPodBtn);
-        podBtnRow.add(logPodBtn);
-        podBtnRow.add(execPodBtn);
-        podBtnRow.add(downloadPodFileBtn);
-        podBtnRow.add(uploadPodFileBtn);
-        podBtnRow.add(delPodBtn);
-        podTab.add(podBtnRow, BorderLayout.SOUTH);
-        resourceTabs.addTab("Pods", podTab);
+        refreshPodBtn = Buttons.secondary("刷新");
+        yamlPodBtn = Buttons.secondary("查看 YAML");
+        logPodBtn = Buttons.secondary("查看日志");
+        execPodBtn = Buttons.secondary("控制台 (Exec)");
+        downloadPodFileBtn = Buttons.secondary("下载文件");
+        uploadPodFileBtn = Buttons.secondary("上传文件");
+        delPodBtn = Buttons.danger("删除 Pod");
+        resourceTabs.addTab("Pods", resourceTab(podTable,
+                refreshPodBtn, yamlPodBtn, logPodBtn, execPodBtn,
+                downloadPodFileBtn, uploadPodFileBtn, delPodBtn));
 
         // Tab B: Deployments
-        JPanel deployTab = new JPanel(new BorderLayout(6, 6));
-        deployModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "就绪状态 (Ready)", "最新副本 (Up-to-date)", "可用副本 (Available)", "存活时间 (Age)"}, 0) {
-            @Override
-            public boolean isCellEditable(int r, int c) { return false; }
-        };
-        deployTable = new JTable(deployModel);
-        deployTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        deployModel = readOnlyModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "就绪状态 (Ready)", "最新副本 (Up-to-date)", "可用副本 (Available)", "存活时间 (Age)"});
+        deployTable = resourceTable(deployModel);
         deploySorter = new javax.swing.table.TableRowSorter<>(deployModel);
         deployTable.setRowSorter(deploySorter);
-        deployTab.add(new JScrollPane(deployTable), BorderLayout.CENTER);
-        JPanel deployBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton refreshDeployBtn = new JButton("刷新");
-        JButton yamlDeployBtn = new JButton("查看 YAML");
-        JButton scaleDeployBtn = new JButton("修改副本数 (Scale)");
-        JButton delDeployBtn = new JButton("删除 Deployment");
-        deployBtnRow.add(refreshDeployBtn);
-        deployBtnRow.add(yamlDeployBtn);
-        deployBtnRow.add(scaleDeployBtn);
-        deployBtnRow.add(delDeployBtn);
-        deployTab.add(deployBtnRow, BorderLayout.SOUTH);
-        resourceTabs.addTab("Deployments", deployTab);
+        refreshDeployBtn = Buttons.secondary("刷新");
+        yamlDeployBtn = Buttons.secondary("查看 YAML");
+        scaleDeployBtn = Buttons.secondary("修改副本数 (Scale)");
+        delDeployBtn = Buttons.danger("删除 Deployment");
+        resourceTabs.addTab("Deployments", resourceTab(deployTable,
+                refreshDeployBtn, yamlDeployBtn, scaleDeployBtn, delDeployBtn));
 
         // Tab C: StatefulSets
-        JPanel statefulSetTab = new JPanel(new BorderLayout(6, 6));
-        statefulSetModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "就绪状态 (Ready)", "当前副本 (Current)", "存活时间 (Age)"}, 0) {
-            @Override
-            public boolean isCellEditable(int r, int c) { return false; }
-        };
-        statefulSetTable = new JTable(statefulSetModel);
-        statefulSetTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        statefulSetModel = readOnlyModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "就绪状态 (Ready)", "当前副本 (Current)", "存活时间 (Age)"});
+        statefulSetTable = resourceTable(statefulSetModel);
         statefulSetSorter = new javax.swing.table.TableRowSorter<>(statefulSetModel);
         statefulSetTable.setRowSorter(statefulSetSorter);
-        statefulSetTab.add(new JScrollPane(statefulSetTable), BorderLayout.CENTER);
-        JPanel statefulSetBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton refreshStatefulSetBtn = new JButton("刷新");
-        JButton yamlStatefulSetBtn = new JButton("查看 YAML");
-        JButton scaleStatefulSetBtn = new JButton("修改副本数 (Scale)");
-        JButton delStatefulSetBtn = new JButton("删除 StatefulSet");
-        statefulSetBtnRow.add(refreshStatefulSetBtn);
-        statefulSetBtnRow.add(yamlStatefulSetBtn);
-        statefulSetBtnRow.add(scaleStatefulSetBtn);
-        statefulSetBtnRow.add(delStatefulSetBtn);
-        statefulSetTab.add(statefulSetBtnRow, BorderLayout.SOUTH);
-        resourceTabs.addTab("StatefulSets", statefulSetTab);
+        refreshStatefulSetBtn = Buttons.secondary("刷新");
+        yamlStatefulSetBtn = Buttons.secondary("查看 YAML");
+        scaleStatefulSetBtn = Buttons.secondary("修改副本数 (Scale)");
+        delStatefulSetBtn = Buttons.danger("删除 StatefulSet");
+        resourceTabs.addTab("StatefulSets", resourceTab(statefulSetTable,
+                refreshStatefulSetBtn, yamlStatefulSetBtn, scaleStatefulSetBtn, delStatefulSetBtn));
 
         // Tab D: DaemonSets
-        JPanel daemonSetTab = new JPanel(new BorderLayout(6, 6));
-        daemonSetModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "期望副本 (Desired)", "当前副本 (Current)", "就绪副本 (Ready)", "最新副本 (Up-to-date)", "存活时间 (Age)"}, 0) {
-            @Override
-            public boolean isCellEditable(int r, int c) { return false; }
-        };
-        daemonSetTable = new JTable(daemonSetModel);
-        daemonSetTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        daemonSetModel = readOnlyModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "期望副本 (Desired)", "当前副本 (Current)", "就绪副本 (Ready)", "最新副本 (Up-to-date)", "存活时间 (Age)"});
+        daemonSetTable = resourceTable(daemonSetModel);
         daemonSetSorter = new javax.swing.table.TableRowSorter<>(daemonSetModel);
         daemonSetTable.setRowSorter(daemonSetSorter);
-        daemonSetTab.add(new JScrollPane(daemonSetTable), BorderLayout.CENTER);
-        JPanel daemonSetBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton refreshDaemonSetBtn = new JButton("刷新");
-        JButton yamlDaemonSetBtn = new JButton("查看 YAML");
-        JButton delDaemonSetBtn = new JButton("删除 DaemonSet");
-        daemonSetBtnRow.add(refreshDaemonSetBtn);
-        daemonSetBtnRow.add(yamlDaemonSetBtn);
-        daemonSetBtnRow.add(delDaemonSetBtn);
-        daemonSetTab.add(daemonSetBtnRow, BorderLayout.SOUTH);
-        resourceTabs.addTab("DaemonSets", daemonSetTab);
+        refreshDaemonSetBtn = Buttons.secondary("刷新");
+        yamlDaemonSetBtn = Buttons.secondary("查看 YAML");
+        delDaemonSetBtn = Buttons.danger("删除 DaemonSet");
+        resourceTabs.addTab("DaemonSets", resourceTab(daemonSetTable,
+                refreshDaemonSetBtn, yamlDaemonSetBtn, delDaemonSetBtn));
 
         // Tab E: CronJobs
-        JPanel cronJobTab = new JPanel(new BorderLayout(6, 6));
-        cronJobModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "调度计划 (Schedule)", "暂停 (Suspend)", "活跃数 (Active)", "上次执行时间 (Last Schedule)", "存活时间 (Age)"}, 0) {
-            @Override
-            public boolean isCellEditable(int r, int c) { return false; }
-        };
-        cronJobTable = new JTable(cronJobModel);
-        cronJobTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        cronJobModel = readOnlyModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "调度计划 (Schedule)", "暂停 (Suspend)", "活跃数 (Active)", "上次执行时间 (Last Schedule)", "存活时间 (Age)"});
+        cronJobTable = resourceTable(cronJobModel);
         cronJobSorter = new javax.swing.table.TableRowSorter<>(cronJobModel);
         cronJobTable.setRowSorter(cronJobSorter);
-        cronJobTab.add(new JScrollPane(cronJobTable), BorderLayout.CENTER);
-        JPanel cronJobBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton refreshCronJobBtn = new JButton("刷新");
-        JButton yamlCronJobBtn = new JButton("查看 YAML");
-        JButton delCronJobBtn = new JButton("删除 CronJob");
-        cronJobBtnRow.add(refreshCronJobBtn);
-        cronJobBtnRow.add(yamlCronJobBtn);
-        cronJobBtnRow.add(delCronJobBtn);
-        cronJobTab.add(cronJobBtnRow, BorderLayout.SOUTH);
-        resourceTabs.addTab("CronJobs", cronJobTab);
+        refreshCronJobBtn = Buttons.secondary("刷新");
+        yamlCronJobBtn = Buttons.secondary("查看 YAML");
+        delCronJobBtn = Buttons.danger("删除 CronJob");
+        resourceTabs.addTab("CronJobs", resourceTab(cronJobTable,
+                refreshCronJobBtn, yamlCronJobBtn, delCronJobBtn));
 
         // Tab F: Services
-        JPanel svcTab = new JPanel(new BorderLayout(6, 6));
-        svcModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "类型 (Type)", "集群 IP (Cluster-IP)", "外部 IP (External-IP)", "端口 (Ports)", "存活时间 (Age)"}, 0) {
-            @Override
-            public boolean isCellEditable(int r, int c) { return false; }
-        };
-        svcTable = new JTable(svcModel);
-        svcTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        svcModel = readOnlyModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "类型 (Type)", "集群 IP (Cluster-IP)", "外部 IP (External-IP)", "端口 (Ports)", "存活时间 (Age)"});
+        svcTable = resourceTable(svcModel);
         svcSorter = new javax.swing.table.TableRowSorter<>(svcModel);
         svcTable.setRowSorter(svcSorter);
-        svcTab.add(new JScrollPane(svcTable), BorderLayout.CENTER);
-        JPanel svcBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton refreshSvcBtn = new JButton("刷新");
-        JButton yamlSvcBtn = new JButton("查看 YAML");
-        JButton delSvcBtn = new JButton("删除 Service");
-        svcBtnRow.add(refreshSvcBtn);
-        svcBtnRow.add(yamlSvcBtn);
-        svcBtnRow.add(delSvcBtn);
-        svcTab.add(svcBtnRow, BorderLayout.SOUTH);
-        resourceTabs.addTab("Services", svcTab);
+        refreshSvcBtn = Buttons.secondary("刷新");
+        yamlSvcBtn = Buttons.secondary("查看 YAML");
+        delSvcBtn = Buttons.danger("删除 Service");
+        resourceTabs.addTab("Services", resourceTab(svcTable,
+                refreshSvcBtn, yamlSvcBtn, delSvcBtn));
 
         // Tab G: ConfigMaps
-        JPanel cmTab = new JPanel(new BorderLayout(6, 6));
-        cmModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "键数量 (Keys)", "存活时间 (Age)"}, 0) {
-            @Override
-            public boolean isCellEditable(int r, int c) { return false; }
-        };
-        cmTable = new JTable(cmModel);
-        cmTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        cmModel = readOnlyModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "键数量 (Keys)", "存活时间 (Age)"});
+        cmTable = resourceTable(cmModel);
         cmSorter = new javax.swing.table.TableRowSorter<>(cmModel);
         cmTable.setRowSorter(cmSorter);
-        cmTab.add(new JScrollPane(cmTable), BorderLayout.CENTER);
-        JPanel cmBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton refreshCmBtn = new JButton("刷新");
-        JButton yamlCmBtn = new JButton("查看 YAML");
-        JButton delCmBtn = new JButton("删除 ConfigMap");
-        cmBtnRow.add(refreshCmBtn);
-        cmBtnRow.add(yamlCmBtn);
-        cmBtnRow.add(delCmBtn);
-        cmTab.add(cmBtnRow, BorderLayout.SOUTH);
-        resourceTabs.addTab("ConfigMaps", cmTab);
+        refreshCmBtn = Buttons.secondary("刷新");
+        yamlCmBtn = Buttons.secondary("查看 YAML");
+        delCmBtn = Buttons.danger("删除 ConfigMap");
+        resourceTabs.addTab("ConfigMaps", resourceTab(cmTable,
+                refreshCmBtn, yamlCmBtn, delCmBtn));
 
         // Tab H: Secrets
-        JPanel secretTab = new JPanel(new BorderLayout(6, 6));
-        secretModel = new DefaultTableModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "类型 (Type)", "数据键数 (Data)", "存活时间 (Age)"}, 0) {
-            @Override
-            public boolean isCellEditable(int r, int c) { return false; }
-        };
-        secretTable = new JTable(secretModel);
-        secretTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        secretModel = readOnlyModel(new Object[]{"命名空间 (Namespace)", "名称 (Name)", "类型 (Type)", "数据键数 (Data)", "存活时间 (Age)"});
+        secretTable = resourceTable(secretModel);
         secretSorter = new javax.swing.table.TableRowSorter<>(secretModel);
         secretTable.setRowSorter(secretSorter);
-        secretTab.add(new JScrollPane(secretTable), BorderLayout.CENTER);
-        JPanel secretBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton refreshSecretBtn = new JButton("刷新");
-        JButton yamlSecretBtn = new JButton("查看 YAML");
-        JButton delSecretBtn = new JButton("删除 Secret");
-        secretBtnRow.add(refreshSecretBtn);
-        secretBtnRow.add(yamlSecretBtn);
-        secretBtnRow.add(delSecretBtn);
-        secretTab.add(secretBtnRow, BorderLayout.SOUTH);
-        resourceTabs.addTab("Secrets", secretTab);
+        refreshSecretBtn = Buttons.secondary("刷新");
+        yamlSecretBtn = Buttons.secondary("查看 YAML");
+        delSecretBtn = Buttons.danger("删除 Secret");
+        resourceTabs.addTab("Secrets", resourceTab(secretTable,
+                refreshSecretBtn, yamlSecretBtn, delSecretBtn));
 
         // Tab I: Nodes
-        JPanel nodeTab = new JPanel(new BorderLayout(6, 6));
-        nodeModel = new DefaultTableModel(new Object[]{"节点名称 (Name)", "状态 (Status)", "角色 (Roles)", "版本 (Version)", "系统版本 (OS)", "运行时间 (Age)"}, 0) {
+        nodeModel = readOnlyModel(new Object[]{"节点名称 (Name)", "状态 (Status)", "角色 (Roles)", "版本 (Version)", "系统版本 (OS)", "运行时间 (Age)"});
+        nodeTable = resourceTable(nodeModel);
+        nodeSorter = new javax.swing.table.TableRowSorter<>(nodeModel);
+        nodeTable.setRowSorter(nodeSorter);
+        refreshNodeBtn = Buttons.secondary("刷新");
+        yamlNodeBtn = Buttons.secondary("查看 YAML");
+        resourceTabs.addTab("Nodes (集群节点)", resourceTab(nodeTable,
+                refreshNodeBtn, yamlNodeBtn));
+    }
+
+    /** 资源列表统一为只读表格模型 */
+    private static DefaultTableModel readOnlyModel(Object[] columns) {
+        return new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int r, int c) { return false; }
         };
-        nodeTable = new JTable(nodeModel);
-        nodeTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        nodeSorter = new javax.swing.table.TableRowSorter<>(nodeModel);
-        nodeTable.setRowSorter(nodeSorter);
-        nodeTab.add(new JScrollPane(nodeTable), BorderLayout.CENTER);
-        JPanel nodeBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton refreshNodeBtn = new JButton("刷新");
-        JButton yamlNodeBtn = new JButton("查看 YAML");
-        nodeBtnRow.add(refreshNodeBtn);
-        nodeBtnRow.add(yamlNodeBtn);
-        nodeTab.add(nodeBtnRow, BorderLayout.SOUTH);
-        resourceTabs.addTab("Nodes (集群节点)", nodeTab);
+    }
 
-        centerPanel.add(resourceTabs, BorderLayout.CENTER);
-        root.add(centerPanel, BorderLayout.CENTER);
+    /** 资源列表表格：单选，行高与表头样式交给全局主题 */
+    private static JTable resourceTable(DefaultTableModel model) {
+        JTable table = new JTable(model);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        return table;
+    }
 
-        // Actions registration
-        initActions(refreshPodBtn, yamlPodBtn, logPodBtn, delPodBtn, execPodBtn,
-                refreshDeployBtn, yamlDeployBtn, scaleDeployBtn, delDeployBtn,
-                refreshStatefulSetBtn, yamlStatefulSetBtn, scaleStatefulSetBtn, delStatefulSetBtn,
-                refreshDaemonSetBtn, yamlDaemonSetBtn, delDaemonSetBtn,
-                refreshCronJobBtn, yamlCronJobBtn, delCronJobBtn,
-                refreshSvcBtn, yamlSvcBtn, delSvcBtn,
-                refreshCmBtn, yamlCmBtn, delCmBtn,
-                refreshSecretBtn, yamlSecretBtn, delSecretBtn,
-                refreshNodeBtn, yamlNodeBtn,
-                downloadPodFileBtn, uploadPodFileBtn);
-
-        toggleState(false);
-        loadProfilesFromPrefs();
-
-        return root;
+    /**
+     * 单个资源页签：表格铺满，操作按钮排在底部。
+     *
+     * <p>按钮行用 {@link Layouts#wrapRow} 而不是 {@code ActionBar}：Pods 一行有七个按钮，
+     * 放进不换行的 {@code ActionBar} 后窄窗口会把每个按钮压到最小宽度、文案被截断；
+     * {@code wrapRow} 折行后的高度会计入首选高度，折下去的一排不会被裁掉。</p>
+     */
+    private static JPanel resourceTab(JTable table, Component... actions) {
+        JPanel tab = Layouts.box(Tokens.SPACE_MD, Tokens.SPACE_MD);
+        tab.setBorder(KitBorders.padding(Tokens.SPACE_MD));
+        // 表格底色与卡片底色相同，放进有内边距的容器要用带细描边的滚动区才看得出边界
+        tab.add(Fields.scrollBoxed(table), BorderLayout.CENTER);
+        // 纵向间距取 0：wrapRow 只有一行时不会把 FlowLayout 的 vgap 计进首选高度，
+        // 传非零值会让按钮底边被裁掉一截；行与行之间的呼吸由外层 BorderLayout 的 vgap 负责
+        tab.add(Layouts.wrapRow(Tokens.SPACE_SM, 0, actions), BorderLayout.SOUTH);
+        return tab;
     }
 
     private void toggleState(boolean connected) {
@@ -1260,7 +1230,7 @@ public class K8sManagerPanel extends ToolPanel {
             }
         }
 
-        JScrollPane treeScroll = new JScrollPane(tree);
+        JScrollPane treeScroll = Fields.scroll(tree);
         tabs.addTab("折叠树视图 (Collapsible Tree)", treeScroll);
 
         // Tab 2: 原始 YAML 文本
@@ -1268,19 +1238,22 @@ public class K8sManagerPanel extends ToolPanel {
         area.setEditable(false);
         tabs.addTab("YAML 文本 (Raw YAML)", UIUtils.scrollText(area, "YAML / JSON 内容"));
 
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton copyBtn = new JButton("复制 YAML");
+        JButton copyBtn = Buttons.secondary("复制 YAML");
         copyBtn.addActionListener(e -> {
             UIUtils.copyToClipboard(yaml);
             UIUtils.info(dialog, "已成功复制到剪贴板！");
         });
-        JButton closeBtn = new JButton("关闭");
+        JButton closeBtn = Buttons.ghost("关闭");
         closeBtn.addActionListener(e -> dialog.dispose());
-        bottom.add(copyBtn);
-        bottom.add(closeBtn);
+        ActionBar bottom = new ActionBar();
+        bottom.right(copyBtn);
+        bottom.right(closeBtn);
 
-        dialog.add(tabs, BorderLayout.CENTER);
-        dialog.add(bottom, BorderLayout.SOUTH);
+        tabs.setBorder(null);
+        JPanel content = Layouts.page();
+        content.add(tabs, BorderLayout.CENTER);
+        content.add(bottom, BorderLayout.SOUTH);
+        dialog.setContentPane(content);
         dialog.setVisible(true);
     }
 
@@ -2042,20 +2015,21 @@ public class K8sManagerPanel extends ToolPanel {
         dialog.setSize(800, 550);
         dialog.setLocationRelativeTo(null);
 
-        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JComboBox<String> containerCombo = new JComboBox<>();
+        // 容器选择、追踪开关与加载动作是同一条工具栏，窄窗口下按钮不换行、下拉不被拉宽
+        ActionBar top = new ActionBar();
+        JComboBox<String> containerCombo = Fields.combo(new String[0], 200);
         for (String c : containers) {
             containerCombo.addItem(c);
         }
-        top.add(new JLabel("选择容器 (Container):"));
-        top.add(containerCombo);
+        top.left(Fields.label("选择容器 (Container)"));
+        top.left(containerCombo);
 
-        JCheckBox followCheck = new JCheckBox("追踪更新 (Follow)", false);
-        top.add(followCheck);
+        JCheckBox followCheck = Fields.check("追踪更新 (Follow)", false);
+        top.left(followCheck);
 
-        JButton loadMoreBtn = new JButton("加载前500行");
+        JButton loadMoreBtn = Buttons.secondary("加载前500行");
         loadMoreBtn.setEnabled(false);
-        top.add(loadMoreBtn);
+        top.left(loadMoreBtn);
 
         JTextArea area = new JTextArea();
         area.setEditable(false);
@@ -2240,27 +2214,30 @@ public class K8sManagerPanel extends ToolPanel {
             logFetcher.run();
         });
 
-        JButton refreshBtn = new JButton("刷新日志");
+        JButton refreshBtn = Buttons.secondary("刷新日志");
         refreshBtn.addActionListener(e -> {
             currentTailLines[0] = 1000;
             logFetcher.run();
         });
-        top.add(refreshBtn);
+        top.left(refreshBtn);
 
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton copyBtn = new JButton("复制日志");
+        JButton copyBtn = Buttons.secondary("复制日志");
         copyBtn.addActionListener(e -> {
             UIUtils.copyToClipboard(area.getText());
             UIUtils.info(dialog, "日志已复制！");
         });
-        JButton closeBtn = new JButton("关闭");
+        JButton closeBtn = Buttons.ghost("关闭");
         closeBtn.addActionListener(e -> dialog.dispose());
-        bottom.add(copyBtn);
-        bottom.add(closeBtn);
+        ActionBar bottom = new ActionBar();
+        bottom.right(copyBtn);
+        bottom.right(closeBtn);
 
-        dialog.add(top, BorderLayout.NORTH);
-        dialog.add(sp, BorderLayout.CENTER);
-        dialog.add(bottom, BorderLayout.SOUTH);
+        // 日志区放 CENTER 吃掉全部剩余高度，工具栏与动作行只占各自首选高度
+        JPanel content = Layouts.page();
+        content.add(top, BorderLayout.NORTH);
+        content.add(sp, BorderLayout.CENTER);
+        content.add(bottom, BorderLayout.SOUTH);
+        dialog.setContentPane(content);
 
         dialog.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
@@ -2532,8 +2509,7 @@ public class K8sManagerPanel extends ToolPanel {
         area.setFont(UIUtils.monoFont());
         JScrollPane sp = UIUtils.scrollText(area, "请在此处粘贴 Kubeconfig 的 YAML 文本内容");
 
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton importBtn = new JButton("确认导入");
+        JButton importBtn = Buttons.primary("确认导入");
         importBtn.addActionListener(e -> {
             String text = area.getText().trim();
             if (text.isEmpty()) {
@@ -2563,14 +2539,17 @@ public class K8sManagerPanel extends ToolPanel {
             }.execute();
         });
 
-        JButton closeBtn = new JButton("关闭");
+        JButton closeBtn = Buttons.ghost("关闭");
         closeBtn.addActionListener(e -> dialog.dispose());
 
-        bottom.add(importBtn);
-        bottom.add(closeBtn);
+        ActionBar bottom = new ActionBar();
+        bottom.right(importBtn);
+        bottom.right(closeBtn);
 
-        dialog.add(sp, BorderLayout.CENTER);
-        dialog.add(bottom, BorderLayout.SOUTH);
+        JPanel content = Layouts.page();
+        content.add(sp, BorderLayout.CENTER);
+        content.add(bottom, BorderLayout.SOUTH);
+        dialog.setContentPane(content);
         dialog.setVisible(true);
     }
 
@@ -2897,8 +2876,7 @@ public class K8sManagerPanel extends ToolPanel {
         area.setFont(UIUtils.monoFont());
         JScrollPane sp = UIUtils.scrollText(area, "请在此处粘贴 YAML 配置文件内容");
 
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton deployBtn = new JButton("确认发布");
+        JButton deployBtn = Buttons.primary("确认发布");
         deployBtn.addActionListener(e -> {
             String yaml = area.getText().trim();
             if (yaml.isEmpty()) {
@@ -2932,14 +2910,17 @@ public class K8sManagerPanel extends ToolPanel {
             }.execute();
         });
 
-        JButton closeBtn = new JButton("关闭");
+        JButton closeBtn = Buttons.ghost("关闭");
         closeBtn.addActionListener(e -> dialog.dispose());
 
-        bottom.add(deployBtn);
-        bottom.add(closeBtn);
+        ActionBar bottom = new ActionBar();
+        bottom.right(deployBtn);
+        bottom.right(closeBtn);
 
-        dialog.add(sp, BorderLayout.CENTER);
-        dialog.add(bottom, BorderLayout.SOUTH);
+        JPanel content = Layouts.page();
+        content.add(sp, BorderLayout.CENTER);
+        content.add(bottom, BorderLayout.SOUTH);
+        dialog.setContentPane(content);
         dialog.setVisible(true);
     }
 

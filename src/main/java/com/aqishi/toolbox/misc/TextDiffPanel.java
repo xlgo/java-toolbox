@@ -1,6 +1,12 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -39,39 +45,38 @@ public class TextDiffPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 顶部：操作按钮 =====
-        JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton compare = UIUtils.button("对比差异", 90);
-        JButton clear = UIUtils.button("清空", 80);
-        btns.add(compare); btns.add(clear);
-        root.add(btns, BorderLayout.NORTH);
-
-        // ===== 中间：输入区域 (左右分栏) =====
-        JTextArea leftArea = new JTextArea(8, 20);
-        leftArea.setFont(UIUtils.monoFont());
+        // ===== 上方：两份原文左右并排，等宽分隔 =====
+        JTextArea leftArea = Fields.area(8, 20);
         leftArea.setText("Hello World\nJava is great\nWe love programming\nGood morning!");
+        Card leftCard = Card.flush("原文本 (A)");
+        leftCard.setContent(Fields.scroll(leftArea));
 
-        JTextArea rightArea = new JTextArea(8, 20);
-        rightArea.setFont(UIUtils.monoFont());
+        JTextArea rightArea = Fields.area(8, 20);
         rightArea.setText("Hello World\nKotlin is great\nWe love programming\nGood evening!\nHave a nice day!");
+        Card rightCard = Card.flush("修改后文本 (B)");
+        rightCard.setContent(Fields.scroll(rightArea));
 
-        JSplitPane inputSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                UIUtils.scrollText(leftArea, "原文本 (A)"),
-                UIUtils.scrollText(rightArea, "修改后文本 (B)"));
-        inputSplit.setResizeWeight(0.5);
+        JSplitPane inputSplit = Layouts.splitHorizontal(leftCard, rightCard, 0.5);
 
-        // ===== 下方：对比结果展示 =====
+        // ===== 下方：对比结果 =====
         JTextPane diffPane = new JTextPane();
-        diffPane.setFont(UIUtils.monoFont());
+        diffPane.setFont(Tokens.fontMono());
         diffPane.setEditable(false);
-        JScrollPane resultScroll = new JScrollPane(diffPane);
-        resultScroll.setBorder(BorderFactory.createTitledBorder("对比结果 ( + 新增, - 删除 )"));
+        // JTextPane 自身没有内边距，补一层与 Fields.area 一致的留白，免得文字贴着卡片描边
+        diffPane.setBorder(KitBorders.padding(Tokens.SPACE_SM));
 
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, inputSplit, resultScroll);
-        mainSplit.setResizeWeight(0.35);
+        JButton compare = Buttons.primary("对比差异");
+        JButton clear = Buttons.danger("清空");
+        Card resultCard = Card.flush("对比结果 ( + 新增, - 删除 )");
+        resultCard.setContent(Fields.scroll(diffPane));
+        // 两个动作都作用于「产出这份结果」，挂在结果卡标题栏上，
+        // 页面里就不再需要一条独立的按钮行去挤压文本区高度
+        resultCard.addHeaderAction(clear);
+        resultCard.addHeaderAction(compare);
+
+        JSplitPane mainSplit = Layouts.splitVertical(inputSplit, resultCard, 0.35);
         root.add(mainSplit, BorderLayout.CENTER);
 
         // 按钮事件
@@ -82,18 +87,18 @@ public class TextDiffPanel extends ToolPanel {
                 
                 // 定义样式
                 Style style = diffPane.addStyle("diff", null);
+                // 差异色改走 Tokens，切换深浅主题时跟着变，不再写死 RGB
                 Style deleteStyle = diffPane.addStyle("delete", style);
-                StyleConstants.setForeground(deleteStyle, new Color(220, 50, 50));
-                StyleConstants.setFontFamily(deleteStyle, UIUtils.monoFont().getFamily());
-                
+                StyleConstants.setForeground(deleteStyle, Tokens.danger());
+                StyleConstants.setFontFamily(deleteStyle, Tokens.fontMono().getFamily());
+
                 Style insertStyle = diffPane.addStyle("insert", style);
-                StyleConstants.setForeground(insertStyle, new Color(38, 162, 76));
-                StyleConstants.setFontFamily(insertStyle, UIUtils.monoFont().getFamily());
-                
+                StyleConstants.setForeground(insertStyle, Tokens.success());
+                StyleConstants.setFontFamily(insertStyle, Tokens.fontMono().getFamily());
+
                 Style equalStyle = diffPane.addStyle("equal", style);
-                Color fg = UIManager.getColor("Label.foreground");
-                StyleConstants.setForeground(equalStyle, fg == null ? Color.BLACK : fg);
-                StyleConstants.setFontFamily(equalStyle, UIUtils.monoFont().getFamily());
+                StyleConstants.setForeground(equalStyle, Tokens.foreground());
+                StyleConstants.setFontFamily(equalStyle, Tokens.fontMono().getFamily());
 
                 List<DiffEntry> diffs = computeDiff(leftArea.getText(), rightArea.getText());
                 for (DiffEntry entry : diffs) {

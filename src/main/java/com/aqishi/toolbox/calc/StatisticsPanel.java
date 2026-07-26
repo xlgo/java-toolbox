@@ -1,6 +1,10 @@
 package com.aqishi.toolbox.calc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -21,25 +25,29 @@ public class StatisticsPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 10));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        JTextArea input = new JTextArea(4, 40);
-        input.setFont(UIUtils.monoFont());
+        // ===== 数据卡片：输入高度自适应放 NORTH，三个动作贴在标题右侧，避免按钮行悬空 =====
+        JTextArea input = Fields.area(4, 40);
         input.setText("12, 15, 18, 22, 25, 28, 30, 33, 36, 40");
-        root.add(UIUtils.scrollText(input, "数据（逗号或空格分隔，支持换行）"), BorderLayout.NORTH);
 
-        JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton calc = UIUtils.button("计算统计量", 110);
-        JButton sort = UIUtils.button("排序", 80);
-        JButton clear = UIUtils.button("清空", 80);
-        btns.add(calc); btns.add(sort); btns.add(clear);
-        root.add(btns, BorderLayout.CENTER);
+        Card inputCard = Card.titled("数据", "逗号或空格分隔，支持换行");
+        inputCard.setContent(Fields.scroll(input));
 
-        JTextArea out = new JTextArea(12, 40);
-        out.setFont(UIUtils.monoFont());
-        out.setEditable(false);
-        root.add(UIUtils.scrollText(out, "统计结果"), BorderLayout.SOUTH);
+        JButton sort = Buttons.secondary("排序");
+        JButton clear = Buttons.danger("清空");
+        JButton calc = Buttons.primary("计算统计量");
+        inputCard.addHeaderAction(sort);
+        inputCard.addHeaderAction(clear);
+        inputCard.addHeaderAction(calc);
+
+        // ===== 结果卡片：十余行指标，交给 CENTER 吸收剩余高度 =====
+        JTextArea out = Fields.output(12, 40);
+        Card outCard = Card.flush("统计结果");
+        outCard.setContent(Fields.scroll(out));
+
+        root.add(inputCard, BorderLayout.NORTH);
+        root.add(outCard, BorderLayout.CENTER);
 
         calc.addActionListener(e -> {
             double[] d = parse(input.getText());

@@ -1,6 +1,11 @@
 package com.aqishi.toolbox.convert;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.imageio.ImageIO;
@@ -8,7 +13,6 @@ import javax.imageio.ImageReadParam;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.image.BufferedImage;
@@ -46,74 +50,61 @@ public class Base64ImagePanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new GridLayout(1, 2, 10, 0));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
         // ===== 左半部：图片 -> Base64 =====
-        JPanel leftPanel = new JPanel(new BorderLayout(8, 8));
-        leftPanel.setBorder(BorderFactory.createTitledBorder("图片 转 Base64"));
-
+        // 预览标签不设 opaque，直接透出卡片底色；JLabel 只会居中摆放图标而不会缩放它，
+        // 所以小图不会被拉伸变形；scaleImagePreview 已把大图压到 180px 以内，
+        // 再包一层滚动区兜底——窗口被拖到比图还窄时可以滚动查看而不是被裁掉。
         uploadPreview = new JLabel("未加载图片", SwingConstants.CENTER);
-        uploadPreview.setOpaque(true);
-        uploadPreview.setBackground(UIManager.getColor("Panel.background"));
-        uploadPreview.setBorder(BorderFactory.createDashedBorder(null, 2, 4, 2, false));
         uploadPreview.setPreferredSize(new Dimension(200, 200));
 
-        base64Output = new JTextArea(8, 20);
-        base64Output.setFont(UIUtils.monoFont());
-        base64Output.setEditable(false);
+        base64Output = Fields.output(8, 20);
         base64Output.setLineWrap(false);
 
-        JPanel leftActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton selectImgBtn = UIUtils.button("选择图片...", 100);
-        JButton copyBase64Btn = UIUtils.button("复制 Base64", 100);
-        leftActions.add(selectImgBtn);
-        leftActions.add(copyBase64Btn);
+        JButton selectImgBtn = Buttons.primary("选择图片...");
+        JButton copyBase64Btn = Buttons.ghost("复制 Base64");
 
-        JScrollPane outScroll = new JScrollPane(base64Output);
-        outScroll.setBorder(BorderFactory.createTitledBorder(
-                null, "输出 Base64 String", TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION, UIUtils.plainFont(),
-                UIManager.getColor("Component.accentColor")));
+        Card uploadPreviewCard = new Card("预览", "图片 转 Base64").setFlush(true);
+        uploadPreviewCard.setContent(transparentScroll(uploadPreview));
+        uploadPreviewCard.addHeaderAction(selectImgBtn);
 
-        leftPanel.add(uploadPreview, BorderLayout.NORTH);
-        leftPanel.add(outScroll, BorderLayout.CENTER);
-        leftPanel.add(leftActions, BorderLayout.SOUTH);
+        Card base64OutCard = Card.flush("输出 Base64 String");
+        base64OutCard.setContent(Fields.scroll(base64Output));
+        base64OutCard.addHeaderAction(copyBase64Btn);
+
+        // 预览高度自适应放 NORTH，Base64 文本放 CENTER 吃掉剩余高度
+        JPanel leftPanel = Layouts.box(0, Tokens.SPACE_LG);
+        leftPanel.add(uploadPreviewCard, BorderLayout.NORTH);
+        leftPanel.add(base64OutCard, BorderLayout.CENTER);
 
         // ===== 右半部：Base64 -> 图片 =====
-        JPanel rightPanel = new JPanel(new BorderLayout(8, 8));
-        rightPanel.setBorder(BorderFactory.createTitledBorder("Base64 转 图片"));
-
         downloadPreview = new JLabel("输入 Base64 并点击解析后在此预览", SwingConstants.CENTER);
-        downloadPreview.setOpaque(true);
-        downloadPreview.setBackground(UIManager.getColor("Panel.background"));
-        downloadPreview.setBorder(BorderFactory.createDashedBorder(null, 2, 4, 2, false));
         downloadPreview.setPreferredSize(new Dimension(200, 200));
 
-        base64Input = new JTextArea(8, 20);
-        base64Input.setFont(UIUtils.monoFont());
+        base64Input = Fields.area(8, 20);
         base64Input.setLineWrap(false);
 
-        JScrollPane inScroll = new JScrollPane(base64Input);
-        inScroll.setBorder(BorderFactory.createTitledBorder(
-                null, "输入 Base64 String", TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION, UIUtils.plainFont(),
-                UIManager.getColor("Component.accentColor")));
+        JButton parseBtn = Buttons.primary("解析并预览");
+        JButton saveBtn = Buttons.secondary("保存图片...");
+        JButton clearRightBtn = Buttons.ghost("清空");
 
-        JPanel rightActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton parseBtn = UIUtils.button("解析并预览", 100);
-        JButton saveBtn = UIUtils.button("保存图片...", 100);
-        JButton clearRightBtn = UIUtils.button("清空", 70);
-        rightActions.add(parseBtn);
-        rightActions.add(saveBtn);
-        rightActions.add(clearRightBtn);
+        Card downloadPreviewCard = new Card("预览", "Base64 转 图片").setFlush(true);
+        downloadPreviewCard.setContent(transparentScroll(downloadPreview));
+        downloadPreviewCard.addHeaderAction(saveBtn);
 
-        rightPanel.add(downloadPreview, BorderLayout.NORTH);
-        rightPanel.add(inScroll, BorderLayout.CENTER);
-        rightPanel.add(rightActions, BorderLayout.SOUTH);
+        Card base64InCard = Card.flush("输入 Base64 String");
+        base64InCard.setContent(Fields.scroll(base64Input));
+        base64InCard.addHeaderAction(clearRightBtn);
+        base64InCard.addHeaderAction(parseBtn);
 
-        root.add(leftPanel);
-        root.add(rightPanel);
+        JPanel rightPanel = Layouts.box(0, Tokens.SPACE_LG);
+        rightPanel.add(downloadPreviewCard, BorderLayout.NORTH);
+        rightPanel.add(base64InCard, BorderLayout.CENTER);
+
+        // 两个方向是彼此独立的转换，用可拖动的分栏而不是等分 GridLayout，
+        // 需要贴长 Base64 时可以把分隔条往左推
+        root.add(Layouts.splitHorizontal(leftPanel, rightPanel, 0.5), BorderLayout.CENTER);
 
         // ===== 事件：选择图片 =====
         selectImgBtn.addActionListener(e -> {
@@ -252,6 +243,17 @@ public class Base64ImagePanel extends ToolPanel {
         });
 
         return root;
+    }
+
+    /**
+     * 预览用的滚动区：视口设为透明，让卡片底色直接透出来，
+     * 否则视口会用 LAF 的控件底色画一块灰底，跟旁边的文本卡片对不上。
+     */
+    private static JScrollPane transparentScroll(Component view) {
+        JScrollPane scroll = Fields.scroll(view);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        return scroll;
     }
 
     private ImageIcon scaleImagePreview(byte[] bytes, int maxW, int maxH) {

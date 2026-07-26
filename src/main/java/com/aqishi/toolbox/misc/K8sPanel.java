@@ -1,6 +1,14 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.UIUtils;
 
@@ -185,81 +193,57 @@ public class K8sPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ==================== 左侧：配置区 ====================
-        JPanel leftPanel = new JPanel(new BorderLayout(8, 8));
-
-        // 顶部公共配置
-        JPanel topConfig = new JPanel(new GridBagLayout());
-        topConfig.setBorder(BorderFactory.createTitledBorder("基础与模板配置"));
-        GridBagConstraints gc = new GridBagConstraints();
-        gc.fill = GridBagConstraints.HORIZONTAL;
-        gc.insets = new Insets(4, 6, 4, 6);
-
-        // 模板选择与管理
-        gc.gridx = 0; gc.gridy = 0; gc.weightx = 0;
-        topConfig.add(new JLabel("配置模板："), gc);
-
-        JPanel tmplRow = new JPanel(new BorderLayout(4, 0));
-        templateCombo = new JComboBox<>();
+        // ==================== 顶部：基础与模板配置 ====================
+        templateCombo = Fields.combo(new String[0]);
         refreshCombo();
-        tmplRow.add(templateCombo, BorderLayout.CENTER);
 
-        JPanel tmplBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
-        JButton saveTmplBtn = new JButton("保存");
+        JButton saveTmplBtn = Buttons.secondary("保存");
         saveTmplBtn.setToolTipText("将当前输入保存为自定义模板");
-        JButton delTmplBtn = new JButton("删除");
+        JButton delTmplBtn = Buttons.danger("删除");
         delTmplBtn.setToolTipText("删除所选自定义模板");
-        tmplBtns.add(saveTmplBtn);
-        tmplBtns.add(delTmplBtn);
-        tmplRow.add(tmplBtns, BorderLayout.EAST);
 
-        gc.gridx = 1; gc.weightx = 1.0;
-        topConfig.add(tmplRow, gc);
+        nameField = Fields.text("my-app");
+        nsField = Fields.text("default");
 
-        // 应用名称与命名空间
-        gc.gridx = 0; gc.gridy = 1; gc.weightx = 0;
-        topConfig.add(new JLabel("应用名称："), gc);
-        nameField = new JTextField("my-app");
-        gc.gridx = 1; gc.weightx = 1.0;
-        topConfig.add(nameField, gc);
+        // 两行就放下三项：模板行带模板管理按钮，名称与命名空间成对占一行
+        FormGrid topForm = new FormGrid();
+        topForm.row("配置模板：", templateCombo, Layouts.wrapRow(saveTmplBtn, delTmplBtn));
+        topForm.row("应用名称：", nameField, trailingField("命名空间：", nsField));
 
-        gc.gridx = 0; gc.gridy = 2; gc.weightx = 0;
-        topConfig.add(new JLabel("命名空间："), gc);
-        nsField = new JTextField("default");
-        gc.gridx = 1; gc.weightx = 1.0;
-        topConfig.add(nsField, gc);
+        Card topCard = Card.titled("基础与模板配置");
+        topCard.setContent(topForm);
 
-        leftPanel.add(topConfig, BorderLayout.NORTH);
-
-        // 各资源配置 Tab 页
+        // ==================== 左侧：各资源配置 Tab 页 ====================
         JTabbedPane tabs = new JTabbedPane();
+        tabs.setBorder(null);
         tabs.addTab("Deployment", buildDeployTab());
         tabs.addTab("Service", buildSvcTab());
         tabs.addTab("Ingress", buildIngTab());
         tabs.addTab("ConfigMap", buildCmTab());
-        leftPanel.add(tabs, BorderLayout.CENTER);
 
         // ==================== 右侧：实时输出预览 ====================
-        JPanel rightPanel = new JPanel(new BorderLayout(8, 8));
         outputArea = new JTextArea();
         outputArea.setEditable(false);
-        rightPanel.add(UIUtils.scrollText(outputArea, "实时生成的 Kubernetes YAML 预览"), BorderLayout.CENTER);
+        outputArea.setFont(Tokens.fontMono());
+        outputArea.setLineWrap(true);
+        outputArea.setWrapStyleWord(true);
+        outputArea.setBorder(KitBorders.padding(Tokens.SPACE_SM));
 
-        JPanel rightBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
-        JButton copyBtn = UIUtils.button("复制 YAML", 110);
-        JButton resetBtn = UIUtils.button("重置", 80);
-        rightBtns.add(resetBtn);
-        rightBtns.add(copyBtn);
-        rightPanel.add(rightBtns, BorderLayout.SOUTH);
+        JButton copyBtn = Buttons.primary("复制 YAML");
+        JButton resetBtn = Buttons.secondary("重置");
 
-        // ==================== 整体布局：左右分栏 ====================
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, rightPanel);
-        mainSplit.setDividerLocation(460);
-        mainSplit.setResizeWeight(0.45);
-        root.add(mainSplit, BorderLayout.CENTER);
+        // 复制/重置是预览区的动作，放卡片标题右侧，YAML 正文因此能占满整块高度
+        Card previewCard = Card.flush("实时生成的 Kubernetes YAML 预览");
+        previewCard.setContent(Fields.scroll(outputArea));
+        previewCard.addHeaderAction(resetBtn);
+        previewCard.addHeaderAction(copyBtn);
+
+        // ==================== 整体布局：顶部配置 + 左右分栏 ====================
+        // 左栏是表单，需要的宽度比列表多，所以权重取 0.45 而不是浏览型面板的 0.3
+        root.add(topCard, BorderLayout.NORTH);
+        root.add(Layouts.splitHorizontal(tabs, previewCard, 0.45), BorderLayout.CENTER);
 
         // ==================== 事件监听与初次生成 ====================
         // 绑定资源启用复选框的级联状态控制
@@ -307,7 +291,7 @@ public class K8sPanel extends ToolPanel {
             enableSvcCheck.setSelected(true);
             enableIngressCheck.setSelected(false);
             enableCmCheck.setSelected(false);
-            
+
             setContainerEnabled(depInnerPanel, true);
             setContainerEnabled(svcInnerPanel, true);
             setContainerEnabled(ingInnerPanel, false);
@@ -365,118 +349,206 @@ public class K8sPanel extends ToolPanel {
         return root;
     }
 
-    // ==================== Deployment 标签页 ====================
-    private JComponent buildDeployTab() {
-        JPanel wrapper = new JPanel(new BorderLayout(4, 4));
-        wrapper.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+    // ==================== 通用 UI 小工具 ====================
 
-        enableDeploymentCheck = new JCheckBox("启用 Deployment 部署配置", true);
-        wrapper.add(enableDeploymentCheck, BorderLayout.NORTH);
-
-        depInnerPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints c = new GridBagConstraints();
-        c.fill = GridBagConstraints.HORIZONTAL;
-        c.insets = new Insets(2, 4, 2, 4);
-        int row = 0;
-
-        row = addF(depInnerPanel, c, row, "镜像地址：", depImgField = new JTextField("nginx:latest"));
-        row = addF(depInnerPanel, c, row, "拉取策略：", depPullCombo = new JComboBox<>(new String[]{"IfNotPresent", "Always", "Never"}));
-        row = addF(depInnerPanel, c, row, "副本数量：", depReplicas = new JTextField("1"));
-        row = addF(depInnerPanel, c, row, "容器端口：", depPort = new JTextField("80"));
-        row = addF(depInnerPanel, c, row, "CPU 请求值：", depCpuR = new JTextField("100m"));
-        row = addF(depInnerPanel, c, row, "CPU 限制值：", depCpuL = new JTextField("500m"));
-        row = addF(depInnerPanel, c, row, "内存请求值：", depMemR = new JTextField("128Mi"));
-        row = addF(depInnerPanel, c, row, "内存限制值：", depMemL = new JTextField("256Mi"));
-
-        row = addSection(depInnerPanel, c, row, "额外标签 (每行 key=value，可选)", depLabelArea = new JTextArea(2, 20));
-        row = addSection(depInnerPanel, c, row, "环境变量 (每行 KEY=VALUE，如 TZ=Asia/Shanghai)", depEnvArea = new JTextArea(3, 20));
-
-        // ===== 3 种健康检查探针配置 =====
-        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weightx = 0;
-        JLabel probeLabel = new JLabel("健康检查探针配置 (Liveness, Readiness, Startup)");
-        probeLabel.setFont(UIUtils.plainFont().deriveFont(Font.BOLD));
-        probeLabel.setBorder(BorderFactory.createEmptyBorder(6, 0, 4, 0));
-        depInnerPanel.add(probeLabel, c);
-        row++;
-
-        // 1. Liveness Probe
-        livenessEnabledCheck = new JCheckBox("启用存活探针 (Liveness)", false);
-        livenessTypeCombo = new JComboBox<>(new String[]{"HTTP GET", "TCP Socket", "Exec Command"});
-        livenessValueField = new JTextField("/health");
-        livenessDelayField = new JTextField("10"); livenessDelayField.setColumns(3);
-        livenessPeriodField = new JTextField("15"); livenessPeriodField.setColumns(3);
-        livenessTimeoutField = new JTextField("5"); livenessTimeoutField.setColumns(3);
-        row = addProbeConfig(depInnerPanel, c, row, livenessEnabledCheck, livenessTypeCombo, livenessValueField,
-                             livenessDelayField, livenessPeriodField, livenessTimeoutField);
-
-        // 2. Readiness Probe
-        readinessEnabledCheck = new JCheckBox("启用就绪探针 (Readiness)", false);
-        readinessTypeCombo = new JComboBox<>(new String[]{"HTTP GET", "TCP Socket", "Exec Command"});
-        readinessValueField = new JTextField("/health");
-        readinessDelayField = new JTextField("10"); readinessDelayField.setColumns(3);
-        readinessPeriodField = new JTextField("15"); readinessPeriodField.setColumns(3);
-        readinessTimeoutField = new JTextField("5"); readinessTimeoutField.setColumns(3);
-        row = addProbeConfig(depInnerPanel, c, row, readinessEnabledCheck, readinessTypeCombo, readinessValueField,
-                             readinessDelayField, readinessPeriodField, readinessTimeoutField);
-
-        // 3. Startup Probe
-        startupEnabledCheck = new JCheckBox("启用启动探针 (Startup)", false);
-        startupTypeCombo = new JComboBox<>(new String[]{"HTTP GET", "TCP Socket", "Exec Command"});
-        startupValueField = new JTextField("/health");
-        startupDelayField = new JTextField("10"); startupDelayField.setColumns(3);
-        startupPeriodField = new JTextField("15"); startupPeriodField.setColumns(3);
-        startupTimeoutField = new JTextField("5"); startupTimeoutField.setColumns(3);
-        row = addProbeConfig(depInnerPanel, c, row, startupEnabledCheck, startupTypeCombo, startupValueField,
-                             startupDelayField, startupPeriodField, startupTimeoutField);
-
-        wrapper.add(new JScrollPane(depInnerPanel), BorderLayout.CENTER);
-        return wrapper;
+    /** 标签页内容容器：比 page() 更薄的一层内边距，免得和外层页边距叠加过厚 */
+    private static JPanel tabPage() {
+        JPanel page = Layouts.box(0, Tokens.SPACE_SM);
+        page.setBorder(KitBorders.padding(Tokens.SPACE_MD));
+        return page;
     }
 
-    private int addProbeConfig(JPanel p, GridBagConstraints c, int row,
-                               JCheckBox enabledCheck, JComboBox<String> typeCombo, JTextField valField,
-                               JTextField delayField, JTextField periodField, JTextField timeoutField) {
-        c.gridx = 0; c.gridy = row; c.gridwidth = 1; c.weightx = 0;
-        p.add(enabledCheck, c);
-        
-        c.gridx = 1; c.weightx = 1.0;
-        JPanel row1 = new JPanel(new BorderLayout(4, 0));
-        row1.add(typeCombo, BorderLayout.WEST);
-        row1.add(valField, BorderLayout.CENTER);
-        p.add(row1, c);
-        
-        row++;
-        
-        c.gridx = 1; c.gridy = row; c.weightx = 1.0;
-        JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        row2.add(new JLabel("延迟:"));
-        row2.add(delayField);
-        row2.add(new JLabel("s 间隔:"));
-        row2.add(periodField);
-        row2.add(new JLabel("s 超时:"));
-        row2.add(timeoutField);
-        row2.add(new JLabel("s"));
-        p.add(row2, c);
-        
-        return row + 1;
+    /** 行尾的「小标签 + 输入」组合，让两个相关字段共用一行 */
+    private static JPanel trailingField(String label, JComponent field) {
+        JPanel group = Layouts.box(Tokens.SPACE_SM, 0);
+        group.add(Fields.label(label), BorderLayout.WEST);
+        group.add(field, BorderLayout.EAST);
+        return group;
+    }
+
+    /**
+     * 定宽输入框。
+     *
+     * <p>端口、秒数这类只填 2~4 位的输入用 {@link Fields#text(String)} 的默认 200px 宽会把整行撑到换行，
+     * 属于组件库允许的「需要固定宽度」的例外。</p>
+     */
+    private static JTextField compactField(String value, int width) {
+        JTextField field = Fields.text(value);
+        Dimension size = new Dimension(width, Tokens.CONTROL_HEIGHT);
+        field.setPreferredSize(size);
+        field.setMinimumSize(new Dimension(Math.min(width, 44), Tokens.CONTROL_HEIGHT));
+        // 同时锁上最大宽度：放进 BoxLayout 横向行时，文本框默认会把整行的富余空间全吃掉
+        field.setMaximumSize(size);
+        return field;
+    }
+
+    /**
+     * 让控件在窄窗口下保持完整文案。
+     *
+     * <p>{@code GridBagLayout} 在容器小于首选尺寸时会整体退回「最小尺寸」布局，
+     * 没有权重的列会被压到最小宽度、文字省略成「Cluste...」；把最小宽度提到首选宽度即可。</p>
+     */
+    private static <T extends JComponent> T keepWidth(T component) {
+        component.setMinimumSize(component.getPreferredSize());
+        return component;
+    }
+
+    /** 分区小标题：文本域上方的说明，比卡片标题弱一级 */
+    private static JLabel sectionLabel(String text) {
+        JLabel label = new JLabel(text);
+        label.setFont(Tokens.fontBody());
+        label.setForeground(Tokens.foreground());
+        return label;
+    }
+
+    /**
+     * 跟随视口宽度的滚动内容容器。
+     *
+     * <p>默认的 {@code JScrollPane} 会把内容撑到它自己的首选宽度再横向滚动，
+     * 于是 {@code Layouts.wrapRow(...)} 永远等不到「宽度不够」这个信号，也就永远不会折行。
+     * 这里声明宽度跟随视口，纵向照常滚动，端口组和探针行才能在窄栏下折行而不是被裁掉。</p>
+     */
+    private static final class ScrollBody extends JPanel implements Scrollable {
+
+        ScrollBody() {
+            super(new BorderLayout());
+            setOpaque(false);
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return orientation == SwingConstants.VERTICAL ? visibleRect.height : visibleRect.width;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
+    }
+
+    /** 资源标签页骨架：启用开关钉在顶部，配置区吸收剩余空间 */
+    private static JComponent resourceTab(JCheckBox enableCheck, JComponent body) {
+        JPanel page = tabPage();
+        page.add(enableCheck, BorderLayout.NORTH);
+        page.add(body, BorderLayout.CENTER);
+        return page;
+    }
+
+    // ==================== Deployment 标签页 ====================
+    private JComponent buildDeployTab() {
+        enableDeploymentCheck = Fields.check("启用 Deployment 部署配置", true);
+
+        // 单列表单：字段等宽对齐，整体首选宽度控制在一栏之内，窄栏下不会冒出横向滚动条
+        FormGrid form = new FormGrid();
+        form.row("镜像地址：", depImgField = Fields.text("nginx:latest"));
+        form.rowCompact("拉取策略：", depPullCombo = Fields.combo(new String[]{"IfNotPresent", "Always", "Never"}, 160));
+        form.row("副本数量：", depReplicas = Fields.text("1"));
+        form.row("容器端口：", depPort = Fields.text("80"));
+        form.row("CPU 请求值：", depCpuR = Fields.text("100m"));
+        form.row("CPU 限制值：", depCpuL = Fields.text("500m"));
+        form.row("内存请求值：", depMemR = Fields.text("128Mi"));
+        form.row("内存限制值：", depMemL = Fields.text("256Mi"));
+
+        depLabelArea = new JTextArea(2, 20);
+        depLabelArea.setFont(Tokens.fontMono());
+        form.fullRow(sectionLabel("额外标签 (每行 key=value，可选)"));
+        // 外层卡片有内边距、底色又与文本域相同，文本域要靠细描边才看得出边界
+        form.fullRow(Fields.scrollBoxed(depLabelArea));
+
+        depEnvArea = new JTextArea(3, 20);
+        depEnvArea.setFont(Tokens.fontMono());
+        form.fullRow(sectionLabel("环境变量 (每行 KEY=VALUE，如 TZ=Asia/Shanghai)"));
+        form.fullRow(Fields.scrollBoxed(depEnvArea));
+
+        // ===== 3 种健康检查探针配置 =====
+        livenessEnabledCheck = Fields.check("启用存活探针 (Liveness)", false);
+        livenessTypeCombo = Fields.combo(new String[]{"HTTP GET", "TCP Socket", "Exec Command"}, 140);
+        livenessValueField = Fields.text("/health");
+        livenessDelayField = compactField("10", 56);
+        livenessPeriodField = compactField("15", 56);
+        livenessTimeoutField = compactField("5", 56);
+
+        readinessEnabledCheck = Fields.check("启用就绪探针 (Readiness)", false);
+        readinessTypeCombo = Fields.combo(new String[]{"HTTP GET", "TCP Socket", "Exec Command"}, 140);
+        readinessValueField = Fields.text("/health");
+        readinessDelayField = compactField("10", 56);
+        readinessPeriodField = compactField("15", 56);
+        readinessTimeoutField = compactField("5", 56);
+
+        startupEnabledCheck = Fields.check("启用启动探针 (Startup)", false);
+        startupTypeCombo = Fields.combo(new String[]{"HTTP GET", "TCP Socket", "Exec Command"}, 140);
+        startupValueField = Fields.text("/health");
+        startupDelayField = compactField("10", 56);
+        startupPeriodField = compactField("15", 56);
+        startupTimeoutField = compactField("5", 56);
+
+        JLabel probeLabel = new JLabel("健康检查探针配置 (Liveness, Readiness, Startup)");
+        probeLabel.setFont(Tokens.fontSectionTitle());
+        probeLabel.setForeground(Tokens.foreground());
+
+        JPanel content = Layouts.stack(Tokens.SPACE_LG,
+                form,
+                probeLabel,
+                probeBlock(livenessEnabledCheck, livenessTypeCombo, livenessValueField,
+                        livenessDelayField, livenessPeriodField, livenessTimeoutField),
+                probeBlock(readinessEnabledCheck, readinessTypeCombo, readinessValueField,
+                        readinessDelayField, readinessPeriodField, readinessTimeoutField),
+                probeBlock(startupEnabledCheck, startupTypeCombo, startupValueField,
+                        startupDelayField, startupPeriodField, startupTimeoutField));
+
+        // 内容靠 NORTH 放，剩余空间留白而不是把表单垂直拉散
+        depInnerPanel = new ScrollBody();
+        depInnerPanel.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.CARD_PADDING, Tokens.CARD_PADDING));
+        depInnerPanel.add(content, BorderLayout.NORTH);
+
+        Card card = Card.plain().setFlush(true);
+        card.setContent(Fields.scroll(depInnerPanel));
+        return resourceTab(enableDeploymentCheck, card);
+    }
+
+    /** 单个探针的配置块：启用开关 → 检测方式 → 时间参数，三行纵向排列 */
+    private static JComponent probeBlock(JCheckBox enabledCheck, JComboBox<String> typeCombo, JTextField valField,
+                                         JTextField delayField, JTextField periodField, JTextField timeoutField) {
+        JPanel typeRow = Layouts.box(Tokens.SPACE_SM, 0);
+        typeRow.add(typeCombo, BorderLayout.WEST);
+        typeRow.add(valField, BorderLayout.CENTER);
+
+        // 三组「数值 + 单位」用 ActionBar 排成一行：高度与宽度无关，纵向堆叠时不会算错行高
+        ActionBar timingRow = new ActionBar();
+        timingRow.left(Fields.label("延迟:"));
+        timingRow.left(delayField);
+        timingRow.left(Fields.label("s 间隔:"));
+        timingRow.left(periodField);
+        timingRow.left(Fields.label("s 超时:"));
+        timingRow.left(timeoutField);
+        timingRow.left(Fields.label("s"));
+
+        return Layouts.stack(Tokens.SPACE_SM, enabledCheck, typeRow, timingRow);
     }
 
     // ==================== Service 标签页 ====================
     private JComponent buildSvcTab() {
-        JPanel wrapper = new JPanel(new BorderLayout(4, 4));
-        wrapper.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+        enableSvcCheck = Fields.check("启用 Service 服务配置", true);
 
-        enableSvcCheck = new JCheckBox("启用 Service 服务配置", true);
-        wrapper.add(enableSvcCheck, BorderLayout.NORTH);
+        svcTypeCombo = keepWidth(Fields.combo(new String[]{"ClusterIP", "NodePort", "LoadBalancer"}, 160));
 
-        svcInnerPanel = new JPanel(new BorderLayout(4, 4));
-
-        JPanel topRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
-        topRow.add(new JLabel("服务类型 (Type)："));
-        svcTypeCombo = new JComboBox<>(new String[]{"ClusterIP", "NodePort", "LoadBalancer"});
-        topRow.add(svcTypeCombo);
-        
-        addPortBtn = new JButton("添加端口组");
+        addPortBtn = Buttons.secondary("添加端口组");
         addPortBtn.addActionListener(e -> {
             addPortRow("TCP", "http-" + (svcPortRows.size() + 1), "", "", "");
             updateNodePortVisibility();
@@ -484,20 +556,31 @@ public class K8sPanel extends ToolPanel {
             svcPortsContainer.repaint();
             triggerGenerate();
         });
-        topRow.add(addPortBtn);
-        
-        svcInnerPanel.add(topRow, BorderLayout.NORTH);
+
+        FormGrid form = new FormGrid();
+        form.rowCompact("服务类型 (Type)：", svcTypeCombo);
 
         svcPortsContainer = new JPanel();
+        svcPortsContainer.setOpaque(false);
         svcPortsContainer.setLayout(new BoxLayout(svcPortsContainer, BoxLayout.Y_AXIS));
-        
+
         // 初始注入第一组端口配置
         addPortRow("TCP", "http", "80", "80", "");
-        
-        svcInnerPanel.add(new JScrollPane(svcPortsContainer), BorderLayout.CENTER);
 
-        wrapper.add(svcInnerPanel, BorderLayout.CENTER);
-        return wrapper;
+        // 端口组从上往下排，不足一屏时不要被拉伸成等高
+        JPanel portsHolder = new ScrollBody();
+        portsHolder.add(svcPortsContainer, BorderLayout.NORTH);
+
+        // 「添加端口组」属于端口列表，放卡片标题右侧；它仍在 svcInnerPanel 内，一键禁用照样生效
+        Card portsCard = Card.flush("端口映射");
+        portsCard.setContent(Fields.scroll(portsHolder));
+        portsCard.addHeaderAction(addPortBtn);
+
+        svcInnerPanel = Layouts.box(0, Tokens.SPACE_MD);
+        svcInnerPanel.add(form, BorderLayout.NORTH);
+        svcInnerPanel.add(portsCard, BorderLayout.CENTER);
+
+        return resourceTab(enableSvcCheck, svcInnerPanel);
     }
 
     private void addPortRow(String protocol, String name, String port, String targetPort, String nodePort) {
@@ -514,26 +597,26 @@ public class K8sPanel extends ToolPanel {
         JTextField targetPortField;
         JTextField nodePortField;
         JButton deleteBtn;
-        
+
         SvcPortRow(String protocol, String name, String port, String targetPort, String nodePort) {
-            panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-            protocolCombo = new JComboBox<>(new String[]{"TCP", "UDP"});
+            protocolCombo = Fields.combo(new String[]{"TCP", "UDP"}, 80);
             protocolCombo.setSelectedItem(protocol);
-            
-            nameField = new JTextField(name, 5);
+
+            nameField = compactField(name, 96);
             nameField.setToolTipText("端口名称");
-            
-            portField = new JTextField(port, 4);
+
+            portField = compactField(port, 64);
             portField.setToolTipText("服务端口 (port)");
-            
-            targetPortField = new JTextField(targetPort, 4);
+
+            targetPortField = compactField(targetPort, 64);
             targetPortField.setToolTipText("后端端口 (targetPort)");
-            
-            nodePortField = new JTextField(nodePort, 5);
+
+            nodePortField = compactField(nodePort, 72);
             nodePortField.setToolTipText("NodePort (可选)");
             nodePortField.setEnabled(svcTypeCombo != null && "NodePort".equals(svcTypeCombo.getSelectedItem()));
-            
-            deleteBtn = new JButton("×");
+
+            deleteBtn = Buttons.compact("×");
+            // 方形图标按钮的内容区很窄，保留原来的紧凑 margin，否则「×」会被省略成「...」
             deleteBtn.setMargin(new Insets(2, 4, 2, 4));
             deleteBtn.setToolTipText("删除此端口组");
             deleteBtn.addActionListener(e -> {
@@ -547,7 +630,7 @@ public class K8sPanel extends ToolPanel {
                     UIUtils.info(deleteBtn, "至少保留一组端口配置。");
                 }
             });
-            
+
             // 实时变化监听
             DocumentListener dl = new DocumentListener() {
                 public void insertUpdate(DocumentEvent e) { triggerGenerate(); }
@@ -560,85 +643,76 @@ public class K8sPanel extends ToolPanel {
             nodePortField.getDocument().addDocumentListener(dl);
             protocolCombo.addActionListener(e -> triggerGenerate());
 
-            panel.add(new JLabel("名称:"));
-            panel.add(nameField);
-            panel.add(protocolCombo);
-            panel.add(new JLabel("Port:"));
-            panel.add(portField);
-            panel.add(new JLabel("Target:"));
-            panel.add(targetPortField);
-            panel.add(new JLabel("NodePort:"));
-            panel.add(nodePortField);
-            panel.add(deleteBtn);
+            // 一组端口有 9 个控件，挤在一行会在左栏宽度下被裁掉；拆成「名称/协议」「端口三项」两行，
+            // 两行都用 ActionBar（高度与宽度无关），端口组多起来时纵向堆叠也不会算错行高
+            // 删除按钮跟在第一行行尾：它是整组的操作，也让第二行三组端口有完整宽度
+            ActionBar line1 = new ActionBar();
+            line1.left(Fields.label("名称:"));
+            line1.left(nameField);
+            line1.left(protocolCombo);
+            line1.right(deleteBtn);
+
+            ActionBar line2 = new ActionBar();
+            line2.left(Fields.label("Port:"));
+            line2.left(portField);
+            line2.left(Fields.label("Target:"));
+            line2.left(targetPortField);
+            line2.left(Fields.label("NodePort:"));
+            line2.left(nodePortField);
+
+            panel = Layouts.stack(Tokens.SPACE_XS, line1, line2);
+            // 端口组之间用细线分隔，多组时才看得出边界
+            panel.setBorder(BorderFactory.createCompoundBorder(
+                    KitBorders.lineSubtle(0, 0, 1, 0),
+                    KitBorders.padding(Tokens.SPACE_SM, Tokens.SPACE_MD, Tokens.SPACE_SM, Tokens.SPACE_MD)));
         }
     }
 
     // ==================== Ingress 标签页 ====================
     private JComponent buildIngTab() {
-        JPanel wrapper = new JPanel(new BorderLayout(4, 4));
-        wrapper.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+        enableIngressCheck = Fields.check("启用 Ingress 路由配置", false);
 
-        enableIngressCheck = new JCheckBox("启用 Ingress 路由配置", false);
-        wrapper.add(enableIngressCheck, BorderLayout.NORTH);
+        ingHostField = Fields.text("app.example.com");
+        ingTlsCheck = Fields.check("启用 TLS (自动创建证书 Secret 关联)", false);
 
-        ingInnerPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints c = new GridBagConstraints();
-        c.fill = GridBagConstraints.HORIZONTAL;
-        c.insets = new Insets(4, 6, 4, 6);
+        FormGrid form = new FormGrid();
+        form.row("绑定域名：", ingHostField);
+        form.row("安全加密：", ingTlsCheck);
 
-        addF(ingInnerPanel, c, 0, "绑定域名：", ingHostField = new JTextField("app.example.com"));
-
-        c.gridx = 0; c.gridy = 1; c.weightx = 0;
-        ingInnerPanel.add(new JLabel("安全加密："), c);
-        c.gridx = 1; c.weightx = 1.0;
-        ingTlsCheck = new JCheckBox("启用 TLS (自动创建证书 Secret 关联)");
-        ingInnerPanel.add(ingTlsCheck, c);
+        // ingInnerPanel 只装配置控件，一键禁用时不会把卡片标题一起变灰
+        ingInnerPanel = Layouts.box();
+        ingInnerPanel.add(form, BorderLayout.NORTH);
 
         // 默认未启用，禁用内层组件
         setContainerEnabled(ingInnerPanel, false);
 
-        wrapper.add(ingInnerPanel, BorderLayout.CENTER);
-        return wrapper;
+        Card card = Card.titled("Ingress 路由");
+        card.setContent(ingInnerPanel);
+
+        JPanel body = Layouts.box();
+        body.add(card, BorderLayout.NORTH);
+        return resourceTab(enableIngressCheck, body);
     }
 
     // ==================== ConfigMap 标签页 ====================
     private JComponent buildCmTab() {
-        JPanel wrapper = new JPanel(new BorderLayout(4, 4));
-        wrapper.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+        enableCmCheck = Fields.check("启用 ConfigMap 配置项", false);
 
-        enableCmCheck = new JCheckBox("启用 ConfigMap 配置项", false);
-        wrapper.add(enableCmCheck, BorderLayout.NORTH);
-
-        cmInnerPanel = new JPanel(new BorderLayout(6, 6));
-        cmInnerPanel.add(new JLabel("配置数据项 (每行 key=value)："), BorderLayout.NORTH);
         cmArea = new JTextArea(10, 40);
-        cmArea.setFont(UIUtils.monoFont());
-        cmInnerPanel.add(new JScrollPane(cmArea), BorderLayout.CENTER);
+        cmArea.setFont(Tokens.fontMono());
+        cmArea.setBorder(KitBorders.padding(Tokens.SPACE_SM));
+
+        cmInnerPanel = Layouts.box();
+        cmInnerPanel.add(Fields.scroll(cmArea), BorderLayout.CENTER);
 
         // 默认未启用，禁用内层组件
         setContainerEnabled(cmInnerPanel, false);
 
-        wrapper.add(cmInnerPanel, BorderLayout.CENTER);
-        return wrapper;
-    }
+        // 原来的说明标签升级成卡片标题，省掉一行高度
+        Card card = Card.flush("配置数据项 (每行 key=value)");
+        card.setContent(cmInnerPanel);
 
-    // ==================== 辅助 UI 组装 ====================
-    private int addF(JPanel p, GridBagConstraints c, int row, String label, JComponent comp) {
-        c.gridx = 0; c.gridy = row; c.weightx = 0; c.gridwidth = 1;
-        p.add(new JLabel(label), c);
-        c.gridx = 1; c.weightx = 1.0;
-        p.add(comp, c);
-        return row + 1;
-    }
-
-    private int addSection(JPanel p, GridBagConstraints c, int row, String label, JTextArea area) {
-        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weightx = 0;
-        p.add(new JLabel(label), c);
-        row++;
-        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weightx = 1.0;
-        area.setFont(UIUtils.monoFont());
-        p.add(new JScrollPane(area), c);
-        return row + 1;
+        return resourceTab(enableCmCheck, card);
     }
 
     /** 递归设置容器内所有组件的启用状态 */

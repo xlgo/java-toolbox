@@ -1,6 +1,14 @@
 package com.aqishi.toolbox.crypto;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -31,118 +39,82 @@ public class AsymmetricPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 密钥区 =====
-        JPanel keyPanel = new JPanel(new GridBagLayout());
-        keyPanel.setBorder(BorderFactory.createTitledBorder("密钥对配置与生成"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(3, 4, 3, 4);
+        // ===== 密钥卡片：算法与公私钥同属一张表单，复制动作贴在各自行尾 =====
+        algoCombo = Fields.combo(new String[]{"RSA", "SM2"});
+        pubKeyArea = Fields.area(2, 40);
+        priKeyArea = Fields.area(2, 40);
 
-        // 算法选择
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        keyPanel.add(new JLabel("算法："), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
-        algoCombo = new JComboBox<>(new String[]{"RSA", "SM2"});
-        keyPanel.add(algoCombo, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
-        keyPanel.add(new JLabel("公钥："), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
-        pubKeyArea = new JTextArea(3, 40);
-        pubKeyArea.setFont(UIUtils.monoFont().deriveFont(11f));
-        pubKeyArea.setLineWrap(true);
-        JScrollPane pubScroll = new JScrollPane(pubKeyArea);
-        pubScroll.setPreferredSize(new Dimension(400, 50));
-        keyPanel.add(pubScroll, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0;
-        keyPanel.add(new JLabel("私钥："), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
-        priKeyArea = new JTextArea(3, 40);
-        priKeyArea.setFont(UIUtils.monoFont().deriveFont(11f));
-        priKeyArea.setLineWrap(true);
-        JScrollPane priScroll = new JScrollPane(priKeyArea);
-        priScroll.setPreferredSize(new Dimension(400, 50));
-        keyPanel.add(priScroll, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2;
-        keySizeCombo = new JComboBox<>(new Integer[]{1024, 2048, 4096});
+        keySizeCombo = Fields.combo(new Integer[]{1024, 2048, 4096}, 96);
         keySizeCombo.setSelectedItem(2048);
-        keySizeCombo.setPreferredSize(new Dimension(80, 30));
-        keySizeLabel = new JLabel("密钥长度：");
-        
-        JButton genKeyBtn = UIUtils.button("生成密钥对", 120);
-        JButton copyPubBtn = UIUtils.button("复制公钥", 100);
-        JButton copyPriBtn = UIUtils.button("复制私钥", 100);
-        
-        JPanel keyBtnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        keyBtnRow.add(keySizeLabel);
-        keyBtnRow.add(keySizeCombo);
-        keyBtnRow.add(genKeyBtn);
-        keyBtnRow.add(copyPubBtn);
-        keyBtnRow.add(copyPriBtn);
-        keyPanel.add(keyBtnRow, gbc);
+        keySizeLabel = Fields.label("密钥长度：");
 
-        root.add(keyPanel, BorderLayout.NORTH);
+        JButton genKeyBtn = Buttons.secondary("生成密钥对");
+        JButton copyPubBtn = Buttons.ghost("复制公钥");
+        JButton copyPriBtn = Buttons.ghost("复制私钥");
 
-        // ===== 操作区 =====
-        JPanel opPanel = new JPanel(new GridBagLayout());
-        opPanel.setBorder(BorderFactory.createTitledBorder("加解密与签名验签"));
-        GridBagConstraints gbc2 = new GridBagConstraints();
-        gbc2.fill = GridBagConstraints.HORIZONTAL;
-        gbc2.insets = new Insets(3, 4, 3, 4);
+        FormGrid keyForm = new FormGrid();
+        keyForm.row("算法：", algoCombo);
+        keyForm.row("公钥：", boxedScroll(pubKeyArea), copyPubBtn);
+        keyForm.row("私钥：", boxedScroll(priKeyArea), copyPriBtn);
 
-        // 输入/明文
-        gbc2.gridx = 0; gbc2.gridy = 0; gbc2.weightx = 0;
-        opPanel.add(new JLabel("输入文本/明文："), gbc2);
-        gbc2.gridx = 1; gbc2.weightx = 1;
-        encryptInput = new JTextArea(2, 40);
-        encryptInput.setFont(UIUtils.monoFont());
-        encryptInput.setLineWrap(true);
-        JScrollPane encScroll = new JScrollPane(encryptInput);
-        encScroll.setPreferredSize(new Dimension(400, 40));
-        opPanel.add(encScroll, gbc2);
+        Card keyCard = Card.titled("密钥对配置与生成");
+        keyCard.setContent(keyForm);
+        // 密钥长度只在 RSA 下可见，跟生成按钮绑在标题右侧一起显隐，位置更好找
+        keyCard.addHeaderAction(keySizeLabel);
+        keyCard.addHeaderAction(keySizeCombo);
+        keyCard.addHeaderAction(genKeyBtn);
 
-        // 输入/密文/签名
-        gbc2.gridx = 0; gbc2.gridy = 1; gbc2.weightx = 0;
-        opPanel.add(new JLabel("输入密文/签名："), gbc2);
-        gbc2.gridx = 1; gbc2.weightx = 1;
-        decryptInput = new JTextArea(2, 40);
-        decryptInput.setFont(UIUtils.monoFont());
-        decryptInput.setLineWrap(true);
-        JScrollPane decScroll = new JScrollPane(decryptInput);
-        decScroll.setPreferredSize(new Dimension(400, 40));
-        opPanel.add(decScroll, gbc2);
+        // ===== 操作卡片：两个输入左右并排，动作合并成一行操作条 =====
+        encryptInput = Fields.area(2, 40);
+        decryptInput = Fields.area(2, 40);
 
-        gbc2.gridx = 0; gbc2.gridy = 2; gbc2.gridwidth = 2;
-        sigAlgoCombo = new JComboBox<>(new String[]{"SHA256withRSA", "SHA1withRSA", "MD5withRSA"});
-        sigAlgoCombo.setPreferredSize(new Dimension(140, 30));
-        sigAlgoLabel = new JLabel("签名算法：");
-        
-        JButton encryptBtn = UIUtils.button("公钥加密", 100);
-        JButton decryptBtn = UIUtils.button("私钥解密", 100);
-        JButton signBtn = UIUtils.button("私钥签名", 100);
-        JButton verifyBtn = UIUtils.button("公钥验签", 100);
-        JButton clearBtn = UIUtils.button("清空", 80);
-        
-        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        btnRow.add(sigAlgoLabel);
-        btnRow.add(sigAlgoCombo);
-        btnRow.add(encryptBtn); btnRow.add(decryptBtn);
-        btnRow.add(signBtn); btnRow.add(verifyBtn); btnRow.add(clearBtn);
-        opPanel.add(btnRow, gbc2);
+        sigAlgoCombo = Fields.combo(
+                new String[]{"SHA256withRSA", "SHA1withRSA", "MD5withRSA"}, 150);
+        sigAlgoLabel = Fields.label("签名算法：");
 
-        root.add(opPanel, BorderLayout.CENTER);
+        JButton encryptBtn = Buttons.primary("公钥加密");
+        JButton decryptBtn = Buttons.secondary("私钥解密");
+        JButton signBtn = Buttons.secondary("私钥签名");
+        JButton verifyBtn = Buttons.secondary("公钥验签");
+        JButton clearBtn = Buttons.ghost("清空");
 
-        // ===== 输出区 =====
-        output = new JTextArea(6, 40);
-        output.setFont(UIUtils.monoFont());
-        output.setLineWrap(true);
-        output.setEditable(false);
-        root.add(UIUtils.scrollText(output, "输出结果"), BorderLayout.SOUTH);
+        ActionBar actions = new ActionBar();
+        actions.right(encryptBtn);
+        actions.right(decryptBtn);
+        actions.right(signBtn);
+        actions.right(verifyBtn);
+        actions.right(clearBtn);
+
+        // 签名算法放操作条左端，紧挨着「私钥签名 / 公钥验签」，用到它的地方就在旁边。
+        // 用 BorderLayout 而不是把下拉丢进 ActionBar：BoxLayout 会把下拉框拉到几百像素宽。
+        JPanel sigGroup = new JPanel(new FlowLayout(FlowLayout.LEFT, Tokens.SPACE_SM, 0));
+        sigGroup.setOpaque(false);
+        sigGroup.add(sigAlgoLabel);
+        sigGroup.add(sigAlgoCombo);
+
+        JPanel opBar = Layouts.box(Tokens.SPACE_SM, 0);
+        opBar.add(sigGroup, BorderLayout.WEST);
+        opBar.add(actions, BorderLayout.CENTER);
+
+        JPanel opBody = Layouts.box(0, Tokens.SPACE_MD);
+        opBody.add(Layouts.columns(Tokens.SPACE_LG,
+                titledArea("输入文本/明文：", encryptInput),
+                titledArea("输入密文/签名：", decryptInput)), BorderLayout.CENTER);
+        opBody.add(opBar, BorderLayout.SOUTH);
+
+        Card opCard = Card.titled("加解密与签名验签");
+        opCard.setContent(opBody);
+
+        // ===== 输出区占满剩余空间：签名、密钥说明都是长文本 =====
+        output = Fields.output(6, 40);
+        Card outputCard = Card.flush("输出结果");
+        outputCard.setContent(Fields.scroll(output));
+
+        // 两张配置卡片按内容高度堆在顶部，剩下的高度全给输出卡片
+        root.add(Layouts.stack(Tokens.SPACE_LG, keyCard, opCard), BorderLayout.NORTH);
+        root.add(outputCard, BorderLayout.CENTER);
 
         // ===== 逻辑与事件绑定 =====
         algoCombo.addActionListener(e -> {
@@ -296,5 +268,25 @@ public class AsymmetricPanel extends ToolPanel {
         });
 
         return root;
+    }
+
+    /**
+     * 卡片内部嵌的文本域滚动区。
+     *
+     * <p>卡片底色与文本域底色相同，不描一条细线的话输入框会整个「消失」在卡片里；
+     * 这里只用最弱的分隔色画 1px，不会和卡片描边叠成双层边框。</p>
+     */
+    private static JScrollPane boxedScroll(JTextArea area) {
+        JScrollPane scroll = Fields.scroll(area);
+        scroll.setBorder(KitBorders.lineSubtle(1, 1, 1, 1));
+        return scroll;
+    }
+
+    /** 卡片内的子区块：小标题压在输入框上方，两栏并排时标题不会被挤到左边一列 */
+    private static JPanel titledArea(String title, JTextArea area) {
+        JPanel box = Layouts.box(0, Tokens.SPACE_XS);
+        box.add(Fields.caption(title), BorderLayout.NORTH);
+        box.add(boxedScroll(area), BorderLayout.CENTER);
+        return box;
     }
 }

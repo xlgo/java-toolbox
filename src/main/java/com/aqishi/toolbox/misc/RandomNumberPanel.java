@@ -1,6 +1,12 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -124,75 +130,60 @@ public class RandomNumberPanel extends ToolPanel {
     // ==================== 界面构建 ====================
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 顶部：配置区 =====
-        JPanel config = new JPanel(new GridBagLayout());
-        config.setBorder(BorderFactory.createTitledBorder("随机数据配置"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(5, 8, 5, 8);
-
-        // 第1行：数据类型勾选
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0; gbc.gridwidth = 1;
-        config.add(new JLabel("数据类型："), gbc);
-
-        gbc.gridx = 1; gbc.gridwidth = 4; gbc.weightx = 1.0;
-        JPanel typePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
-        nameCb   = new JCheckBox("姓名", true);
-        phoneCb  = new JCheckBox("手机号", true);
-        emailCb  = new JCheckBox("邮箱", true);
-        addrCb   = new JCheckBox("地址", true);
-        idCardCb = new JCheckBox("身份证号", true);
-        bankCb   = new JCheckBox("银行卡号", true);
+        // ===== 数据类型：六个复选框放进可换行的流式行 =====
+        // 类型条目比其它行长得多，独占一行；窄窗口下折到第二行而不是被右边界裁掉。
+        nameCb   = Fields.check("姓名", true);
+        phoneCb  = Fields.check("手机号", true);
+        emailCb  = Fields.check("邮箱", true);
+        addrCb   = Fields.check("地址", true);
+        idCardCb = Fields.check("身份证号", true);
+        bankCb   = Fields.check("银行卡号", true);
+        JPanel typeRow = new WrapRow(Tokens.SPACE_MD, Tokens.SPACE_XS);
         JCheckBox[] cbs = {nameCb, phoneCb, emailCb, addrCb, idCardCb, bankCb};
         for (JCheckBox cb : cbs) {
-            cb.setFont(UIUtils.plainFont());
-            typePanel.add(cb);
+            typeRow.add(cb);
         }
-        config.add(typePanel, gbc);
 
-        // 第2行：数量 / 输出格式 / 按钮
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0; gbc.gridwidth = 1;
-        config.add(new JLabel("生成数量："), gbc);
-
-        gbc.gridx = 1; gbc.weightx = 0.15;
-        countSpinner = new JSpinner(new SpinnerNumberModel(10, 1, 5000, 1));
+        // ===== 生成数量：spinner 自带固定宽度，用左对齐容器包住免得被表单拉满整行 =====
+        countSpinner = Fields.spinner(10, 1, 5000, 1);
+        // 保留原本「不带千位分隔符」的显示格式
         countSpinner.setEditor(new JSpinner.NumberEditor(countSpinner, "#"));
-        config.add(countSpinner, gbc);
+        JPanel countRow = new WrapRow(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        countRow.add(countSpinner);
 
-        gbc.gridx = 2; gbc.weightx = 0;
-        config.add(new JLabel("输出格式："), gbc);
-
-        gbc.gridx = 3; gbc.weightx = 0.3;
-        JPanel fmtPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        // ===== 输出格式：两个互斥单选，同样独占一行 =====
+        lineMode  = Fields.radio("逐行", false);
+        tableMode = Fields.radio("表格（Tab分隔）", true);
         ButtonGroup fmtGroup = new ButtonGroup();
-        lineMode  = new JRadioButton("逐行", false);
-        tableMode = new JRadioButton("表格（Tab分隔）", true);
-        lineMode.setFont(UIUtils.plainFont());
-        tableMode.setFont(UIUtils.plainFont());
         fmtGroup.add(lineMode);
         fmtGroup.add(tableMode);
-        fmtPanel.add(lineMode);
-        fmtPanel.add(tableMode);
-        config.add(fmtPanel, gbc);
+        JPanel fmtRow = new WrapRow(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        fmtRow.add(lineMode);
+        fmtRow.add(tableMode);
 
-        gbc.gridx = 4; gbc.weightx = 0.5;
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        JButton genBtn  = UIUtils.button("生成数据", 100);
-        JButton copyBtn = UIUtils.button("复制全部", 100);
-        btnPanel.add(genBtn);
-        btnPanel.add(copyBtn);
-        config.add(btnPanel, gbc);
+        // 三行共用同一个标签列，标签右对齐后与输入列严格对齐
+        FormGrid form = new FormGrid();
+        form.row("数据类型", typeRow);
+        form.row("生成数量", countRow);
+        form.row("输出格式", fmtRow);
+
+        // 主操作放卡片标题右侧，避免按钮行占掉一整行高度
+        Card config = Card.titled("随机数据配置");
+        config.setContent(form);
+        JButton genBtn  = Buttons.primary("生成数据");
+        JButton copyBtn = Buttons.secondary("复制全部");
+        config.addHeaderAction(genBtn);
+        config.addHeaderAction(copyBtn);
+
+        // ===== 结果区：铺满剩余空间，长表格才有地方展开 =====
+        out = Fields.output(18, 50);
+        Card result = Card.flush("生成的随机数据");
+        result.setContent(Fields.scroll(out));
 
         root.add(config, BorderLayout.NORTH);
-
-        // ===== 中部：输出区 =====
-        out = new JTextArea(18, 50);
-        out.setFont(UIUtils.monoFont());
-        out.setEditable(false);
-        root.add(UIUtils.scrollText(out, "生成的随机数据"), BorderLayout.CENTER);
+        root.add(result, BorderLayout.CENTER);
 
         // ===== 事件 =====
         genBtn.addActionListener(e -> generate());
@@ -206,6 +197,86 @@ public class RandomNumberPanel extends ToolPanel {
 
         generate();
         return root;
+    }
+
+    /**
+     * 会换行、且把换行算进首选高度的横向控件行。
+     *
+     * <p>原生 {@link FlowLayout} 虽然会折行，但首选高度永远按一行算；放进
+     * {@code FormGrid}（按首选高度分配行高）之后，折下去的那一行会被直接裁掉。
+     * 这里按实际可用宽度重算高度，并在宽度变化时主动 revalidate。</p>
+     */
+    private static final class WrapRow extends JPanel {
+
+        WrapRow(int hgap, int vgap) {
+            super(new FlowLayout(FlowLayout.LEFT, hgap, vgap));
+            setOpaque(false);
+            addComponentListener(new java.awt.event.ComponentAdapter() {
+                @Override
+                public void componentResized(java.awt.event.ComponentEvent event) {
+                    // 首次布局时宽度还是 0，拿不到真实可用宽度；拿到之后再算一次行高
+                    revalidate();
+                }
+            });
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            FlowLayout layout = (FlowLayout) getLayout();
+            Insets insets = getInsets();
+            int usable = getWidth() - insets.left - insets.right - layout.getHgap() * 2;
+            if (usable <= 0) {
+                return super.getPreferredSize();
+            }
+
+            int rowWidth = 0;
+            int rowHeight = 0;
+            int width = 0;
+            int height = 0;
+            for (int i = 0; i < getComponentCount(); i++) {
+                Component child = getComponent(i);
+                if (!child.isVisible()) {
+                    continue;
+                }
+                Dimension size = child.getPreferredSize();
+                if (rowWidth > 0 && rowWidth + layout.getHgap() + size.width > usable) {
+                    width = Math.max(width, rowWidth);
+                    height += (height > 0 ? layout.getVgap() : 0) + rowHeight;
+                    rowWidth = 0;
+                    rowHeight = 0;
+                }
+                rowWidth += (rowWidth > 0 ? layout.getHgap() : 0) + size.width;
+                rowHeight = Math.max(rowHeight, size.height);
+            }
+            width = Math.max(width, rowWidth);
+            height += (height > 0 ? layout.getVgap() : 0) + rowHeight;
+
+            return new Dimension(
+                    width + insets.left + insets.right + layout.getHgap() * 2,
+                    height + insets.top + insets.bottom + layout.getVgap() * 2);
+        }
+
+        /**
+         * 最窄只要求放得下最宽的一个条目，其余靠换行消化。
+         *
+         * <p>否则窄窗口下 {@code GridBagLayout} 会改用最小尺寸排版，把整整一行控件的宽度
+         * 当成不可压缩的硬需求，进而挤掉同一行行尾的控件。</p>
+         */
+        @Override
+        public Dimension getMinimumSize() {
+            FlowLayout layout = (FlowLayout) getLayout();
+            Insets insets = getInsets();
+            int widest = 0;
+            for (int i = 0; i < getComponentCount(); i++) {
+                Component child = getComponent(i);
+                if (child.isVisible()) {
+                    widest = Math.max(widest, child.getPreferredSize().width);
+                }
+            }
+            return new Dimension(
+                    widest + insets.left + insets.right + layout.getHgap() * 2,
+                    getPreferredSize().height);
+        }
     }
 
     // ==================== 核心生成逻辑 ====================

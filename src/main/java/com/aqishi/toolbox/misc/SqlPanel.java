@@ -1,6 +1,10 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -33,28 +37,31 @@ public class SqlPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton pretty = UIUtils.button("格式化", 80);
-        JButton compress = UIUtils.button("压缩 SQL", 90);
-        JButton copy = UIUtils.button("复制结果", 100);
-        JButton clear = UIUtils.button("清空", 80);
-        btns.add(pretty); btns.add(compress); btns.add(copy); btns.add(clear);
-        root.add(btns, BorderLayout.NORTH);
-
-        JTextArea input = new JTextArea(8, 40);
-        input.setFont(UIUtils.monoFont());
+        // ===== 输入卡片：两个改写动作挂在标题栏，编辑区因此能一路铺到分隔条 =====
+        JTextArea input = Fields.area(8, 40);
         input.setText("select id, name, age from users left join roles on users.role_id = roles.id where age > 18 and status = 'active' order by age desc limit 10");
-        JTextArea out = new JTextArea(10, 40);
-        out.setFont(UIUtils.monoFont());
-        out.setEditable(false);
 
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                UIUtils.scrollText(input, "输入 SQL"),
-                UIUtils.scrollText(out, "输出"));
-        split.setResizeWeight(0.4);
+        JButton pretty = Buttons.primary("格式化");
+        JButton compress = Buttons.secondary("压缩 SQL");
+        JButton clear = Buttons.danger("清空");
+        Card inputCard = Card.flush("输入 SQL");
+        inputCard.setContent(Fields.scroll(input));
+        // addHeaderAction 按调用顺序自左向右排，主操作放最右侧最靠近视线落点
+        inputCard.addHeaderAction(clear);
+        inputCard.addHeaderAction(compress);
+        inputCard.addHeaderAction(pretty);
+
+        // ===== 输出卡片：复制是结果区自己的动作 =====
+        JTextArea out = Fields.output(10, 40);
+        JButton copy = Buttons.ghost("复制结果");
+        Card outCard = Card.flush("输出");
+        outCard.setContent(Fields.scroll(out));
+        outCard.addHeaderAction(copy);
+
+        // 格式化后的 SQL 行数多于原文，多余高度偏向输出侧
+        JSplitPane split = Layouts.splitVertical(inputCard, outCard, 0.4);
         root.add(split, BorderLayout.CENTER);
 
         pretty.addActionListener(e -> {

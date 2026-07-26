@@ -1,12 +1,18 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.ActionBar;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import javax.swing.border.TitledBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
@@ -79,6 +85,12 @@ public class BpmnPanel extends ToolPanel {
     private JTextField condField;
     private JPanel propPanel;
     private JLabel modeLabel;
+    // 属性表单的标签与空态说明：跟随各自的输入框显示 / 隐藏，
+    // 原来靠扫描 propPanel 的子组件按文案前缀匹配，换成表单网格后直接持有引用
+    private JLabel idLabel;
+    private JLabel nameLabel;
+    private JLabel condLabel;
+    private JLabel propEmptyHint;
 
     private boolean updatingProperties = false;
 
@@ -112,57 +124,94 @@ public class BpmnPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(5, 5));
-        root.setBorder(UIUtils.CONTENT_PADDING);
-
-        // 顶部工具栏
-        JToolBar toolBar = new JToolBar();
-        toolBar.setFloatable(false);
-        toolBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Component.borderColor")));
+        // 图形编辑器的三栏结构：左元素调色板 → 中画布 → 右属性表单。
+        // 原来 13 个纯图标的模式切换按钮和「导出 / 清空」挤在同一条 JToolBar 里，
+        // 既分不清哪些是元素、哪些是文件动作，属性面板又被一条 750px 的固定分隔线推成一大片空白。
+        final JPanel root = Layouts.page();
 
         ButtonGroup btnGroup = new ButtonGroup();
 
-        // 辅助方法：快速创建工具栏图标按钮
+        // 调色板纵向排列，图标 + 文案；BoxLayout 让每个元素按钮占满列宽
+        final JPanel palette = new JPanel();
+        palette.setOpaque(false);
+        palette.setLayout(new BoxLayout(palette, BoxLayout.Y_AXIS));
+
+        // 辅助方法：快速创建调色板元素按钮（tooltip 沿用原工具栏的中英对照文案）
         class ToolBarHelper {
-            JToggleButton addToggle(String tooltip, Mode mode, String iconType) {
-                JToggleButton btn = new JToggleButton(new BpmnIcon(iconType));
+            /** 分组小标题：13 个按钮排成一长条时，事件 / 任务 / 网关分开才找得到 */
+            void section(String title) {
+                JLabel caption = Fields.caption(title);
+                caption.setAlignmentX(Component.LEFT_ALIGNMENT);
+                caption.setBorder(KitBorders.padding(
+                        palette.getComponentCount() == 0 ? 0 : Tokens.SPACE_MD, 0, Tokens.SPACE_XS, 0));
+                palette.add(caption);
+            }
+
+            JToggleButton addToggle(String label, String tooltip, Mode mode, String iconType) {
+                JToggleButton btn = new JToggleButton(label, new BpmnIcon(iconType));
+                btn.setFont(Tokens.fontBody());
+                btn.setFocusPainted(false);
+                btn.setHorizontalAlignment(SwingConstants.LEFT);
+                btn.setIconTextGap(Tokens.SPACE_SM);
                 btn.setToolTipText(tooltip);
+                btn.setAlignmentX(Component.LEFT_ALIGNMENT);
+                // 高度统一到控件基准高、宽度放开让 BoxLayout 拉满列宽；
+                // 最小宽度保留首选宽度，窄窗口下宁可挤到分隔条也不要把「业务规则任务」截成省略号
+                Dimension preferred = btn.getPreferredSize();
+                int height = Math.max(preferred.height, Tokens.CONTROL_HEIGHT);
+                btn.setPreferredSize(new Dimension(preferred.width, height));
+                btn.setMinimumSize(new Dimension(preferred.width, height));
+                btn.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
                 btn.addActionListener(e -> setMode(mode));
                 btnGroup.add(btn);
-                toolBar.add(btn);
+                palette.add(btn);
+                palette.add(Box.createVerticalStrut(Tokens.SPACE_XS));
                 return btn;
             }
         }
         ToolBarHelper helper = new ToolBarHelper();
 
-        JToggleButton selectBtn = helper.addToggle("选择/移动 (支持框选)", Mode.SELECT, "SELECT");
-        toolBar.addSeparator();
+        JToggleButton selectBtn = helper.addToggle("选择/移动", "选择/移动 (支持框选)", Mode.SELECT, "SELECT");
 
-        helper.addToggle("开始事件 (Start Event)", Mode.ADD_START, TYPE_START);
-        helper.addToggle("结束事件 (End Event)", Mode.ADD_END, TYPE_END);
-        toolBar.addSeparator();
-        
-        helper.addToggle("用户任务 (User Task)", Mode.ADD_USER, TYPE_USER_TASK);
-        helper.addToggle("服务任务 (Service Task)", Mode.ADD_SERVICE, TYPE_SERVICE_TASK);
-        helper.addToggle("接收任务 (Receive Task)", Mode.ADD_RECEIVE, TYPE_RECEIVE_TASK);
-        helper.addToggle("发送任务 (Send Task)", Mode.ADD_SEND, TYPE_SEND_TASK);
-        helper.addToggle("脚本任务 (Script Task)", Mode.ADD_SCRIPT, TYPE_SCRIPT_TASK);
-        helper.addToggle("业务规则任务 (Business Rule Task)", Mode.ADD_RULE, TYPE_BUSINESS_RULE_TASK);
-        toolBar.addSeparator();
+        helper.section("事件");
+        helper.addToggle("开始事件", "开始事件 (Start Event)", Mode.ADD_START, TYPE_START);
+        helper.addToggle("结束事件", "结束事件 (End Event)", Mode.ADD_END, TYPE_END);
 
-        helper.addToggle("互斥网关 (Exclusive Gateway)", Mode.ADD_EXCLUSIVE, TYPE_GATEWAY);
-        helper.addToggle("并行网关 (Parallel Gateway)", Mode.ADD_PARALLEL, TYPE_PARALLEL_GATEWAY);
-        helper.addToggle("事件网关 (Event Gateway)", Mode.ADD_EVENT, TYPE_EVENT_GATEWAY);
-        toolBar.addSeparator();
+        helper.section("任务");
+        helper.addToggle("用户任务", "用户任务 (User Task)", Mode.ADD_USER, TYPE_USER_TASK);
+        helper.addToggle("服务任务", "服务任务 (Service Task)", Mode.ADD_SERVICE, TYPE_SERVICE_TASK);
+        helper.addToggle("接收任务", "接收任务 (Receive Task)", Mode.ADD_RECEIVE, TYPE_RECEIVE_TASK);
+        helper.addToggle("发送任务", "发送任务 (Send Task)", Mode.ADD_SEND, TYPE_SEND_TASK);
+        helper.addToggle("脚本任务", "脚本任务 (Script Task)", Mode.ADD_SCRIPT, TYPE_SCRIPT_TASK);
+        helper.addToggle("业务规则任务", "业务规则任务 (Business Rule Task)", Mode.ADD_RULE, TYPE_BUSINESS_RULE_TASK);
 
-        helper.addToggle("连线 (Sequence Flow)", Mode.CONNECT, "CONNECT");
-        toolBar.addSeparator();
+        helper.section("网关");
+        helper.addToggle("互斥网关", "互斥网关 (Exclusive Gateway)", Mode.ADD_EXCLUSIVE, TYPE_GATEWAY);
+        helper.addToggle("并行网关", "并行网关 (Parallel Gateway)", Mode.ADD_PARALLEL, TYPE_PARALLEL_GATEWAY);
+        helper.addToggle("事件网关", "事件网关 (Event Gateway)", Mode.ADD_EVENT, TYPE_EVENT_GATEWAY);
 
-        JButton deleteBtn = new JButton("删除选中");
+        helper.section("连线");
+        helper.addToggle("连线", "连线 (Sequence Flow)", Mode.CONNECT, "CONNECT");
+
+        // 调色板挂在 NORTH 而不是直接铺满：BoxLayout 在剩余空间里会把 JLabel 分组标题拉高，
+        // 元素少的时候整列会被拉散
+        JPanel paletteBox = Layouts.box();
+        paletteBox.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.SPACE_MD, Tokens.CARD_PADDING));
+        paletteBox.add(palette, BorderLayout.NORTH);
+
+        Card paletteCard = Card.flush("元素");
+        paletteCard.setContent(Fields.scrollVertical(paletteBox));
+        // 调色板列的宽度下限取内容首选宽度（含卡片内边距与竖向滚动条）：
+        // 只纵向滚动的容器不会横向滚动，列一窄「业务规则任务」就被截成省略号
+        paletteCard.setMinimumSize(new Dimension(
+                palette.getPreferredSize().width + 2 * Tokens.CARD_PADDING + Tokens.SPACE_LG, 0));
+
+        // ===== 顶部动作条：左侧编辑动作，右侧导出；销毁性操作用 danger =====
+        JButton deleteBtn = Buttons.danger("删除选中");
         deleteBtn.addActionListener(e -> deleteSelected());
-        toolBar.add(deleteBtn);
 
-        JButton clearBtn = new JButton("清空画布");
+        JButton clearBtn = Buttons.danger("清空画布");
         clearBtn.addActionListener(e -> {
             if (JOptionPane.showConfirmDialog(root, "确定要清空画布吗？", "确认", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
                 nodes.clear();
@@ -172,56 +221,73 @@ public class BpmnPanel extends ToolPanel {
                 canvasPanel.repaint();
             }
         });
-        toolBar.add(clearBtn);
 
-        toolBar.addSeparator();
-
-        // 一键排版按钮
-        JButton layoutBtn = new JButton(new BpmnIcon("LAYOUT"));
+        // 一键排版按钮：先装好图标与文案再钉尺寸，否则 Buttons 工厂算出的首选宽度不含图标，文案会被截断
+        JButton layoutBtn = new JButton("一键排版", new BpmnIcon("LAYOUT"));
+        layoutBtn.setFont(Tokens.fontBody());
+        layoutBtn.setFocusPainted(false);
+        layoutBtn.setIconTextGap(Tokens.SPACE_XS);
         layoutBtn.setToolTipText("一键智能拓扑排版 (Auto Layout)");
+        layoutBtn.setPreferredSize(new Dimension(
+                layoutBtn.getPreferredSize().width + Tokens.SPACE_MD, Tokens.CONTROL_HEIGHT));
         layoutBtn.addActionListener(e -> autoLayout());
-        toolBar.add(layoutBtn);
 
-        toolBar.add(Box.createHorizontalGlue());
-
-        JButton exportXmlBtn = new JButton("导出 XML");
+        JButton exportXmlBtn = Buttons.primary("导出 XML");
         exportXmlBtn.addActionListener(e -> exportBpmXml());
-        toolBar.add(exportXmlBtn);
 
-        JButton exportPngBtn = new JButton("导出图片");
+        JButton exportPngBtn = Buttons.secondary("导出图片");
         exportPngBtn.addActionListener(e -> exportPng());
-        toolBar.add(exportPngBtn);
 
-        root.add(toolBar, BorderLayout.NORTH);
+        ActionBar actions = new ActionBar();
+        actions.left(layoutBtn);
+        actions.left(deleteBtn);
+        actions.left(clearBtn);
+        actions.right(exportPngBtn);
+        actions.right(exportXmlBtn);
 
-        // 中间主画布
+        // ===== 中间主画布：铺满型卡片，滚动区无边框，描边交给卡片 =====
         canvasPanel = new CanvasPanel();
-        canvasPanel.setBackground(UIManager.getColor("TextArea.background"));
-        scrollPane = new JScrollPane(canvasPanel);
-        scrollPane.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
-
-        // 右侧属性面板
-        propPanel = new JPanel();
-        propPanel.setPreferredSize(new Dimension(240, 0));
-        propPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createMatteBorder(0, 1, 0, 0, UIManager.getColor("Component.borderColor")),
-                " 属性编辑 ", TitledBorder.LEFT, TitledBorder.TOP, UIUtils.plainFont()));
-        propPanel.setLayout(new BoxLayout(propPanel, BoxLayout.Y_AXIS));
-        propPanel.setBorder(BorderFactory.createCompoundBorder(propPanel.getBorder(), new EmptyBorder(10, 10, 10, 10)));
+        // 画布底色跟随卡片底色；exportPng() 直接取 canvasPanel.getBackground() 填背景，
+        // 两边始终一致（浅色主题下仍是白底，与原来的 TextArea.background 等价）
+        canvasPanel.setBackground(Tokens.cardBackground());
+        scrollPane = Fields.scroll(canvasPanel);
 
         modeLabel = new JLabel("模式：选择/移动");
-        modeLabel.setFont(UIUtils.plainFont());
-        modeLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        propPanel.add(modeLabel);
-        propPanel.add(Box.createVerticalStrut(15));
+        modeLabel.setFont(Tokens.fontCaption());
+        modeLabel.setForeground(Tokens.mutedForeground());
 
-        idField = new JTextField();
-        nameField = new JTextField();
-        condField = new JTextField();
+        Card canvasCard = Card.flush("流程画布");
+        canvasCard.setContent(scrollPane);
+        // 当前模式是画布的状态而不是元素属性，放卡片底部状态条比塞在属性栏顶上更合适
+        ActionBar canvasStatus = new ActionBar();
+        canvasStatus.left(modeLabel);
+        canvasStatus.right(Fields.caption("右键打开菜单 · Delete 删除选中"));
+        canvasCard.setFooter(canvasStatus);
 
-        addPropertyField("元素 ID:", idField);
-        addPropertyField("元素名称:", nameField);
-        addPropertyField("流转条件:", condField);
+        // ===== 右侧属性表单 =====
+        idField = Fields.text("");
+        nameField = Fields.text("");
+        condField = Fields.text("");
+
+        idLabel = Fields.label("元素 ID:");
+        nameLabel = Fields.label("元素名称:");
+        condLabel = Fields.label("流转条件:");
+        propEmptyHint = Fields.caption("未选中任何元素");
+
+        // 标签要跟着输入框一起隐藏，所以用 row(JLabel, ...) 这个重载而不是字符串标签
+        FormGrid propForm = new FormGrid();
+        propForm.fullRow(propEmptyHint);
+        propForm.row(idLabel, idField, null, true);
+        propForm.row(nameLabel, nameField, null, true);
+        propForm.row(condLabel, condField, null, true);
+        propForm.glue();
+        propPanel = propForm;
+
+        Card propCard = Card.titled("属性");
+        propCard.setContent(propForm);
+        // 分隔条的可拖动上限由右侧组件的最小宽度决定；表单在 GridBagLayout 最小尺寸下只要 130px，
+        // 不给下限的话属性栏一上来就被压成一条缝，输入框只剩几十像素
+        propCard.setMinimumSize(new Dimension(220, 0));
 
         DocumentListener docListener = new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { updateSelectedProperties(); }
@@ -235,10 +301,8 @@ public class BpmnPanel extends ToolPanel {
 
         updatePropertyPanelVisibility();
 
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, scrollPane, propPanel);
-        splitPane.setResizeWeight(0.85);
-        splitPane.setDividerLocation(750);
-        root.add(splitPane, BorderLayout.CENTER);
+        root.add(actions, BorderLayout.NORTH);
+        root.add(workspace(paletteCard, canvasCard, propCard), BorderLayout.CENTER);
 
         // 快捷键支持
         canvasPanel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "deleteAction");
@@ -476,6 +540,45 @@ public class BpmnPanel extends ToolPanel {
         return root;
     }
 
+    /**
+     * 三栏工作区：左调色板 / 中画布 / 右属性。
+     *
+     * <p>不能直接嵌两层 {@code Layouts.splitHorizontal(..., 初始占比)}：初始占比是在组件第一次收到
+     * resize 事件时按当时的宽度换算的，而 resize 事件走事件队列异步派发——外层分隔条落位后要等下一轮
+     * 布局才生效，内层监听器此刻读到的仍是落位前的旧宽度（实测 952 的内层按 1096 算，属性栏被压到
+     * 155px）。这里改成在外层落位之后，用外层已经确定的几何直接换算内层分隔位置。</p>
+     */
+    private static JSplitPane workspace(
+            final Component palette, Component canvas, final Component properties) {
+        final JSplitPane inner = Layouts.splitHorizontal(canvas, properties, 0.75);
+        final JSplitPane outer = Layouts.splitHorizontal(palette, inner, 0.0);
+        outer.addComponentListener(new ComponentAdapter() {
+            private boolean placed;
+
+            @Override
+            public void componentResized(ComponentEvent event) {
+                int width = outer.getWidth();
+                if (placed || width <= 0) {
+                    return;
+                }
+                placed = true;
+                // 调色板占 18%，但不低于按钮文案所需宽度；再窄也不超过一半，免得画布没地方
+                int left = Math.min(
+                        Math.max((int) (width * 0.18), palette.getMinimumSize().width), width / 2);
+                outer.setDividerLocation(left);
+
+                // 属性栏占剩余宽度的 28%；窄窗口下按最小宽度保底，但最多吃掉剩余宽度的三分之一
+                int innerWidth = width - left - outer.getDividerSize();
+                int propertyFloor = Math.min(
+                        properties.getMinimumSize().width, (int) (innerWidth * 0.45));
+                int canvasWidth = Math.min(
+                        (int) (innerWidth * 0.72), innerWidth - propertyFloor - inner.getDividerSize());
+                inner.setDividerLocation(Math.max(canvasWidth, 0));
+            }
+        });
+        return outer;
+    }
+
     private void adjustCanvasSize() {
         if (nodes.isEmpty()) return;
 
@@ -651,20 +754,6 @@ public class BpmnPanel extends ToolPanel {
         canvasPanel.repaint();
     }
 
-    private void addPropertyField(String label, JTextField field) {
-        JLabel lbl = new JLabel(label);
-        lbl.setFont(UIUtils.plainFont());
-        lbl.setAlignmentX(Component.LEFT_ALIGNMENT);
-        propPanel.add(lbl);
-        propPanel.add(Box.createVerticalStrut(3));
-        field.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-        field.setPreferredSize(new Dimension(200, 30));
-        field.setFont(UIUtils.plainFont());
-        field.setAlignmentX(Component.LEFT_ALIGNMENT);
-        propPanel.add(field);
-        propPanel.add(Box.createVerticalStrut(10));
-    }
-
     private void setMode(Mode mode) {
         this.currentMode = mode;
         switch (mode) {
@@ -730,19 +819,13 @@ public class BpmnPanel extends ToolPanel {
         nameField.setVisible(showIdAndName);
         condField.setVisible(showCond);
 
-        for (int i = 0; i < propPanel.getComponentCount(); i++) {
-            Component c = propPanel.getComponent(i);
-            if (c instanceof JLabel) {
-                JLabel l = (JLabel) c;
-                if (l.getText().startsWith("元素 ID")) {
-                    l.setVisible(showIdAndName);
-                } else if (l.getText().startsWith("元素名称")) {
-                    l.setVisible(showIdAndName);
-                } else if (l.getText().startsWith("流转条件")) {
-                    l.setVisible(showCond);
-                }
-            }
-        }
+        // 标签跟随各自的输入框一起显示 / 隐藏
+        idLabel.setVisible(showIdAndName);
+        nameLabel.setVisible(showIdAndName);
+        condLabel.setVisible(showCond);
+        // 三行全部隐藏时属性卡片会整片空白，用一句说明顶上
+        propEmptyHint.setVisible(!showIdAndName);
+
         propPanel.revalidate();
         propPanel.repaint();
     }

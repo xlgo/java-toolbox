@@ -1,6 +1,13 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.FormGrid;
+import com.aqishi.toolbox.ui.kit.KitBorders;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.crypto.Mac;
@@ -51,10 +58,11 @@ public class JwtPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
         JTabbedPane tabs = new JTabbedPane();
+        // 标签页自身不再画边框，卡片的描边已经足够划分区域
+        tabs.setBorder(null);
         tabs.addTab("JWT 解码 (Decode)", buildDecodeTab());
         tabs.addTab("JWT 编码 (Encode)", buildEncodeTab());
 
@@ -66,59 +74,51 @@ public class JwtPanel extends ToolPanel {
     //  1. 解码面板
     // ================================================================
     private JComponent buildDecodeTab() {
-        JPanel p = new JPanel(new BorderLayout(8, 8));
+        JPanel p = tabBody();
 
-        // ---- 输入区 ----
-        decInputArea = new JTextArea(4, 40);
-        decInputArea.setFont(UIUtils.monoFont());
-        decInputArea.setLineWrap(true);
-        p.add(UIUtils.scrollText(decInputArea, "输入 JWT (header.payload.signature)"), BorderLayout.NORTH);
+        // ---- 输入区：token 与验证密钥同属一次「解码请求」，合成一张配置卡片 ----
+        decInputArea = Fields.area(4, 40);
 
-        // ---- 签名密钥区 ----
-        JPanel secretPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        secretPanel.add(new JLabel("签名密钥（验证用, 可选）："));
-        decSecretField = new JPasswordField(24);
-        decSecretField.setFont(UIUtils.monoFont());
-        secretPanel.add(decSecretField);
+        decSecretField = Fields.password();
+        decSecretField.setFont(Tokens.fontMono());
 
-        decShowSecretCheck = new JCheckBox("显示");
+        decShowSecretCheck = Fields.check("显示", false);
         decShowSecretCheck.addActionListener(e ->
                 decSecretField.setEchoChar(decShowSecretCheck.isSelected() ? (char) 0 : '•'));
-        secretPanel.add(decShowSecretCheck);
 
-        // 将密钥行放在 NORTH 区域的南边
-        JPanel northWrapper = new JPanel(new BorderLayout());
-        northWrapper.add(UIUtils.scrollText(decInputArea, "输入 JWT (header.payload.signature)"), BorderLayout.CENTER);
-        northWrapper.add(secretPanel, BorderLayout.SOUTH);
-        p.add(northWrapper, BorderLayout.NORTH);
+        JButton decodeBtn = Buttons.primary("解码");
+        JButton clearBtn = Buttons.ghost("清空");
 
-        // ---- Header / Payload 展示 ----
-        decHeaderArea = new JTextArea();
-        decHeaderArea.setFont(UIUtils.monoFont());
-        decHeaderArea.setEditable(false);
+        FormGrid secretForm = new FormGrid();
+        secretForm.row("签名密钥（验证用, 可选）：", decSecretField, decShowSecretCheck);
 
-        decPayloadArea = new JTextArea();
-        decPayloadArea.setFont(UIUtils.monoFont());
-        decPayloadArea.setEditable(false);
+        JPanel inputBody = Layouts.box(0, Tokens.SPACE_MD);
+        inputBody.add(boxedScroll(decInputArea), BorderLayout.CENTER);
+        inputBody.add(secretForm, BorderLayout.SOUTH);
 
-        JPanel centerPanel = new JPanel(new GridLayout(1, 2, 8, 0));
-        centerPanel.add(UIUtils.scrollText(decHeaderArea, "Header (头部)"));
-        centerPanel.add(UIUtils.scrollText(decPayloadArea, "Payload (载荷)"));
-        p.add(centerPanel, BorderLayout.CENTER);
+        Card inputCard = Card.titled("输入 JWT (header.payload.signature)");
+        inputCard.setContent(inputBody);
+        inputCard.addHeaderAction(decodeBtn);
+        inputCard.addHeaderAction(clearBtn);
 
-        // ---- 底部按钮与状态 ----
-        JPanel bottomPanel = new JPanel(new BorderLayout(8, 4));
-        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
-        JButton decodeBtn = UIUtils.button("解码", 80);
-        JButton clearBtn = UIUtils.button("清空", 80);
-        btnRow.add(decodeBtn);
-        btnRow.add(clearBtn);
-        bottomPanel.add(btnRow, BorderLayout.WEST);
+        // ---- Header / Payload 展示：左右等宽，两段 JSON 长度相近 ----
+        decHeaderArea = Fields.output(6, 30);
+        decPayloadArea = Fields.output(6, 30);
 
+        Card headerCard = Card.flush("Header (头部)");
+        headerCard.setContent(Fields.scroll(decHeaderArea));
+        Card payloadCard = Card.flush("Payload (载荷)");
+        payloadCard.setContent(Fields.scroll(decPayloadArea));
+
+        // ---- 第三段 Signature：校验结论始终以文字说明为主，颜色只是辅助 ----
         decInfoLabel = new JLabel("  就绪");
-        decInfoLabel.setFont(UIUtils.plainFont());
-        bottomPanel.add(decInfoLabel, BorderLayout.CENTER);
-        p.add(bottomPanel, BorderLayout.SOUTH);
+        decInfoLabel.setFont(Tokens.fontBody());
+        Card signatureCard = Card.titled("Signature (签名校验)");
+        signatureCard.setContent(decInfoLabel);
+
+        p.add(inputCard, BorderLayout.NORTH);
+        p.add(Layouts.columns(Tokens.SPACE_LG, headerCard, payloadCard), BorderLayout.CENTER);
+        p.add(signatureCard, BorderLayout.SOUTH);
 
         // 事件
         decodeBtn.addActionListener(e -> doDecode());
@@ -128,7 +128,7 @@ public class JwtPanel extends ToolPanel {
             decHeaderArea.setText("");
             decPayloadArea.setText("");
             decInfoLabel.setText("  就绪");
-            decInfoLabel.setForeground(UIManager.getColor("Label.foreground"));
+            decInfoLabel.setForeground(Tokens.foreground());
         });
 
         // 默认演示 JWT
@@ -146,58 +146,46 @@ public class JwtPanel extends ToolPanel {
     //  2. 编码面板
     // ================================================================
     private JComponent buildEncodeTab() {
-        JPanel p = new JPanel(new BorderLayout(8, 8));
+        JPanel p = tabBody();
 
-        // 左侧：输入配置区
-        JPanel leftPanel = new JPanel(new GridLayout(2, 1, 0, 8));
-        encHeaderArea = new JTextArea();
-        encHeaderArea.setFont(UIUtils.monoFont());
+        // 左侧：两段 JSON 编辑区等高分行，各自一张铺满内容的卡片
+        encHeaderArea = Fields.area(6, 30);
         encHeaderArea.setText("{\n  \"alg\": \"HS256\",\n  \"typ\": \"JWT\"\n}");
 
-        encPayloadArea = new JTextArea();
-        encPayloadArea.setFont(UIUtils.monoFont());
+        encPayloadArea = Fields.area(6, 30);
         encPayloadArea.setText("{\n  \"sub\": \"1234567890\",\n  \"name\": \"John Doe\",\n  \"iat\": 1516239022\n}");
 
-        leftPanel.add(UIUtils.scrollText(encHeaderArea, "编辑 Header (JSON格式)"));
-        leftPanel.add(UIUtils.scrollText(encPayloadArea, "编辑 Payload (JSON格式)"));
+        Card headerCard = Card.flush("编辑 Header (JSON格式)");
+        headerCard.setContent(Fields.scroll(encHeaderArea));
+        Card payloadCard = Card.flush("编辑 Payload (JSON格式)");
+        payloadCard.setContent(Fields.scroll(encPayloadArea));
+        JPanel leftPanel = Layouts.rows(Tokens.SPACE_LG, headerCard, payloadCard);
 
-        // 右侧：输出及密钥配置
-        JPanel rightPanel = new JPanel(new GridBagLayout());
-        rightPanel.setBorder(BorderFactory.createTitledBorder("签名密钥与生成结果"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(6, 6, 6, 6);
+        // 右侧：密钥表单在上、Token 结果吸收剩余高度，生成/复制放标题右侧
+        encSecretField = Fields.mono("your-256-bit-secret");
 
-        // 签名密钥输入
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        rightPanel.add(new JLabel("HMAC 密钥："), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        encSecretField = new JTextField("your-256-bit-secret");
-        encSecretField.setFont(UIUtils.monoFont());
-        rightPanel.add(encSecretField, gbc);
+        JButton genBtn = Buttons.primary("生成 JWT Token");
+        JButton copyBtn = Buttons.ghost("复制 Token");
 
-        // 生成按钮行
-        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 2; gbc.weightx = 0;
-        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        JButton genBtn = UIUtils.button("生成 JWT Token", 120);
-        JButton copyBtn = UIUtils.button("复制 Token", 90);
-        btnRow.add(genBtn);
-        btnRow.add(copyBtn);
-        rightPanel.add(btnRow, gbc);
+        FormGrid secretForm = new FormGrid();
+        secretForm.row("HMAC 密钥：", encSecretField);
 
-        // 输出 JWT
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2; gbc.weightx = 1.0; gbc.weighty = 1.0;
-        gbc.fill = GridBagConstraints.BOTH;
-        encOutputArea = new JTextArea();
-        encOutputArea.setFont(UIUtils.monoFont());
-        encOutputArea.setLineWrap(true);
-        encOutputArea.setEditable(false);
-        rightPanel.add(UIUtils.scrollText(encOutputArea, "生成的 JWT Token"), gbc);
+        encOutputArea = Fields.output(4, 30);
+        JPanel tokenBox = Layouts.box(0, Tokens.SPACE_XS);
+        tokenBox.add(Fields.caption("生成的 JWT Token"), BorderLayout.NORTH);
+        tokenBox.add(boxedScroll(encOutputArea), BorderLayout.CENTER);
+
+        JPanel rightBody = Layouts.box(0, Tokens.SPACE_MD);
+        rightBody.add(secretForm, BorderLayout.NORTH);
+        rightBody.add(tokenBox, BorderLayout.CENTER);
+
+        Card rightPanel = Card.titled("签名密钥与生成结果");
+        rightPanel.setContent(rightBody);
+        rightPanel.addHeaderAction(genBtn);
+        rightPanel.addHeaderAction(copyBtn);
 
         // 左右分割
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, rightPanel);
-        split.setResizeWeight(0.5);
-        p.add(split, BorderLayout.CENTER);
+        p.add(Layouts.splitHorizontal(leftPanel, rightPanel, 0.5), BorderLayout.CENTER);
 
         // 事件
         genBtn.addActionListener(e -> doEncode());
@@ -212,6 +200,30 @@ public class JwtPanel extends ToolPanel {
         return p;
     }
 
+    /**
+     * 标签页内容容器。
+     *
+     * <p>左右下三边的留白由 {@link Layouts#page()} 统一提供，这里只补一段标签条与
+     * 卡片之间的间距，避免出现「页边距 + 标签页边距」的双层留白。</p>
+     */
+    private static JPanel tabBody() {
+        JPanel panel = Layouts.box(Tokens.SPACE_LG, Tokens.SPACE_LG);
+        panel.setBorder(KitBorders.padding(Tokens.SPACE_LG, 0, 0, 0));
+        return panel;
+    }
+
+    /**
+     * 卡片内部嵌的文本域滚动区。
+     *
+     * <p>卡片底色与文本域底色相同，不描一条细线的话输入框会整个「消失」在卡片里；
+     * 这里只用最弱的分隔色画 1px，不会和卡片描边叠成双层边框。</p>
+     */
+    private static JScrollPane boxedScroll(JTextArea area) {
+        JScrollPane scroll = Fields.scroll(area);
+        scroll.setBorder(KitBorders.lineSubtle(1, 1, 1, 1));
+        return scroll;
+    }
+
     // ================================================================
     //  3. 解码逻辑（含签名验证）
     // ================================================================
@@ -219,14 +231,14 @@ public class JwtPanel extends ToolPanel {
         String token = decInputArea.getText().trim();
         if (token.isEmpty()) {
             decInfoLabel.setText("  提示：请输入 JWT Token");
-            decInfoLabel.setForeground(Color.RED);
+            decInfoLabel.setForeground(Tokens.danger());
             return;
         }
 
         String[] parts = token.split("\\.");
         if (parts.length < 2 || parts.length > 3) {
             decInfoLabel.setText("  错误：JWT 格式不正确（必须包含点 \".\" 分隔符）");
-            decInfoLabel.setForeground(Color.RED);
+            decInfoLabel.setForeground(Tokens.danger());
             decHeaderArea.setText("");
             decPayloadArea.setText("");
             return;
@@ -252,7 +264,7 @@ public class JwtPanel extends ToolPanel {
                 doVerifySignature(headerJson, parts, secret);
             } else if (parts.length == 3 && secret.isEmpty()) {
                 decInfoLabel.setText(decInfoLabel.getText() + "  |  输入签名密钥可验证签名");
-                decInfoLabel.setForeground(UIManager.getColor("Label.foreground"));
+                decInfoLabel.setForeground(Tokens.foreground());
             }
             // parts.length == 2 时无签名，不做验证
 
@@ -260,7 +272,7 @@ public class JwtPanel extends ToolPanel {
             decHeaderArea.setText("");
             decPayloadArea.setText("");
             decInfoLabel.setText("  错误：Base64/JSON 解码失败 — " + ex.getMessage());
-            decInfoLabel.setForeground(Color.RED);
+            decInfoLabel.setForeground(Tokens.danger());
         }
     }
 
@@ -276,7 +288,7 @@ public class JwtPanel extends ToolPanel {
             String alg = extractAlg(headerJson);
             if (alg == null || alg.isEmpty()) {
                 decInfoLabel.setText(decInfoLabel.getText() + "  |  签名验证：Header 缺少 alg 字段");
-                decInfoLabel.setForeground(Color.RED);
+                decInfoLabel.setForeground(Tokens.danger());
                 return;
             }
 
@@ -285,7 +297,7 @@ public class JwtPanel extends ToolPanel {
             if (macAlg == null) {
                 decInfoLabel.setText(decInfoLabel.getText()
                         + "  |  签名验证：不支持的算法 " + alg + "（仅支持 HS256/HS384/HS512）");
-                decInfoLabel.setForeground(Color.RED);
+                decInfoLabel.setForeground(Tokens.danger());
                 return;
             }
 
@@ -301,14 +313,14 @@ public class JwtPanel extends ToolPanel {
             String actualSig = parts[2];
             if (expectedSig.equals(actualSig)) {
                 decInfoLabel.setText(decInfoLabel.getText() + "  |  ✅ 签名验证通过 (" + alg + ")");
-                decInfoLabel.setForeground(new Color(46, 125, 50));
+                decInfoLabel.setForeground(Tokens.success());
             } else {
                 decInfoLabel.setText(decInfoLabel.getText() + "  |  ❌ 签名验证失败 (" + alg + ")");
-                decInfoLabel.setForeground(Color.RED);
+                decInfoLabel.setForeground(Tokens.danger());
             }
         } catch (Exception ex) {
             decInfoLabel.setText(decInfoLabel.getText() + "  |  签名验证异常：" + ex.getMessage());
-            decInfoLabel.setForeground(Color.RED);
+            decInfoLabel.setForeground(Tokens.danger());
         }
     }
 
@@ -376,7 +388,7 @@ public class JwtPanel extends ToolPanel {
                 long now = System.currentTimeMillis();
                 if (now > expMillis) {
                     decInfoLabel.setText("  状态：已过期，过期时间为 " + formattedDate);
-                    decInfoLabel.setForeground(Color.RED);
+                    decInfoLabel.setForeground(Tokens.danger());
                 } else {
                     long diffHours = (expMillis - now) / (1000 * 60 * 60);
                     if (diffHours > 24) {
@@ -385,15 +397,15 @@ public class JwtPanel extends ToolPanel {
                     } else {
                         decInfoLabel.setText("  状态：有效，" + diffHours + " 小时后过期 (" + formattedDate + ")");
                     }
-                    decInfoLabel.setForeground(new Color(46, 125, 50));
+                    decInfoLabel.setForeground(Tokens.success());
                 }
             } else {
                 decInfoLabel.setText("  状态：解析成功 (未包含 exp 过期声明)");
-                decInfoLabel.setForeground(UIManager.getColor("Label.foreground"));
+                decInfoLabel.setForeground(Tokens.foreground());
             }
         } catch (Exception e) {
             decInfoLabel.setText("  状态：解析成功");
-            decInfoLabel.setForeground(UIManager.getColor("Label.foreground"));
+            decInfoLabel.setForeground(Tokens.foreground());
         }
     }
 }

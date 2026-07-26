@@ -1,6 +1,11 @@
 package com.aqishi.toolbox.crypto;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Buttons;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -30,35 +35,38 @@ public class CryptoPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBorder(UIUtils.CONTENT_PADDING);
+        JPanel root = Layouts.page();
 
-        // ===== 顶部输入区 =====
-        JTextArea input = new JTextArea(5, 40);
-        input.setFont(UIUtils.monoFont());
-        input.setLineWrap(true);
-        root.add(UIUtils.scrollText(input, "输入文本"), BorderLayout.NORTH);
+        // ===== 输入卡片：操作按钮跟输入放在同一张卡里，避免按钮行悬空在页面中央 =====
+        JTextArea input = Fields.area(5, 40);
+        Card inputCard = Card.titled("输入文本");
 
-        // ===== 算法按钮区 =====
-        JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
-        JButton md5 = UIUtils.button("MD5", 95);
-        JButton sha1 = UIUtils.button("SHA-1", 95);
-        JButton sha256 = UIUtils.button("SHA-256", 110);
-        JButton sm3 = UIUtils.button("SM3", 95);
-        JButton b64enc = UIUtils.button("Base64 编码", 110);
-        JButton b64dec = UIUtils.button("Base64 解码", 110);
-        JButton clear = UIUtils.button("清空", 80);
-        btns.add(md5); btns.add(sha1); btns.add(sha256); btns.add(sm3);
-        btns.add(b64enc); btns.add(b64dec);
-        btns.add(clear);
-        root.add(btns, BorderLayout.CENTER);
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, Tokens.SPACE_SM, Tokens.SPACE_SM));
+        actions.setOpaque(false);
+        JButton md5 = Buttons.primary("MD5");
+        JButton sha1 = Buttons.secondary("SHA-1");
+        JButton sha256 = Buttons.secondary("SHA-256");
+        JButton sm3 = Buttons.secondary("SM3");
+        JButton b64enc = Buttons.secondary("Base64 编码");
+        JButton b64dec = Buttons.secondary("Base64 解码");
+        JButton clear = Buttons.ghost("清空");
+        actions.add(md5); actions.add(sha1); actions.add(sha256); actions.add(sm3);
+        actions.add(b64enc); actions.add(b64dec);
+        actions.add(clear);
 
-        // ===== 输出区 =====
-        JTextArea output = new JTextArea(8, 40);
-        output.setFont(UIUtils.monoFont());
-        output.setLineWrap(true);
-        output.setEditable(false);
-        root.add(UIUtils.scrollText(output, "输出结果"), BorderLayout.SOUTH);
+        JPanel inputBody = Layouts.box(0, Tokens.SPACE_MD);
+        inputBody.add(Fields.scroll(input), BorderLayout.CENTER);
+        inputBody.add(actions, BorderLayout.SOUTH);
+        inputCard.setContent(inputBody);
+
+        // ===== 输出卡片：占据剩余空间，长哈希与长 Base64 都有地方展开 =====
+        JTextArea output = Fields.output(8, 40);
+        Card outputCard = Card.flush("输出结果");
+        outputCard.setContent(Fields.scroll(output));
+        outputCard.addHeaderAction(copyButton(output));
+
+        root.add(inputCard, BorderLayout.NORTH);
+        root.add(outputCard, BorderLayout.CENTER);
 
         // ===== 事件 =====
         Consumer<String> digest = (algo) -> {
@@ -97,6 +105,18 @@ public class CryptoPanel extends ToolPanel {
         clear.addActionListener(e -> { input.setText(""); output.setText(""); });
 
         return root;
+    }
+
+    /** 输出卡片标题栏的复制按钮：结果区最常用的动作，放在标题右侧免得再往下找 */
+    private static JButton copyButton(final JTextArea output) {
+        JButton copy = Buttons.ghost("复制");
+        copy.addActionListener(new java.awt.event.ActionListener() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                UIUtils.copyToClipboard(output.getText());
+            }
+        });
+        return copy;
     }
 
     private static String hash(String text, String algo) {

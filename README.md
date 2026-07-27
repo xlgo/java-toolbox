@@ -346,19 +346,23 @@ src/main/java/com/aqishi/toolbox/
 
 ## 自动构建与发布
 
-项目配置了 GitHub Actions 自动发布工作流（`.github/workflows/release.yml`）。
+项目配置了 GitHub Actions 跨平台自动打包工作流（`.github/workflows/release.yml`）。
 
-当为仓库推送版本标签（例如 `v1.5.0`）时，GitHub Actions 会自动触发构建流程：
-1. **自动编译打包**：使用 JDK 17 与 Maven 编译项目并打包出附带依赖的可执行应用程序 Fat JAR（`java-toolbox-v*.jar`）。
-2. **发布 GitHub Release**：自动在 GitHub Releases 页面创建新版本，并生成 Release Notes，同时将打包好的应用程序发布供下载。
+当为仓库推送版本标签（例如 `v1.5.2`）时，GitHub Actions 会在 **Windows**、**macOS** 与 **Linux** 三端虚拟机上并行触发原生构建：
+1. **自动原生打包 (jpackage)**：使用 JDK 17 与 `jpackage` 工具，裁剪出各平台专属的精简 Java 运行时（JRE），将应用与 JRE 打包为免安装原生可执行程序。
+2. **多平台 Release 资产发布**：构建完成后将自动在 GitHub Releases 页面发布以下安装包与应用程序：
+   - 🪟 **Windows 免安装原生包**：`java-toolbox-v*-windows.zip`（解压即可双击 `java-toolbox.exe` 运行，无需电脑安装 Java）
+   - 🍏 **macOS 免安装原生包**：`java-toolbox-v*-macos.zip`（解压即可直接运行 `java-toolbox.app`）
+   - 🐧 **Linux 免安装原生包**：`java-toolbox-v*-linux.tar.gz`（解压直接运行原生二进制程序）
+   - ☕ **跨平台 Fat JAR**：`java-toolbox-v*.jar`（原纯 JAR 包，供习惯 `java -jar` 的开发者使用）
 
-开发者触发发布的命令：
+开发者触发自动构建发布的命令：
 ```bash
-git tag v1.5.0
-git push origin v1.5.0
+git tag v1.5.2
+git push origin v1.5.2
 ```
 
-此外，也可以在 GitHub 仓库的 **Actions** 标签页下手动选择 `Release Application` 工作流点击 **Run workflow** 触发构建。
+此外，也可以在 GitHub 仓库的 **Actions** 标签页下手动选择 `Release Application` 工作流点击 **Run workflow** 触发跨平台构建。
 
 ## License
 

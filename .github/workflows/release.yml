@@ -10,9 +10,18 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    name: Build & Release Executable Application
-    runs-on: ubuntu-latest
+  build-matrix:
+    name: Build Native Package (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+          - platform: macos
+            os: macos-latest
+          - platform: linux
+            os: ubuntu-latest
 
     steps:
       - name: Checkout repository
@@ -25,30 +34,87 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Build executable Fat JAR with Maven
+      - name: Build Fat JAR with Maven (Linux with xvfb)
+        if: runner.os == 'Linux'
         run: xvfb-run --auto-servernum mvn clean package -DskipTests=false
 
-      - name: Prepare Release Asset Name
-        id: prep
+      - name: Build Fat JAR with Maven (Windows / macOS)
+        if: runner.os != 'Linux'
+        run: mvn clean package -DskipTests=false
+
+      - name: Package Native App Image with jpackage
+        shell: bash
         run: |
           VERSION=${GITHUB_REF_NAME:-latest}
-          JAR_NAME="java-toolbox-${VERSION}.jar"
-          cp target/java-toolbox.jar "target/${JAR_NAME}"
-          echo "jar_name=${JAR_NAME}" >> $GITHUB_OUTPUT
-          echo "jar_path=target/${JAR_NAME}" >> $GITHUB_OUTPUT
+          jpackage \
+            --name java-toolbox \
+            --type app-image \
+            --input target \
+            --main-jar java-toolbox.jar \
+            --main-class com.aqishi.toolbox.Main \
+            --dest dist
 
-      - name: Upload Build Artifact
+      - name: Prepare Standalone JAR Artifact
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF_NAME:-latest}
+          cp target/java-toolbox.jar "target/java-toolbox-${VERSION}.jar"
+
+      - name: Archive Native Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $VERSION = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "latest" }
+          Compress-Archive -Path "dist/java-toolbox/*" -DestinationPath "target/java-toolbox-${VERSION}-windows.zip"
+
+      - name: Archive Native Package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF_NAME:-latest}
+          cd dist
+          zip -r "../target/java-toolbox-${VERSION}-macos.zip" java-toolbox.app
+
+      - name: Archive Native Package (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF_NAME:-latest}
+          cd dist
+          tar -czvf "../target/java-toolbox-${VERSION}-linux.tar.gz" java-toolbox
+
+      - name: Upload Platform Package Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.prep.outputs.jar_name }}
-          path: ${{ steps.prep.outputs.jar_path }}
-          if-no-files-found: error
+          name: native-package-${{ matrix.platform }}
+          path: |
+            target/java-toolbox-*.zip
+            target/java-toolbox-*.tar.gz
+            target/java-toolbox-*.jar
+          if-no-files-found: ignore
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-matrix
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Consolidate Release Assets
+        run: |
+          mkdir -p final-assets
+          find release-assets -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.jar" \) -exec cp {} final-assets/ \;
+          ls -la final-assets/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: ${{ steps.prep.outputs.jar_path }}
+          files: final-assets/*
           generate_release_notes: true
           draft: false
           prerelease: false

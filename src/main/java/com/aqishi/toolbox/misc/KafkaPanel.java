@@ -105,6 +105,9 @@ public class KafkaPanel extends ToolPanel {
     private DefaultTableModel messageTableModel;
     private TableRowSorter<DefaultTableModel> messageTableSorter;
     private JTextArea messageDetailArea;
+    private JLabel formatDetectStatusLabel;
+    private JButton floatJsonBtn;
+    private JButton floatXmlBtn;
     private JTable messageHeadersTable;
     private DefaultTableModel messageHeadersTableModel;
     private JButton fetchBtn;
@@ -378,6 +381,59 @@ public class KafkaPanel extends ToolPanel {
         messageDetailArea.setWrapStyleWord(true);
         messageDetailArea.setBorder(KitBorders.padding(Tokens.SPACE_SM));
 
+        JPanel messageDetailContainer = new JPanel(new BorderLayout(0, 2));
+
+        JPanel detailToolBar = new JPanel(new BorderLayout(8, 0));
+        detailToolBar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Component.borderColor")),
+                BorderFactory.createEmptyBorder(4, 8, 4, 8)
+        ));
+
+        JLabel titleLabel = new JLabel("消息格式化快捷工具:");
+        titleLabel.setFont(UIUtils.plainFont());
+        detailToolBar.add(titleLabel, BorderLayout.WEST);
+
+        JPanel rightBtnsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+
+        formatDetectStatusLabel = new JLabel("");
+        formatDetectStatusLabel.setFont(UIUtils.plainFont());
+
+        floatJsonBtn = UIUtils.button("⚡ JSON 格式化", 125);
+        floatXmlBtn = UIUtils.button("⚡ XML 格式化", 125);
+
+        floatJsonBtn.addActionListener(e -> {
+            String txt = messageDetailArea.getSelectedText();
+            if (txt == null || txt.trim().isEmpty()) {
+                txt = messageDetailArea.getText();
+            }
+            if (txt == null || txt.trim().isEmpty()) {
+                UIUtils.info(getView(), "请先选择需要格式化的消息内容！");
+                return;
+            }
+            jumpToFormatter("json.format", txt);
+        });
+
+        floatXmlBtn.addActionListener(e -> {
+            String txt = messageDetailArea.getSelectedText();
+            if (txt == null || txt.trim().isEmpty()) {
+                txt = messageDetailArea.getText();
+            }
+            if (txt == null || txt.trim().isEmpty()) {
+                UIUtils.info(getView(), "请先选择需要格式化的消息内容！");
+                return;
+            }
+            jumpToFormatter("xml.format", txt);
+        });
+
+        rightBtnsPanel.add(formatDetectStatusLabel);
+        rightBtnsPanel.add(floatJsonBtn);
+        rightBtnsPanel.add(floatXmlBtn);
+
+        detailToolBar.add(rightBtnsPanel, BorderLayout.EAST);
+
+        messageDetailContainer.add(detailToolBar, BorderLayout.NORTH);
+        messageDetailContainer.add(Fields.scroll(messageDetailArea), BorderLayout.CENTER);
+
         messageHeadersTableModel = new DefaultTableModel(new String[]{"属性名称 (Key)", "属性值 (Value)"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) { return false; }
@@ -386,7 +442,7 @@ public class KafkaPanel extends ToolPanel {
 
         JTabbedPane messageDetailTabbedPane = new JTabbedPane();
         messageDetailTabbedPane.setBorder(null);
-        messageDetailTabbedPane.addTab("消息内容 (Value)", Fields.scroll(messageDetailArea));
+        messageDetailTabbedPane.addTab("消息内容 (Value)", messageDetailContainer);
         messageDetailTabbedPane.addTab("消息属性 (Headers)", Fields.scroll(messageHeadersTable));
 
         Card detailCard = Card.plain().setFlush(true);
@@ -576,6 +632,7 @@ public class KafkaPanel extends ToolPanel {
                     String val = rec.value();
                     messageDetailArea.setText(tryFormatJson(val));
                     messageDetailArea.setCaretPosition(0);
+                    detectAndHighlightFormat(val);
 
                     if (rec.headers() != null) {
                         for (Header header : rec.headers()) {
@@ -586,9 +643,11 @@ public class KafkaPanel extends ToolPanel {
                     }
                 } else {
                     messageDetailArea.setText("");
+                    detectAndHighlightFormat("");
                 }
             } else {
                 messageDetailArea.setText("");
+                detectAndHighlightFormat("");
             }
         });
 
@@ -637,6 +696,273 @@ public class KafkaPanel extends ToolPanel {
         // Fetch & Produce actions
         fetchBtn.addActionListener(e -> fetchMessages());
         produceSendBtn.addActionListener(e -> produceMessage());
+
+        // Context Menus & Selection Floating Popups for Message Viewer
+        setupMessageDetailContextMenu();
+        setupMessageTableContextMenu();
+        setupSelectionFloatingPopup();
+    }
+
+    private void setupSelectionFloatingPopup() {
+        messageDetailArea.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                if (e.isPopupTrigger() || SwingUtilities.isRightMouseButton(e)) {
+                    return;
+                }
+                String selText = messageDetailArea.getSelectedText();
+                if (selText != null && !selText.trim().isEmpty()) {
+                    showFloatingPopup(e.getComponent(), e.getX(), e.getY(), selText.trim());
+                }
+            }
+        });
+    }
+
+    private void showFloatingPopup(Component comp, int x, int y, String selectedText) {
+        JPopupMenu popup = new JPopupMenu();
+
+        boolean isJson = (selectedText.startsWith("{") && selectedText.endsWith("}")) || (selectedText.startsWith("[") && selectedText.endsWith("]"));
+        boolean isXml = selectedText.startsWith("<") && selectedText.endsWith(">");
+
+        String jsonText = isJson ? "★ 格式化选中内容为 JSON (智能推荐)" : "⚡ 格式化选中内容为 JSON";
+        String xmlText = isXml ? "★ 格式化选中内容为 XML (智能推荐)" : "⚡ 格式化选中内容为 XML";
+
+        JMenuItem jsonItem = new JMenuItem(jsonText);
+        jsonItem.setFont(UIUtils.plainFont());
+        jsonItem.addActionListener(evt -> jumpToFormatter("json.format", selectedText));
+
+        JMenuItem xmlItem = new JMenuItem(xmlText);
+        xmlItem.setFont(UIUtils.plainFont());
+        xmlItem.addActionListener(evt -> jumpToFormatter("xml.format", selectedText));
+
+        JMenuItem copyItem = new JMenuItem("📋 复制选中内容");
+        copyItem.setFont(UIUtils.plainFont());
+        copyItem.addActionListener(evt -> UIUtils.copyToClipboard(selectedText));
+
+        popup.add(jsonItem);
+        popup.add(xmlItem);
+        popup.addSeparator();
+        popup.add(copyItem);
+
+        popup.show(comp, x, Math.max(0, y - 10));
+    }
+
+    private void setupMessageDetailContextMenu() {
+        JPopupMenu menu = new JPopupMenu();
+
+        JMenuItem jsonItem = new JMenuItem("进入 JSON 格式化工具");
+        jsonItem.addActionListener(e -> {
+            String txt = messageDetailArea.getSelectedText();
+            if (txt == null || txt.trim().isEmpty()) {
+                txt = messageDetailArea.getText();
+            }
+            if (txt == null || txt.trim().isEmpty()) {
+                UIUtils.info(getView(), "请先选择需要格式化的消息内容！");
+                return;
+            }
+            jumpToFormatter("json.format", txt);
+        });
+
+        JMenuItem xmlItem = new JMenuItem("进入 XML 格式化工具");
+        xmlItem.addActionListener(e -> {
+            String txt = messageDetailArea.getSelectedText();
+            if (txt == null || txt.trim().isEmpty()) {
+                txt = messageDetailArea.getText();
+            }
+            if (txt == null || txt.trim().isEmpty()) {
+                UIUtils.info(getView(), "请先选择需要格式化的消息内容！");
+                return;
+            }
+            jumpToFormatter("xml.format", txt);
+        });
+
+        JMenuItem copyItem = new JMenuItem("复制选中文本");
+        copyItem.addActionListener(e -> {
+            String sel = messageDetailArea.getSelectedText();
+            if (sel != null && !sel.isEmpty()) {
+                UIUtils.copyToClipboard(sel);
+            } else if (!messageDetailArea.getText().isEmpty()) {
+                UIUtils.copyToClipboard(messageDetailArea.getText());
+            }
+        });
+
+        JMenuItem selectAllItem = new JMenuItem("全选");
+        selectAllItem.addActionListener(e -> messageDetailArea.selectAll());
+
+        menu.add(jsonItem);
+        menu.add(xmlItem);
+        menu.addSeparator();
+        menu.add(copyItem);
+        menu.add(selectAllItem);
+
+        messageDetailArea.setComponentPopupMenu(menu);
+
+        // 显式监听右键点击，确保各外观包下右键弹出菜单无缝响应
+        messageDetailArea.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                showMenu(e);
+            }
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                showMenu(e);
+            }
+            private void showMenu(java.awt.event.MouseEvent e) {
+                if (e.isPopupTrigger() || SwingUtilities.isRightMouseButton(e)) {
+                    menu.show(e.getComponent(), e.getX(), e.getY());
+                }
+            }
+        });
+
+        // 监听选区变化：选中文本时自动识别格式并高亮对应悬浮按钮
+        messageDetailArea.addCaretListener(e -> {
+            String sel = messageDetailArea.getSelectedText();
+            if (sel != null && !sel.trim().isEmpty()) {
+                detectAndHighlightFormat(sel);
+            } else {
+                detectAndHighlightFormat(messageDetailArea.getText());
+            }
+        });
+    }
+
+    private void detectAndHighlightFormat(String rawText) {
+        if (floatJsonBtn == null || floatXmlBtn == null || formatDetectStatusLabel == null) return;
+
+        if (rawText == null || rawText.trim().isEmpty()) {
+            floatJsonBtn.setText("⚡ JSON 格式化");
+            floatXmlBtn.setText("⚡ XML 格式化");
+            formatDetectStatusLabel.setText("");
+            return;
+        }
+
+        String trimmed = rawText.trim();
+        String selText = messageDetailArea.getSelectedText();
+        String prefixInfo = (selText != null && !selText.trim().isEmpty()) ? "【已选中 " + selText.length() + " 字符】" : "";
+
+        if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+            floatJsonBtn.setText("★ 推荐: JSON 格式化");
+            floatXmlBtn.setText("⚡ XML 格式化");
+            formatDetectStatusLabel.setText(prefixInfo + " 智能检测: JSON 结构");
+        } else if (trimmed.startsWith("<") && trimmed.endsWith(">")) {
+            floatXmlBtn.setText("★ 推荐: XML 格式化");
+            floatJsonBtn.setText("⚡ JSON 格式化");
+            formatDetectStatusLabel.setText(prefixInfo + " 智能检测: XML 结构");
+        } else {
+            floatJsonBtn.setText("⚡ JSON 格式化");
+            floatXmlBtn.setText("⚡ XML 格式化");
+            if (!prefixInfo.isEmpty()) {
+                formatDetectStatusLabel.setText(prefixInfo);
+            } else {
+                formatDetectStatusLabel.setText("");
+            }
+        }
+    }
+
+    private void setupMessageTableContextMenu() {
+        JPopupMenu menu = new JPopupMenu();
+
+        JMenuItem jsonItem = new JMenuItem("进入 JSON 格式化工具");
+        jsonItem.addActionListener(e -> {
+            int viewIdx = messageTable.getSelectedRow();
+            if (viewIdx >= 0) {
+                int modelIdx = messageTable.convertRowIndexToModel(viewIdx);
+                if (modelIdx >= 0 && modelIdx < fetchedRecords.size()) {
+                    ConsumerRecord<String, String> rec = fetchedRecords.get(modelIdx);
+                    if (rec.value() != null && !rec.value().trim().isEmpty()) {
+                        jumpToFormatter("json.format", rec.value());
+                    } else {
+                        UIUtils.info(getView(), "选中的消息 Value 为空！");
+                    }
+                }
+            } else {
+                UIUtils.info(getView(), "请先在表格中选择一条消息！");
+            }
+        });
+
+        JMenuItem xmlItem = new JMenuItem("进入 XML 格式化工具");
+        xmlItem.addActionListener(e -> {
+            int viewIdx = messageTable.getSelectedRow();
+            if (viewIdx >= 0) {
+                int modelIdx = messageTable.convertRowIndexToModel(viewIdx);
+                if (modelIdx >= 0 && modelIdx < fetchedRecords.size()) {
+                    ConsumerRecord<String, String> rec = fetchedRecords.get(modelIdx);
+                    if (rec.value() != null && !rec.value().trim().isEmpty()) {
+                        jumpToFormatter("xml.format", rec.value());
+                    } else {
+                        UIUtils.info(getView(), "选中的消息 Value 为空！");
+                    }
+                }
+            } else {
+                UIUtils.info(getView(), "请先在表格中选择一条消息！");
+            }
+        });
+
+        JMenuItem copyValItem = new JMenuItem("复制 Value 内容");
+        copyValItem.addActionListener(e -> {
+            int viewIdx = messageTable.getSelectedRow();
+            if (viewIdx >= 0) {
+                int modelIdx = messageTable.convertRowIndexToModel(viewIdx);
+                if (modelIdx >= 0 && modelIdx < fetchedRecords.size()) {
+                    ConsumerRecord<String, String> rec = fetchedRecords.get(modelIdx);
+                    if (rec.value() != null) {
+                        UIUtils.copyToClipboard(rec.value());
+                    }
+                }
+            }
+        });
+
+        JMenuItem copyKeyItem = new JMenuItem("复制 Key 内容");
+        copyKeyItem.addActionListener(e -> {
+            int viewIdx = messageTable.getSelectedRow();
+            if (viewIdx >= 0) {
+                int modelIdx = messageTable.convertRowIndexToModel(viewIdx);
+                if (modelIdx >= 0 && modelIdx < fetchedRecords.size()) {
+                    ConsumerRecord<String, String> rec = fetchedRecords.get(modelIdx);
+                    if (rec.key() != null) {
+                        UIUtils.copyToClipboard(rec.key());
+                    }
+                }
+            }
+        });
+
+        menu.add(jsonItem);
+        menu.add(xmlItem);
+        menu.addSeparator();
+        menu.add(copyValItem);
+        menu.add(copyKeyItem);
+
+        messageTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                showMenu(e);
+            }
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                showMenu(e);
+            }
+            private void showMenu(java.awt.event.MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    int row = messageTable.rowAtPoint(e.getPoint());
+                    if (row >= 0 && row < messageTable.getRowCount()) {
+                        messageTable.setRowSelectionInterval(row, row);
+                    }
+                    menu.show(e.getComponent(), e.getX(), e.getY());
+                }
+            }
+        });
+    }
+
+    private void jumpToFormatter(String toolId, String text) {
+        com.aqishi.toolbox.ui.MainFrame mainFrame = com.aqishi.toolbox.ui.MainFrame.getMainFrame(getView());
+        if (mainFrame != null) {
+            ToolPanel targetTool = mainFrame.findTool(toolId);
+            if ("json.format".equals(toolId) && targetTool instanceof JsonPanel) {
+                ((JsonPanel) targetTool).formatTextWithReturn(text, "kafka.connector", "Kafka 工具");
+            } else if ("xml.format".equals(toolId) && targetTool instanceof XmlPanel) {
+                ((XmlPanel) targetTool).formatTextWithReturn(text, "kafka.connector", "Kafka 工具");
+            }
+            mainFrame.selectTool(toolId);
+        }
     }
 
     private void filterGroups() {

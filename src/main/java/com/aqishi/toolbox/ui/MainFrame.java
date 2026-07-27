@@ -387,7 +387,19 @@ public class MainFrame extends JFrame {
         repaint();
     }
 
-    private void selectTool(String toolId) {
+    public static MainFrame getMainFrame(Component comp) {
+        Window window = SwingUtilities.getWindowAncestor(comp);
+        if (window instanceof MainFrame) {
+            return (MainFrame) window;
+        }
+        return null;
+    }
+
+    public ToolPanel findTool(String toolId) {
+        return navigationModel != null ? navigationModel.findTool(toolId) : null;
+    }
+
+    public void selectTool(String toolId) {
         ToolPanel tool = navigationModel.findTool(toolId);
         if (tool == null || !contentHost.showTool(toolId)) {
             return;
@@ -395,6 +407,9 @@ public class MainFrame extends JFrame {
         currentToolId = toolId;
         ConfigManager.set("nav.selectedTool", toolId);
         updateCurrentToolLabel();
+        if (sidebar != null) {
+            sidebar.setSelectedTool(toolId);
+        }
     }
 
     private void updateCurrentToolLabel() {

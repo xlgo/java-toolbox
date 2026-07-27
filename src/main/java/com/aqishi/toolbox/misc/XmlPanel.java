@@ -35,6 +35,11 @@ public class XmlPanel extends ToolPanel {
     private JTree prettyTree;        // 美化视图（可折叠代码树）
     private JTextPane compactPane;   // 压缩视图（单行文本）
 
+    private JTextArea inputArea;
+    private JButton prettyBtn;
+    private JButton returnBtn;
+    private String returnToolId = null;
+
     private String lastXml = "";
 
     public XmlPanel() {
@@ -48,24 +53,36 @@ public class XmlPanel extends ToolPanel {
         JPanel root = Layouts.page();
 
         // ===== 顶部操作卡片 =====
-        // 与 JSON 面板保持同一套骨架：动作条收在 NORTH 的卡片里，
-        // 输入与结果占满剩余高度，按钮不再悬空在页面中间。
-        JButton pretty = Buttons.primary("美化");
+        prettyBtn = Buttons.primary("美化");
         JButton compact = Buttons.secondary("压缩");
         JButton copy = Buttons.ghost("复制结果");
         JButton clear = Buttons.ghost("清空");
+        returnBtn = Buttons.ghost("⬅ 返回 Kafka 工具");
+        returnBtn.setVisible(false);
+
+        returnBtn.addActionListener(e -> {
+            if (returnToolId != null) {
+                com.aqishi.toolbox.ui.MainFrame mainFrame = com.aqishi.toolbox.ui.MainFrame.getMainFrame(root);
+                if (mainFrame != null) {
+                    mainFrame.selectTool(returnToolId);
+                }
+                returnBtn.setVisible(false);
+                returnToolId = null;
+            }
+        });
 
         ActionBar bar = new ActionBar();
         bar.left(Fields.caption("美化输出为可折叠的标签树，压缩输出为单行文本"));
+        bar.right(returnBtn);
         bar.right(clear);
         bar.right(copy);
         bar.right(compact);
-        bar.right(pretty);
+        bar.right(prettyBtn);
         Card config = Card.titled("XML 格式化");
         config.setContent(bar);
 
-        JTextArea input = Fields.area(6, 40);
-        input.setText("<application name=\"JavaToolbox\" version=\"1.2.0\">\n  <server port=\"8080\" enableTls=\"false\">\n    <host>localhost</host>\n    <timeout connection=\"5000\" socket=\"30000\" />\n  </server>\n  <modules>\n    <module id=\"bpmn\" active=\"true\">\n      <name>BPMN 2.0 Designer</name>\n      <tags>\n        <tag>workflow</tag>\n        <tag>editor</tag>\n        <tag>xml</tag>\n      </tags>\n    </module>\n    <module id=\"k8s\" active=\"true\">\n      <name>Kubernetes Generator</name>\n      <tags>\n        <tag>yaml</tag>\n        <tag>k8s</tag>\n        <tag>deploy</tag>\n      </tags>\n    </module>\n  </modules>\n  <properties>\n    <property key=\"theme\" value=\"dark\" />\n    <property key=\"maxHistory\" value=\"50\" />\n  </properties>\n</application>");
+        inputArea = Fields.area(6, 40);
+        inputArea.setText("<application name=\"JavaToolbox\" version=\"1.2.0\">\n  <server port=\"8080\" enableTls=\"false\">\n    <host>localhost</host>\n    <timeout connection=\"5000\" socket=\"30000\" />\n  </server>\n  <modules>\n    <module id=\"bpmn\" active=\"true\">\n      <name>BPMN 2.0 Designer</name>\n      <tags>\n        <tag>workflow</tag>\n        <tag>editor</tag>\n        <tag>xml</tag>\n      </tags>\n    </module>\n    <module id=\"k8s\" active=\"true\">\n      <name>Kubernetes Generator</name>\n      <tags>\n        <tag>yaml</tag>\n        <tag>k8s</tag>\n        <tag>deploy</tag>\n      </tags>\n    </module>\n  </modules>\n  <properties>\n    <property key=\"theme\" value=\"dark\" />\n    <property key=\"maxHistory\" value=\"50\" />\n  </properties>\n</application>");
         
         // 输出区仍用 CardLayout 在折叠树与压缩文本之间切换，
         // 两个视图各自套一张 flush 卡片，标题随视图切换，事件代码无需改动。
@@ -100,14 +117,14 @@ public class XmlPanel extends ToolPanel {
         outputCardPanel.add(compactCard, "COMPACT");
 
         Card inputCard = Card.flush("输入 XML");
-        inputCard.setContent(Fields.scroll(input));
+        inputCard.setContent(Fields.scroll(inputArea));
 
         // 左输入 / 右结果：XML 行普遍偏长，横向分栏比上下分栏更能利用宽屏
         root.add(config, BorderLayout.NORTH);
         root.add(Layouts.splitHorizontal(inputCard, outputCardPanel, 0.5), BorderLayout.CENTER);
 
-        pretty.addActionListener(e -> {
-            String xmlText = input.getText().trim();
+        prettyBtn.addActionListener(e -> {
+            String xmlText = inputArea.getText().trim();
             if (xmlText.isEmpty()) return;
             try {
                 buildXmlTree(xmlText);
@@ -119,7 +136,7 @@ public class XmlPanel extends ToolPanel {
         });
 
         compact.addActionListener(e -> {
-            String xmlText = input.getText().trim();
+            String xmlText = inputArea.getText().trim();
             if (xmlText.isEmpty()) return;
             try {
                 lastXml = format(xmlText, false);
@@ -137,15 +154,32 @@ public class XmlPanel extends ToolPanel {
         });
 
         clear.addActionListener(e -> {
-            input.setText("");
+            inputArea.setText("");
             compactPane.setText("");
             lastXml = "";
             prettyTree.setModel(new DefaultTreeModel(new DefaultMutableTreeNode("XML")));
         });
 
-        pretty.doClick();
+        prettyBtn.doClick();
 
         return root;
+    }
+
+    public void formatTextWithReturn(String xmlText, String sourceToolId, String sourceToolName) {
+        getView();
+        if (inputArea != null) {
+            inputArea.setText(xmlText != null ? xmlText : "");
+            if (prettyBtn != null) {
+                prettyBtn.doClick();
+            }
+        }
+        if (sourceToolId != null && sourceToolName != null) {
+            this.returnToolId = sourceToolId;
+            if (returnBtn != null) {
+                returnBtn.setText("⬅ 返回 " + sourceToolName);
+                returnBtn.setVisible(true);
+            }
+        }
     }
 
     private String format(String xml, boolean pretty) throws Exception {

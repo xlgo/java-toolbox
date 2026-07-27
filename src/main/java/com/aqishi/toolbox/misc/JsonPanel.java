@@ -28,6 +28,11 @@ public class JsonPanel extends ToolPanel {
     private JTree prettyTree;        // 美化视图（可折叠的代码树）
     private JTextPane compactPane;   // 压缩视图（单行文本）
 
+    private JTextArea inputArea;
+    private JButton prettyBtn;
+    private JButton returnBtn;
+    private String returnToolId = null;
+
     private String lastJson = "";
 
     // 彩虹括号颜色（粉紫、天蓝、橙黄、翠绿）
@@ -46,25 +51,37 @@ public class JsonPanel extends ToolPanel {
         JPanel root = Layouts.page();
 
         // ===== 顶部操作卡片 =====
-        // 四个动作都作用于整个页面，收进一张卡的操作条里；
-        // 放 NORTH 而不是 CENTER，下面的输入 / 结果才能吃掉全部剩余高度。
-        JButton pretty = Buttons.primary("美化");
+        prettyBtn = Buttons.primary("美化");
         JButton compact = Buttons.secondary("压缩");
         JButton copy = Buttons.ghost("复制结果");
         JButton clear = Buttons.ghost("清空");
+        returnBtn = Buttons.ghost("⬅ 返回 Kafka 工具");
+        returnBtn.setVisible(false);
+
+        returnBtn.addActionListener(e -> {
+            if (returnToolId != null) {
+                com.aqishi.toolbox.ui.MainFrame mainFrame = com.aqishi.toolbox.ui.MainFrame.getMainFrame(root);
+                if (mainFrame != null) {
+                    mainFrame.selectTool(returnToolId);
+                }
+                returnBtn.setVisible(false);
+                returnToolId = null;
+            }
+        });
 
         ActionBar bar = new ActionBar();
         bar.left(Fields.caption("美化输出为可折叠的代码树，压缩输出为单行文本"));
+        bar.right(returnBtn);
         bar.right(clear);
         bar.right(copy);
         bar.right(compact);
-        bar.right(pretty);
+        bar.right(prettyBtn);
         Card config = Card.titled("JSON 格式化");
         config.setContent(bar);
 
         // 输入区域
-        JTextArea input = Fields.area(6, 40);
-        input.setText("{\n  \"projectName\": \"JavaToolbox\",\n  \"version\": \"1.2.0\",\n  \"active\": true,\n  \"server\": {\n    \"port\": 8080,\n    \"host\": \"localhost\",\n    \"enableTls\": false,\n    \"sslConfig\": null\n  },\n  \"modules\": [\n    {\n      \"id\": \"bpmn\",\n      \"name\": \"BPMN 2.0 Designer\",\n      \"tags\": [\"workflow\", \"editor\", \"xml\"]\n    },\n    {\n      \"id\": \"k8s\",\n      \"name\": \"Kubernetes Generator\",\n      \"tags\": [\"yaml\", \"k8s\", \"deploy\"]\n    }\n  ],\n  \"systemMetrics\": {\n    \"cpu\": {\n      \"cores\": 8,\n      \"loadPercent\": 24.5\n    },\n    \"memory\": {\n      \"totalGb\": 16,\n      \"usedGb\": 6.2\n    }\n  }\n}");
+        inputArea = Fields.area(6, 40);
+        inputArea.setText("{\n  \"projectName\": \"JavaToolbox\",\n  \"version\": \"1.2.0\",\n  \"active\": true,\n  \"server\": {\n    \"port\": 8080,\n    \"host\": \"localhost\",\n    \"enableTls\": false,\n    \"sslConfig\": null\n  },\n  \"modules\": [\n    {\n      \"id\": \"bpmn\",\n      \"name\": \"BPMN 2.0 Designer\",\n      \"tags\": [\"workflow\", \"editor\", \"xml\"]\n    },\n    {\n      \"id\": \"k8s\",\n      \"name\": \"Kubernetes Generator\",\n      \"tags\": [\"yaml\", \"k8s\", \"deploy\"]\n    }\n  ],\n  \"systemMetrics\": {\n    \"cpu\": {\n      \"cores\": 8,\n      \"loadPercent\": 24.5\n    },\n    \"memory\": {\n      \"totalGb\": 16,\n      \"usedGb\": 6.2\n    }\n  }\n}");
 
         // 输出区域：使用 CardLayout 来切换折叠树和普通单行文本。
         // 两个视图各自套一张 flush 卡片，切换 card 时标题也跟着换，
@@ -101,15 +118,15 @@ public class JsonPanel extends ToolPanel {
         outputCardPanel.add(compactCard, "COMPACT");
 
         Card inputCard = Card.flush("输入 JSON");
-        inputCard.setContent(Fields.scroll(input));
+        inputCard.setContent(Fields.scroll(inputArea));
 
         // 左输入 / 右结果：横向分栏后拖窗口时两侧同时变宽，
         // 长的 JSON 行与深层嵌套的树节点都少一次横向滚动。
         root.add(config, BorderLayout.NORTH);
         root.add(Layouts.splitHorizontal(inputCard, outputCardPanel, 0.5), BorderLayout.CENTER);
 
-        pretty.addActionListener(e -> {
-            String jsonText = input.getText().trim();
+        prettyBtn.addActionListener(e -> {
+            String jsonText = inputArea.getText().trim();
             if (jsonText.isEmpty()) return;
             try {
                 // 校验并构建树
@@ -122,7 +139,7 @@ public class JsonPanel extends ToolPanel {
         });
 
         compact.addActionListener(e -> {
-            String jsonText = input.getText().trim();
+            String jsonText = inputArea.getText().trim();
             if (jsonText.isEmpty()) return;
             try {
                 lastJson = JsonFormatter.compact(jsonText);
@@ -140,15 +157,32 @@ public class JsonPanel extends ToolPanel {
         });
 
         clear.addActionListener(e -> {
-            input.setText("");
+            inputArea.setText("");
             compactPane.setText("");
             lastJson = "";
             prettyTree.setModel(new DefaultTreeModel(new DefaultMutableTreeNode("JSON")));
         });
 
-        pretty.doClick();
+        prettyBtn.doClick();
 
         return root;
+    }
+
+    public void formatTextWithReturn(String jsonText, String sourceToolId, String sourceToolName) {
+        getView();
+        if (inputArea != null) {
+            inputArea.setText(jsonText != null ? jsonText : "");
+            if (prettyBtn != null) {
+                prettyBtn.doClick();
+            }
+        }
+        if (sourceToolId != null && sourceToolName != null) {
+            this.returnToolId = sourceToolId;
+            if (returnBtn != null) {
+                returnBtn.setText("⬅ 返回 " + sourceToolName);
+                returnBtn.setVisible(true);
+            }
+        }
     }
 
     private void buildJsonTree(String json) throws IOException {

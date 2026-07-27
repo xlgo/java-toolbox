@@ -1,0 +1,56 @@
+name: Release Application
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Release Executable Application
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build executable Fat JAR with Maven
+        run: mvn clean package -DskipTests=false
+
+      - name: Prepare Release Asset Name
+        id: prep
+        run: |
+          VERSION=${GITHUB_REF_NAME:-latest}
+          JAR_NAME="java-toolbox-${VERSION}.jar"
+          cp target/java-toolbox.jar "target/${JAR_NAME}"
+          echo "jar_name=${JAR_NAME}" >> $GITHUB_OUTPUT
+          echo "jar_path=target/${JAR_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prep.outputs.jar_name }}
+          path: ${{ steps.prep.outputs.jar_path }}
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ steps.prep.outputs.jar_path }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

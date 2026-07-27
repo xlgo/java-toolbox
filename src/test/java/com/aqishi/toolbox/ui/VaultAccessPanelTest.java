@@ -47,10 +47,13 @@ class VaultAccessPanelTest {
     }
 
     private Components components() throws Exception {
+        Path absTemp = temp.toAbsolutePath();
         Map<String, String> environment = new HashMap<>();
-        environment.put("APPDATA", temp.resolve("data").toString());
+        environment.put("APPDATA", absTemp.resolve("data").toString());
+        environment.put("XDG_DATA_HOME", absTemp.resolve("data").toString());
+        environment.put("XDG_CONFIG_HOME", absTemp.resolve("config").toString());
         ApplicationPaths paths = ApplicationPaths.resolve(
-                "Windows 11", temp.toString(), environment, temp.resolve("legacy"));
+                System.getProperty("os.name"), absTemp.toString(), environment, absTemp.resolve("legacy"));
         paths.createPrivateDirectories();
         AtomicFiles files = new AtomicFiles();
         VaultCrypto crypto = new VaultCrypto();

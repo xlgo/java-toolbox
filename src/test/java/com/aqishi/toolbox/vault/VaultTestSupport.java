@@ -19,13 +19,16 @@ final class VaultTestSupport implements AutoCloseable {
     }
 
     VaultTestSupport(Path temporaryDirectory, AtomicFiles atomicFiles) throws IOException {
+        Path absTemp = temporaryDirectory.toAbsolutePath();
         Map<String, String> environment = new HashMap<>();
-        environment.put("APPDATA", temporaryDirectory.resolve("data").toString());
+        environment.put("APPDATA", absTemp.resolve("data").toString());
+        environment.put("XDG_DATA_HOME", absTemp.resolve("data").toString());
+        environment.put("XDG_CONFIG_HOME", absTemp.resolve("config").toString());
         paths = ApplicationPaths.resolve(
-                "Windows 11",
-                temporaryDirectory.toString(),
+                System.getProperty("os.name"),
+                absTemp.toString(),
                 environment,
-                temporaryDirectory.resolve("legacy"));
+                absTemp.resolve("legacy"));
         paths.createPrivateDirectories();
         fileLock = new VaultFileLock(paths.getLockFile());
         repository = new VaultRepository(paths, atomicFiles, new VaultCrypto(), fileLock);

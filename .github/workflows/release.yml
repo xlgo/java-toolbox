@@ -26,7 +26,7 @@ jobs:
           cache: 'maven'
 
       - name: Build executable Fat JAR with Maven
-        run: mvn clean package -DskipTests=false
+        run: xvfb-run --auto-servernum mvn clean package -DskipTests=false
 
       - name: Prepare Release Asset Name
         id: prep

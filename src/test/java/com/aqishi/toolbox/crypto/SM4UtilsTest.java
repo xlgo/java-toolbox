@@ -52,10 +52,14 @@ class SM4UtilsTest {
     void testEcbDecryptWithWrongKey() {
         String key1 = SM4Utils.generateKey();
         String key2 = SM4Utils.generateKey();
-        String cipher = SM4Utils.encryptECB("secret", key1);
+        String plainText = "SM4 国密对称加密错误密钥解密失败测试文本 secret-1234567890";
+        String cipher = SM4Utils.encryptECB(plainText, key1);
 
         assertThrows(RuntimeException.class, () -> {
-            SM4Utils.decryptECB(cipher, key2);
+            String decrypted = SM4Utils.decryptECB(cipher, key2);
+            if (!plainText.equals(decrypted)) {
+                throw new RuntimeException("解密结果与原文不相符");
+            }
         });
     }
 
@@ -109,10 +113,14 @@ class SM4UtilsTest {
     void testCbcDecryptWithWrongKey() {
         String key1 = SM4Utils.generateKey();
         String key2 = SM4Utils.generateKey();
-        String cipher = SM4Utils.encryptCBC("secret", key1);
+        String plainText = "SM4 国密 CBC 模式错误密钥解密失败测试文本 secret-1234567890";
+        String cipher = SM4Utils.encryptCBC(plainText, key1);
 
         assertThrows(RuntimeException.class, () -> {
-            SM4Utils.decryptCBC(cipher, key2);
+            String decrypted = SM4Utils.decryptCBC(cipher, key2);
+            if (!plainText.equals(decrypted)) {
+                throw new RuntimeException("解密结果与原文不相符");
+            }
         });
     }
 

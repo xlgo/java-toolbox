@@ -41,6 +41,11 @@ public class RedisPanel extends ToolPanel {
     private JPasswordField passField;
     private JComboBox<Integer> dbCombo;
     private JButton connBtn;
+    // Collapsible Connection Panel (aligned with DatabasePanel)
+    private JPanel connHeaderPanel;
+    private JPanel connBodyPanel;
+    private JLabel connToggleLabel;
+    private boolean connCollapsed = false;
     /** 连接状态：常驻连接卡片标题右侧，文字 + 语义色双重表达 */
     private JLabel connStatusLabel;
     private boolean isConnected = false;
@@ -138,7 +143,7 @@ public class RedisPanel extends ToolPanel {
 
     // ==================== 顶部：连接配置卡片 ====================
 
-    /** 连接卡片：三行表单 + 标题右侧的「连接 / 断开」主操作与状态文字 */
+    /** 连接卡片：参考 DatabasePanel 的整体标题带折叠设计 */
     private Card buildConnectionCard() {
         profileCombo = Fields.combo(new String[0], 160);
         saveProfileBtn = Buttons.secondary("保存配置");
@@ -154,13 +159,28 @@ public class RedisPanel extends ToolPanel {
 
         connBtn = Buttons.primary("连接");
 
-        // 连接状态先用文字说清楚，再叠加语义色：只靠颜色的话色觉障碍用户读不出来。
-        // 必须在 addHeaderAction 之前填好文案——卡片会按加入时的首选宽度锁定最大宽度
+        // 连接状态
         connStatusLabel = new JLabel();
         connStatusLabel.setFont(Tokens.fontCaption());
         bindConnectionStatus();
 
-        // 主机/端口、密码/DB 各自成对，定长的一半靠右，可变长的一半吃掉剩余宽度
+        // 标题带：左侧折叠开关，右侧状态与连接/断开按钮
+        connToggleLabel = new JLabel("▼ Redis 连接配置 (点击折叠)");
+        connToggleLabel.setFont(Tokens.fontSectionTitle());
+        connToggleLabel.setForeground(Tokens.foreground());
+
+        connHeaderPanel = Layouts.box(Tokens.SPACE_SM, 0);
+        connHeaderPanel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        connHeaderPanel.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD - 2, Tokens.CARD_PADDING, Tokens.SPACE_SM, Tokens.CARD_PADDING));
+        connHeaderPanel.add(connToggleLabel, BorderLayout.WEST);
+
+        ActionBar headerActions = new ActionBar();
+        headerActions.left(connStatusLabel);
+        headerActions.left(connBtn);
+        connHeaderPanel.add(headerActions, BorderLayout.EAST);
+
+        // 主机/端口、密码/DB 各自成对
         JPanel hostRow = Layouts.box(Tokens.SPACE_MD, 0);
         hostRow.add(hostField, BorderLayout.CENTER);
         hostRow.add(trailingField("端口:", portField), BorderLayout.EAST);
@@ -174,11 +194,51 @@ public class RedisPanel extends ToolPanel {
         form.row("主机:", hostRow);
         form.row("密码:", passRow);
 
-        Card card = Card.titled("Redis 连接配置");
-        card.setContent(form);
-        card.addHeaderAction(connStatusLabel);
-        card.addHeaderAction(connBtn);
+        JPanel formBox = Layouts.box();
+        formBox.setBorder(KitBorders.padding(
+                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.CARD_PADDING, Tokens.CARD_PADDING));
+        formBox.add(form, BorderLayout.CENTER);
+
+        // 细线放在 body 里而不是标题带下面，折叠后才会跟着一起消失
+        connBodyPanel = Layouts.box();
+        connBodyPanel.add(new Card.Hairline(), BorderLayout.NORTH);
+        connBodyPanel.add(formBox, BorderLayout.CENTER);
+
+        JPanel body = Layouts.box();
+        body.add(connHeaderPanel, BorderLayout.NORTH);
+        body.add(connBodyPanel, BorderLayout.CENTER);
+
+        java.awt.event.MouseAdapter toggleListener = new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                toggleConnPanel();
+            }
+        };
+        connToggleLabel.addMouseListener(toggleListener);
+        connHeaderPanel.addMouseListener(toggleListener);
+
+        Card card = Card.plain().setFlush(true);
+        card.setContent(body);
         return card;
+    }
+
+    private void toggleConnPanel() {
+        setConnCollapsed(!connCollapsed);
+    }
+
+    private void setConnCollapsed(boolean collapsed) {
+        this.connCollapsed = collapsed;
+        if (connBodyPanel != null) {
+            connBodyPanel.setVisible(!collapsed);
+        }
+        if (connToggleLabel != null) {
+            connToggleLabel.setText(collapsed ? "▶ Redis 连接配置 (点击展开)" : "▼ Redis 连接配置 (点击折叠)");
+        }
+        JComponent v = getView();
+        if (v != null) {
+            v.revalidate();
+            v.repaint();
+        }
     }
 
     /**
@@ -236,10 +296,10 @@ public class RedisPanel extends ToolPanel {
         searchRow.add(searchField, BorderLayout.CENTER);
         searchRow.add(refreshBtn, BorderLayout.EAST);
 
-        treeCheck = Fields.check("树形展示", false);
+        treeCheck = Fields.check("树形展示", true);
         delimiterField = Fields.text(":");
         delimiterField.setToolTipText("命名空间分隔符");
-        delimiterField.setEnabled(false); // initially disabled since treeCheck is not selected
+        delimiterField.setEnabled(true);
 
         // 分隔符输入吃掉复选框之后的剩余宽度，窄栏下也不会把标签挤没
         JPanel treeRow = Layouts.box(Tokens.SPACE_MD, 0);
@@ -264,6 +324,7 @@ public class RedisPanel extends ToolPanel {
         keyTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
         keyTree.setCellRenderer(new RedisTreeCellRenderer());
         listOrTreeCardPanel.add(Fields.scrollBoxed(keyTree), "TREE");
+        listOrTreeLayout.show(listOrTreeCardPanel, "TREE");
 
         addKeyBtn = Buttons.secondary("添加 Key");
         delKeyBtn = Buttons.danger("删除 Key");
@@ -446,6 +507,10 @@ public class RedisPanel extends ToolPanel {
             ttlField.setText("");
             valueCardLayout.show(valueCardPanel, "NONE");
             closeJedis();
+
+            if (connBodyPanel != null && connCollapsed) {
+                setConnCollapsed(false);
+            }
         }
     }
 
@@ -636,6 +701,7 @@ public class RedisPanel extends ToolPanel {
                     toggleState(true);
                     refreshKeys();
                     consoleOutput.append("成功连接至 Redis 服务器: " + connHost + ":" + connPort + ", DB: " + connDb + "\n");
+                    setConnCollapsed(true);
                 } catch (Exception ex) {
                     toggleState(false);
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
@@ -729,6 +795,7 @@ public class RedisPanel extends ToolPanel {
                         stringArea.setText((String) data.get("value"));
                         valueCardLayout.show(valueCardPanel, "STRING");
                     } else if ("hash".equals(type)) {
+                        stopEditing(hashTable);
                         hashModel.setRowCount(0);
                         @SuppressWarnings("unchecked")
                         Map<String, String> hash = (Map<String, String>) data.get("value");
@@ -737,6 +804,7 @@ public class RedisPanel extends ToolPanel {
                         }
                         valueCardLayout.show(valueCardPanel, "HASH");
                     } else if ("list".equals(type)) {
+                        stopEditing(listTable);
                         listModel.setRowCount(0);
                         @SuppressWarnings("unchecked")
                         List<String> list = (List<String>) data.get("value");
@@ -745,6 +813,7 @@ public class RedisPanel extends ToolPanel {
                         }
                         valueCardLayout.show(valueCardPanel, "LIST");
                     } else if ("set".equals(type)) {
+                        stopEditing(setTable);
                         setModel.setRowCount(0);
                         @SuppressWarnings("unchecked")
                         Set<String> set = (Set<String>) data.get("value");
@@ -753,6 +822,7 @@ public class RedisPanel extends ToolPanel {
                         }
                         valueCardLayout.show(valueCardPanel, "SET");
                     } else if ("zset".equals(type)) {
+                        stopEditing(zsetTable);
                         zsetModel.setRowCount(0);
                         @SuppressWarnings("unchecked")
                         Set<Tuple> zset = (Set<Tuple>) data.get("value");
@@ -897,7 +967,17 @@ public class RedisPanel extends ToolPanel {
         }.execute();
     }
 
+    private static void stopEditing(JTable table) {
+        if (table != null && table.isEditing()) {
+            javax.swing.table.TableCellEditor editor = table.getCellEditor();
+            if (editor != null) {
+                editor.cancelCellEditing();
+            }
+        }
+    }
+
     private void removeSelectedRow(JTable table, DefaultTableModel model) {
+        stopEditing(table);
         int idx = table.getSelectedRow();
         if (idx >= 0) {
             model.removeRow(idx);
@@ -906,6 +986,10 @@ public class RedisPanel extends ToolPanel {
 
     private void saveKeyValues() {
         if (jedis == null || currentSelectedKey == null) return;
+        stopEditing(hashTable);
+        stopEditing(listTable);
+        stopEditing(setTable);
+        stopEditing(zsetTable);
         String type = keyTypeLabel.getText();
 
         new SwingWorker<Void, Void>() {

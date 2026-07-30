@@ -147,7 +147,7 @@ public class MainFrame extends JFrame {
         int y = ConfigManager.getInt("y", -1);
         setSize(width, height);
         setMinimumSize(new Dimension(820, 520));
-        if (x != -1 && y != -1) {
+        if (x != -1 && y != -1 && UIUtils.isWindowPositionVisible(x, y, width, height)) {
             setLocation(x, y);
         } else {
             setLocationRelativeTo(null);

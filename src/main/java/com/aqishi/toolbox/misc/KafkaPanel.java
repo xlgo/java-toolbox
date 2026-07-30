@@ -20,10 +20,12 @@ import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.header.Header;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
 import javax.swing.*;
+import javax.swing.text.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import javax.swing.RowFilter;
@@ -100,11 +102,13 @@ public class KafkaPanel extends ToolPanel {
     // Tab 2: Message Viewer
     private JComboBox<String> partitionCombo;
     private JComboBox<String> offsetStrategyCombo;
+    private JSpinner msgLimitSpinner;
     private JTextField msgSearchField;
     private JTable messageTable;
     private DefaultTableModel messageTableModel;
     private TableRowSorter<DefaultTableModel> messageTableSorter;
     private JTextArea messageDetailArea;
+    private JComboBox<String> detailViewModeCombo;
     private JLabel formatDetectStatusLabel;
     private JButton floatJsonBtn;
     private JButton floatXmlBtn;
@@ -112,7 +116,8 @@ public class KafkaPanel extends ToolPanel {
     private DefaultTableModel messageHeadersTableModel;
     private JButton fetchBtn;
     private JLabel fetchStatusLabel;
-    private final List<ConsumerRecord<String, String>> fetchedRecords = new ArrayList<>();
+    private final List<ConsumerRecord<byte[], byte[]>> fetchedRecords = new ArrayList<>();
+    private boolean userManualModeSet = false;
 
     // Tab 3: Message Producer
     private JTextField produceKeyField;
@@ -329,8 +334,14 @@ public class KafkaPanel extends ToolPanel {
     private JComponent buildViewerTab() {
         // 下拉框给固定宽度（组件库允许的例外），否则会被 ActionBar 拉成几倍宽
         partitionCombo = Fields.combo(new String[0], 110);
-        offsetStrategyCombo = Fields.combo(new String[]{"最新 50 条 (Latest 50)", "从头开始 (Earliest)", "最新 100 条 (Latest 100)", "最新 500 条 (Latest 500)"}, 170);
-        offsetStrategyCombo.setSelectedItem("最新 50 条 (Latest 50)");
+        offsetStrategyCombo = Fields.combo(new String[]{
+                "最新位置",
+                "从头开始"
+        }, 140);
+        offsetStrategyCombo.setSelectedItem("最新位置");
+
+        msgLimitSpinner = Fields.spinner(100, 1, 100000, 100);
+
         msgSearchField = Fields.text("", "过滤 Value/Key...");
         fetchBtn = Buttons.primary("拉取消息");
         // ActionBar 只锁最大宽度，窄窗口下按钮仍会被压到最小宽度而把文案省略成「拉取...」；
@@ -343,6 +354,8 @@ public class KafkaPanel extends ToolPanel {
         bar.left(partitionCombo);
         bar.left(Fields.label("策略:"));
         bar.left(offsetStrategyCombo);
+        bar.left(Fields.label("数量:"));
+        bar.left(msgLimitSpinner);
         bar.left(Fields.label("检索:"));
         bar.left(msgSearchField);
         bar.right(fetchBtn);
@@ -389,17 +402,18 @@ public class KafkaPanel extends ToolPanel {
                 BorderFactory.createEmptyBorder(4, 8, 4, 8)
         ));
 
-        JLabel titleLabel = new JLabel("消息格式化快捷工具:");
-        titleLabel.setFont(UIUtils.plainFont());
-        detailToolBar.add(titleLabel, BorderLayout.WEST);
+        detailViewModeCombo = Fields.combo(new String[]{"🔤 文本模式", "🔢 HEX 模式"}, 110);
+        detailToolBar.add(detailViewModeCombo, BorderLayout.WEST);
 
         JPanel rightBtnsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
 
         formatDetectStatusLabel = new JLabel("");
         formatDetectStatusLabel.setFont(UIUtils.plainFont());
 
-        floatJsonBtn = UIUtils.button("⚡ JSON 格式化", 125);
-        floatXmlBtn = UIUtils.button("⚡ XML 格式化", 125);
+        floatJsonBtn = UIUtils.button("{ } JSON", 85);
+        floatJsonBtn.setToolTipText("JSON 格式化工具");
+        floatXmlBtn = UIUtils.button("< > XML", 85);
+        floatXmlBtn.setToolTipText("XML 格式化工具");
 
         floatJsonBtn.addActionListener(e -> {
             String txt = messageDetailArea.getSelectedText();
@@ -568,6 +582,46 @@ public class KafkaPanel extends ToolPanel {
             }
         });
 
+        detailViewModeCombo.addActionListener(e -> {
+            userManualModeSet = true;
+            int viewIdx = messageTable.getSelectedRow();
+            if (viewIdx >= 0) {
+                int modelIdx = messageTable.convertRowIndexToModel(viewIdx);
+                if (modelIdx >= 0 && modelIdx < fetchedRecords.size()) {
+                    displayMessageValue(fetchedRecords.get(modelIdx));
+                }
+            }
+        });
+
+        // Message Table selection -> Value formatting & Headers list
+        messageTable.getSelectionModel().addListSelectionListener(e -> {
+            if (e.getValueIsAdjusting()) return;
+            userManualModeSet = false;
+            int viewIdx = messageTable.getSelectedRow();
+            messageHeadersTableModel.setRowCount(0);
+            if (viewIdx >= 0) {
+                int modelIdx = messageTable.convertRowIndexToModel(viewIdx);
+                if (modelIdx >= 0 && modelIdx < fetchedRecords.size()) {
+                    ConsumerRecord<byte[], byte[]> rec = fetchedRecords.get(modelIdx);
+                    displayMessageValue(rec);
+
+                    if (rec.headers() != null) {
+                        for (Header header : rec.headers()) {
+                            String hKey = header.key();
+                            String hVal = header.value() != null ? new String(header.value(), StandardCharsets.UTF_8) : "[null]";
+                            messageHeadersTableModel.addRow(new Object[]{hKey, hVal});
+                        }
+                    }
+                } else {
+                    messageDetailArea.setText("");
+                    detectAndHighlightFormat("");
+                }
+            } else {
+                messageDetailArea.setText("");
+                detectAndHighlightFormat("");
+            }
+        });
+
         groupList.addListSelectionListener(e -> {
             if (e.getValueIsAdjusting()) return;
             String group = groupList.getSelectedValue();
@@ -619,39 +673,6 @@ public class KafkaPanel extends ToolPanel {
                 }
             }
         });
-
-        // Message Table selection -> Value formatting & Headers list
-        messageTable.getSelectionModel().addListSelectionListener(e -> {
-            if (e.getValueIsAdjusting()) return;
-            int viewIdx = messageTable.getSelectedRow();
-            messageHeadersTableModel.setRowCount(0);
-            if (viewIdx >= 0) {
-                int modelIdx = messageTable.convertRowIndexToModel(viewIdx);
-                if (modelIdx >= 0 && modelIdx < fetchedRecords.size()) {
-                    ConsumerRecord<String, String> rec = fetchedRecords.get(modelIdx);
-                    String val = rec.value();
-                    messageDetailArea.setText(tryFormatJson(val));
-                    messageDetailArea.setCaretPosition(0);
-                    detectAndHighlightFormat(val);
-
-                    if (rec.headers() != null) {
-                        for (Header header : rec.headers()) {
-                            String hKey = header.key();
-                            String hVal = header.value() != null ? new String(header.value(), StandardCharsets.UTF_8) : "[null]";
-                            messageHeadersTableModel.addRow(new Object[]{hKey, hVal});
-                        }
-                    }
-                } else {
-                    messageDetailArea.setText("");
-                    detectAndHighlightFormat("");
-                }
-            } else {
-                messageDetailArea.setText("");
-                detectAndHighlightFormat("");
-            }
-        });
-
-        // Topic Subscribers Group Table Selection -> Refresh Member Table
         subscriberGroupTable.getSelectionModel().addListSelectionListener(e -> {
             if (e.getValueIsAdjusting()) return;
             int row = subscriberGroupTable.getSelectedRow();
@@ -712,7 +733,12 @@ public class KafkaPanel extends ToolPanel {
                 }
                 String selText = messageDetailArea.getSelectedText();
                 if (selText != null && !selText.trim().isEmpty()) {
-                    showFloatingPopup(e.getComponent(), e.getX(), e.getY(), selText.trim());
+                    String trimmed = selText.trim();
+                    boolean isJson = (trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"));
+                    boolean isXml = trimmed.startsWith("<") && trimmed.endsWith(">");
+                    if (isJson || isXml) {
+                        showFloatingPopup(e.getComponent(), e.getX(), e.getY(), trimmed);
+                    }
                 }
             }
         });
@@ -724,8 +750,8 @@ public class KafkaPanel extends ToolPanel {
         boolean isJson = (selectedText.startsWith("{") && selectedText.endsWith("}")) || (selectedText.startsWith("[") && selectedText.endsWith("]"));
         boolean isXml = selectedText.startsWith("<") && selectedText.endsWith(">");
 
-        String jsonText = isJson ? "★ 格式化选中内容为 JSON (智能推荐)" : "⚡ 格式化选中内容为 JSON";
-        String xmlText = isXml ? "★ 格式化选中内容为 XML (智能推荐)" : "⚡ 格式化选中内容为 XML";
+        String jsonText = isJson ? "★ JSON 格式化" : "{ } JSON 格式化";
+        String xmlText = isXml ? "★ XML 格式化" : "< > XML 格式化";
 
         JMenuItem jsonItem = new JMenuItem(jsonText);
         jsonItem.setFont(UIUtils.plainFont());
@@ -735,7 +761,7 @@ public class KafkaPanel extends ToolPanel {
         xmlItem.setFont(UIUtils.plainFont());
         xmlItem.addActionListener(evt -> jumpToFormatter("xml.format", selectedText));
 
-        JMenuItem copyItem = new JMenuItem("📋 复制选中内容");
+        JMenuItem copyItem = new JMenuItem("📋 复制内容");
         copyItem.setFont(UIUtils.plainFont());
         copyItem.addActionListener(evt -> UIUtils.copyToClipboard(selectedText));
 
@@ -814,7 +840,7 @@ public class KafkaPanel extends ToolPanel {
             }
         });
 
-        // 监听选区变化：选中文本时自动识别格式并高亮对应悬浮按钮
+        // 监听选区变化：选中文本时自动识别格式并高亮对应悬浮按钮 + HEX 模式双向选区同步
         messageDetailArea.addCaretListener(e -> {
             String sel = messageDetailArea.getSelectedText();
             if (sel != null && !sel.trim().isEmpty()) {
@@ -822,6 +848,7 @@ public class KafkaPanel extends ToolPanel {
             } else {
                 detectAndHighlightFormat(messageDetailArea.getText());
             }
+            syncHexSelection();
         });
     }
 
@@ -829,32 +856,28 @@ public class KafkaPanel extends ToolPanel {
         if (floatJsonBtn == null || floatXmlBtn == null || formatDetectStatusLabel == null) return;
 
         if (rawText == null || rawText.trim().isEmpty()) {
-            floatJsonBtn.setText("⚡ JSON 格式化");
-            floatXmlBtn.setText("⚡ XML 格式化");
+            floatJsonBtn.setText("{ } JSON");
+            floatXmlBtn.setText("< > XML");
             formatDetectStatusLabel.setText("");
             return;
         }
 
         String trimmed = rawText.trim();
         String selText = messageDetailArea.getSelectedText();
-        String prefixInfo = (selText != null && !selText.trim().isEmpty()) ? "【已选中 " + selText.length() + " 字符】" : "";
+        boolean hasSelection = (selText != null && !selText.trim().isEmpty());
 
         if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
-            floatJsonBtn.setText("★ 推荐: JSON 格式化");
-            floatXmlBtn.setText("⚡ XML 格式化");
-            formatDetectStatusLabel.setText(prefixInfo + " 智能检测: JSON 结构");
+            floatJsonBtn.setText("★ { } JSON");
+            floatXmlBtn.setText("< > XML");
+            formatDetectStatusLabel.setText(hasSelection ? "【已选中 " + selText.length() + " 字符】" : "智能检测: JSON 结构");
         } else if (trimmed.startsWith("<") && trimmed.endsWith(">")) {
-            floatXmlBtn.setText("★ 推荐: XML 格式化");
-            floatJsonBtn.setText("⚡ JSON 格式化");
-            formatDetectStatusLabel.setText(prefixInfo + " 智能检测: XML 结构");
+            floatXmlBtn.setText("★ < > XML");
+            floatJsonBtn.setText("{ } JSON");
+            formatDetectStatusLabel.setText(hasSelection ? "【已选中 " + selText.length() + " 字符】" : "智能检测: XML 结构");
         } else {
-            floatJsonBtn.setText("⚡ JSON 格式化");
-            floatXmlBtn.setText("⚡ XML 格式化");
-            if (!prefixInfo.isEmpty()) {
-                formatDetectStatusLabel.setText(prefixInfo);
-            } else {
-                formatDetectStatusLabel.setText("");
-            }
+            floatJsonBtn.setText("{ } JSON");
+            floatXmlBtn.setText("< > XML");
+            formatDetectStatusLabel.setText(hasSelection ? "【已选中 " + selText.length() + " 字符】" : "");
         }
     }
 
@@ -867,9 +890,11 @@ public class KafkaPanel extends ToolPanel {
             if (viewIdx >= 0) {
                 int modelIdx = messageTable.convertRowIndexToModel(viewIdx);
                 if (modelIdx >= 0 && modelIdx < fetchedRecords.size()) {
-                    ConsumerRecord<String, String> rec = fetchedRecords.get(modelIdx);
-                    if (rec.value() != null && !rec.value().trim().isEmpty()) {
-                        jumpToFormatter("json.format", rec.value());
+                    ConsumerRecord<byte[], byte[]> rec = fetchedRecords.get(modelIdx);
+                    byte[] v = rec.value();
+                    String valStr = v != null ? new String(v, StandardCharsets.UTF_8) : "";
+                    if (!valStr.trim().isEmpty()) {
+                        jumpToFormatter("json.format", valStr);
                     } else {
                         UIUtils.info(getView(), "选中的消息 Value 为空！");
                     }
@@ -885,9 +910,11 @@ public class KafkaPanel extends ToolPanel {
             if (viewIdx >= 0) {
                 int modelIdx = messageTable.convertRowIndexToModel(viewIdx);
                 if (modelIdx >= 0 && modelIdx < fetchedRecords.size()) {
-                    ConsumerRecord<String, String> rec = fetchedRecords.get(modelIdx);
-                    if (rec.value() != null && !rec.value().trim().isEmpty()) {
-                        jumpToFormatter("xml.format", rec.value());
+                    ConsumerRecord<byte[], byte[]> rec = fetchedRecords.get(modelIdx);
+                    byte[] v = rec.value();
+                    String valStr = v != null ? new String(v, StandardCharsets.UTF_8) : "";
+                    if (!valStr.trim().isEmpty()) {
+                        jumpToFormatter("xml.format", valStr);
                     } else {
                         UIUtils.info(getView(), "选中的消息 Value 为空！");
                     }
@@ -903,9 +930,14 @@ public class KafkaPanel extends ToolPanel {
             if (viewIdx >= 0) {
                 int modelIdx = messageTable.convertRowIndexToModel(viewIdx);
                 if (modelIdx >= 0 && modelIdx < fetchedRecords.size()) {
-                    ConsumerRecord<String, String> rec = fetchedRecords.get(modelIdx);
+                    ConsumerRecord<byte[], byte[]> rec = fetchedRecords.get(modelIdx);
                     if (rec.value() != null) {
-                        UIUtils.copyToClipboard(rec.value());
+                        byte[] v = rec.value();
+                        if ("🔢 HEX 模式".equals(detailViewModeCombo.getSelectedItem())) {
+                            UIUtils.copyToClipboard(formatHexDump(v));
+                        } else {
+                            UIUtils.copyToClipboard(new String(v, StandardCharsets.UTF_8));
+                        }
                     }
                 }
             }
@@ -917,9 +949,9 @@ public class KafkaPanel extends ToolPanel {
             if (viewIdx >= 0) {
                 int modelIdx = messageTable.convertRowIndexToModel(viewIdx);
                 if (modelIdx >= 0 && modelIdx < fetchedRecords.size()) {
-                    ConsumerRecord<String, String> rec = fetchedRecords.get(modelIdx);
+                    ConsumerRecord<byte[], byte[]> rec = fetchedRecords.get(modelIdx);
                     if (rec.key() != null) {
-                        UIUtils.copyToClipboard(rec.key());
+                        UIUtils.copyToClipboard(new String(rec.key(), StandardCharsets.UTF_8));
                     }
                 }
             }
@@ -990,9 +1022,11 @@ public class KafkaPanel extends ToolPanel {
             public boolean include(Entry<? extends DefaultTableModel, ? extends Integer> entry) {
                 int modelRow = entry.getIdentifier();
                 if (modelRow >= 0 && modelRow < fetchedRecords.size()) {
-                    ConsumerRecord<String, String> rec = fetchedRecords.get(modelRow);
-                    String val = rec.value();
-                    String key = rec.key();
+                    ConsumerRecord<byte[], byte[]> rec = fetchedRecords.get(modelRow);
+                    byte[] vBytes = rec.value();
+                    byte[] kBytes = rec.key();
+                    String val = vBytes != null ? new String(vBytes, StandardCharsets.UTF_8) : null;
+                    String key = kBytes != null ? new String(kBytes, StandardCharsets.UTF_8) : null;
 
                     if (val != null) {
                         String lowerVal = val.toLowerCase();
@@ -1323,7 +1357,7 @@ public class KafkaPanel extends ToolPanel {
                 try {
                     List<Integer> list = get();
                     partitionCombo.removeAllItems();
-                    partitionCombo.addItem("所有分区 (All)");
+                    partitionCombo.addItem("所有");
                     for (Integer p : list) {
                         partitionCombo.addItem(String.valueOf(p));
                     }
@@ -1403,16 +1437,29 @@ public class KafkaPanel extends ToolPanel {
         String partStr = (String) partitionCombo.getSelectedItem();
         String strategy = (String) offsetStrategyCombo.getSelectedItem();
 
+        int parsedLimit = 100;
+        try {
+            msgLimitSpinner.commitEdit();
+            parsedLimit = ((Number) msgLimitSpinner.getValue()).intValue();
+        } catch (Exception ignored) {
+            Object val = msgLimitSpinner.getValue();
+            if (val instanceof Number) {
+                parsedLimit = ((Number) val).intValue();
+            }
+        }
+        if (parsedLimit <= 0) parsedLimit = 100;
+        final int limit = parsedLimit;
+
         fetchBtn.setEnabled(false);
         fetchStatusLabel.setText("正在拉取消息...");
         messageTableModel.setRowCount(0);
         messageDetailArea.setText("");
         fetchedRecords.clear();
 
-        new SwingWorker<List<ConsumerRecord<String, String>>, Void>() {
+        new SwingWorker<List<ConsumerRecord<byte[], byte[]>>, Void>() {
             @Override
-            protected List<ConsumerRecord<String, String>> doInBackground() throws Exception {
-                List<ConsumerRecord<String, String>> list = new ArrayList<>();
+            protected List<ConsumerRecord<byte[], byte[]>> doInBackground() throws Exception {
+                List<ConsumerRecord<byte[], byte[]>> list = new ArrayList<>();
                 
                 // Configure consumer
                 Properties props = new Properties();
@@ -1420,17 +1467,17 @@ public class KafkaPanel extends ToolPanel {
                 props.put(ConsumerConfig.GROUP_ID_CONFIG, "java-toolbox-temp-group-" + UUID.randomUUID());
                 props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
                 props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-                props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-                props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+                props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+                props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
                 // Merge custom props
                 for (String k : activeCustomProperties.stringPropertyNames()) {
                     props.put(k, activeCustomProperties.getProperty(k));
                 }
 
-                try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
+                try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(props)) {
                     // Determine which partitions to query
                     List<TopicPartition> tps = new ArrayList<>();
-                    if (partStr == null || partStr.startsWith("所有分区")) {
+                    if (partStr == null || partStr.startsWith("所有")) {
                         List<PartitionInfo> infos = consumer.partitionsFor(topic);
                         if (infos != null) {
                             for (PartitionInfo info : infos) {
@@ -1445,39 +1492,35 @@ public class KafkaPanel extends ToolPanel {
 
                     consumer.assign(tps);
 
-                    // Parse limit / strategy
-                    int limit = 100;
-                    if (strategy.contains("50")) limit = 50;
-                    else if (strategy.contains("500")) limit = 500;
-
-                    if (strategy.startsWith("从头开始")) {
+                    if (strategy != null && strategy.startsWith("从头开始")) {
                         consumer.seekToBeginning(tps);
                     } else {
                         // "Latest N": Seek to end, then backoff per partition
                         Map<TopicPartition, Long> endOffsets = consumer.endOffsets(tps);
                         Map<TopicPartition, Long> beginningOffsets = consumer.beginningOffsets(tps);
                         
-                        // Apportion N limit among partitions (at least 1 per partition)
-                        int perPartitionLimit = Math.max(1, limit / tps.size());
                         for (TopicPartition tp : tps) {
                             long end = endOffsets.getOrDefault(tp, 0L);
                             long beg = beginningOffsets.getOrDefault(tp, 0L);
-                            long start = Math.max(beg, end - perPartitionLimit);
+                            long start = Math.max(beg, end - limit);
                             consumer.seek(tp, start);
                         }
                     }
 
                     // Poll loop
-                    long deadline = System.currentTimeMillis() + 4000; // max 4 seconds wait
+                    long deadline = System.currentTimeMillis() + 6000; // max 6 seconds wait
+                    int emptyPollCount = 0;
                     while (System.currentTimeMillis() < deadline && list.size() < limit) {
-                        ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
+                        ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(300));
                         if (records.isEmpty()) {
-                            // If we already have messages and did a poll returning empty, break early to save time
-                            if (!list.isEmpty()) break;
-                        }
-                        for (ConsumerRecord<String, String> rec : records) {
-                            list.add(rec);
-                            if (list.size() >= limit) break;
+                            emptyPollCount++;
+                            if (emptyPollCount >= 2 && !list.isEmpty()) break;
+                        } else {
+                            emptyPollCount = 0;
+                            for (ConsumerRecord<byte[], byte[]> rec : records) {
+                                list.add(rec);
+                                if (list.size() >= limit) break;
+                            }
                         }
                     }
                 }
@@ -1491,25 +1534,25 @@ public class KafkaPanel extends ToolPanel {
             protected void done() {
                 fetchBtn.setEnabled(true);
                 try {
-                    List<ConsumerRecord<String, String>> list = get();
+                    List<ConsumerRecord<byte[], byte[]>> list = get();
                     fetchedRecords.addAll(list);
 
                     DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-                    for (ConsumerRecord<String, String> rec : list) {
+                    for (ConsumerRecord<byte[], byte[]> rec : list) {
                         String timeStr = "";
                         try {
                             LocalDateTime ldt = LocalDateTime.ofInstant(Instant.ofEpochMilli(rec.timestamp()), ZoneId.systemDefault());
                             timeStr = formatter.format(ldt);
                         } catch (Exception ignored) {}
 
-                        String k = rec.key();
-                        int kLen = k != null ? k.length() : 0;
-                        String kVal = k != null ? k : "[null]";
+                        byte[] kBytes = rec.key();
+                        int kLen = kBytes != null ? kBytes.length : 0;
+                        String kVal = kBytes != null ? (isBinaryData(kBytes) ? bytesToHexShort(kBytes) : new String(kBytes, StandardCharsets.UTF_8)) : "[null]";
 
-                        String v = rec.value();
-                        int vLen = v != null ? v.length() : 0;
-                        String vVal = v != null ? v : "[null]";
+                        byte[] vBytes = rec.value();
+                        int vLen = vBytes != null ? vBytes.length : 0;
+                        String vVal = vBytes != null ? (isBinaryData(vBytes) ? bytesToHexShort(vBytes) : new String(vBytes, StandardCharsets.UTF_8)) : "[null]";
                         
                         int hCount = rec.headers() != null ? rec.headers().toArray().length : 0;
 
@@ -1858,5 +1901,156 @@ public class KafkaPanel extends ToolPanel {
         }
 
         public String getGroupId() { return groupId; }
+    }
+
+    private void displayMessageValue(ConsumerRecord<byte[], byte[]> rec) {
+        if (rec == null || rec.value() == null) {
+            messageDetailArea.setText("");
+            formatDetectStatusLabel.setText("");
+            return;
+        }
+        byte[] vBytes = rec.value();
+        boolean isBin = isBinaryData(vBytes);
+
+        String currentMode = (String) detailViewModeCombo.getSelectedItem();
+        if (isBin && "🔤 文本模式".equals(currentMode) && !userManualModeSet) {
+            detailViewModeCombo.setSelectedItem("🔢 HEX 模式");
+            currentMode = "🔢 HEX 模式";
+        }
+
+        if ("🔢 HEX 模式".equals(currentMode)) {
+            messageDetailArea.setFont(Tokens.fontMono());
+            messageDetailArea.setLineWrap(false);
+            messageDetailArea.setText(formatHexDump(vBytes));
+            messageDetailArea.setCaretPosition(0);
+            formatDetectStatusLabel.setText(isBin ? "⚠️ 二进制消息 (HEX)" : "HEX 视图");
+            floatJsonBtn.setText("{ } JSON");
+            floatXmlBtn.setText("< > XML");
+        } else {
+            messageDetailArea.setFont(Tokens.fontMono());
+            messageDetailArea.setLineWrap(true);
+            messageDetailArea.setWrapStyleWord(true);
+            String valStr = new String(vBytes, StandardCharsets.UTF_8);
+            messageDetailArea.setText(tryFormatJson(valStr));
+            messageDetailArea.setCaretPosition(0);
+            detectAndHighlightFormat(valStr);
+        }
+    }
+
+    private static boolean isBinaryData(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) return false;
+        int nonPrintableCount = 0;
+        for (byte b : bytes) {
+            int u = b & 0xFF;
+            if ((u < 32 && u != 9 && u != 10 && u != 13) || u == 127) {
+                nonPrintableCount++;
+            }
+        }
+        return (double) nonPrintableCount / bytes.length > 0.05;
+    }
+
+    private static String formatHexDump(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) return "[空数据]";
+        StringBuilder sb = new StringBuilder();
+        int len = bytes.length;
+        for (int i = 0; i < len; i += 16) {
+            sb.append(String.format("%08X  ", i));
+            for (int j = 0; j < 16; j++) {
+                if (i + j < len) {
+                    sb.append(String.format("%02X ", bytes[i + j] & 0xFF));
+                } else {
+                    sb.append("   ");
+                }
+                if (j == 7) sb.append(" ");
+            }
+            sb.append(" |");
+            for (int j = 0; j < 16; j++) {
+                if (i + j < len) {
+                    int b = bytes[i + j] & 0xFF;
+                    if (b >= 32 && b <= 126) {
+                        sb.append((char) b);
+                    } else {
+                        sb.append('.');
+                    }
+                } else {
+                    sb.append(' ');
+                }
+            }
+            sb.append("|\n");
+        }
+        return sb.toString();
+    }
+
+    private final Highlighter.HighlightPainter hexHighlightPainter = 
+            new DefaultHighlighter.DefaultHighlightPainter(new Color(64, 158, 255, 120));
+
+    private void syncHexSelection() {
+        if (detailViewModeCombo == null || !"🔢 HEX 模式".equals(detailViewModeCombo.getSelectedItem())) {
+            return;
+        }
+
+        Highlighter hl = messageDetailArea.getHighlighter();
+        for (Highlighter.Highlight h : hl.getHighlights()) {
+            if (h.getPainter() == hexHighlightPainter) {
+                hl.removeHighlight(h);
+            }
+        }
+
+        int start = messageDetailArea.getSelectionStart();
+        int end = messageDetailArea.getSelectionEnd();
+        if (start >= end) return;
+
+        String text = messageDetailArea.getText();
+        if (text == null || text.length() < 79) return;
+
+        Set<Integer> highlightedHexStarts = new HashSet<>();
+        Set<Integer> highlightedAsciiStarts = new HashSet<>();
+
+        for (int pos = start; pos < end; pos++) {
+            int r = pos / 79;
+            int offsetInLine = pos % 79;
+
+            if (offsetInLine >= 61 && offsetInLine < 77) {
+                int c = offsetInLine - 61;
+                int hStart = r * 79 + (c < 8 ? 10 + c * 3 : 35 + (c - 8) * 3);
+                highlightedHexStarts.add(hStart);
+            } else if (offsetInLine >= 10 && offsetInLine < 58) {
+                int c = -1;
+                if (offsetInLine < 34) {
+                    c = (offsetInLine - 10) / 3;
+                } else if (offsetInLine >= 35) {
+                    c = 8 + (offsetInLine - 35) / 3;
+                }
+                if (c >= 0 && c < 16) {
+                    int aStart = r * 79 + 61 + c;
+                    highlightedAsciiStarts.add(aStart);
+                }
+            }
+        }
+
+        try {
+            for (int hStart : highlightedHexStarts) {
+                if (hStart + 2 <= text.length()) {
+                    hl.addHighlight(hStart, hStart + 2, hexHighlightPainter);
+                }
+            }
+            for (int aStart : highlightedAsciiStarts) {
+                if (aStart + 1 <= text.length()) {
+                    hl.addHighlight(aStart, aStart + 1, hexHighlightPainter);
+                }
+            }
+        } catch (BadLocationException ignored) {
+        }
+    }
+
+    private static String bytesToHexShort(byte[] bytes) {
+        if (bytes == null) return "[null]";
+        StringBuilder sb = new StringBuilder("0x");
+        int limit = Math.min(bytes.length, 20);
+        for (int i = 0; i < limit; i++) {
+            sb.append(String.format("%02X", bytes[i] & 0xFF));
+        }
+        if (bytes.length > 20) sb.append("...");
+        return sb.toString();
     }
 }

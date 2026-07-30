@@ -85,8 +85,8 @@ public final class Tokens {
 
     /** 等宽字体，用于代码、密钥、日志等内容 */
     public static Font fontMono() {
-        Font font = new Font("Microsoft YaHei", Font.PLAIN, 13);
-        if ("Dialog".equals(font.getFamily())) {
+        Font font = new Font("Consolas", Font.PLAIN, 13);
+        if (!"Consolas".equals(font.getFamily()) && !"Consolas".equals(font.getFontName())) {
             return new Font(Font.MONOSPACED, Font.PLAIN, 13);
         }
         return font;

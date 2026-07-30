@@ -135,4 +135,29 @@ public final class UIUtils {
         String value = I18n.get(key);
         return key.equals(value) ? fallback : value;
     }
+
+    /**
+     * 校验窗口位置 (x, y, width, height) 是否落在当前已连接的任意显示屏可见区域内。
+     * 解决多显示器/副屏断开后，旧窗口坐标越界导致窗口不可见的致命问题。
+     */
+    public static boolean isWindowPositionVisible(int x, int y, int width, int height) {
+        try {
+            GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+            GraphicsDevice[] screens = ge.getScreenDevices();
+            Rectangle winBounds = new Rectangle(x, y, width, height);
+            Rectangle topBarBounds = new Rectangle(x, y, Math.min(100, width), Math.min(30, height));
+
+            for (GraphicsDevice screen : screens) {
+                Rectangle screenBounds = screen.getDefaultConfiguration().getBounds();
+                Rectangle intersection = screenBounds.intersection(winBounds);
+                Rectangle topIntersection = screenBounds.intersection(topBarBounds);
+                if (topIntersection.width >= 30 && topIntersection.height >= 20 
+                        && intersection.width >= 100 && intersection.height >= 100) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
 }

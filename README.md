@@ -348,7 +348,7 @@ src/main/java/com/aqishi/toolbox/
 
 项目配置了 GitHub Actions 跨平台自动打包工作流（`.github/workflows/release.yml`）。
 
-当为仓库推送版本标签（例如 `v1.5.2`）时，GitHub Actions 会在 **Windows**、**macOS** 与 **Linux** 三端虚拟机上并行触发原生构建：
+当为仓库推送版本标签（例如 `v1.5.3`）时，GitHub Actions 会在 **Windows**、**macOS** 与 **Linux** 三端虚拟机上并行触发原生构建：
 1. **自动原生打包 (jpackage)**：使用 JDK 17 与 `jpackage` 工具，裁剪出各平台专属的精简 Java 运行时（JRE），将应用与 JRE 打包为免安装原生可执行程序。
 2. **多平台 Release 资产发布**：构建完成后将自动在 GitHub Releases 页面发布以下安装包与应用程序：
    - 🪟 **Windows 免安装原生包**：`java-toolbox-v*-windows.zip`（解压即可双击 `java-toolbox.exe` 运行，无需电脑安装 Java）

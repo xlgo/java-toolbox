@@ -80,12 +80,12 @@ public final class Main {
             titlePanel.setBorder(BorderFactory.createEmptyBorder(40, 20, 10, 20));
 
             JLabel titleLabel = new JLabel("Java Toolbox");
-            titleLabel.setFont(new Font("Microsoft YaHei", Font.BOLD, 28));
+            titleLabel.setFont(new Font(Font.DIALOG, Font.BOLD, 28));
             titleLabel.setForeground(new Color(240, 240, 240));
             titleLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
             JLabel subLabel = new JLabel("开发者一站式多功能工作台");
-            subLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 14));
+            subLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 14));
             subLabel.setForeground(new Color(160, 160, 160));
             subLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
@@ -98,7 +98,7 @@ public final class Main {
             progressPanel.setBorder(BorderFactory.createEmptyBorder(10, 40, 40, 40));
 
             statusLabel = new JLabel("正在准备运行环境...");
-            statusLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+            statusLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
             statusLabel.setForeground(new Color(140, 140, 140));
 
             progressBar = new JProgressBar(0, 100);

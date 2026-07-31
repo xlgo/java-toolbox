@@ -147,6 +147,8 @@ public final class ThemeManager {
      * 在这里统一设置，可以让尚未逐个重构的工具面板也获得一致的控件观感。</p>
      */
     private static void applyCustomDefaults() {
+        applyCjkFontDefaults();
+
         int control = com.aqishi.toolbox.ui.kit.Tokens.CONTROL_HEIGHT;
         int arc = com.aqishi.toolbox.ui.kit.Tokens.RADIUS_CONTROL;
 
@@ -208,5 +210,26 @@ public final class ThemeManager {
         UIManager.put("PopupMenu.borderInsets", new javax.swing.plaf.InsetsUIResource(4, 2, 4, 2));
         UIManager.put("ToolTip.border", new javax.swing.plaf.BorderUIResource(
                 javax.swing.BorderFactory.createEmptyBorder(6, 8, 6, 8)));
+    }
+
+    /** Ensure legacy panels using UI defaults get the same CJK fallback. */
+    private static void applyCjkFontDefaults() {
+        String[] keys = {
+                "Label.font", "Button.font", "ToggleButton.font", "CheckBox.font",
+                "RadioButton.font", "ComboBox.font", "TextField.font", "PasswordField.font",
+                "TextArea.font", "TextPane.font", "EditorPane.font", "List.font",
+                "Table.font", "TableHeader.font", "Tree.font", "TabbedPane.font",
+                "Spinner.font", "Menu.font", "MenuItem.font", "PopupMenu.font",
+                "ToolTip.font", "OptionPane.messageFont", "OptionPane.buttonFont",
+                "TitledBorder.font"
+        };
+        for (String key : keys) {
+            java.awt.Font font = UIManager.getFont(key);
+            if (font != null) {
+                UIManager.put(key, com.aqishi.toolbox.ui.kit.Tokens.withCjkFallback(font));
+            }
+        }
+        UIManager.put("defaultFont", com.aqishi.toolbox.ui.kit.Tokens.withCjkFallback(
+                new java.awt.Font(java.awt.Font.DIALOG, java.awt.Font.PLAIN, 13)));
     }
 }

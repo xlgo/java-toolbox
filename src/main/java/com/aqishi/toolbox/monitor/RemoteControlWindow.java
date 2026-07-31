@@ -182,7 +182,7 @@ public class RemoteControlWindow extends JFrame {
 
         JLabel statusLbl = new JLabel(channel.isP2P() ? I18n.get("remote_desktop.status_p2p") : I18n.get("remote_desktop.status_relay"));
         statusLbl.setForeground(channel.isP2P() ? new Color(75, 181, 67) : new Color(255, 140, 0));
-        statusLbl.setFont(new Font("Microsoft YaHei", Font.BOLD, 12));
+        statusLbl.setFont(new Font(Font.DIALOG, Font.BOLD, 12));
         floatToolbarWindow.add(statusLbl);
         floatToolbarWindow.add(new JLabel("|"));
 
@@ -190,7 +190,7 @@ public class RemoteControlWindow extends JFrame {
         JButton ftBtn = createToolbarButton(I18n.get("remote_desktop.toolbar_ft"));
         JButton cmdBtn = createToolbarButton(I18n.get("remote_desktop.toolbar_term"));
         JToggleButton drawBtn = new JToggleButton(I18n.get("remote_desktop.toolbar_draw"));
-        drawBtn.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+        drawBtn.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
         drawBtn.setPreferredSize(new Dimension(80, 24));
 
         JButton clearBtn = createToolbarButton(I18n.get("remote_desktop.toolbar_clear"));
@@ -240,7 +240,7 @@ public class RemoteControlWindow extends JFrame {
 
     private JButton createToolbarButton(String text) {
         JButton btn = new JButton(text);
-        btn.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+        btn.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
         btn.setPreferredSize(new Dimension(90, 24));
         btn.setFocusable(false);
         return btn;

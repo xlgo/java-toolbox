@@ -1,5 +1,8 @@
 package com.aqishi.toolbox.misc;
 
+import com.aqishi.toolbox.misc.ssh.model.SshConfigStore;
+import com.aqishi.toolbox.misc.ssh.model.SshConnectionConfig;
+import com.aqishi.toolbox.misc.ssh.session.SshTunnelBridge;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -40,6 +43,8 @@ public class RedisPanel extends ToolPanel {
     private JTextField portField;
     private JPasswordField passField;
     private JComboBox<Integer> dbCombo;
+    private JCheckBox useSshCheck;
+    private JComboBox<SshConnectionConfig> sshCombo;
     private JButton connBtn;
     // Collapsible Connection Panel (aligned with DatabasePanel)
     private JPanel connHeaderPanel;
@@ -112,6 +117,9 @@ public class RedisPanel extends ToolPanel {
     private int connPort;
     private String connPassword;
     private int connDb;
+    private volatile SshTunnelBridge.BridgeResult activeSshBridge;
+    /** Jedis connections are stateful and must not be used by concurrent workers. */
+    private final Object redisLock = new Object();
     private String currentSelectedKey = null;
 
     public RedisPanel() {
@@ -189,10 +197,22 @@ public class RedisPanel extends ToolPanel {
         passRow.add(passField, BorderLayout.CENTER);
         passRow.add(trailingField("DB:", dbCombo), BorderLayout.EAST);
 
+        useSshCheck = new JCheckBox("启用 SSH 隧道");
+        java.util.List<SshConnectionConfig> sshList = SshConfigStore.getInstance().getAll();
+        sshCombo = Fields.combo(sshList.toArray(new SshConnectionConfig[0]));
+        sshCombo.setEnabled(false);
+        useSshCheck.addActionListener(e -> sshCombo.setEnabled(useSshCheck.isSelected()));
+        SshConfigStore.getInstance().addChangeListener(this::refreshSshConfigs);
+
+        JPanel sshRow = Layouts.box(Tokens.SPACE_MD, 0);
+        sshRow.add(useSshCheck, BorderLayout.WEST);
+        sshRow.add(sshCombo, BorderLayout.CENTER);
+
         FormGrid form = new FormGrid();
         form.rowCompact("已存配置:", profileCombo, Layouts.wrapRow(saveProfileBtn, delProfileBtn));
         form.row("主机:", hostRow);
         form.row("密码:", passRow);
+        form.row("SSH 隧道:", sshRow);
 
         JPanel formBox = Layouts.box();
         formBox.setBorder(KitBorders.padding(
@@ -507,6 +527,7 @@ public class RedisPanel extends ToolPanel {
             ttlField.setText("");
             valueCardLayout.show(valueCardPanel, "NONE");
             closeJedis();
+            releaseSshBridge();
 
             if (connBodyPanel != null && connCollapsed) {
                 setConnCollapsed(false);
@@ -639,33 +660,93 @@ public class RedisPanel extends ToolPanel {
 
     /** 检查连接是否有效，无效则自动重连 */
     private boolean checkConnection() {
-        if (jedis == null) return false;
-        try {
-            jedis.ping();
-            return true;
-        } catch (Exception e) {
-            // 连接已断开，自动重连
-            closeJedis();
+        synchronized (redisLock) {
+            if (jedis == null) return false;
             try {
-                Jedis client = new Jedis(connHost, connPort, 5000);
-                if (!connPassword.isEmpty()) client.auth(connPassword);
-                client.select(connDb);
-                client.ping();
-                jedis = client;
-                consoleOutput.append("自动重连成功\n");
+                jedis.ping();
                 return true;
-            } catch (Exception ex) {
-                jedis = null;
-                return false;
+            } catch (Exception e) {
+                // 连接已断开，自动重连
+                closeJedis();
+                releaseSshBridge();
+                try {
+                    Jedis client = createRedisClient();
+                    client.ping();
+                    jedis = client;
+                    consoleOutput.append("自动重连成功\n");
+                    return true;
+                } catch (Exception ex) {
+                    jedis = null;
+                    return false;
+                }
             }
         }
     }
 
     private void closeJedis() {
-        if (jedis != null) {
-            try { jedis.close(); } catch (Exception ignored) {}
-            jedis = null;
+        synchronized (redisLock) {
+            if (jedis != null) {
+                try { jedis.close(); } catch (Exception ignored) {}
+                jedis = null;
+            }
         }
+    }
+
+    private Jedis createRedisClient() throws Exception {
+        synchronized (redisLock) {
+            String targetHost = connHost;
+            int targetPort = connPort;
+            SshTunnelBridge.BridgeResult bridge = null;
+            try {
+                if (useSshCheck != null && useSshCheck.isSelected()) {
+                    SshConnectionConfig sshCfg = (SshConnectionConfig) sshCombo.getSelectedItem();
+                    if (sshCfg == null) throw new IllegalArgumentException("请选择用于隧道的 SSH 服务器配置");
+                    bridge = SshTunnelBridge.bridge(sshCfg.getId(), connHost, connPort);
+                    targetHost = bridge.getLocalHost();
+                    targetPort = bridge.getLocalPort();
+                }
+                Jedis client = new Jedis(targetHost, targetPort, 5000);
+                if (!connPassword.isEmpty()) client.auth(connPassword);
+                client.select(connDb);
+                activeSshBridge = bridge;
+                return client;
+            } catch (Exception error) {
+                if (bridge != null) bridge.close();
+                throw error;
+            }
+        }
+    }
+
+    private void releaseSshBridge() {
+        synchronized (redisLock) {
+            SshTunnelBridge.BridgeResult bridge = activeSshBridge;
+            activeSshBridge = null;
+            if (bridge != null) bridge.close();
+        }
+    }
+
+    private void refreshSshConfigs() {
+        Runnable refresh = () -> {
+            if (sshCombo == null) return;
+            String selectedId = null;
+            SshConnectionConfig selected = (SshConnectionConfig) sshCombo.getSelectedItem();
+            if (selected != null) selectedId = selected.getId();
+            sshCombo.removeAllItems();
+            for (SshConnectionConfig config : SshConfigStore.getInstance().getAll()) {
+                sshCombo.addItem(config);
+            }
+            if (selectedId != null) {
+                for (int i = 0; i < sshCombo.getItemCount(); i++) {
+                    if (selectedId.equals(sshCombo.getItemAt(i).getId())) {
+                        sshCombo.setSelectedIndex(i);
+                        break;
+                    }
+                }
+            }
+            sshCombo.setEnabled(useSshCheck != null && useSshCheck.isSelected());
+        };
+        if (SwingUtilities.isEventDispatchThread()) refresh.run();
+        else SwingUtilities.invokeLater(refresh);
     }
 
     private void connectRedis() {
@@ -685,13 +766,11 @@ public class RedisPanel extends ToolPanel {
         new SwingWorker<Jedis, Void>() {
             @Override
             protected Jedis doInBackground() throws Exception {
-                Jedis client = new Jedis(connHost, connPort, 5000);
-                if (!connPassword.isEmpty()) {
-                    client.auth(connPassword);
+                synchronized (redisLock) {
+                    Jedis client = createRedisClient();
+                    client.ping(); // test connection
+                    return client;
                 }
-                client.select(connDb);
-                client.ping(); // test connection
-                return client;
             }
 
             @Override
@@ -720,8 +799,10 @@ public class RedisPanel extends ToolPanel {
         new SwingWorker<Set<String>, Void>() {
             @Override
             protected Set<String> doInBackground() {
-                if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
-                return jedis.keys(finalPattern);
+                synchronized (redisLock) {
+                    if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
+                    return jedis.keys(finalPattern);
+                }
             }
 
             @Override
@@ -761,25 +842,27 @@ public class RedisPanel extends ToolPanel {
         new SwingWorker<Map<String, Object>, Void>() {
             @Override
             protected Map<String, Object> doInBackground() {
-                if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
-                Map<String, Object> res = new HashMap<>();
-                String type = jedis.type(key);
-                long ttl = jedis.ttl(key);
-                res.put("type", type);
-                res.put("ttl", ttl);
+                synchronized (redisLock) {
+                    if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
+                    Map<String, Object> res = new HashMap<>();
+                    String type = jedis.type(key);
+                    long ttl = jedis.ttl(key);
+                    res.put("type", type);
+                    res.put("ttl", ttl);
 
-                if ("string".equals(type)) {
-                    res.put("value", jedis.get(key));
-                } else if ("hash".equals(type)) {
-                    res.put("value", jedis.hgetAll(key));
-                } else if ("list".equals(type)) {
-                    res.put("value", jedis.lrange(key, 0, -1));
-                } else if ("set".equals(type)) {
-                    res.put("value", jedis.smembers(key));
-                } else if ("zset".equals(type)) {
-                    res.put("value", jedis.zrangeWithScores(key, 0, -1));
+                    if ("string".equals(type)) {
+                        res.put("value", jedis.get(key));
+                    } else if ("hash".equals(type)) {
+                        res.put("value", jedis.hgetAll(key));
+                    } else if ("list".equals(type)) {
+                        res.put("value", jedis.lrange(key, 0, -1));
+                    } else if ("set".equals(type)) {
+                        res.put("value", jedis.smembers(key));
+                    } else if ("zset".equals(type)) {
+                        res.put("value", jedis.zrangeWithScores(key, 0, -1));
+                    }
+                    return res;
                 }
-                return res;
             }
 
             @Override
@@ -869,25 +952,27 @@ public class RedisPanel extends ToolPanel {
             new SwingWorker<Void, Void>() {
                 @Override
                 protected Void doInBackground() {
-                    if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
-                    if (jedis.exists(key)) {
-                        throw new RuntimeException("该键已存在");
-                    }
-                    if ("string".equals(type)) {
-                        jedis.set(key, val);
-                    } else if ("hash".equals(type)) {
-                        if (val.contains(":")) {
-                            String[] parts = val.split(":", 2);
-                            jedis.hset(key, parts[0], parts[1]);
-                        } else {
-                            jedis.hset(key, "default", val);
+                    synchronized (redisLock) {
+                        if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
+                        if (jedis.exists(key)) {
+                            throw new RuntimeException("该键已存在");
                         }
-                    } else if ("list".equals(type)) {
-                        jedis.rpush(key, val);
-                    } else if ("set".equals(type)) {
-                        jedis.sadd(key, val);
-                    } else if ("zset".equals(type)) {
-                        jedis.zadd(key, 0.0, val);
+                        if ("string".equals(type)) {
+                            jedis.set(key, val);
+                        } else if ("hash".equals(type)) {
+                            if (val.contains(":")) {
+                                String[] parts = val.split(":", 2);
+                                jedis.hset(key, parts[0], parts[1]);
+                            } else {
+                                jedis.hset(key, "default", val);
+                            }
+                        } else if ("list".equals(type)) {
+                            jedis.rpush(key, val);
+                        } else if ("set".equals(type)) {
+                            jedis.sadd(key, val);
+                        } else if ("zset".equals(type)) {
+                            jedis.zadd(key, 0.0, val);
+                        }
                     }
                     return null;
                 }
@@ -913,8 +998,10 @@ public class RedisPanel extends ToolPanel {
             new SwingWorker<Void, Void>() {
                 @Override
                 protected Void doInBackground() {
-                    if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
-                    jedis.del(currentSelectedKey);
+                    synchronized (redisLock) {
+                        if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
+                        jedis.del(currentSelectedKey);
+                    }
                     return null;
                 }
 
@@ -945,11 +1032,13 @@ public class RedisPanel extends ToolPanel {
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
-                if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
-                if (ttl < 0) {
-                    jedis.persist(currentSelectedKey);
-                } else {
-                    jedis.expire(currentSelectedKey, ttl);
+                synchronized (redisLock) {
+                    if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
+                    if (ttl < 0) {
+                        jedis.persist(currentSelectedKey);
+                    } else {
+                        jedis.expire(currentSelectedKey, ttl);
+                    }
                 }
                 return null;
             }
@@ -995,53 +1084,55 @@ public class RedisPanel extends ToolPanel {
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
-                if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
-                // Remove first to rewrite list/set/zset
-                if (!"string".equals(type) && !"hash".equals(type)) {
-                    jedis.del(currentSelectedKey);
-                }
+                synchronized (redisLock) {
+                    if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
+                    // Remove first to rewrite list/set/zset
+                    if (!"string".equals(type) && !"hash".equals(type)) {
+                        jedis.del(currentSelectedKey);
+                    }
 
-                if ("string".equals(type)) {
-                    jedis.set(currentSelectedKey, stringArea.getText());
-                } else if ("hash".equals(type)) {
-                    // Collect modified values
-                    Map<String, String> currentHash = jedis.hgetAll(currentSelectedKey);
-                    Set<String> fieldsInTable = new HashSet<>();
-                    for (int i = 0; i < hashModel.getRowCount(); i++) {
-                        String field = (String) hashModel.getValueAt(i, 0);
-                        String value = (String) hashModel.getValueAt(i, 1);
-                        if (field != null && !field.trim().isEmpty()) {
-                            jedis.hset(currentSelectedKey, field, value);
-                            fieldsInTable.add(field);
+                    if ("string".equals(type)) {
+                        jedis.set(currentSelectedKey, stringArea.getText());
+                    } else if ("hash".equals(type)) {
+                        // Collect modified values
+                        Map<String, String> currentHash = jedis.hgetAll(currentSelectedKey);
+                        Set<String> fieldsInTable = new HashSet<>();
+                        for (int i = 0; i < hashModel.getRowCount(); i++) {
+                            String field = (String) hashModel.getValueAt(i, 0);
+                            String value = (String) hashModel.getValueAt(i, 1);
+                            if (field != null && !field.trim().isEmpty()) {
+                                jedis.hset(currentSelectedKey, field, value);
+                                fieldsInTable.add(field);
+                            }
                         }
-                    }
-                    // Remove fields deleted in GUI
-                    for (String field : currentHash.keySet()) {
-                        if (!fieldsInTable.contains(field)) {
-                            jedis.hdel(currentSelectedKey, field);
+                        // Remove fields deleted in GUI
+                        for (String field : currentHash.keySet()) {
+                            if (!fieldsInTable.contains(field)) {
+                                jedis.hdel(currentSelectedKey, field);
+                            }
                         }
-                    }
-                } else if ("list".equals(type)) {
-                    for (int i = 0; i < listModel.getRowCount(); i++) {
-                        String val = (String) listModel.getValueAt(i, 1);
-                        if (val != null) {
-                            jedis.rpush(currentSelectedKey, val);
+                    } else if ("list".equals(type)) {
+                        for (int i = 0; i < listModel.getRowCount(); i++) {
+                            String val = (String) listModel.getValueAt(i, 1);
+                            if (val != null) {
+                                jedis.rpush(currentSelectedKey, val);
+                            }
                         }
-                    }
-                } else if ("set".equals(type)) {
-                    for (int i = 0; i < setModel.getRowCount(); i++) {
-                        String val = (String) setModel.getValueAt(i, 0);
-                        if (val != null && !val.trim().isEmpty()) {
-                            jedis.sadd(currentSelectedKey, val);
+                    } else if ("set".equals(type)) {
+                        for (int i = 0; i < setModel.getRowCount(); i++) {
+                            String val = (String) setModel.getValueAt(i, 0);
+                            if (val != null && !val.trim().isEmpty()) {
+                                jedis.sadd(currentSelectedKey, val);
+                            }
                         }
-                    }
-                } else if ("zset".equals(type)) {
-                    for (int i = 0; i < zsetModel.getRowCount(); i++) {
-                        String scoreStr = String.valueOf(zsetModel.getValueAt(i, 0));
-                        String member = (String) zsetModel.getValueAt(i, 1);
-                        if (member != null && !member.trim().isEmpty()) {
-                            double score = Double.parseDouble(scoreStr);
-                            jedis.zadd(currentSelectedKey, score, member);
+                    } else if ("zset".equals(type)) {
+                        for (int i = 0; i < zsetModel.getRowCount(); i++) {
+                            String scoreStr = String.valueOf(zsetModel.getValueAt(i, 0));
+                            String member = (String) zsetModel.getValueAt(i, 1);
+                            if (member != null && !member.trim().isEmpty()) {
+                                double score = Double.parseDouble(scoreStr);
+                                jedis.zadd(currentSelectedKey, score, member);
+                            }
                         }
                     }
                 }
@@ -1074,40 +1165,42 @@ public class RedisPanel extends ToolPanel {
         new SwingWorker<String, Void>() {
             @Override
             protected String doInBackground() {
-                try {
-                    if (!checkConnection()) return "ERROR: Redis 连接已断开";
-                    // Execute simple arbitrary Redis commands
-                    String cmd = args[0].toUpperCase();
-                    if ("PING".equals(cmd)) {
-                        return jedis.ping();
-                    } else if ("SET".equals(cmd) && args.length >= 3) {
-                        return jedis.set(args[1], args[2]);
-                    } else if ("GET".equals(cmd) && args.length >= 2) {
-                        return jedis.get(args[1]);
-                    } else if ("DEL".equals(cmd) && args.length >= 2) {
-                        return String.valueOf(jedis.del(args[1]));
-                    } else if ("KEYS".equals(cmd) && args.length >= 2) {
-                        return String.valueOf(jedis.keys(args[1]));
-                    } else if ("EXISTS".equals(cmd) && args.length >= 2) {
-                        return String.valueOf(jedis.exists(args[1]));
-                    } else if ("TTL".equals(cmd) && args.length >= 2) {
-                        return String.valueOf(jedis.ttl(args[1]));
-                    } else if ("TYPE".equals(cmd) && args.length >= 2) {
-                        return jedis.type(args[1]);
-                    } else if ("DBSIZE".equals(cmd)) {
-                        return String.valueOf(jedis.dbSize());
-                    } else if ("FLUSHDB".equals(cmd)) {
-                        return jedis.flushDB();
-                    } else if ("FLUSHALL".equals(cmd)) {
-                        return jedis.flushAll();
-                    } else if ("INFO".equals(cmd)) {
-                        return jedis.info();
-                    } else {
-                        // General commands backup
-                        return "暂未支持的控制台指令。可使用标准 PING/SET/GET/DEL/KEYS/EXISTS/TTL/TYPE/INFO 等。";
+                synchronized (redisLock) {
+                    try {
+                        if (!checkConnection()) return "ERROR: Redis 连接已断开";
+                        // Execute simple arbitrary Redis commands
+                        String cmd = args[0].toUpperCase();
+                        if ("PING".equals(cmd)) {
+                            return jedis.ping();
+                        } else if ("SET".equals(cmd) && args.length >= 3) {
+                            return jedis.set(args[1], args[2]);
+                        } else if ("GET".equals(cmd) && args.length >= 2) {
+                            return jedis.get(args[1]);
+                        } else if ("DEL".equals(cmd) && args.length >= 2) {
+                            return String.valueOf(jedis.del(args[1]));
+                        } else if ("KEYS".equals(cmd) && args.length >= 2) {
+                            return String.valueOf(jedis.keys(args[1]));
+                        } else if ("EXISTS".equals(cmd) && args.length >= 2) {
+                            return String.valueOf(jedis.exists(args[1]));
+                        } else if ("TTL".equals(cmd) && args.length >= 2) {
+                            return String.valueOf(jedis.ttl(args[1]));
+                        } else if ("TYPE".equals(cmd) && args.length >= 2) {
+                            return jedis.type(args[1]);
+                        } else if ("DBSIZE".equals(cmd)) {
+                            return String.valueOf(jedis.dbSize());
+                        } else if ("FLUSHDB".equals(cmd)) {
+                            return jedis.flushDB();
+                        } else if ("FLUSHALL".equals(cmd)) {
+                            return jedis.flushAll();
+                        } else if ("INFO".equals(cmd)) {
+                            return jedis.info();
+                        } else {
+                            // General commands backup
+                            return "暂未支持的控制台指令。可使用标准 PING/SET/GET/DEL/KEYS/EXISTS/TTL/TYPE/INFO 等。";
+                        }
+                    } catch (Exception ex) {
+                        return "ERROR: " + ex.getMessage();
                     }
-                } catch (Exception ex) {
-                    return "ERROR: " + ex.getMessage();
                 }
             }
 

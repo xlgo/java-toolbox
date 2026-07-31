@@ -288,9 +288,9 @@ public class FileTransferDialog extends JDialog {
 
         JPanel infoPanel = new JPanel(new GridLayout(2, 1, 2, 2));
         JLabel nameLbl = new JLabel(task.fileName);
-        nameLbl.setFont(new Font("Microsoft YaHei", Font.BOLD, 13));
+        nameLbl.setFont(new Font(Font.DIALOG, Font.BOLD, 13));
         JLabel sizeLbl = new JLabel(formatBytes(task.fileSize));
-        sizeLbl.setFont(new Font("Microsoft YaHei", Font.PLAIN, 11));
+        sizeLbl.setFont(new Font(Font.DIALOG, Font.PLAIN, 11));
         sizeLbl.setForeground(Color.GRAY);
         infoPanel.add(nameLbl);
         infoPanel.add(sizeLbl);
@@ -303,9 +303,9 @@ public class FileTransferDialog extends JDialog {
 
         JPanel statusPanel = new JPanel(new BorderLayout());
         task.statusLabel = new JLabel(I18n.get("remote_desktop.ft_waiting"));
-        task.statusLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 11));
+        task.statusLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 11));
         task.speedLabel = new JLabel("0.00 KB/s");
-        task.speedLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 11));
+        task.speedLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 11));
         statusPanel.add(task.statusLabel, BorderLayout.WEST);
         statusPanel.add(task.speedLabel, BorderLayout.EAST);
         progressPanel.add(statusPanel, BorderLayout.SOUTH);

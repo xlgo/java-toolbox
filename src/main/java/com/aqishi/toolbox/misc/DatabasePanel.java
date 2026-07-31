@@ -1,5 +1,8 @@
 package com.aqishi.toolbox.misc;
 
+import com.aqishi.toolbox.misc.ssh.model.SshConfigStore;
+import com.aqishi.toolbox.misc.ssh.model.SshConnectionConfig;
+import com.aqishi.toolbox.misc.ssh.session.SshTunnelBridge;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -65,10 +68,14 @@ public class DatabasePanel extends ToolPanel {
     private JButton browseJarBtn;
     private JTextField urlField;
 
+    private JCheckBox useSshCheck;
+    private JComboBox<SshConnectionConfig> sshCombo;
+
     private JButton testBtn;
     private JButton connBtn;
     private boolean isConnected = false;
     private Connection connection = null;
+    private volatile SshTunnelBridge.BridgeResult activeSshBridge;
 
     // Database & Schema Switchers in Workspace
     private JComboBox<String> dbSwitchCombo;
@@ -249,8 +256,20 @@ public class DatabasePanel extends ToolPanel {
         // 带行尾按钮的行与 JDBC URL 都跨整卡宽度：
         // 把它们塞进半栏会把两列的首选宽度顶到窗口之外，GridBagLayout 一旦退化到最小尺寸
         // 就会先把按钮压到 64px，"测试连接" 之类的文案会被截断。
+        useSshCheck = new JCheckBox("启用 SSH 隧道");
+        java.util.List<SshConnectionConfig> sshList = SshConfigStore.getInstance().getAll();
+        sshCombo = Fields.combo(sshList.toArray(new SshConnectionConfig[0]));
+        sshCombo.setEnabled(false);
+        useSshCheck.addActionListener(e -> sshCombo.setEnabled(useSshCheck.isSelected()));
+        SshConfigStore.getInstance().addChangeListener(this::refreshSshConfigs);
+
+        JPanel sshRow = Layouts.box(Tokens.SPACE_MD, 0);
+        sshRow.add(useSshCheck, BorderLayout.WEST);
+        sshRow.add(sshCombo, BorderLayout.CENTER);
+
         FormGrid form = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
         form.fullRow(Layouts.columns(Tokens.SPACE_XL, target, credential));
+        form.row("SSH 隧道", sshRow);
         form.row("驱动类名", driverClassField);
         form.row("驱动 JAR 路径", jarPathField, browseJarBtn);
         form.row("JDBC URL", urlField, connActions);
@@ -535,31 +554,118 @@ public class DatabasePanel extends ToolPanel {
 
     // Dynamic Connection Factory
     private Connection createConnection(String url, String user, String pwd, String driverClass, String jarPath) throws Exception {
-        if (jarPath != null && !jarPath.trim().isEmpty()) {
-            File jarFile = new File(jarPath.trim());
-            if (!jarFile.exists()) {
-                throw new FileNotFoundException("未找到驱动 JAR 文件：" + jarPath);
+        String finalUrl = url.trim();
+        SshTunnelBridge.BridgeResult bridge = null;
+        try {
+            if (useSshCheck != null && useSshCheck.isSelected()) {
+                SshConnectionConfig sshCfg = (SshConnectionConfig) sshCombo.getSelectedItem();
+                if (sshCfg == null) {
+                    throw new IllegalArgumentException("请选择用于隧道的 SSH 服务器配置");
+                }
+                String rawHost = hostField.getText().trim();
+                int rawPort = parsePort(portField.getText(), 3306);
+                bridge = SshTunnelBridge.bridge(sshCfg.getId(), rawHost, rawPort);
+                finalUrl = replaceJdbcEndpoint(finalUrl, rawHost, rawPort, bridge.getLocalPort());
             }
-            URL[] urls = new URL[]{ jarFile.toURI().toURL() };
-            URLClassLoader loader = new URLClassLoader(urls, DatabasePanel.class.getClassLoader());
-            Class<?> clazz = Class.forName(driverClass.trim(), true, loader);
-            Driver driver = (Driver) clazz.getDeclaredConstructor().newInstance();
-            Properties props = new Properties();
-            if (user != null && !user.isEmpty()) props.setProperty("user", user);
-            if (pwd != null && !pwd.isEmpty()) props.setProperty("password", pwd);
-            Connection conn = driver.connect(url.trim(), props);
-            if (conn == null) {
-                throw new SQLException("驱动程序未接受此 JDBC URL，请检查格式是否匹配。");
+
+            Connection result;
+            if (jarPath != null && !jarPath.trim().isEmpty()) {
+                File jarFile = new File(jarPath.trim());
+                if (!jarFile.exists()) {
+                    throw new FileNotFoundException("未找到驱动 JAR 文件：" + jarPath);
+                }
+                URL[] urls = new URL[]{ jarFile.toURI().toURL() };
+                URLClassLoader loader = new URLClassLoader(urls, DatabasePanel.class.getClassLoader());
+                Class<?> clazz = Class.forName(driverClass.trim(), true, loader);
+                Driver driver = (Driver) clazz.getDeclaredConstructor().newInstance();
+                Properties props = new Properties();
+                if (user != null && !user.isEmpty()) props.setProperty("user", user);
+                if (pwd != null && !pwd.isEmpty()) props.setProperty("password", pwd);
+                result = driver.connect(finalUrl, props);
+                if (result == null) {
+                    throw new SQLException("驱动程序未接受此 JDBC URL，请检查格式是否匹配。");
+                }
+            } else {
+                if (driverClass != null && !driverClass.trim().isEmpty()) {
+                    try { Class.forName(driverClass.trim()); } catch (Exception ignored) { }
+                }
+                result = DriverManager.getConnection(finalUrl, user, pwd);
             }
-            return conn;
-        } else {
-            if (driverClass != null && !driverClass.trim().isEmpty()) {
-                try {
-                    Class.forName(driverClass.trim());
-                } catch (Exception ignored) {}
-            }
-            return DriverManager.getConnection(url.trim(), user, pwd);
+            if (bridge != null) activeSshBridge = bridge;
+            return result;
+        } catch (Exception error) {
+            if (bridge != null) bridge.close();
+            throw error;
         }
+    }
+
+    private static int parsePort(String value, int fallback) {
+        try {
+            int port = Integer.parseInt(value == null ? "" : value.trim());
+            if (port >= 1 && port <= 65535) return port;
+        } catch (NumberFormatException ignored) {
+        }
+        throw new IllegalArgumentException("端口格式不正确");
+    }
+
+    private static String replaceJdbcEndpoint(String url, String remoteHost,
+                                              int remotePort, int localPort) {
+        int schemeEnd = url.indexOf("://");
+        if (schemeEnd < 0) {
+            return url.replace(remoteHost + ":" + remotePort,
+                    "127.0.0.1:" + localPort);
+        }
+        int authorityStart = schemeEnd + 3;
+        int authorityEnd = url.length();
+        for (char delimiter : new char[]{'/', '?', '#'}) {
+            int index = url.indexOf(delimiter, authorityStart);
+            if (index >= 0) authorityEnd = Math.min(authorityEnd, index);
+        }
+        String authority = url.substring(authorityStart, authorityEnd);
+        int userInfoEnd = authority.lastIndexOf('@');
+        String userInfo = userInfoEnd >= 0 ? authority.substring(0, userInfoEnd + 1) : "";
+        String hostPort = userInfoEnd >= 0 ? authority.substring(userInfoEnd + 1) : authority;
+        String expectedHost = remoteHost;
+        if (expectedHost.indexOf(':') >= 0 && !expectedHost.startsWith("[")) {
+            expectedHost = "[" + expectedHost + "]";
+        }
+        if (!hostPort.startsWith(expectedHost)) {
+            return url.replace(remoteHost + ":" + remotePort,
+                    "127.0.0.1:" + localPort);
+        }
+        String replacement = userInfo + "127.0.0.1:" + localPort;
+        return url.substring(0, authorityStart) + replacement
+                + url.substring(authorityEnd);
+    }
+
+    private void releaseSshBridge() {
+        SshTunnelBridge.BridgeResult bridge = activeSshBridge;
+        activeSshBridge = null;
+        if (bridge != null) bridge.close();
+    }
+
+    private void refreshSshConfigs() {
+        Runnable refresh = () -> {
+            if (sshCombo == null) return;
+            String selectedId = null;
+            SshConnectionConfig selected = (SshConnectionConfig) sshCombo.getSelectedItem();
+            if (selected != null) selectedId = selected.getId();
+            sshCombo.removeAllItems();
+            for (SshConnectionConfig config : SshConfigStore.getInstance().getAll()) {
+                sshCombo.addItem(config);
+            }
+            if (selectedId != null) {
+                for (int i = 0; i < sshCombo.getItemCount(); i++) {
+                    if (selectedId.equals(sshCombo.getItemAt(i).getId())) {
+                        sshCombo.setSelectedIndex(i);
+                        break;
+                    }
+                }
+            }
+            sshCombo.setEnabled(useSshCheck != null && useSshCheck.isSelected());
+        };
+        if (SwingUtilities.isEventDispatchThread()) refresh.run();
+        else SwingUtilities.invokeLater(refresh);
     }
 
     private void testConnection() {
@@ -584,6 +690,7 @@ public class DatabasePanel extends ToolPanel {
                     if (conn != null) {
                         try { conn.close(); } catch (Exception ignored) {}
                     }
+                    releaseSshBridge();
                 }
                 return null;
             }
@@ -680,6 +787,7 @@ public class DatabasePanel extends ToolPanel {
             }
             connection = null;
         }
+        releaseSshBridge();
         isConnected = false;
         connBtn.setText("连接");
         testBtn.setEnabled(true);

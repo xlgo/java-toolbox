@@ -1386,7 +1386,7 @@ public class BpmnPanel extends ToolPanel {
                 int[] xp = {x + 9, x + 17, x + 9, x + 1};
                 int[] yp = {y + 1, y + 9, y + 17, y + 9};
                 g2.drawPolygon(xp, yp, 4);
-                g2.setFont(new Font("Arial", Font.BOLD, 10));
+                g2.setFont(new Font(Font.DIALOG, Font.BOLD, 10));
                 g2.drawString("X", x + 6, y + 12);
             } else if (iconType.equals(TYPE_PARALLEL_GATEWAY)) {
                 g2.setColor(new Color(138, 109, 59));
@@ -1547,7 +1547,7 @@ public class BpmnPanel extends ToolPanel {
                     g2.drawPolygon(xPoints, yPoints, 4);
 
                     if (node.type.equals(TYPE_GATEWAY)) {
-                        g2.setFont(new Font("Arial", Font.BOLD, 18));
+                        g2.setFont(new Font(Font.DIALOG, Font.BOLD, 18));
                         g2.drawString("X", node.x + node.w / 2 - 6, node.y + node.h / 2 + 7);
                     } else if (node.type.equals(TYPE_PARALLEL_GATEWAY)) {
                         g2.setStroke(new BasicStroke(3.0f));

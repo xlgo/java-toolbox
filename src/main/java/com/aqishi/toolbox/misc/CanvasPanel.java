@@ -1019,7 +1019,7 @@ class CanvasPanel extends JPanel {
 
     private void drawNodeName(Graphics2D g2, FlowNode node) {
         int style = node.isBold ? Font.BOLD : Font.PLAIN;
-        g2.setFont(new Font("Microsoft YaHei", style, node.fontSize));
+        g2.setFont(new Font(Font.DIALOG, style, node.fontSize));
         g2.setColor(node.textColor != null ? node.textColor : UIManager.getColor("Label.foreground"));
         if (g2.getColor() == null) g2.setColor(Color.BLACK);
         
@@ -1184,7 +1184,7 @@ class CanvasPanel extends JPanel {
         if (edge.label == null || edge.label.trim().isEmpty()) {
             return null;
         }
-        Font font = new Font("Microsoft YaHei", Font.PLAIN, 11);
+        Font font = new Font(Font.DIALOG, Font.PLAIN, 11);
         FontMetrics fm = getFontMetrics(font);
         Point center = edge.getPointAtFraction(edge.labelPosition);
         int cx = center.x;
@@ -1197,7 +1197,7 @@ class CanvasPanel extends JPanel {
     }
 
     private void drawEdgeLabel(Graphics2D g2, FlowEdge edge, String label) {
-        g2.setFont(new Font("Microsoft YaHei", Font.PLAIN, 11));
+        g2.setFont(new Font(Font.DIALOG, Font.PLAIN, 11));
         FontMetrics fm = g2.getFontMetrics();
         Point center = edge.getPointAtFraction(edge.labelPosition);
         int cx = center.x;

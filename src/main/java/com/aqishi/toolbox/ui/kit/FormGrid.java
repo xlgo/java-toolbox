@@ -79,7 +79,12 @@ public class FormGrid extends JPanel {
         GridBagConstraints labelSpec = new GridBagConstraints();
         labelSpec.gridx = 0;
         labelSpec.gridy = row;
-        labelSpec.anchor = GridBagConstraints.LINE_END;
+        // Text areas and card-layout fields can be much taller than their label;
+        // align those labels to the first line instead of vertically centering them.
+        boolean tallField = field != null && field.getPreferredSize().height
+                > labelComponent.getPreferredSize().height * 2;
+        labelSpec.anchor = tallField ? GridBagConstraints.FIRST_LINE_END
+                : GridBagConstraints.LINE_END;
         labelSpec.insets = new Insets(row == 0 ? 0 : rowGap, 0, 0, labelGap);
         add(labelComponent, labelSpec);
 

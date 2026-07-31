@@ -33,6 +33,8 @@ import com.aqishi.toolbox.misc.RandomNumberPanel;
 import com.aqishi.toolbox.misc.RedisPanel;
 import com.aqishi.toolbox.misc.RegexPanel;
 import com.aqishi.toolbox.misc.SqlPanel;
+import com.aqishi.toolbox.misc.SshClientPanel;
+import com.aqishi.toolbox.misc.ssh.session.SshTunnelBridge;
 import com.aqishi.toolbox.misc.StringToolPanel;
 import com.aqishi.toolbox.misc.SubnetPanel;
 import com.aqishi.toolbox.misc.TextDiffPanel;
@@ -40,6 +42,7 @@ import com.aqishi.toolbox.misc.TotpPanel;
 import com.aqishi.toolbox.misc.UuidPanel;
 import com.aqishi.toolbox.misc.WeChatPanel;
 import com.aqishi.toolbox.misc.XmlPanel;
+import com.aqishi.toolbox.misc.ZooKeeperPanel;
 import com.aqishi.toolbox.monitor.RemoteDesktopPanel;
 import com.aqishi.toolbox.monitor.VideoMonitorPanel;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -101,7 +104,7 @@ public class MainFrame extends JFrame {
             K8sPanel::new, K8sManagerPanel::new, UuidPanel::new, PasswordPanel::new,
             RandomNumberPanel::new, CalculatorPanel::new, StatisticsPanel::new, SortPanel::new,
             SearchPanel::new, HanoiPanel::new, VideoMonitorPanel::new, RemoteDesktopPanel::new, RedisPanel::new, BpmnPanel::new,
-            DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, WeChatPanel::new, MermaidPanel::new, FlowchartPanel::new
+            DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, ZooKeeperPanel::new, WeChatPanel::new, MermaidPanel::new, FlowchartPanel::new, SshClientPanel::new
         };
 
         tools = new ToolPanel[creators.length];
@@ -163,6 +166,7 @@ public class MainFrame extends JFrame {
                 ConfigManager.setInt("y", p.y);
                 persistNavigationState();
                 ConfigManager.save();
+                closeSshResources();
                 vaultService.close();
             }
         });
@@ -185,8 +189,25 @@ public class MainFrame extends JFrame {
     @Override
     public void dispose() {
         if (statusTimer != null) statusTimer.stop();
+        closeSshResources();
         vaultService.close();
         super.dispose();
+    }
+
+    private void closeSshResources() {
+        if (tools == null) return;
+        for (ToolPanel tool : tools) {
+            if (tool instanceof SshClientPanel) {
+                ((SshClientPanel) tool).closeSessions();
+            }
+            if (tool instanceof ZooKeeperPanel) {
+                ((ZooKeeperPanel) tool).closeResources();
+            }
+            if (tool instanceof HttpTestPanel) {
+                ((HttpTestPanel) tool).closeResources();
+            }
+        }
+        SshTunnelBridge.shutdown();
     }
 
     private void takeScreenshot(String path) {

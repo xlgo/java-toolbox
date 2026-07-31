@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.monitor;
 
 import com.aqishi.toolbox.util.I18n;
+import com.aqishi.toolbox.util.UIUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.swing.*;
@@ -45,7 +46,7 @@ public class RemoteTerminalDialog extends JDialog {
 
         terminalArea = new JTextArea();
         terminalArea.setEditable(false);
-        terminalArea.setFont(new Font("Consolas", Font.PLAIN, 14));
+        terminalArea.setFont(UIUtils.monoFont().deriveFont(Font.PLAIN, 14f));
         terminalArea.setBackground(new Color(30, 30, 30));
         terminalArea.setForeground(new Color(220, 220, 220));
         terminalArea.setLineWrap(true);
@@ -63,11 +64,11 @@ public class RemoteTerminalDialog extends JDialog {
         bottom.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
 
         JLabel promptLabel = new JLabel("CMD > ");
-        promptLabel.setFont(new Font("Consolas", Font.BOLD, 14));
+        promptLabel.setFont(UIUtils.monoFont().deriveFont(Font.BOLD, 14f));
         bottom.add(promptLabel, BorderLayout.WEST);
 
         inputField = new JTextField();
-        inputField.setFont(new Font("Consolas", Font.PLAIN, 14));
+        inputField.setFont(UIUtils.monoFont().deriveFont(Font.PLAIN, 14f));
         bottom.add(inputField, BorderLayout.CENTER);
 
         clearBtn = new JButton(I18n.get("remote_desktop.term_clear"));

@@ -1,5 +1,9 @@
 package com.aqishi.toolbox.misc;
 
+import com.aqishi.toolbox.misc.ssh.model.RemoteEndpoint;
+import com.aqishi.toolbox.misc.ssh.model.SshConfigStore;
+import com.aqishi.toolbox.misc.ssh.model.SshConnectionConfig;
+import com.aqishi.toolbox.misc.ssh.session.SshTunnelBridge;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -15,6 +19,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -29,6 +34,9 @@ public class HttpTestPanel extends ToolPanel {
     private JComboBox<String> methodBox;
     private JTextField urlField;
     private JButton sendBtn;
+    private JButton browseBtn;
+    private JCheckBox useSshCheck;
+    private JComboBox<SshConnectionConfig> sshCombo;
 
     private JTextArea reqHeadersArea;
     private JTextArea reqBodyArea;
@@ -38,6 +46,7 @@ public class HttpTestPanel extends ToolPanel {
     private JTextArea respHeadersArea;
 
     private JButton copyRespBtn;
+    private volatile SshTunnelBridge.BridgeResult activeSshBridge;
 
     public HttpTestPanel() {
         super("dev", "http.client",
@@ -54,11 +63,26 @@ public class HttpTestPanel extends ToolPanel {
 
         sendBtn = Buttons.primary("发送请求");
         sendBtn.addActionListener(e -> sendRequest());
+        browseBtn = Buttons.secondary("在浏览器中打开");
+        browseBtn.addActionListener(e -> openInBrowser());
 
         // 方法下拉定宽靠左，URL 放 CENTER 才能随窗口一起拉伸
         JPanel urlRow = Layouts.box(Tokens.SPACE_SM, 0);
         urlRow.add(methodBox, BorderLayout.WEST);
         urlRow.add(urlField, BorderLayout.CENTER);
+
+        useSshCheck = Fields.check("启用 SSH 隧道", false);
+        List<SshConnectionConfig> sshList = SshConfigStore.getInstance().getAll();
+        sshCombo = Fields.combo(sshList.toArray(new SshConnectionConfig[0]));
+        sshCombo.setEnabled(false);
+        useSshCheck.addActionListener(e -> {
+            sshCombo.setEnabled(useSshCheck.isSelected());
+            if (!useSshCheck.isSelected()) releaseSshBridge();
+        });
+        SshConfigStore.getInstance().addChangeListener(this::refreshSshConfigs);
+        JPanel sshRow = Layouts.box(Tokens.SPACE_MD, 0);
+        sshRow.add(useSshCheck, BorderLayout.WEST);
+        sshRow.add(sshCombo, BorderLayout.CENTER);
 
         JTabbedPane reqTabs = new JTabbedPane();
         reqTabs.setBorder(null);
@@ -74,9 +98,11 @@ public class HttpTestPanel extends ToolPanel {
         JPanel reqBody = Layouts.box(0, Tokens.SPACE_MD);
         reqBody.add(urlRow, BorderLayout.NORTH);
         reqBody.add(reqTabs, BorderLayout.CENTER);
+        reqBody.add(sshRow, BorderLayout.SOUTH);
 
         Card requestCard = Card.titled("请求配置");
         requestCard.setContent(reqBody);
+        requestCard.addHeaderAction(browseBtn);
         requestCard.addHeaderAction(sendBtn);
 
         methodBox.addActionListener(e -> {
@@ -140,6 +166,10 @@ public class HttpTestPanel extends ToolPanel {
         String method = (String) methodBox.getSelectedItem();
         String headersText = reqHeadersArea.getText();
         String bodyText = reqBodyArea.getText();
+        final boolean sshEnabled = useSshCheck != null && useSshCheck.isSelected();
+        final String sshConfigId = sshEnabled && sshCombo.getSelectedItem() != null
+                ? ((SshConnectionConfig) sshCombo.getSelectedItem()).getId() : null;
+        releaseSshBridge();
 
         // 采用 SwingWorker 异步发起请求，防 GUI 卡死
         new SwingWorker<ResponseData, Void>() {
@@ -148,9 +178,15 @@ public class HttpTestPanel extends ToolPanel {
                 ResponseData resp = new ResponseData();
                 long start = System.currentTimeMillis();
                 HttpURLConnection conn = null;
+                SshTunnelBridge.BridgeResult requestBridge = null;
                 try {
                     URL url = new URL(urlStr);
-                    conn = (HttpURLConnection) url.openConnection();
+                    URL requestUrl = url;
+                    if (sshEnabled) {
+                        requestBridge = bridgeForUrl(url, sshConfigId);
+                        requestUrl = localUrl(url, requestBridge);
+                    }
+                    conn = (HttpURLConnection) requestUrl.openConnection();
                     conn.setRequestMethod(method);
                     conn.setConnectTimeout(10000);
                     conn.setReadTimeout(15000);
@@ -213,6 +249,7 @@ public class HttpTestPanel extends ToolPanel {
                     if (conn != null) {
                         conn.disconnect();
                     }
+                    if (requestBridge != null) requestBridge.close();
                     resp.timeMs = System.currentTimeMillis() - start;
                 }
                 return resp;
@@ -254,6 +291,92 @@ public class HttpTestPanel extends ToolPanel {
                 }
             }
         }.execute();
+    }
+
+    private void openInBrowser() {
+        String urlStr = urlField.getText().trim();
+        if (urlStr.isEmpty()) {
+            UIUtils.error(getView(), "请输入有效的请求 URL！");
+            return;
+        }
+        SshTunnelBridge.BridgeResult bridge = null;
+        try {
+            URL url = new URL(urlStr);
+            URL browserUrl = url;
+            if (useSshCheck != null && useSshCheck.isSelected()) {
+                SshConnectionConfig sshConfig = (SshConnectionConfig) sshCombo.getSelectedItem();
+                if (sshConfig == null) throw new IllegalArgumentException("请选择用于隧道的 SSH 服务器配置");
+                releaseSshBridge();
+                bridge = bridgeForUrl(url, sshConfig.getId());
+                browserUrl = localUrl(url, bridge);
+                activeSshBridge = bridge;
+            }
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(browserUrl.toURI());
+                statusLabel.setText("已在浏览器中打开: " + browserUrl);
+            } else {
+                statusLabel.setText("当前环境不支持自动打开浏览器: " + browserUrl);
+            }
+        } catch (Exception error) {
+            if (bridge != null) bridge.close();
+            UIUtils.error(getView(), "打开浏览器失败:\n" + error.getMessage());
+        }
+    }
+
+    private SshTunnelBridge.BridgeResult bridgeForUrl(URL url, String sshConfigId) throws Exception {
+        if (sshConfigId == null || sshConfigId.trim().isEmpty()) {
+            throw new IllegalArgumentException("请选择用于隧道的 SSH 服务器配置");
+        }
+        String host = url.getHost();
+        if (host == null || host.trim().isEmpty()) {
+            throw new IllegalArgumentException("URL 中缺少远程主机地址");
+        }
+        int port = url.getPort();
+        if (port < 0) port = "https".equalsIgnoreCase(url.getProtocol()) ? 443 : 80;
+        RemoteEndpoint endpoint = new RemoteEndpoint(host, port);
+        return SshTunnelBridge.bridge(sshConfigId, endpoint.getHost(), endpoint.getPort());
+    }
+
+    private static URL localUrl(URL original, SshTunnelBridge.BridgeResult bridge) throws Exception {
+        if (bridge == null || bridge.getLocalPort() <= 0) {
+            throw new IllegalStateException("SSH 隧道未返回有效的本地端口");
+        }
+        URI local = new URI(original.getProtocol(), null, bridge.getLocalHost(), bridge.getLocalPort(),
+                original.getPath() == null || original.getPath().isEmpty() ? "/" : original.getPath(),
+                original.getQuery(), original.getRef());
+        return local.toURL();
+    }
+
+    public void closeResources() {
+        releaseSshBridge();
+    }
+
+    private void releaseSshBridge() {
+        SshTunnelBridge.BridgeResult bridge = activeSshBridge;
+        activeSshBridge = null;
+        if (bridge != null) bridge.close();
+    }
+
+    private void refreshSshConfigs() {
+        Runnable refresh = () -> {
+            if (sshCombo == null) return;
+            String selectedId = null;
+            SshConnectionConfig selected = (SshConnectionConfig) sshCombo.getSelectedItem();
+            if (selected != null) selectedId = selected.getId();
+            sshCombo.removeAllItems();
+            for (SshConnectionConfig config : SshConfigStore.getInstance().getAll()) sshCombo.addItem(config);
+            if (selectedId != null) {
+                for (int i = 0; i < sshCombo.getItemCount(); i++) {
+                    if (selectedId.equals(sshCombo.getItemAt(i).getId())) {
+                        sshCombo.setSelectedIndex(i);
+                        break;
+                    }
+                }
+            }
+            sshCombo.setEnabled(useSshCheck != null && useSshCheck.isSelected());
+        };
+        if (SwingUtilities.isEventDispatchThread()) refresh.run();
+        else SwingUtilities.invokeLater(refresh);
     }
 
     private static String formatSize(long bytes) {

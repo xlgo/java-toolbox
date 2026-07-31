@@ -50,12 +50,35 @@ public final class Tokens {
 
     // ---------------------------------------------------------------- 字体
 
+    private static final String CJK_PROBE = "中文统计结果终端命令输入框";
+
+    /**
+     * Returns a font that can render the probe CJK text. FlatLaf themes may
+     * use a physical font such as Segoe UI, which has no CJK glyphs on some
+     * Windows installations. A logical font lets the JDK select its CJK
+     * fallback instead of painting tofu/question-mark boxes.
+     */
+    public static Font withCjkFallback(Font reference) {
+        Font candidate = reference == null
+                ? new Font(Font.DIALOG, Font.PLAIN, 13)
+                : reference;
+        String name = candidate.getName();
+        boolean logical = Font.DIALOG.equals(name)
+                || Font.DIALOG_INPUT.equals(name)
+                || Font.MONOSPACED.equals(name)
+                || Font.SANS_SERIF.equals(name)
+                || Font.SERIF.equals(name);
+        if (logical && candidate.canDisplayUpTo(CJK_PROBE) < 0) {
+            return candidate;
+        }
+        return new Font(Font.DIALOG, candidate.getStyle(), Math.max(1, candidate.getSize()));
+    }
+
     private static Font base() {
         Font font = UIManager.getFont("Label.font");
-        if (font == null) {
-            font = new Font(Font.SANS_SERIF, Font.PLAIN, 13);
-        }
-        return font;
+        return withCjkFallback(font == null
+                ? new Font(Font.SANS_SERIF, Font.PLAIN, 13)
+                : font);
     }
 
     /** 正文字体 */
@@ -85,11 +108,9 @@ public final class Tokens {
 
     /** 等宽字体，用于代码、密钥、日志等内容 */
     public static Font fontMono() {
-        Font font = new Font("Consolas", Font.PLAIN, 13);
-        if (!"Consolas".equals(font.getFamily()) && !"Consolas".equals(font.getFontName())) {
-            return new Font(Font.MONOSPACED, Font.PLAIN, 13);
-        }
-        return font;
+        // Monospaced is a logical font. Unlike hard-coded Consolas it keeps a
+        // CJK fallback while preserving fixed-width Latin text.
+        return new Font(Font.MONOSPACED, Font.PLAIN, 13);
     }
 
     // ---------------------------------------------------------------- 颜色

@@ -6,11 +6,11 @@
 
     <groupId>com.aqishi</groupId>
     <artifactId>java-toolbox</artifactId>
-    <version>1.5.3</version>
+    <version>1.6.0</version>
     <packaging>jar</packaging>
 
     <name>Java Toolbox</name>
-    <description>桌面工具箱：算法、加密、格式转换、计算等</description>
+    <description>桌面工具箱：算法、加密、格式转换、计算、SSH远程终端与代理等</description>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
@@ -20,6 +20,17 @@
     </properties>
 
     <repositories>
+        <repository>
+            <id>aliyun-public</id>
+            <name>Aliyun Public Maven Repository</name>
+            <url>https://maven.aliyun.com/repository/public</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
         <repository>
             <id>jetbrains-intellij-dependencies</id>
             <url>https://packages.jetbrains.team/maven/p/ij/intellij-dependencies</url>
@@ -94,11 +105,7 @@
             <artifactId>Java-WebSocket</artifactId>
             <version>1.5.4</version>
         </dependency>
-        <!--
-            Full RFC ICE state machine for the remote-desktop direct UDP path.
-            Only STUN harvesters are configured by the application; TURN/data
-            relay is deliberately not enabled.
-        -->
+        <!-- Full RFC ICE state machine for remote desktop -->
         <dependency>
             <groupId>org.jitsi</groupId>
             <artifactId>ice4j</artifactId>
@@ -114,6 +121,12 @@
             <groupId>org.jetbrains.jediterm</groupId>
             <artifactId>jediterm-ui</artifactId>
             <version>3.72</version>
+        </dependency>
+        <!-- JSch SSH/SFTP Client (mwiede fork for modern algorithms) -->
+        <dependency>
+            <groupId>com.github.mwiede</groupId>
+            <artifactId>jsch</artifactId>
+            <version>0.2.20</version>
         </dependency>
         <!-- Database Drivers -->
         <dependency>
@@ -142,6 +155,22 @@
             <groupId>org.apache.kafka</groupId>
             <artifactId>kafka-clients</artifactId>
             <version>3.4.0</version>
+        </dependency>
+        <!-- Apache ZooKeeper Client -->
+        <dependency>
+            <groupId>org.apache.zookeeper</groupId>
+            <artifactId>zookeeper</artifactId>
+            <version>3.8.1</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-log4j12</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>log4j</groupId>
+                    <artifactId>log4j</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- Apache POI for Excel Import -->
         <dependency>
@@ -196,7 +225,7 @@
                 </executions>
             </plugin>
 
-            <!-- Maven Compiler Plugin with locked version to prevent testCompile classpath issues -->
+            <!-- Maven Compiler Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -208,7 +237,7 @@
                 </configuration>
             </plugin>
 
-            <!-- Maven Surefire Plugin to run JUnit 5 tests -->
+            <!-- Maven Surefire Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>

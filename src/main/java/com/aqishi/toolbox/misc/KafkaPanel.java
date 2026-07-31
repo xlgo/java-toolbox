@@ -1,5 +1,10 @@
 package com.aqishi.toolbox.misc;
 
+import com.aqishi.toolbox.misc.ssh.model.RemoteEndpoint;
+import com.aqishi.toolbox.misc.ssh.model.SshConfigStore;
+import com.aqishi.toolbox.misc.ssh.model.SshConnectionConfig;
+import com.aqishi.toolbox.misc.ssh.session.SshTunnelBridge;
+import com.aqishi.toolbox.misc.ssh.session.KafkaTunnelSupport;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -16,6 +21,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.admin.*;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.clients.producer.*;
+import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
@@ -48,6 +54,8 @@ import java.util.stream.Collectors;
  */
 public class KafkaPanel extends ToolPanel {
 
+    private static final int DEFAULT_KAFKA_PORT = 9093;
+
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
     private JButton delProfileBtn;
@@ -64,6 +72,8 @@ public class KafkaPanel extends ToolPanel {
 
     private JTextField serversField;
     private JTextArea customPropsArea;
+    private JCheckBox useSshCheck;
+    private JComboBox<SshConnectionConfig> sshCombo;
     private JButton testBtn;
     private JButton connBtn;
     /** 连接状态：常驻连接卡片标题带右侧，文字 + 语义色双重表达 */
@@ -73,6 +83,8 @@ public class KafkaPanel extends ToolPanel {
     private AdminClient adminClient = null;
     private String activeBootstrapServers = "";
     private Properties activeCustomProperties = new Properties();
+    private volatile List<SshTunnelBridge.BridgeResult> activeSshBridges = new ArrayList<>();
+    private volatile Set<String> activeSshBrokerHosts = Collections.emptySet();
 
     // Left Workspace: Topics & Consumer Groups JTabbedPane
     private JTabbedPane leftTabbedPane;
@@ -208,7 +220,7 @@ public class KafkaPanel extends ToolPanel {
         saveProfileBtn = Buttons.secondary("保存配置");
         delProfileBtn = Buttons.danger("删除配置");
 
-        serversField = Fields.text("127.0.0.1:9092");
+        serversField = Fields.text("127.0.0.1:9093");
         testBtn = Buttons.secondary("测试连接");
         connBtn = Buttons.primary("连接");
 
@@ -216,9 +228,22 @@ public class KafkaPanel extends ToolPanel {
         customPropsArea.setFont(Tokens.fontMono());
         customPropsArea.putClientProperty("JTextArea.placeholderText", "例如: \nrequest.timeout.ms=6000\nsecurity.protocol=PLAINTEXT");
 
+        useSshCheck = new JCheckBox("启用 SSH 隧道");
+        java.util.List<SshConnectionConfig> sshList = SshConfigStore.getInstance().getAll();
+        sshCombo = Fields.combo(sshList.toArray(new SshConnectionConfig[0]));
+        sshCombo.setEnabled(false);
+        useSshCheck.addActionListener(e -> sshCombo.setEnabled(useSshCheck.isSelected()));
+        SshConfigStore.getInstance().addChangeListener(this::refreshSshConfigs);
+
+        JPanel sshRow = Layouts.box(Tokens.SPACE_MD, 0);
+        sshRow.add(useSshCheck, BorderLayout.WEST);
+        sshRow.add(sshCombo, BorderLayout.CENTER);
+
         FormGrid form = new FormGrid();
         form.rowCompact("已存配置:", profileCombo, Layouts.wrapRow(saveProfileBtn, delProfileBtn));
         form.row("Bootstrap Servers:", serversField, Layouts.wrapRow(testBtn, connBtn));
+        form.row("SSH 隧道:", sshRow);
+        form.row("连接提示:", Fields.note("隧道模式请填写 SSH 服务器可访问的 Kafka 地址；如果 Broker 返回的 advertised.listeners 是本机不可达地址，连接会明确提示需要调整 Kafka 端配置。"));
         // 卡片底色与文本域底色相同，属性框放进有内边距的卡片时要靠细描边才看得出边界
         form.row("自定义属性 (Key=Value):", Fields.scrollBoxed(customPropsArea));
 
@@ -1112,6 +1137,236 @@ public class KafkaPanel extends ToolPanel {
         return p;
     }
 
+    private String resolveBootstrapServers(String rawServers) throws Exception {
+        List<RemoteEndpoint> endpoints = RemoteEndpoint.parseList(rawServers, DEFAULT_KAFKA_PORT);
+        if (useSshCheck != null && useSshCheck.isSelected()) {
+            SshConnectionConfig sshCfg = (SshConnectionConfig) sshCombo.getSelectedItem();
+            if (sshCfg == null) {
+                throw new IllegalArgumentException("请选择用于隧道的 SSH 服务器配置");
+            }
+            StringBuilder resolved = new StringBuilder();
+            List<SshTunnelBridge.BridgeResult> bridges = new ArrayList<>();
+            try {
+                for (RemoteEndpoint endpoint : endpoints) {
+                    SshTunnelBridge.BridgeResult bridge = SshTunnelBridge.bridge(
+                            sshCfg.getId(), endpoint.getHost(), endpoint.getPort());
+                    bridges.add(bridge);
+                    if (resolved.length() > 0) resolved.append(',');
+                    resolved.append(bridge.getLocalHost()).append(':').append(bridge.getLocalPort());
+                }
+            } catch (Exception error) {
+                for (SshTunnelBridge.BridgeResult bridge : bridges) bridge.close();
+                throw error;
+            }
+            if (resolved.length() == 0) throw new IllegalArgumentException("Kafka Bootstrap Servers 格式不正确");
+            activeSshBridges = bridges;
+            return resolved.toString();
+        }
+        StringBuilder normalized = new StringBuilder();
+        for (RemoteEndpoint endpoint : endpoints) {
+            if (normalized.length() > 0) normalized.append(',');
+            normalized.append(endpoint.format());
+        }
+        return normalized.toString();
+    }
+
+    private static Properties kafkaProperties(String bootstrapServers, Properties custom) {
+        Properties props = new Properties();
+        setDefault(props, AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, "15000");
+        setDefault(props, AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, "30000");
+        setDefault(props, "socket.connection.setup.timeout.ms", "10000");
+        setDefault(props, "socket.connection.setup.timeout.max.ms", "30000");
+        if (custom != null) {
+            for (String key : custom.stringPropertyNames()) {
+                props.setProperty(key, custom.getProperty(key));
+            }
+        }
+        // The UI owns the bootstrap endpoint so a custom-properties paste
+        // cannot accidentally bypass the selected SSH tunnel.
+        props.setProperty(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        return props;
+    }
+
+    private static void setDefault(Properties properties, String key, String value) {
+        if (!properties.containsKey(key)) properties.setProperty(key, value);
+    }
+
+    /**
+     * Kafka clients use the broker addresses returned in metadata after the bootstrap connection.
+     * Install a resolver before metadata work, then refresh it with the actual broker hosts.
+     */
+    private void verifySshBrokerMetadata(AdminClient client, String rawServers,
+                                         Properties clientProperties) throws Exception {
+        if (useSshCheck == null || !useSshCheck.isSelected()) return;
+
+        try {
+            List<SshTunnelBridge.BridgeResult> bridges = activeSshBridges;
+            if (bridges.isEmpty()) {
+                throw new IllegalStateException("Kafka SSH 隧道未建立");
+            }
+
+            List<String> bootstrapHosts = endpointHosts(rawServers);
+            // Configure the main AdminClient before its background network
+            // thread can attempt an advertised broker address.
+            KafkaTunnelSupport.configure(client, bootstrapHosts);
+
+            Collection<Node> nodes = readMetadataBrokers(clientProperties, bootstrapHosts);
+            if (nodes.isEmpty()) return;
+
+            Set<Integer> localPorts = new LinkedHashSet<>();
+            for (SshTunnelBridge.BridgeResult bridge : bridges) {
+                if (bridge != null && bridge.getLocalPort() > 0) {
+                    localPorts.add(bridge.getLocalPort());
+                }
+            }
+            List<String> mismatchedPorts = new ArrayList<>();
+            Set<String> brokerHosts = new LinkedHashSet<>();
+            for (Node node : nodes) {
+                brokerHosts.add(node.host());
+                if (!localPorts.contains(node.port())) {
+                    mismatchedPorts.add(node.host() + ":" + node.port());
+                }
+            }
+            if (!mismatchedPorts.isEmpty()) {
+                throw new IllegalStateException("Kafka 返回的 Broker 端口与本地 SSH 隧道端口不一致: "
+                        + String.join(", ", mismatchedPorts)
+                        + "。请释放本地对应端口，或让 Kafka advertised.listeners 使用与隧道相同的端口。");
+            }
+
+            activeSshBrokerHosts = KafkaTunnelSupport.normalizeHosts(brokerHosts);
+            // The metadata response has now revealed the advertised host names.
+            // Update existing NetworkClient node states before the first real request.
+            KafkaTunnelSupport.configure(client, activeSshBrokerHosts);
+        } catch (Exception error) {
+            if (isKafkaNodeAssignmentTimeout(error)) {
+                throw new IllegalStateException("SSH 隧道可能已建立，但 Kafka Broker 元数据未能通过隧道返回。请确认 SSH 服务端允许 AllowTcpForwarding yes、远程 Kafka 地址和端口正确；如果 Kafka 使用了 advertised.listeners，请将其设置为 SSH 服务器可访问的地址。", error);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Reads the normal Metadata response through a short-lived consumer. The
+     * Kafka cluster used by the SSH profile is 2.7 and does not implement the
+     * newer DescribeCluster API; using it here turns a useful broker address
+     * into an avoidable timeout.
+     */
+    private static Collection<Node> readMetadataBrokers(Properties clientProperties,
+                                                         Collection<String> bootstrapHosts) throws Exception {
+        Properties props = new Properties();
+        if (clientProperties != null) props.putAll(clientProperties);
+        props.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
+                ByteArrayDeserializer.class.getName());
+        props.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+                ByteArrayDeserializer.class.getName());
+        props.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
+
+        Map<String, Node> nodes = new LinkedHashMap<>();
+        try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(props)) {
+            KafkaTunnelSupport.configure(consumer, bootstrapHosts);
+            Map<String, List<PartitionInfo>> topics = consumer.listTopics(Duration.ofSeconds(15));
+            for (List<PartitionInfo> partitions : topics.values()) {
+                for (PartitionInfo partition : partitions) {
+                    Node leader = partition.leader();
+                    if (leader != null) nodes.put(leader.host() + ":" + leader.port(), leader);
+                    for (Node replica : partition.replicas()) {
+                        if (replica != null) nodes.put(replica.host() + ":" + replica.port(), replica);
+                    }
+                }
+            }
+        }
+        return nodes.values();
+    }
+
+    private static List<String> endpointHosts(String rawServers) {
+        List<String> hosts = new ArrayList<>();
+        for (RemoteEndpoint endpoint : RemoteEndpoint.parseList(rawServers, DEFAULT_KAFKA_PORT)) {
+            hosts.add(endpoint.getHost());
+        }
+        return hosts;
+    }
+
+    private static boolean isKafkaNodeAssignmentTimeout(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof org.apache.kafka.common.errors.TimeoutException
+                    || current.getClass().getSimpleName().contains("TimeoutException")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private static boolean hostsEquivalent(String left, String right) {
+        if (left == null || right == null) return false;
+        if (left.equalsIgnoreCase(right)) return true;
+        try {
+            java.net.InetAddress leftAddress = java.net.InetAddress.getByName(left);
+            java.net.InetAddress rightAddress = java.net.InetAddress.getByName(right);
+            return leftAddress.equals(rightAddress)
+                    || (leftAddress.isLoopbackAddress() && rightAddress.isLoopbackAddress());
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isLoopbackHost(String host) {
+        if (host == null || host.trim().isEmpty()) return false;
+        try {
+            return java.net.InetAddress.getByName(host.trim()).isLoopbackAddress();
+        } catch (Exception ignored) {
+            return "localhost".equalsIgnoreCase(host.trim());
+        }
+    }
+
+    private void verifyAndListTopics(AdminClient client, String rawServers,
+                                     Properties clientProperties) throws Exception {
+        verifySshBrokerMetadata(client, rawServers, clientProperties);
+        try {
+            client.listTopics().names().get();
+        } catch (Exception error) {
+            if (useSshCheck != null && useSshCheck.isSelected()
+                    && isKafkaNodeAssignmentTimeout(error)) {
+                throw new IllegalStateException("SSH 隧道已建立，但 Kafka 在访问 Broker 节点时超时。请检查 SSH 服务端是否允许 AllowTcpForwarding、Kafka 的 advertised.listeners 是否返回了本机不可达的地址，并确认 Bootstrap Servers 使用的是 SSH 服务器可访问的远程地址。", error);
+            }
+            throw error;
+        }
+    }
+
+    private void refreshSshConfigs() {
+        Runnable refresh = () -> {
+            if (sshCombo == null) return;
+            String selectedId = null;
+            SshConnectionConfig selected = (SshConnectionConfig) sshCombo.getSelectedItem();
+            if (selected != null) selectedId = selected.getId();
+            sshCombo.removeAllItems();
+            for (SshConnectionConfig config : SshConfigStore.getInstance().getAll()) {
+                sshCombo.addItem(config);
+            }
+            if (selectedId != null) {
+                for (int i = 0; i < sshCombo.getItemCount(); i++) {
+                    if (selectedId.equals(sshCombo.getItemAt(i).getId())) {
+                        sshCombo.setSelectedIndex(i);
+                        break;
+                    }
+                }
+            }
+            sshCombo.setEnabled(useSshCheck != null && useSshCheck.isSelected());
+        };
+        if (SwingUtilities.isEventDispatchThread()) refresh.run();
+        else SwingUtilities.invokeLater(refresh);
+    }
+
+    private void releaseSshBridges() {
+        List<SshTunnelBridge.BridgeResult> bridges = activeSshBridges;
+        activeSshBridges = new ArrayList<>();
+        activeSshBrokerHosts = Collections.emptySet();
+        for (SshTunnelBridge.BridgeResult bridge : bridges) {
+            if (bridge != null) bridge.close();
+        }
+    }
+
     private void testConnection() {
         String servers = serversField.getText().trim();
         Properties custom = parseCustomProperties();
@@ -1123,17 +1378,11 @@ public class KafkaPanel extends ToolPanel {
             private String err = null;
             @Override
             protected Void doInBackground() throws Exception {
-                Properties props = new Properties();
-                props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, servers);
-                props.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, "3000");
-                props.put(AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, "3000");
-                for (String key : custom.stringPropertyNames()) {
-                    props.put(key, custom.getProperty(key));
-                }
+                String targetServers = resolveBootstrapServers(servers);
+                Properties props = kafkaProperties(targetServers, custom);
 
                 try (AdminClient testClient = AdminClient.create(props)) {
-                    // Force a lightweight connection call to test
-                    testClient.listTopics().names().get();
+                    verifyAndListTopics(testClient, servers, props);
                 }
                 return null;
             }
@@ -1150,6 +1399,8 @@ public class KafkaPanel extends ToolPanel {
                     err = c.getMessage();
                     UIUtils.error(getView(), "Kafka 连接测试失败:\n" + err);
                     consoleLog("连接测试失败: " + err);
+                } finally {
+                    releaseSshBridges();
                 }
             }
         }.execute();
@@ -1173,19 +1424,19 @@ public class KafkaPanel extends ToolPanel {
 
         new SwingWorker<AdminClient, Void>() {
             private String err = null;
+            private String resolvedServers;
 
             @Override
             protected AdminClient doInBackground() throws Exception {
-                Properties props = new Properties();
-                props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, servers);
-                props.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, "5000");
-                props.put(AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, "5000");
-                for (String key : custom.stringPropertyNames()) {
-                    props.put(key, custom.getProperty(key));
-                }
+                resolvedServers = resolveBootstrapServers(servers);
+                Properties props = kafkaProperties(resolvedServers, custom);
                 AdminClient client = AdminClient.create(props);
-                // Dry run list to verify connection
-                client.listTopics().names().get();
+                try {
+                    verifyAndListTopics(client, servers, props);
+                } catch (Exception error) {
+                    client.close();
+                    throw error;
+                }
                 return client;
             }
 
@@ -1194,7 +1445,7 @@ public class KafkaPanel extends ToolPanel {
                 try {
                     adminClient = get();
                     isConnected = true;
-                    activeBootstrapServers = servers;
+                    activeBootstrapServers = resolvedServers == null ? servers : resolvedServers;
                     activeCustomProperties = custom;
 
                     connBtn.setText("断开");
@@ -1220,6 +1471,7 @@ public class KafkaPanel extends ToolPanel {
                     testBtn.setEnabled(true);
                     UIUtils.error(getView(), "连接 Kafka 失败:\n" + err);
                     consoleLog("连接 Kafka 失败: " + err);
+                    releaseSshBridges();
                 }
             }
         }.execute();
@@ -1235,6 +1487,7 @@ public class KafkaPanel extends ToolPanel {
             }
             adminClient = null;
         }
+        releaseSshBridges();
 
         isConnected = false;
         connBtn.setText("连接");
@@ -1475,6 +1728,9 @@ public class KafkaPanel extends ToolPanel {
                 }
 
                 try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(props)) {
+                    if (useSshCheck != null && useSshCheck.isSelected()) {
+                        KafkaTunnelSupport.configure(consumer, activeSshBrokerHosts);
+                    }
                     // Determine which partitions to query
                     List<TopicPartition> tps = new ArrayList<>();
                     if (partStr == null || partStr.startsWith("所有")) {
@@ -1603,6 +1859,9 @@ public class KafkaPanel extends ToolPanel {
                 }
 
                 try (KafkaProducer<String, String> producer = new KafkaProducer<>(props)) {
+                    if (useSshCheck != null && useSshCheck.isSelected()) {
+                        KafkaTunnelSupport.configure(producer, activeSshBrokerHosts);
+                    }
                     String k = key.isEmpty() ? null : key;
                     ProducerRecord<String, String> record = new ProducerRecord<>(topic, k, val);
 

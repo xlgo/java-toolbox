@@ -30,7 +30,7 @@ public class StringToolPanel extends ToolPanel {
     private JComboBox<String> deleteModeCombo;
 
     public StringToolPanel() {
-        super("dev", "string.tool",
+        super("format", "string.tool",
                 "String", "Length", "Delete", "Trim", "Uppercase", "Lowercase", "Regex",
                 "字符串", "长度", "删除", "过滤", "大写", "小写", "统计");
     }

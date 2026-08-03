@@ -27,7 +27,7 @@ public class FormatConvertPanel extends ToolPanel {
     private final XmlMapper xmlMapper;
 
     public FormatConvertPanel() {
-        super("convert", "format.convert",
+        super("format", "format.convert",
                 "JSON", "XML", "YAML", "CSV", "Properties",
                 "格式互转", "数据转换", "序列化");
         

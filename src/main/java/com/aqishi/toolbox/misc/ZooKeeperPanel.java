@@ -56,7 +56,7 @@ public class ZooKeeperPanel extends ToolPanel {
     private volatile List<SshTunnelBridge.BridgeResult> activeSshBridges = new ArrayList<>();
 
     public ZooKeeperPanel() {
-        super("misc", "zookeeper.management",
+        super("dev", "zookeeper.management",
                 "ZooKeeper", "Zookeeper", "ZK", "节点", "分布式协调", "注册中心");
     }
 

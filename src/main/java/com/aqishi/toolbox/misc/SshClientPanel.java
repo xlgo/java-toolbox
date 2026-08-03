@@ -37,7 +37,7 @@ public class SshClientPanel extends ToolPanel {
     private JPanel welcomeTabPanel;
 
     public SshClientPanel() {
-        super("misc", "ssh", "ssh", "terminal", "sftp", "shell", "服务器", "远程连接");
+        super("dev", "ssh", "ssh", "terminal", "sftp", "shell", "服务器", "远程连接");
         this.configStore = SshConfigStore.getInstance();
     }
 

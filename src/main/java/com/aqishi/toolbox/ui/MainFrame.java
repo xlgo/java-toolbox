@@ -4,11 +4,13 @@ import com.aqishi.toolbox.algo.HanoiPanel;
 import com.aqishi.toolbox.algo.SearchPanel;
 import com.aqishi.toolbox.algo.SortPanel;
 import com.aqishi.toolbox.calc.CalculatorPanel;
+import com.aqishi.toolbox.calc.ChmodPanel;
 import com.aqishi.toolbox.calc.StatisticsPanel;
 import com.aqishi.toolbox.convert.Base64ImagePanel;
 import com.aqishi.toolbox.convert.ConvertPanel;
 import com.aqishi.toolbox.convert.FormatConvertPanel;
 import com.aqishi.toolbox.convert.TimePanel;
+import com.aqishi.toolbox.convert.UrlToolPanel;
 import com.aqishi.toolbox.crypto.AsymmetricPanel;
 import com.aqishi.toolbox.crypto.CryptoPanel;
 import com.aqishi.toolbox.crypto.SymmetricPanel;
@@ -29,6 +31,7 @@ import com.aqishi.toolbox.misc.K8sPanel;
 import com.aqishi.toolbox.misc.KafkaPanel;
 import com.aqishi.toolbox.misc.MermaidPanel;
 import com.aqishi.toolbox.misc.PasswordPanel;
+import com.aqishi.toolbox.misc.QrCodePanel;
 import com.aqishi.toolbox.misc.RandomNumberPanel;
 import com.aqishi.toolbox.misc.RedisPanel;
 import com.aqishi.toolbox.misc.RegexPanel;
@@ -97,14 +100,14 @@ public class MainFrame extends JFrame {
             CryptoPanel::new, SymmetricPanel::new, AsymmetricPanel::new,
             () -> new AccountManagerPanel(vaultService, secureClipboard),
             () -> new TotpPanel(vaultService, secureClipboard),
-            ConvertPanel::new, TimePanel::new, Base64ImagePanel::new, FormatConvertPanel::new,
+            ConvertPanel::new, TimePanel::new, Base64ImagePanel::new, FormatConvertPanel::new, UrlToolPanel::new,
             JsonPanel::new, XmlPanel::new, SqlPanel::new, RegexPanel::new, JwtPanel::new,
             CronPanel::new, TextDiffPanel::new, DockerComposePanel::new, SubnetPanel::new,
             HttpTestPanel::new, CallbackTestPanel::new, ColorPanel::new, CertPanel::new,
             K8sPanel::new, K8sManagerPanel::new, UuidPanel::new, PasswordPanel::new,
-            RandomNumberPanel::new, CalculatorPanel::new, StatisticsPanel::new, SortPanel::new,
+            RandomNumberPanel::new, CalculatorPanel::new, StatisticsPanel::new, ChmodPanel::new, SortPanel::new,
             SearchPanel::new, HanoiPanel::new, VideoMonitorPanel::new, RemoteDesktopPanel::new, RedisPanel::new, BpmnPanel::new,
-            DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, ZooKeeperPanel::new, WeChatPanel::new, MermaidPanel::new, FlowchartPanel::new, SshClientPanel::new
+            DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, ZooKeeperPanel::new, WeChatPanel::new, MermaidPanel::new, FlowchartPanel::new, SshClientPanel::new, QrCodePanel::new
         };
 
         tools = new ToolPanel[creators.length];

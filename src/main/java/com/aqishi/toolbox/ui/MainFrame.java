@@ -23,6 +23,7 @@ import com.aqishi.toolbox.misc.CronPanel;
 import com.aqishi.toolbox.misc.DatabasePanel;
 import com.aqishi.toolbox.misc.DockerComposePanel;
 import com.aqishi.toolbox.misc.FlowchartPanel;
+import com.aqishi.toolbox.misc.HostsManagerPanel;
 import com.aqishi.toolbox.misc.HttpTestPanel;
 import com.aqishi.toolbox.misc.JsonPanel;
 import com.aqishi.toolbox.misc.JwtPanel;
@@ -44,6 +45,7 @@ import com.aqishi.toolbox.misc.TextDiffPanel;
 import com.aqishi.toolbox.misc.TotpPanel;
 import com.aqishi.toolbox.misc.UuidPanel;
 import com.aqishi.toolbox.misc.WeChatPanel;
+import com.aqishi.toolbox.misc.WebSocketClientPanel;
 import com.aqishi.toolbox.misc.XmlPanel;
 import com.aqishi.toolbox.misc.ZooKeeperPanel;
 import com.aqishi.toolbox.monitor.RemoteDesktopPanel;
@@ -107,7 +109,8 @@ public class MainFrame extends JFrame {
             K8sPanel::new, K8sManagerPanel::new, UuidPanel::new, PasswordPanel::new,
             RandomNumberPanel::new, CalculatorPanel::new, StatisticsPanel::new, ChmodPanel::new, SortPanel::new,
             SearchPanel::new, HanoiPanel::new, VideoMonitorPanel::new, RemoteDesktopPanel::new, RedisPanel::new, BpmnPanel::new,
-            DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, ZooKeeperPanel::new, WeChatPanel::new, MermaidPanel::new, FlowchartPanel::new, SshClientPanel::new, QrCodePanel::new
+            DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, ZooKeeperPanel::new, WeChatPanel::new, MermaidPanel::new, FlowchartPanel::new, SshClientPanel::new, QrCodePanel::new,
+            HostsManagerPanel::new, WebSocketClientPanel::new
         };
 
         tools = new ToolPanel[creators.length];

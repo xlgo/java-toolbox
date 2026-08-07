@@ -28,3 +28,6 @@ toolbox-passwords.enc
 
 classpath.txt
 META-INF/
+
+# Superpowers visual brainstorming sessions
+.superpowers/

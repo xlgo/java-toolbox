@@ -18,7 +18,7 @@ import java.util.List;
 /**
  * 随机数据生成器：生成测试用的姓名、手机号、邮箱、地址、身份证号、银行卡号。
  */
-public class RandomNumberPanel extends ToolPanel {
+public class RandomNumberPanel {
 
     private JSpinner countSpinner;
     private JCheckBox nameCb, phoneCb, emailCb, addrCb, idCardCb, bankCb;
@@ -122,14 +122,10 @@ public class RandomNumberPanel extends ToolPanel {
 
     // ==================== 构造方法 ====================
     public RandomNumberPanel() {
-        super("generate", "random.data",
-                "随机数据", "Mock Data", "假数据", "测试数据",
-                "姓名", "手机号", "邮箱", "地址", "身份证", "银行卡");
     }
 
     // ==================== 界面构建 ====================
-    @Override
-    protected JComponent build() {
+    public JComponent build() {
         JPanel root = Layouts.page();
 
         // ===== 数据类型：六个复选框放进可换行的流式行 =====

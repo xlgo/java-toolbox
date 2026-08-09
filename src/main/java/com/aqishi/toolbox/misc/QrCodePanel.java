@@ -1,17 +1,37 @@
 package com.aqishi.toolbox.misc;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import java.util.prefs.Preferences;
 import com.aqishi.toolbox.ui.kit.Card;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.io.OutputStream;
+import java.io.InputStreamReader;
+import java.io.BufferedReader;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.TimerTask;
+import java.util.Timer;
+import java.awt.Dimension;
+import com.google.zxing.*;
+import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
+import com.google.zxing.client.j2se.MatrixToImageConfig;
+import com.google.zxing.client.j2se.MatrixToImageWriter;
+import com.google.zxing.common.BitMatrix;
+import com.google.zxing.common.HybridBinarizer;
+import com.google.zxing.qrcode.QRCodeWriter;
 
 /**
  * 二维码生成与解析工具 (QR Code Generator & Decoder)
@@ -28,6 +48,12 @@ public class QrCodePanel extends ToolPanel {
     private Color fgColor = Color.BLACK;
     private Color bgColor = Color.WHITE;
     private BufferedImage currentQrImage;
+    private File logoFile;
+    private Preferences prefs = Preferences.userNodeForPackage(QrCodePanel.class);
+    private JTextField promptField;
+    private JTextField negativePromptField;
+    private JPasswordField apiTokenField;
+    private JButton generateAiBtn;
 
     public QrCodePanel() {
         super("misc", "qrcode", "qrcode", "qr", "barcode", "2dcode", "scan", "generate", "decode", "encode", "二维码", "条码");
@@ -58,8 +84,9 @@ public class QrCodePanel extends ToolPanel {
         Card leftCard = Card.plain();
         leftCard.setLayout(new BorderLayout(0, 12));
         leftCard.setBorder(new EmptyBorder(16, 16, 16, 16));
-        leftCard.setPreferredSize(new Dimension(420, 0));
+        leftCard.setPreferredSize(new Dimension(450, 0));
 
+        // 公共文本区
         JPanel formPanel = new JPanel(new BorderLayout(0, 8));
         formPanel.add(new JLabel("文本或文本链接 (URL / Text):"), BorderLayout.NORTH);
 
@@ -68,50 +95,12 @@ public class QrCodePanel extends ToolPanel {
         inputContentArea.setLineWrap(true);
         inputContentArea.setWrapStyleWord(true);
         formPanel.add(new JScrollPane(inputContentArea), BorderLayout.CENTER);
-
-        JPanel configGrid = new JPanel(new GridLayout(3, 2, 8, 8));
-        configGrid.add(new JLabel("图片尺寸 (px):"));
-        sizeSpinner = new JSpinner(new SpinnerNumberModel(260, 100, 800, 20));
-        configGrid.add(sizeSpinner);
-
-        configGrid.add(new JLabel("前景色 (前景色/点阵):"));
-        fgColorBtn = new JButton("选择颜色");
-        fgColorBtn.setBackground(fgColor);
-        fgColorBtn.setForeground(Color.WHITE);
-        fgColorBtn.addActionListener(e -> {
-            Color chosen = JColorChooser.showDialog(getView(), "选择前景色", fgColor);
-            if (chosen != null) {
-                fgColor = chosen;
-                fgColorBtn.setBackground(fgColor);
-                generateQrCode();
-            }
-        });
-        configGrid.add(fgColorBtn);
-
-        configGrid.add(new JLabel("背景色 (Background):"));
-        bgColorBtn = new JButton("选择颜色");
-        bgColorBtn.setBackground(bgColor);
-        bgColorBtn.addActionListener(e -> {
-            Color chosen = JColorChooser.showDialog(getView(), "选择背景色", bgColor);
-            if (chosen != null) {
-                bgColor = chosen;
-                bgColorBtn.setBackground(bgColor);
-                generateQrCode();
-            }
-        });
-        configGrid.add(bgColorBtn);
-
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        JButton genBtn = new JButton("立即生成二维码");
-        genBtn.setFont(genBtn.getFont().deriveFont(Font.BOLD));
-        genBtn.addActionListener(e -> generateQrCode());
-        btnPanel.add(genBtn);
-
         leftCard.add(formPanel, BorderLayout.CENTER);
-        JPanel leftSouth = new JPanel(new BorderLayout(0, 8));
-        leftSouth.add(configGrid, BorderLayout.CENTER);
-        leftSouth.add(btnPanel, BorderLayout.SOUTH);
-        leftCard.add(leftSouth, BorderLayout.SOUTH);
+
+        JTabbedPane leftTabs = new JTabbedPane();
+        leftTabs.addTab("普通二维码", buildNormalConfigPanel());
+        leftTabs.addTab("AI 艺术二维码", buildAiConfigPanel());
+        leftCard.add(leftTabs, BorderLayout.SOUTH);
 
         // 右侧预览与导出区
         Card rightCard = Card.plain();
@@ -177,9 +166,7 @@ public class QrCodePanel extends ToolPanel {
                 try {
                     BufferedImage img = ImageIO.read(f);
                     if (img != null) {
-                        imageDisplay.setIcon(new ImageIcon(img.getScaledInstance(200, 200, Image.SCALE_SMOOTH)));
-                        imageDisplay.setText("");
-                        decodedResultArea.setText("已载入图片: " + f.getName() + "\n尺寸: " + img.getWidth() + "x" + img.getHeight() + "\n(识别解析结果已解析为数据流)");
+                        decodeImage(img, decodedResultArea, imageDisplay);
                     }
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(getView(), "图片读取失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
@@ -192,9 +179,11 @@ public class QrCodePanel extends ToolPanel {
                 Transferable tr = Toolkit.getDefaultToolkit().getSystemClipboard().getContents(null);
                 if (tr != null && tr.isDataFlavorSupported(DataFlavor.imageFlavor)) {
                     Image img = (Image) tr.getTransferData(DataFlavor.imageFlavor);
-                    imageDisplay.setIcon(new ImageIcon(img.getScaledInstance(200, 200, Image.SCALE_SMOOTH)));
-                    imageDisplay.setText("");
-                    decodedResultArea.setText("已成功读取剪贴板图片信息。");
+                    BufferedImage bImg = new BufferedImage(img.getWidth(null), img.getHeight(null), BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D bGr = bImg.createGraphics();
+                    bGr.drawImage(img, 0, 0, null);
+                    bGr.dispose();
+                    decodeImage(bImg, decodedResultArea, imageDisplay);
                 } else if (tr != null && tr.isDataFlavorSupported(DataFlavor.stringFlavor)) {
                     String str = (String) tr.getTransferData(DataFlavor.stringFlavor);
                     decodedResultArea.setText("剪贴板包含文本内容:\n" + str);
@@ -211,90 +200,309 @@ public class QrCodePanel extends ToolPanel {
         return panel;
     }
 
+
+    private JPanel buildNormalConfigPanel() {
+        JPanel panel = new JPanel(new BorderLayout(0, 8));
+        panel.setBorder(new EmptyBorder(8, 8, 8, 8));
+        
+        JPanel configGrid = new JPanel(new GridLayout(4, 2, 8, 8));
+        configGrid.add(new JLabel("图片尺寸 (px):"));
+        sizeSpinner = new JSpinner(new SpinnerNumberModel(260, 100, 800, 20));
+        configGrid.add(sizeSpinner);
+
+        configGrid.add(new JLabel("前景色 (前景色/点阵):"));
+        fgColorBtn = new JButton("选择颜色");
+        fgColorBtn.setBackground(fgColor);
+        fgColorBtn.setForeground(Color.WHITE);
+        fgColorBtn.addActionListener(e -> {
+            Color chosen = JColorChooser.showDialog(getView(), "选择前景色", fgColor);
+            if (chosen != null) {
+                fgColor = chosen;
+                fgColorBtn.setBackground(fgColor);
+                generateQrCode();
+            }
+        });
+        configGrid.add(fgColorBtn);
+
+        configGrid.add(new JLabel("背景色 (Background):"));
+        bgColorBtn = new JButton("选择颜色");
+        bgColorBtn.setBackground(bgColor);
+        bgColorBtn.addActionListener(e -> {
+            Color chosen = JColorChooser.showDialog(getView(), "选择背景色", bgColor);
+            if (chosen != null) {
+                bgColor = chosen;
+                bgColorBtn.setBackground(bgColor);
+                generateQrCode();
+            }
+        });
+        configGrid.add(bgColorBtn);
+
+        configGrid.add(new JLabel("中心Logo (可选):"));
+        JPanel logoBtnPanel = new JPanel(new BorderLayout());
+        JButton logoBtn = new JButton("选择图片...");
+        logoBtn.addActionListener(e -> {
+            JFileChooser fc = new JFileChooser();
+            if (fc.showOpenDialog(getView()) == JFileChooser.APPROVE_OPTION) {
+                logoFile = fc.getSelectedFile();
+                logoBtn.setText(logoFile.getName());
+                generateQrCode();
+            }
+        });
+        logoBtnPanel.add(logoBtn, BorderLayout.CENTER);
+        JButton clearLogoBtn = new JButton("X");
+        clearLogoBtn.setToolTipText("清除Logo");
+        clearLogoBtn.addActionListener(e -> {
+            logoFile = null;
+            logoBtn.setText("选择图片...");
+            generateQrCode();
+        });
+        logoBtnPanel.add(clearLogoBtn, BorderLayout.EAST);
+        configGrid.add(logoBtnPanel);
+        panel.add(configGrid, BorderLayout.CENTER);
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        JButton genBtn = new JButton("立即生成普通二维码");
+        genBtn.setFont(genBtn.getFont().deriveFont(Font.BOLD));
+        genBtn.addActionListener(e -> generateQrCode());
+        btnPanel.add(genBtn);
+        panel.add(btnPanel, BorderLayout.SOUTH);
+        
+        return panel;
+    }
+
+    private JPanel buildAiConfigPanel() {
+        JPanel panel = new JPanel(new BorderLayout(0, 8));
+        panel.setBorder(new EmptyBorder(8, 8, 8, 8));
+
+        JPanel formGrid = new JPanel(new GridLayout(6, 1, 4, 4));
+        
+        formGrid.add(new JLabel("Prompt (画面提示词):"));
+        promptField = new JTextField("A sprawling isometric futuristic city, highly detailed, vibrant colors");
+        formGrid.add(promptField);
+
+        formGrid.add(new JLabel("Negative Prompt (反向提示词):"));
+        negativePromptField = new JTextField("ugly, disfigured, low quality, blurry, nsfw");
+        formGrid.add(negativePromptField);
+
+        formGrid.add(new JLabel("Replicate API Token:"));
+        apiTokenField = new JPasswordField(prefs.get("replicate_api_token", ""));
+        formGrid.add(apiTokenField);
+
+        panel.add(formGrid, BorderLayout.NORTH);
+        
+        JTextArea tipArea = new JTextArea("提示：此功能调用 Replicate z-uo/qrcode-controlnet 模型生成，需要输入您的个人 Replicate API Token。生成过程可能需要10-30秒，期间请勿频繁点击。");
+        tipArea.setWrapStyleWord(true);
+        tipArea.setLineWrap(true);
+        tipArea.setEditable(false);
+        tipArea.setBackground(panel.getBackground());
+        tipArea.setForeground(Color.GRAY);
+        tipArea.setFont(tipArea.getFont().deriveFont(12f));
+        panel.add(tipArea, BorderLayout.CENTER);
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        generateAiBtn = new JButton("生成 AI 艺术二维码");
+        generateAiBtn.setFont(generateAiBtn.getFont().deriveFont(Font.BOLD));
+        generateAiBtn.addActionListener(e -> generateAiQrCode());
+        btnPanel.add(generateAiBtn);
+        panel.add(btnPanel, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    private void generateAiQrCode() {
+        String token = new String(apiTokenField.getPassword());
+        if (token.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(getView(), "请提供 Replicate API Token", "错误", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        prefs.put("replicate_api_token", token);
+        
+        String text = inputContentArea.getText().trim();
+        if (text.isEmpty()) {
+            JOptionPane.showMessageDialog(getView(), "二维码文本内容不能为空", "错误", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        String prompt = promptField.getText().trim();
+        String negativePrompt = negativePromptField.getText().trim();
+
+        generateAiBtn.setEnabled(false);
+        generateAiBtn.setText("正在提交请求...");
+        previewImageLabel.setIcon(null);
+        previewImageLabel.setText("正在提交生图任务到云端...");
+
+        new Thread(() -> {
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                // Start Prediction
+                URL url = new URL("https://api.replicate.com/v1/predictions");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Authorization", "Bearer " + token);
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setDoOutput(true);
+
+                Map<String, Object> input = new HashMap<>();
+                input.put("qr_code_content", text);
+                input.put("prompt", prompt);
+                input.put("negative_prompt", negativePrompt);
+
+                Map<String, Object> body = new HashMap<>();
+                // z-uo/qrcode-controlnet version
+                body.put("version", "628e604e13fc636433fbe4d9c0e5a95efd58117a421b4700d11f9746e16694e8");
+                body.put("input", input);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    mapper.writeValue(os, body);
+                }
+
+                if (conn.getResponseCode() >= 400) {
+                    BufferedReader br = new BufferedReader(new InputStreamReader(conn.getErrorStream(), StandardCharsets.UTF_8));
+                    String err = br.lines().reduce("", String::concat);
+                    throw new Exception("API 请求失败: " + conn.getResponseCode() + " " + err);
+                }
+
+                JsonNode root = mapper.readTree(conn.getInputStream());
+                String getUrl = root.path("urls").path("get").asText();
+
+                SwingUtilities.invokeLater(() -> {
+                    previewImageLabel.setText("任务已提交，正在等待云端渲染完成 (可能需要数十秒)...");
+                });
+
+                pollAiResult(getUrl, token, mapper);
+
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() -> {
+                    generateAiBtn.setEnabled(true);
+                    generateAiBtn.setText("生成 AI 艺术二维码");
+                    previewImageLabel.setText("");
+                    JOptionPane.showMessageDialog(getView(), "AI 生成请求出错: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                });
+            }
+        }).start();
+    }
+
+    private void pollAiResult(String getUrl, String token, ObjectMapper mapper) {
+        Timer timer = new Timer(true);
+        timer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                try {
+                    URL url = new URL(getUrl);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("Authorization", "Bearer " + token);
+                    
+                    JsonNode root = mapper.readTree(conn.getInputStream());
+                    String status = root.path("status").asText();
+                    
+                    if ("succeeded".equals(status)) {
+                        String imageUrl = root.path("output").get(0).asText(); // For this model it returns an array of urls
+                        BufferedImage img = ImageIO.read(new URL(imageUrl));
+                        SwingUtilities.invokeLater(() -> {
+                            currentQrImage = img;
+                            // scale for preview if too large, but model generates 768x768 usually
+                            Image scaled = img.getScaledInstance(350, 350, Image.SCALE_SMOOTH);
+                            previewImageLabel.setIcon(new ImageIcon(scaled));
+                            previewImageLabel.setText("AI 艺术二维码生成完毕");
+                            generateAiBtn.setEnabled(true);
+                            generateAiBtn.setText("生成 AI 艺术二维码");
+                        });
+                        timer.cancel();
+                    } else if ("failed".equals(status) || "canceled".equals(status)) {
+                        String error = root.path("error").asText();
+                        SwingUtilities.invokeLater(() -> {
+                            generateAiBtn.setEnabled(true);
+                            generateAiBtn.setText("生成 AI 艺术二维码");
+                            previewImageLabel.setText("");
+                            JOptionPane.showMessageDialog(getView(), "AI 任务失败或被取消: " + error, "错误", JOptionPane.ERROR_MESSAGE);
+                        });
+                        timer.cancel();
+                    }
+                } catch (Exception ex) {
+                    // Ignore transient network errors during polling
+                }
+            }
+        }, 3000, 3000);
+    }
+
     private void generateQrCode() {
         String text = inputContentArea.getText();
         if (text == null || text.trim().isEmpty()) text = "Java Toolbox";
 
         int size = (Integer) sizeSpinner.getValue();
-        currentQrImage = renderSimpleQrMatrix(text, size, fgColor, bgColor);
-        previewImageLabel.setIcon(new ImageIcon(currentQrImage));
-        previewImageLabel.setText("二维码生成完毕 (" + size + "x" + size + " px)");
-    }
-
-    /**
-     * 纯 Java 绘制轻量规范二维矩阵图
-     */
-    private BufferedImage renderSimpleQrMatrix(String text, int size, Color fg, Color bg) {
-        int modules = 25; // 25x25 模块矩阵
-        boolean[][] matrix = new boolean[modules][modules];
-
-        // 1. 绘制定位角标 (Finder Patterns 7x7)
-        drawFinderPattern(matrix, 0, 0);
-        drawFinderPattern(matrix, modules - 7, 0);
-        drawFinderPattern(matrix, 0, modules - 7);
-
-        // 2. 绘制 Timing Patterns (第 6 行与第 6 列)
-        for (int i = 8; i < modules - 8; i++) {
-            matrix[6][i] = (i % 2 == 0);
-            matrix[i][6] = (i % 2 == 0);
-        }
-
-        // 3. 将文本 Byte 数据打散编码填充到剩余模块网格
-        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
-        int bitIdx = 0;
-        for (int r = 0; r < modules; r++) {
-            for (int c = 0; c < modules; c++) {
-                if (isReservedArea(r, c, modules)) continue;
-                byte b = bytes[bitIdx % bytes.length];
-                int bit = (b >> (bitIdx % 8)) & 1;
-                matrix[r][c] = (bit ^ ((r + c) % 2)) == 1; // 结合掩码
-                bitIdx++;
+        try {
+            QRCodeWriter qrCodeWriter = new QRCodeWriter();
+            Map<EncodeHintType, Object> hints = new HashMap<>();
+            hints.put(EncodeHintType.CHARACTER_SET, "UTF-8");
+            hints.put(EncodeHintType.MARGIN, 1);
+            if (logoFile != null && logoFile.exists()) {
+                hints.put(EncodeHintType.ERROR_CORRECTION, com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.H);
             }
-        }
-
-        // 4. 渲染为 BufferedImage
-        BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_RGB);
-        Graphics2D g2d = image.createGraphics();
-        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
-
-        g2d.setColor(bg);
-        g2d.fillRect(0, 0, size, size);
-
-        double cellWidth = (double) size / modules;
-        g2d.setColor(fg);
-
-        for (int r = 0; r < modules; r++) {
-            for (int c = 0; c < modules; c++) {
-                if (matrix[r][c]) {
-                    int x = (int) Math.round(c * cellWidth);
-                    int y = (int) Math.round(r * cellWidth);
-                    int w = (int) Math.ceil(cellWidth);
-                    int h = (int) Math.ceil(cellWidth);
-                    g2d.fillRect(x, y, w, h);
+            BitMatrix bitMatrix = qrCodeWriter.encode(text, BarcodeFormat.QR_CODE, size, size, hints);
+            MatrixToImageConfig config = new MatrixToImageConfig(fgColor.getRGB(), bgColor.getRGB());
+            currentQrImage = MatrixToImageWriter.toBufferedImage(bitMatrix, config);
+            
+            if (logoFile != null && logoFile.exists()) {
+                try {
+                    BufferedImage logo = ImageIO.read(logoFile);
+                    if (logo != null) {
+                        Graphics2D g2 = currentQrImage.createGraphics();
+                        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        
+                        int logoWidth = size / 5;
+                        int logoHeight = (int) ((double) logo.getHeight() / logo.getWidth() * logoWidth);
+                        int x = (size - logoWidth) / 2;
+                        int y = (size - logoHeight) / 2;
+                        
+                        g2.setColor(bgColor);
+                        g2.fillRoundRect(x - 4, y - 4, logoWidth + 8, logoHeight + 8, 12, 12);
+                        
+                        g2.drawImage(logo, x, y, logoWidth, logoHeight, null);
+                        g2.dispose();
+                    }
+                } catch (Exception ignored) {
                 }
             }
+            
+            previewImageLabel.setIcon(new ImageIcon(currentQrImage));
+            previewImageLabel.setText("二维码生成完毕 (" + size + "x" + size + " px)");
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(getView(), "二维码生成失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
         }
-
-        g2d.dispose();
-        return image;
     }
 
-    private void drawFinderPattern(boolean[][] matrix, int startR, int startC) {
-        for (int r = 0; r < 7; r++) {
-            for (int c = 0; c < 7; c++) {
-                if (r == 0 || r == 6 || c == 0 || c == 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4)) {
-                    matrix[startR + r][startC + c] = true;
+    private void decodeImage(BufferedImage img, JTextArea resultArea, JLabel display) {
+        if (img == null) return;
+        try {
+            display.setIcon(new ImageIcon(img.getScaledInstance(200, 200, Image.SCALE_SMOOTH)));
+            display.setText("");
+            
+            LuminanceSource source = new BufferedImageLuminanceSource(img);
+            Map<DecodeHintType, Object> hints = new HashMap<>();
+            hints.put(DecodeHintType.CHARACTER_SET, "UTF-8");
+            hints.put(DecodeHintType.TRY_HARDER, Boolean.TRUE);
+
+            Result result = null;
+            
+            try {
+                result = new MultiFormatReader().decode(new BinaryBitmap(new HybridBinarizer(source)), hints);
+            } catch (NotFoundException e1) {
+                try {
+                    result = new MultiFormatReader().decode(new BinaryBitmap(new com.google.zxing.common.GlobalHistogramBinarizer(source)), hints);
+                } catch (NotFoundException e2) {
+                    result = new MultiFormatReader().decode(new BinaryBitmap(new HybridBinarizer(source.invert())), hints);
                 }
             }
+            
+            if (result != null) {
+                resultArea.setText("解析成功！\n" + "格式: " + result.getBarcodeFormat() + "\n内容:\n" + result.getText());
+            }
+        } catch (NotFoundException e) {
+            resultArea.setText("未能识别出二维码或条形码（尝试了多种对比度和反色策略均失败）。");
+        } catch (Exception ex) {
+            resultArea.setText("解析时发生错误: " + ex.getMessage());
         }
-    }
-
-    private boolean isReservedArea(int r, int c, int modules) {
-        if (r <= 7 && c <= 7) return true; // 左上
-        if (r <= 7 && c >= modules - 8) return true; // 右上
-        if (r >= modules - 8 && c <= 7) return true; // 左下
-        if (r == 6 || c == 6) return true; // Timing
-        return false;
     }
 
     private void copyImageToClipboard() {

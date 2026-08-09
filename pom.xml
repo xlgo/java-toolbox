@@ -10,7 +10,7 @@
     <packaging>jar</packaging>
 
     <name>Java Toolbox</name>
-    <description>桌面工具箱：算法、加密、格式转换、计算、SSH远程终端与代理等</description>
+    <description>妗岄潰宸ュ叿绠憋細绠楁硶銆佸姞瀵嗐€佹牸寮忚浆鎹€佽绠椼€丼SH杩滅▼缁堢涓庝唬鐞嗙瓑</description>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
@@ -38,42 +38,53 @@
     </repositories>
 
     <dependencies>
-        <!-- FlatLaf 外观包：现代扁平风格，自带 Light/Dark/IntelliJ/Darcula/macOS 等核心主题 -->
+        <!-- FlatLaf 澶栬鍖咃細鐜颁唬鎵佸钩椋庢牸锛岃嚜甯?Light/Dark/IntelliJ/Darcula/macOS 绛夋牳蹇冧富棰?-->
         <dependency>
             <groupId>com.formdev</groupId>
             <artifactId>flatlaf</artifactId>
             <version>${flatlaf.version}</version>
         </dependency>
-        <!-- FlatLaf 扩展：提供切换动画 FlatAnimatedLafChange -->
+        <!-- FlatLaf 鎵╁睍锛氭彁渚涘垏鎹㈠姩鐢?FlatAnimatedLafChange -->
         <dependency>
             <groupId>com.formdev</groupId>
             <artifactId>flatlaf-extras</artifactId>
             <version>${flatlaf.version}</version>
         </dependency>
-        <!-- FlatLaf IntelliJ 主题包：数十种 IDE 风格主题 -->
+        <!-- FlatLaf IntelliJ 涓婚鍖咃細鏁板崄绉?IDE 椋庢牸涓婚 -->
         <dependency>
             <groupId>com.formdev</groupId>
             <artifactId>flatlaf-intellij-themes</artifactId>
             <version>${flatlaf.version}</version>
         </dependency>
-        <!-- BouncyCastle：国密 SM2/SM3/SM4 算法支持 -->
+        <!-- BouncyCastle锛氬浗瀵?SM2/SM3/SM4 绠楁硶鏀寔 -->
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk15on</artifactId>
             <version>1.70</version>
         </dependency>
-        <!-- BouncyCastle PKIX/CMS：X.509 证书生成、解析、PEM 编解码 -->
+        <!-- BouncyCastle PKIX/CMS锛歑.509 璇佷功鐢熸垚銆佽В鏋愩€丳EM 缂栬В鐮?-->
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcpkix-jdk15on</artifactId>
             <version>1.70</version>
         </dependency>
-        <!-- JUnit 5 测试框架 -->
+        <!-- JUnit 5 娴嬭瘯妗嗘灦 -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>5.10.0</version>
             <scope>test</scope>
+        </dependency>
+        <!-- Zxing for QR Code -->
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>core</artifactId>
+            <version>3.5.2</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>javase</artifactId>
+            <version>3.5.2</version>
         </dependency>
         <!-- Jackson core and databind for JSON processing -->
         <dependency>
@@ -99,7 +110,7 @@
             <artifactId>jedis</artifactId>
             <version>3.8.0</version>
         </dependency>
-        <!-- Java-WebSocket：用于 K8s 容器 Exec 的 WebSocket 连接 -->
+        <!-- Java-WebSocket锛氱敤浜?K8s 瀹瑰櫒 Exec 鐨?WebSocket 杩炴帴 -->
         <dependency>
             <groupId>org.java-websocket</groupId>
             <artifactId>Java-WebSocket</artifactId>
@@ -193,7 +204,7 @@
     <build>
         <finalName>java-toolbox</finalName>
         <plugins>
-            <!-- 打包 fat jar，双击即可运行 -->
+            <!-- 鎵撳寘 fat jar锛屽弻鍑诲嵆鍙繍琛?-->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -251,3 +262,4 @@
         </plugins>
     </build>
 </project>
+

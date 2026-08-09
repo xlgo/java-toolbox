@@ -31,9 +31,8 @@ import com.aqishi.toolbox.misc.K8sManagerPanel;
 import com.aqishi.toolbox.misc.K8sPanel;
 import com.aqishi.toolbox.misc.KafkaPanel;
 import com.aqishi.toolbox.misc.MermaidPanel;
-import com.aqishi.toolbox.misc.PasswordPanel;
+import com.aqishi.toolbox.misc.DataGeneratorPanel;
 import com.aqishi.toolbox.misc.QrCodePanel;
-import com.aqishi.toolbox.misc.RandomNumberPanel;
 import com.aqishi.toolbox.misc.RedisPanel;
 import com.aqishi.toolbox.misc.RegexPanel;
 import com.aqishi.toolbox.misc.SqlPanel;
@@ -43,7 +42,6 @@ import com.aqishi.toolbox.misc.StringToolPanel;
 import com.aqishi.toolbox.misc.SubnetPanel;
 import com.aqishi.toolbox.misc.TextDiffPanel;
 import com.aqishi.toolbox.misc.TotpPanel;
-import com.aqishi.toolbox.misc.UuidPanel;
 import com.aqishi.toolbox.misc.WeChatPanel;
 import com.aqishi.toolbox.misc.WebSocketClientPanel;
 import com.aqishi.toolbox.misc.XmlPanel;
@@ -106,8 +104,8 @@ public class MainFrame extends JFrame {
             JsonPanel::new, XmlPanel::new, SqlPanel::new, RegexPanel::new, JwtPanel::new,
             CronPanel::new, TextDiffPanel::new, DockerComposePanel::new, SubnetPanel::new,
             HttpTestPanel::new, CallbackTestPanel::new, ColorPanel::new, CertPanel::new,
-            K8sPanel::new, K8sManagerPanel::new, UuidPanel::new, PasswordPanel::new,
-            RandomNumberPanel::new, CalculatorPanel::new, StatisticsPanel::new, ChmodPanel::new, SortPanel::new,
+            K8sPanel::new, K8sManagerPanel::new, DataGeneratorPanel::new,
+            CalculatorPanel::new, StatisticsPanel::new, ChmodPanel::new, SortPanel::new,
             SearchPanel::new, HanoiPanel::new, VideoMonitorPanel::new, RemoteDesktopPanel::new, RedisPanel::new, BpmnPanel::new,
             DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, ZooKeeperPanel::new, WeChatPanel::new, MermaidPanel::new, FlowchartPanel::new, SshClientPanel::new, QrCodePanel::new,
             HostsManagerPanel::new, WebSocketClientPanel::new

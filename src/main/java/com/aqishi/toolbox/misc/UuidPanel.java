@@ -17,16 +17,12 @@ import java.util.UUID;
 /**
  * UUID 生成面板：批量生成、可选去横线、可选大写、一键复制。
  */
-public class UuidPanel extends ToolPanel {
+public class UuidPanel {
 
     public UuidPanel() {
-        super("generate", "uuid.generator",
-                "UUID", "GUID", "唯一标识", "随机数",
-                "批量生成");
     }
 
-    @Override
-    protected JComponent build() {
+    public JComponent build() {
         JPanel root = Layouts.page();
 
         JSpinner count = Fields.spinner(5, 1, 1000, 1);

@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 /**
  * SQL 格式化 / 美化面板。
  */
-public class SqlPanel extends ToolPanel {
+public class SqlPanel extends AbstractFormatPanel {
 
     private static final Set<String> KEYWORDS = new HashSet<>(Arrays.asList(
             "SELECT", "FROM", "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE",
@@ -37,43 +37,30 @@ public class SqlPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel root = Layouts.page();
-
-        // ===== 输入卡片：两个改写动作挂在标题栏，编辑区因此能一路铺到分隔条 =====
-        JTextArea input = Fields.area(8, 40);
-        input.setText("select id, name, age from users left join roles on users.role_id = roles.id where age > 18 and status = 'active' order by age desc limit 10");
-
-        JButton pretty = Buttons.primary("格式化");
-        JButton compress = Buttons.secondary("压缩 SQL");
-        JButton clear = Buttons.danger("清空");
-        Card inputCard = Card.flush("输入 SQL");
-        inputCard.setContent(Fields.scroll(input));
-        // addHeaderAction 按调用顺序自左向右排，主操作放最右侧最靠近视线落点
-        inputCard.addHeaderAction(clear);
-        inputCard.addHeaderAction(compress);
-        inputCard.addHeaderAction(pretty);
-
-        // ===== 输出卡片：复制是结果区自己的动作 =====
         JTextArea out = Fields.output(10, 40);
-        JButton copy = Buttons.ghost("复制结果");
-        Card outCard = Card.flush("输出");
-        outCard.setContent(Fields.scroll(out));
-        outCard.addHeaderAction(copy);
+        this.outputComponent = out;
 
-        // 格式化后的 SQL 行数多于原文，多余高度偏向输出侧
-        JSplitPane split = Layouts.splitVertical(inputCard, outCard, 0.4);
-        root.add(split, BorderLayout.CENTER);
+        JComponent root = buildCommonFormatUI("SQL 工具", 
+            "select id, name, age from users left join roles on users.role_id = roles.id where age > 18 and status = 'active' order by age desc limit 10", 
+            bar -> {
+                JButton pretty = Buttons.primary("格式化");
+                JButton compress = Buttons.secondary("压缩 SQL");
 
-        pretty.addActionListener(e -> {
-            out.setText(formatSql(input.getText()));
-        });
-        compress.addActionListener(e -> {
-            out.setText(compressSql(input.getText()));
-        });
-        copy.addActionListener(e -> UIUtils.copyToClipboard(out.getText()));
-        clear.addActionListener(e -> { input.setText(""); out.setText(""); });
+                pretty.addActionListener(e -> {
+                    out.setText(formatSql(inputArea.getText()));
+                });
+                compress.addActionListener(e -> {
+                    out.setText(compressSql(inputArea.getText()));
+                });
+
+                bar.right(compress);
+                bar.right(pretty);
+            });
+
+        addOutputView("TEXT", out);
         
-        pretty.doClick();
+        // 默认触发一次格式化
+        out.setText(formatSql(inputArea.getText()));
 
         return root;
     }

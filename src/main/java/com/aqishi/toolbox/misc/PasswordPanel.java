@@ -17,7 +17,7 @@ import java.security.SecureRandom;
  * 强密码生成器工具面板。
  * <p>基于 SecureRandom 离线安全生成强密码，支持自定义长度、字符集与密码强度展示。</p>
  */
-public class PasswordPanel extends ToolPanel {
+public class PasswordPanel {
 
     private JSlider lenSlider;
     private JLabel lenLabel;
@@ -37,13 +37,9 @@ public class PasswordPanel extends ToolPanel {
     private static final String DEFAULT_SPECIAL = "!@#$%^&*_+-=|";
 
     public PasswordPanel() {
-        super("generate", "password.generator",
-                "密码", "Password", "随机密码", "强密码",
-                "密码强度", "口令", "密码生成");
     }
 
-    @Override
-    protected JComponent build() {
+    public JComponent build() {
         JPanel root = Layouts.page();
 
         // ===== 配置卡片 =====

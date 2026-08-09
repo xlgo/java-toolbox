@@ -67,12 +67,16 @@ public class TextDiffPanel extends ToolPanel {
         // JTextPane 自身没有内边距，补一层与 Fields.area 一致的留白，免得文字贴着卡片描边
         diffPane.setBorder(KitBorders.padding(Tokens.SPACE_SM));
 
+        JCheckBox ignoreCaseCheck = Fields.check("忽略大小写", false);
+        JCheckBox ignoreSpaceCheck = Fields.check("忽略空白", false);
+
         JButton compare = Buttons.primary("对比差异");
         JButton clear = Buttons.danger("清空");
         Card resultCard = Card.flush("对比结果 ( + 新增, - 删除 )");
         resultCard.setContent(Fields.scroll(diffPane));
-        // 两个动作都作用于「产出这份结果」，挂在结果卡标题栏上，
-        // 页面里就不再需要一条独立的按钮行去挤压文本区高度
+        
+        resultCard.addHeaderAction(ignoreCaseCheck);
+        resultCard.addHeaderAction(ignoreSpaceCheck);
         resultCard.addHeaderAction(clear);
         resultCard.addHeaderAction(compare);
 
@@ -100,7 +104,9 @@ public class TextDiffPanel extends ToolPanel {
                 StyleConstants.setForeground(equalStyle, Tokens.foreground());
                 StyleConstants.setFontFamily(equalStyle, Tokens.fontMono().getFamily());
 
-                List<DiffEntry> diffs = computeDiff(leftArea.getText(), rightArea.getText());
+                boolean ignoreCase = ignoreCaseCheck.isSelected();
+                boolean ignoreSpace = ignoreSpaceCheck.isSelected();
+                List<DiffEntry> diffs = computeDiff(leftArea.getText(), rightArea.getText(), ignoreCase, ignoreSpace);
                 for (DiffEntry entry : diffs) {
                     if (entry.type == DiffType.DELETE) {
                         doc.insertString(doc.getLength(), "- " + entry.line + "\n", deleteStyle);
@@ -127,14 +133,14 @@ public class TextDiffPanel extends ToolPanel {
         return root;
     }
 
-    private List<DiffEntry> computeDiff(String text1, String text2) {
+    private List<DiffEntry> computeDiff(String text1, String text2, boolean ignoreCase, boolean ignoreSpace) {
         List<String> a = Arrays.asList(text1.split("\n", -1));
         List<String> b = Arrays.asList(text2.split("\n", -1));
 
         int[][] dp = new int[a.size() + 1][b.size() + 1];
         for (int i = 1; i <= a.size(); i++) {
             for (int j = 1; j <= b.size(); j++) {
-                if (a.get(i - 1).equals(b.get(j - 1))) {
+                if (isLineEqual(a.get(i - 1), b.get(j - 1), ignoreCase, ignoreSpace)) {
                     dp[i][j] = dp[i - 1][j - 1] + 1;
                 } else {
                     dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
@@ -145,7 +151,7 @@ public class TextDiffPanel extends ToolPanel {
         int i = a.size(), j = b.size();
         List<DiffEntry> diff = new ArrayList<>();
         while (i > 0 || j > 0) {
-            if (i > 0 && j > 0 && a.get(i - 1).equals(b.get(j - 1))) {
+            if (i > 0 && j > 0 && isLineEqual(a.get(i - 1), b.get(j - 1), ignoreCase, ignoreSpace)) {
                 diff.add(new DiffEntry(DiffType.EQUAL, a.get(i - 1)));
                 i--; j--;
             } else if (j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j])) {
@@ -158,5 +164,16 @@ public class TextDiffPanel extends ToolPanel {
         }
         Collections.reverse(diff);
         return diff;
+    }
+
+    private boolean isLineEqual(String s1, String s2, boolean ignoreCase, boolean ignoreSpace) {
+        if (ignoreSpace) {
+            s1 = s1.replaceAll("\\s+", "");
+            s2 = s2.replaceAll("\\s+", "");
+        }
+        if (ignoreCase) {
+            return s1.equalsIgnoreCase(s2);
+        }
+        return s1.equals(s2);
     }
 }

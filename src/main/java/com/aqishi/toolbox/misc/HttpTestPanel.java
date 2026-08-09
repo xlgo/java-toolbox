@@ -270,12 +270,20 @@ public class HttpTestPanel extends ToolPanel {
 
                         // 如果响应是 JSON，则自动美化
                         String rawBody = resp.body.trim();
-                        if ((rawBody.startsWith("{") && rawBody.endsWith("}")) ||
+                        if ((resp.headers != null && resp.headers.toLowerCase().contains("application/json")) ||
+                            (rawBody.startsWith("{") && rawBody.endsWith("}")) ||
                             (rawBody.startsWith("[") && rawBody.endsWith("]"))) {
                             try {
-                                respBodyArea.setText(JsonFormatter.pretty(rawBody));
+                                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                                mapper.enable(com.fasterxml.jackson.databind.SerializationFeature.INDENT_OUTPUT);
+                                Object json = mapper.readValue(rawBody, Object.class);
+                                respBodyArea.setText(mapper.writeValueAsString(json));
                             } catch (Exception e) {
-                                respBodyArea.setText(rawBody);
+                                try {
+                                    respBodyArea.setText(JsonFormatter.pretty(rawBody));
+                                } catch (Exception ex) {
+                                    respBodyArea.setText(rawBody);
+                                }
                             }
                         } else {
                             respBodyArea.setText(rawBody);

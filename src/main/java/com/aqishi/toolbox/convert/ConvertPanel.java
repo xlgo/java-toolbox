@@ -43,6 +43,7 @@ public class ConvertPanel extends ToolPanel {
         tabs.setBorder(null);
         tabs.addTab("进制转换", buildRadixTab());
         tabs.addTab("编码转换", buildEncodingTab());
+        tabs.addTab("URL 编解码与 Query 解析", new UrlToolPanel().build());
         root.add(tabs, BorderLayout.CENTER);
         return root;
     }

@@ -125,10 +125,20 @@ public class K8sManagerPanel extends ToolPanel {
     @Override
     protected JComponent build() {
         JPanel root = Layouts.page();
+        root.setBorder(KitBorders.padding(4));
 
-        // 控制台三段式：集群连接放页首（高度自适应），资源浏览器吃掉全部剩余空间。
-        root.add(buildConnectionCard(), BorderLayout.NORTH);
-        root.add(buildResourceCard(), BorderLayout.CENTER);
+        JTabbedPane topTabs = new JTabbedPane();
+        topTabs.setFont(Tokens.fontBody());
+        topTabs.setBorder(null);
+
+        JPanel clusterPanel = new JPanel(new BorderLayout());
+        clusterPanel.add(buildConnectionCard(), BorderLayout.NORTH);
+        clusterPanel.add(buildResourceCard(), BorderLayout.CENTER);
+
+        topTabs.addTab("☸️ 集群资源管理", clusterPanel);
+        topTabs.addTab("🛠️ Manifest 生成器 (K8s YAML)", new K8sPanel().build());
+
+        root.add(topTabs, BorderLayout.CENTER);
 
         // Actions registration
         initActions(refreshPodBtn, yamlPodBtn, logPodBtn, delPodBtn, execPodBtn,

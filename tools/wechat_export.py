@@ -29,6 +29,22 @@ except ImportError:
         sys.stdout.flush()
         sys.exit(1)
 
+DEBUG = False
+
+
+def debug_emit(kind, payload):
+    """输出诊断信息。
+
+    仍然走 stdout（Java 端合并了 stderr），但包成合法 JSON 且带 debug 字段，
+    这样 Java 端逐行解析时不会因为裸文本而抛异常。
+    """
+    try:
+        print(json.dumps({"debug": kind, "payload": payload}, ensure_ascii=False))
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+
 class ExportState:
     def __init__(self):
         self.is_paused = False
@@ -136,55 +152,161 @@ def check_state(state):
             sys.stdout.flush()
             sys.exit(0)
 
+WECHAT_ID_KEYS = ["微信号", "WeChat ID", "微訊號", "微信號"]
+
+ACTION_BTN_NAMES = [
+    "发消息", "进入公众号", "关注", "发送消息", "Send Message",
+    "發消息", "發送訊息", "傳送訊息", "進入公眾號", "關注", "發送消息"
+]
+
+
+_SEPARATORS = ("：", ":")
+
+
+def _is_sep(ch):
+    return ch.isspace() or ch in _SEPARATORS
+
+
+def _extract_label_value(text, key):
+    """text 以 key 开头时返回其后的取值，否则返回 None。
+
+    比对标签时忽略空格与全/半角冒号，但**取值内部的空格必须保留**——早期实现直接在
+    去掉所有空格的字符串上做切片，导致「地区：广东 深圳」被解析成「广东深圳」，
+    含空格的昵称、备注同样被吞掉空格。
+
+    标签之后必须紧跟分隔符或字符串结束，避免 "Tag" 误匹配 "Tags：xxx"
+    （返回空串表示标签命中但取值在下一个控件里）。
+    """
+    key_chars = [c for c in key if not c.isspace()]
+    i = 0
+    ki = 0
+    while i < len(text) and ki < len(key_chars):
+        ch = text[i]
+        if _is_sep(ch):
+            i += 1
+            continue
+        if ch.lower() != key_chars[ki].lower():
+            return None
+        i += 1
+        ki += 1
+    if ki < len(key_chars):
+        return None
+    if i < len(text) and not _is_sep(text[i]):
+        return None
+    while i < len(text) and _is_sep(text[i]):
+        i += 1
+    return text[i:].strip()
+
+
+def _subtree_summary(ctrl, max_depth=4):
+    """单次遍历子树，返回 (是否含操作按钮, 文本控件数量)。
+
+    早期实现对 11 个按钮名各做一次 ButtonControl(...).Exists(0.02) 子树搜索，
+    每个候选节点最多触发 55 次全子树查找；20ms 的超时在控件稍多时几乎必然误判为
+    “不存在”，导致详情面板定位失败、整个抓取拿不到任何数据。
+    这里改为遍历一次、按名称子串匹配，既快得多也不再依赖超时。
+    """
+    has_action = False
+    text_count = 0
+    try:
+        for sub, _d in uia.WalkControl(ctrl, maxDepth=max_depth):
+            try:
+                if sub.ControlType == uia.ControlType.TextControl:
+                    text_count += 1
+                name = (sub.Name or "").strip()
+            except Exception:
+                continue
+            if not name:
+                continue
+            if not has_action and any(b in name for b in ACTION_BTN_NAMES):
+                has_action = True
+    except Exception:
+        pass
+    return has_action, text_count
+
+
 def find_detail_panel(wechat_window):
-    # 还原为原本 100% 可工作的全局遍历，不作任何深度限制或剪枝，保证兼容性
-    wechat_keys = ["微信号", "WeChat ID", "微訊號", "微信號"]
-    for child, depth in uia.WalkControl(wechat_window):
-        if child.ControlType == uia.ControlType.TextControl:
+    """定位右侧好友详情面板。
+
+    优先返回“含微信号文本 + 含发消息/关注等操作控件”的容器；如果微信改版后按钮
+    命名或控件类型变了，则退化为“含微信号文本 + 至少 2 个文本控件”的容器，
+    避免因为单一特征失配而整体抓不到数据。
+    """
+    fallback = None
+    try:
+        walker = uia.WalkControl(wechat_window)
+    except Exception:
+        return None
+
+    for child, _depth in walker:
+        try:
+            if child.ControlType != uia.ControlType.TextControl:
+                continue
             name = child.Name
-            if name and any(k in name for k in wechat_keys):
-                curr = child
-                for _ in range(5):
-                    curr = curr.GetParentControl()
-                    if curr is None:
-                        break
-                    btn_names = [
-                        "发消息", "进入公众号", "关注", "发送消息", "Send Message",
-                        "發消息", "發送訊息", "傳送訊息", "進入公眾號", "關注", "發送消息"
-                    ]
-                    for btn_name in btn_names:
-                        try:
-                            if curr.ButtonControl(Name=btn_name).Exists(0.02):
-                                return curr
-                        except Exception:
-                            pass
-    return None
+        except Exception:
+            continue
+        if not name or not any(k in name for k in WECHAT_ID_KEYS):
+            continue
+
+        curr = child
+        for _ in range(6):
+            try:
+                curr = curr.GetParentControl()
+            except Exception:
+                curr = None
+            if curr is None:
+                break
+            has_action, text_count = _subtree_summary(curr)
+            if has_action:
+                return curr
+            if fallback is None and text_count >= 2:
+                fallback = curr
+    return fallback
 
 def parse_profile_panel(panel):
     texts = []
-    all_controls_info = []
+    gender_hits = []
+    all_controls_info = [] if DEBUG else None
     try:
         for child, depth in uia.WalkControl(panel):
-            if child.ControlType == uia.ControlType.TextControl:
+            try:
+                ctype = child.ControlType
+                cname = child.Name
+            except Exception:
+                continue
+
+            if ctype == uia.ControlType.TextControl:
                 texts.append(child)
-            
-            rect = child.BoundingRectangle
-            rect_list = [rect.left, rect.top, rect.right, rect.bottom] if rect else None
-            control_info = {
-                "depth": depth,
-                "name": child.Name or "",
-                "type": getattr(child, "ControlTypeName", str(child.ControlType)),
-                "class": child.ClassName or "",
-                "rect": rect_list
-            }
-            all_controls_info.append(control_info)
+
+            # 性别候选在同一次遍历里收集，避免此前为了取性别再全量走一遍面板
+            if cname:
+                cname_clean = cname.strip()
+                if cname_clean in ["男", "女", "Male", "Female"]:
+                    gender_hits.append((ctype, cname_clean))
+
+            if DEBUG:
+                try:
+                    rect = child.BoundingRectangle
+                    rect_list = [rect.left, rect.top, rect.right, rect.bottom] if rect else None
+                except Exception:
+                    rect_list = None
+                all_controls_info.append({
+                    "depth": depth,
+                    "name": cname or "",
+                    "type": getattr(child, "ControlTypeName", str(ctype)),
+                    "class": child.ClassName or "",
+                    "rect": rect_list
+                })
     except Exception:
         pass
     text_names = [t.Name for t in texts if t.Name]
-    
-    print("[DEBUG_PANEL_CONTENT] " + json.dumps({"text_names": text_names, "controls": all_controls_info}, ensure_ascii=False))
-    sys.stdout.flush()
-    
+
+    if DEBUG:
+        # 仅在 --debug 下输出。此前这行是无条件打印的裸文本，既不是 JSON
+        # （Java 端逐行 readValue 会解析失败并丢弃），又把整棵控件树按每个联系人
+        # 最多 4 次重试的频率打到 stdout，严重拖慢抓取。
+        debug_emit("panel_content", {"text_names": text_names, "controls": all_controls_info})
+
     details = {
         'nickname': '',
         'wechat_id': '',
@@ -201,64 +323,26 @@ def parse_profile_panel(panel):
     region_keys = ["地区", "Region", "地區"]
     tag_keys = ["标签", "標籤", "Tag", "Tags"]
     
+    label_map = [
+        ('wechat_id', wechat_keys),
+        ('remark', remark_keys),
+        ('nickname', nickname_keys),
+        ('region', region_keys),
+        ('tag', tag_keys),
+    ]
+
     for idx, name in enumerate(text_names):
         name_clean = name.strip()
-        # 移除全角和半角冒号以及空格来进行规范化比对
-        name_normalized = name_clean.replace("：", "").replace(":", "").replace(" ", "").strip()
-        
-        # 1. 匹配微信号
-        for k in wechat_keys:
-            k_norm = k.replace(" ", "")
-            if name_normalized.startswith(k_norm):
-                val = name_normalized[len(k_norm):].strip()
+        for field, keys in label_map:
+            for k in keys:
+                val = _extract_label_value(name_clean, k)
+                if val is None:
+                    continue
+                # 标签与取值分处两个控件时，取值在下一条文本里
                 if not val and idx + 1 < len(text_names):
-                    val = text_names[idx+1].strip()
+                    val = text_names[idx + 1].strip()
                 if val:
-                    details['wechat_id'] = val
-                break
-                
-        # 2. 匹配备注名
-        for k in remark_keys:
-            k_norm = k.replace(" ", "")
-            if name_normalized.startswith(k_norm):
-                val = name_normalized[len(k_norm):].strip()
-                if not val and idx + 1 < len(text_names):
-                    val = text_names[idx+1].strip()
-                if val:
-                    details['remark'] = val
-                break
-                
-        # 3. 匹配昵称
-        for k in nickname_keys:
-            k_norm = k.replace(" ", "")
-            if name_normalized.startswith(k_norm):
-                val = name_normalized[len(k_norm):].strip()
-                if not val and idx + 1 < len(text_names):
-                    val = text_names[idx+1].strip()
-                if val:
-                    details['nickname'] = val
-                break
-                
-        # 4. 匹配地区
-        for k in region_keys:
-            k_norm = k.replace(" ", "")
-            if name_normalized.startswith(k_norm):
-                val = name_normalized[len(k_norm):].strip()
-                if not val and idx + 1 < len(text_names):
-                    val = text_names[idx+1].strip()
-                if val:
-                    details['region'] = val
-                break
-                
-        # 5. 匹配标签
-        for k in tag_keys:
-            k_norm = k.replace(" ", "")
-            if name_normalized.startswith(k_norm):
-                val = name_normalized[len(k_norm):].strip()
-                if not val and idx + 1 < len(text_names):
-                    val = text_names[idx+1].strip()
-                if val:
-                    details['tag'] = val
+                    details[field] = val
                 break
 
     # If nickname not found via label
@@ -286,53 +370,18 @@ def parse_profile_panel(panel):
             if details['nickname'] and details['nickname'] != first_text:
                 details['remark'] = first_text
                 
-    # Detect gender
-    for child, depth in uia.WalkControl(panel):
-        name = child.Name
-        if name:
-            name_clean = name.strip()
-            if child.ControlType in [uia.ControlType.ImageControl, uia.ControlType.CustomControl] or (child.ControlType == uia.ControlType.TextControl and name_clean in ["男", "女", "Male", "Female"] and name_clean != details['nickname']):
-                if name_clean in ["男", "Male"]:
-                    details['gender'] = 1
-                    break
-                elif name_clean in ["女", "Female"]:
-                    details['gender'] = 2
-                    break
-                    
+    # Detect gender（复用上面那次遍历收集到的候选，不再重复走一遍面板）
+    for ctype, name_clean in gender_hits:
+        if ctype == uia.ControlType.TextControl and name_clean == details['nickname']:
+            continue
+        if name_clean in ["男", "Male"]:
+            details['gender'] = 1
+            break
+        elif name_clean in ["女", "Female"]:
+            details['gender'] = 2
+            break
+
     return details
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--limit', type=int, default=1000, help='Maximum number of contacts to fetch')
-    parser.add_argument('--delay', type=float, default=0.3, help='Delay between down-presses')
-    parser.add_argument('--mode', type=str, default='keyboard', choices=['keyboard', 'mouse'], help='Traversal mode')
-    args = parser.parse_args()
-
-    # Find WeChat Window with multiple fallback strategies
-    wechat_window = uia.WindowControl(ClassName='WeChatMainWndForPC')
-    if not wechat_window.Exists(1):
-        wechat_window = uia.WindowControl(ClassName='QMainWindow', Name='微信')
-        if not wechat_window.Exists(0.5):
-            wechat_window = uia.WindowControl(ClassName='QMainWindow', Name='WeChat')
-            if not wechat_window.Exists(0.5):
-                wechat_window = uia.WindowControl(Name='微信')
-                if not wechat_window.Exists(0.5):
-                    wechat_window = uia.WindowControl(Name='WeChat')
-                    if not wechat_window.Exists(0.5):
-                        # Get list of top-level windows for debugging
-                        win_list = []
-                        try:
-                            for w in uia.GetRootControl().GetChildren():
-                                if w.Name or w.ClassName:
-                                    win_list.append(f"- Name: {w.Name} | Class: {w.ClassName}")
-                        except Exception as e:
-                            win_list.append(f"获取窗口列表失败: {str(e)}")
-                        
-                        debug_info = "\n".join(win_list[:15])
-                        err_msg = f"未找到微信窗口，请确认微信已启动并置于可见状态！\n\n系统当前顶级窗口列表 (前15个)：\n{debug_info}"
-                        print(json.dumps({"error": err_msg}))
-                        sys.stdout.flush()
-                        sys.exit(1)
 
 def run_export_logic(wechat_window, args, state):
     # 5-second countdown for user preparation
@@ -464,8 +513,9 @@ def run_export_logic(wechat_window, args, state):
             else:
                 consecutive_none += 1
                 print(json.dumps({"status": f"未检测到详情面板 (连续 {consecutive_none} 次)"}, ensure_ascii=False))
-                print(f"[DEBUG_PANEL_NONE] 详情面板未找到 (consecutive_none={consecutive_none})")
                 sys.stdout.flush()
+                if DEBUG:
+                    debug_emit("panel_none", {"consecutive_none": consecutive_none})
                 
             if consecutive_duplicates >= max_duplicates:
                 print(json.dumps({"status": f"已连续 {max_duplicates} 次获取到重复数据，获取完成！"}))
@@ -552,7 +602,7 @@ def run_export_logic(wechat_window, args, state):
                         pass
                     time.sleep(0.05)
                     check_state(state)
-                    
+
                     # 重新获取最新的 BoundingRectangle，防止滚动后元素变为虚拟化/不可见
                     rect_now = item.BoundingRectangle
                     if not rect_now or (rect_now.left == 0 and rect_now.top == 0 and rect_now.right == 0 and rect_now.bottom == 0):
@@ -563,11 +613,11 @@ def run_export_logic(wechat_window, args, state):
                             rect_now = item.BoundingRectangle
                         except Exception:
                             pass
-                    
+
                     # 如果仍然无效，或者宽高为 0，则跳过此项以防 Click 报错
                     if not rect_now or (rect_now.left == 0 and rect_now.top == 0 and rect_now.right == 0 and rect_now.bottom == 0) or (rect_now.right - rect_now.left <= 0) or (rect_now.bottom - rect_now.top <= 0):
                         continue
-                        
+
                     item.Click(simulateMove=False)
                     check_state(state)
                     time.sleep(args.delay)
@@ -637,7 +687,11 @@ def main():
     parser.add_argument('--limit', type=int, default=1000, help='Maximum number of contacts to fetch')
     parser.add_argument('--delay', type=float, default=0.3, help='Delay between down-presses')
     parser.add_argument('--mode', type=str, default='keyboard', choices=['keyboard', 'mouse'], help='Traversal mode')
+    parser.add_argument('--debug', action='store_true', help='Emit control-tree diagnostics as JSON debug lines')
     args = parser.parse_args()
+
+    global DEBUG
+    DEBUG = args.debug
 
     # Find WeChat Window with multiple fallback strategies
     wechat_window = uia.WindowControl(ClassName='WeChatMainWndForPC')

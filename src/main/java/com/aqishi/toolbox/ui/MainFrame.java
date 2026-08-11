@@ -32,6 +32,8 @@ import com.aqishi.toolbox.misc.K8sPanel;
 import com.aqishi.toolbox.misc.KafkaPanel;
 import com.aqishi.toolbox.misc.MermaidPanel;
 import com.aqishi.toolbox.misc.DataGeneratorPanel;
+import com.aqishi.toolbox.misc.MqttClientPanel;
+import com.aqishi.toolbox.misc.PortScannerPanel;
 import com.aqishi.toolbox.misc.QrCodePanel;
 import com.aqishi.toolbox.misc.RedisPanel;
 import com.aqishi.toolbox.misc.RegexPanel;
@@ -108,7 +110,7 @@ public class MainFrame extends JFrame {
             CalculatorPanel::new, StatisticsPanel::new, ChmodPanel::new, SortPanel::new,
             SearchPanel::new, HanoiPanel::new, VideoMonitorPanel::new, RemoteDesktopPanel::new, RedisPanel::new, BpmnPanel::new,
             DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, ZooKeeperPanel::new, WeChatPanel::new, MermaidPanel::new, FlowchartPanel::new, SshClientPanel::new, QrCodePanel::new,
-            HostsManagerPanel::new, WebSocketClientPanel::new
+            HostsManagerPanel::new, WebSocketClientPanel::new, MqttClientPanel::new, PortScannerPanel::new
         };
 
         tools = new ToolPanel[creators.length];

@@ -53,6 +53,10 @@ public class JsonPanel extends ToolPanel {
         // ===== 顶部操作卡片 =====
         prettyBtn = Buttons.primary("美化");
         JButton compact = Buttons.secondary("压缩");
+        JButton genJavaBtn = Buttons.secondary("转 Java POJO");
+        genJavaBtn.addActionListener(e -> generateCode("JAVA"));
+        JButton genTsBtn = Buttons.secondary("转 TypeScript");
+        genTsBtn.addActionListener(e -> generateCode("TS"));
         JButton copy = Buttons.ghost("复制结果");
         JButton clear = Buttons.ghost("清空");
         returnBtn = Buttons.ghost("⬅ 返回 Kafka 工具");
@@ -74,9 +78,11 @@ public class JsonPanel extends ToolPanel {
         bar.right(returnBtn);
         bar.right(clear);
         bar.right(copy);
+        bar.right(genTsBtn);
+        bar.right(genJavaBtn);
         bar.right(compact);
         bar.right(prettyBtn);
-        Card config = Card.titled("JSON 格式化");
+        Card config = Card.titled("JSON 格式化与代码生成");
         config.setContent(bar);
 
         // 输入区域
@@ -328,5 +334,123 @@ public class JsonPanel extends ToolPanel {
             }
             return this;
         }
+    }
+
+    private void generateCode(String lang) {
+        String jsonText = inputArea.getText().trim();
+        if (jsonText.isEmpty()) {
+            UIUtils.error(getView(), "请在输入框中输入有效的 JSON 内容！");
+            return;
+        }
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode rootNode = mapper.readTree(jsonText);
+
+            StringBuilder codeSb = new StringBuilder();
+            if ("JAVA".equalsIgnoreCase(lang)) {
+                buildJavaClass(rootNode, "RootDto", codeSb);
+            } else {
+                buildTsInterface(rootNode, "RootDto", codeSb);
+            }
+
+            JTextArea area = new JTextArea(codeSb.toString(), 18, 60);
+            area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+            JScrollPane scrollPane = new JScrollPane(area);
+
+            JPanel dialogPanel = new JPanel(new BorderLayout(0, 8));
+            dialogPanel.add(new JLabel("根据 JSON 结构自动生成的 " + lang + " 实体类型声明:"), BorderLayout.NORTH);
+            dialogPanel.add(scrollPane, BorderLayout.CENTER);
+
+            JButton copyBtn = new JButton("一键复制生成的代码");
+            copyBtn.addActionListener(e -> {
+                UIUtils.copyToClipboard(area.getText());
+                JOptionPane.showMessageDialog(getView(), "生成代码已复制到剪贴板！", "成功", JOptionPane.INFORMATION_MESSAGE);
+            });
+            dialogPanel.add(copyBtn, BorderLayout.SOUTH);
+
+            JOptionPane.showMessageDialog(getView(), dialogPanel, "代码生成器 (" + lang + ")", JOptionPane.PLAIN_MESSAGE);
+
+        } catch (Exception ex) {
+            UIUtils.error(getView(), "解析失败: " + ex.getMessage());
+        }
+    }
+
+    private void buildJavaClass(JsonNode node, String className, StringBuilder sb) {
+        if (!node.isObject()) return;
+
+        sb.append("public class ").append(className).append(" {\n");
+        java.util.Iterator<java.util.Map.Entry<String, JsonNode>> fields = node.fields();
+        java.util.List<String> gettersAndSetters = new java.util.ArrayList<>();
+
+        while (fields.hasNext()) {
+            java.util.Map.Entry<String, JsonNode> field = fields.next();
+            String name = field.getKey();
+            JsonNode val = field.getValue();
+
+            String type = getJavaType(val, capitalize(name));
+            sb.append("    private ").append(type).append(" ").append(name).append(";\n");
+
+            String capName = capitalize(name);
+            gettersAndSetters.add("    public " + type + " get" + capName + "() { return " + name + "; }\n" +
+                    "    public void set" + capName + "(" + type + " " + name + ") { this." + name + " = " + name + "; }\n");
+        }
+
+        sb.append("\n");
+        for (String gs : gettersAndSetters) {
+            sb.append(gs);
+        }
+        sb.append("}\n\n");
+    }
+
+    private String getJavaType(JsonNode node, String fieldNameCap) {
+        if (node.isTextual()) return "String";
+        if (node.isInt() || node.isLong()) return "Integer";
+        if (node.isFloat() || node.isDouble()) return "Double";
+        if (node.isBoolean()) return "Boolean";
+        if (node.isArray()) {
+            if (node.size() > 0) {
+                return "List<" + getJavaType(node.get(0), fieldNameCap + "Item") + ">";
+            }
+            return "List<Object>";
+        }
+        if (node.isObject()) return fieldNameCap + "Dto";
+        return "Object";
+    }
+
+    private void buildTsInterface(JsonNode node, String interfaceName, StringBuilder sb) {
+        if (!node.isObject()) return;
+
+        sb.append("export interface ").append(interfaceName).append(" {\n");
+        java.util.Iterator<java.util.Map.Entry<String, JsonNode>> fields = node.fields();
+
+        while (fields.hasNext()) {
+            java.util.Map.Entry<String, JsonNode> field = fields.next();
+            String name = field.getKey();
+            JsonNode val = field.getValue();
+
+            String type = getTsType(val, capitalize(name));
+            sb.append("  ").append(name).append("?: ").append(type).append(";\n");
+        }
+        sb.append("}\n\n");
+    }
+
+    private String getTsType(JsonNode node, String fieldNameCap) {
+        if (node.isTextual()) return "string";
+        if (node.isNumber()) return "number";
+        if (node.isBoolean()) return "boolean";
+        if (node.isArray()) {
+            if (node.size() > 0) {
+                return getTsType(node.get(0), fieldNameCap + "Item") + "[]";
+            }
+            return "any[]";
+        }
+        if (node.isObject()) return fieldNameCap;
+        return "any";
+    }
+
+    private String capitalize(String str) {
+        if (str == null || str.isEmpty()) return str;
+        return Character.toUpperCase(str.charAt(0)) + str.substring(1);
     }
 }

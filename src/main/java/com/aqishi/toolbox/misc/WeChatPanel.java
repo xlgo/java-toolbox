@@ -1519,8 +1519,12 @@ public class WeChatPanel extends ToolPanel {
                         String trimmed = line.trim();
                         if (trimmed.isEmpty()) continue;
                         
+                        // 仅保留尾部日志用于失败诊断，避免上千联系人时无界增长
                         outputLog.append(trimmed).append("\n");
-                        
+                        if (outputLog.length() > 4000) {
+                            outputLog.delete(0, outputLog.length() - 2000);
+                        }
+
                         try {
                             Map<String, Object> data = mapper.readValue(trimmed, Map.class);
                             if (data.containsKey("error")) {
@@ -1535,21 +1539,32 @@ public class WeChatPanel extends ToolPanel {
                                 SwingUtilities.invokeLater(() -> {
                                     wxcProgressBar.setString(statusMsg);
                                 });
+                            } else if (data.containsKey("debug")) {
+                                // 诊断行（仅在脚本以 --debug 运行时出现），不当作联系人数据
+                                System.out.println("[WeChat AutoCollect Debug] " + trimmed);
                             } else {
                                 String nickname = (String) data.get("nickname");
                                 String wechatId = (String) data.get("wechat_id");
                                 String remark = (String) data.get("remark");
                                 String region = (String) data.get("region");
                                 String tag = (String) data.get("tag");
-                                
-                                Integer genderVal = (Integer) data.get("gender");
+
+                                Object genderRaw = data.get("gender");
+                                int gender = genderRaw instanceof Number ? ((Number) genderRaw).intValue() : 0;
+
+                                String username = wechatId != null && !wechatId.isEmpty() ? wechatId : nickname;
+                                // 昵称与微信号同时为空说明这行不是有效联系人，跳过以免写入空行
+                                if (username == null || username.trim().isEmpty()) {
+                                    continue;
+                                }
+
                                 WeChatContactReader.ContactInfo info = new WeChatContactReader.ContactInfo();
                                 info.nickname = nickname;
                                 info.alias = wechatId;
                                 info.remark = remark;
                                 info.tag = tag != null ? tag : "";
-                                info.username = wechatId != null && !wechatId.isEmpty() ? wechatId : nickname;
-                                info.gender = genderVal != null ? genderVal : 0;
+                                info.username = username;
+                                info.gender = gender;
                                 info.avatarUrl = "";
                                 
                                 collected++;

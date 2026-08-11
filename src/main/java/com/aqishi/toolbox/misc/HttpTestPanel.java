@@ -63,6 +63,13 @@ public class HttpTestPanel extends ToolPanel {
 
         sendBtn = Buttons.primary("发送请求");
         sendBtn.addActionListener(e -> sendRequest());
+
+        JButton importCurlBtn = Buttons.secondary("导入 cURL");
+        importCurlBtn.addActionListener(e -> importCurl());
+
+        JButton exportCurlBtn = Buttons.secondary("复制 cURL");
+        exportCurlBtn.addActionListener(e -> exportCurl());
+
         browseBtn = Buttons.secondary("在浏览器中打开");
         browseBtn.addActionListener(e -> openInBrowser());
 
@@ -102,6 +109,8 @@ public class HttpTestPanel extends ToolPanel {
 
         Card requestCard = Card.titled("请求配置");
         requestCard.setContent(reqBody);
+        requestCard.addHeaderAction(importCurlBtn);
+        requestCard.addHeaderAction(exportCurlBtn);
         requestCard.addHeaderAction(browseBtn);
         requestCard.addHeaderAction(sendBtn);
 
@@ -385,6 +394,99 @@ public class HttpTestPanel extends ToolPanel {
         };
         if (SwingUtilities.isEventDispatchThread()) refresh.run();
         else SwingUtilities.invokeLater(refresh);
+    }
+
+    private void exportCurl() {
+        String method = (String) methodBox.getSelectedItem();
+        String url = urlField.getText().trim();
+        String headersText = reqHeadersArea.getText();
+        String bodyText = reqBodyArea.getText();
+
+        StringBuilder sb = new StringBuilder("curl -X ").append(method).append(" \"").append(url).append("\"");
+
+        for (String line : headersText.split("\n")) {
+            line = line.trim();
+            if (!line.isEmpty()) {
+                sb.append(" \\\n  -H \"").append(line.replace("\"", "\\\"")).append("\"");
+            }
+        }
+
+        if (("POST".equals(method) || "PUT".equals(method)) && bodyText != null && !bodyText.trim().isEmpty()) {
+            sb.append(" \\\n  --data-raw '").append(bodyText.replace("'", "'\\''")).append("'");
+        }
+
+        UIUtils.copyToClipboard(sb.toString());
+        UIUtils.info(getView(), "cURL 命令已成功复制到剪贴板！");
+    }
+
+    private void importCurl() {
+        JTextArea textArea = new JTextArea(10, 50);
+        textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        int result = JOptionPane.showConfirmDialog(getView(), scrollPane, "请粘贴 cURL 命令字符串", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            String curlCmd = textArea.getText();
+            if (curlCmd == null || curlCmd.trim().isEmpty()) return;
+
+            try {
+                parseAndApplyCurl(curlCmd);
+                UIUtils.info(getView(), "cURL 导入解析成功！");
+            } catch (Exception ex) {
+                UIUtils.error(getView(), "cURL 解析失败: " + ex.getMessage());
+            }
+        }
+    }
+
+    private void parseAndApplyCurl(String curlStr) {
+        // 去除换行符与反斜杠
+        String singleLine = curlStr.replaceAll("\\\\\\r?\\n", " ").replaceAll("\\r?\\n", " ").trim();
+
+        String method = "GET";
+        String url = "";
+        StringBuilder headersSb = new StringBuilder();
+        String body = "";
+
+        // 匹配 -X 或 --request
+        java.util.regex.Matcher mMethod = java.util.regex.Pattern.compile("(?:-X|--request)\\s+([A-Z]+)").matcher(singleLine);
+        if (mMethod.find()) {
+            method = mMethod.group(1);
+        }
+
+        // 匹配 -H 或 --header
+        java.util.regex.Matcher mHeader = java.util.regex.Pattern.compile("(?:-H|--header)\\s+[\"']([^\"']+)[\"']").matcher(singleLine);
+        while (mHeader.find()) {
+            if (headersSb.length() > 0) headersSb.append("\n");
+            headersSb.append(mHeader.group(1));
+        }
+
+        // 匹配 -d, --data, --data-raw
+        java.util.regex.Matcher mBody = java.util.regex.Pattern.compile("(?:-d|--data|--data-raw|--data-binary)\\s+['\"](.*?)['\"](?=\\s+-|$)").matcher(singleLine);
+        if (mBody.find()) {
+            body = mBody.group(1);
+            if ("GET".equals(method)) method = "POST";
+        }
+
+        // 匹配 URL
+        java.util.regex.Matcher mUrl = java.util.regex.Pattern.compile("(https?://[^\\s'\"]+)").matcher(singleLine);
+        if (mUrl.find()) {
+            url = mUrl.group(1);
+        }
+
+        if (url.isEmpty()) {
+            throw new IllegalArgumentException("未能在 cURL 命令中解析到有效 URL");
+        }
+
+        // 应用到 UI
+        methodBox.setSelectedItem(method);
+        urlField.setText(url);
+        if (headersSb.length() > 0) {
+            reqHeadersArea.setText(headersSb.toString());
+        }
+        if (!body.isEmpty()) {
+            reqBodyArea.setText(body);
+            reqBodyArea.setEnabled(true);
+        }
     }
 
     private static String formatSize(long bytes) {

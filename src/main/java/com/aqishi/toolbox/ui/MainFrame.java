@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.ui;
 
 import com.aqishi.toolbox.algo.HanoiPanel;
+import com.aqishi.toolbox.algo.PinGamePanel;
 import com.aqishi.toolbox.algo.SearchPanel;
 import com.aqishi.toolbox.algo.SortPanel;
 import com.aqishi.toolbox.calc.CalculatorPanel;
@@ -108,7 +109,7 @@ public class MainFrame extends JFrame {
             HttpTestPanel::new, CallbackTestPanel::new, ColorPanel::new, CertPanel::new,
             K8sPanel::new, K8sManagerPanel::new, DataGeneratorPanel::new,
             CalculatorPanel::new, StatisticsPanel::new, ChmodPanel::new, SortPanel::new,
-            SearchPanel::new, HanoiPanel::new, VideoMonitorPanel::new, RemoteDesktopPanel::new, RedisPanel::new, BpmnPanel::new,
+            SearchPanel::new, HanoiPanel::new, PinGamePanel::new, VideoMonitorPanel::new, RemoteDesktopPanel::new, RedisPanel::new, BpmnPanel::new,
             DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, ZooKeeperPanel::new, WeChatPanel::new, MermaidPanel::new, FlowchartPanel::new, SshClientPanel::new, QrCodePanel::new,
             HostsManagerPanel::new, WebSocketClientPanel::new, MqttClientPanel::new, PortScannerPanel::new
         };

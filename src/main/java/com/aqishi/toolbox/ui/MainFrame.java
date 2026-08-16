@@ -2,10 +2,10 @@ package com.aqishi.toolbox.ui;
 
 import com.aqishi.toolbox.catalog.ToolboxContext;
 import com.aqishi.toolbox.catalog.ToolRegistry;
-import com.aqishi.toolbox.misc.HttpTestPanel;
-import com.aqishi.toolbox.misc.SshClientPanel;
-import com.aqishi.toolbox.misc.ssh.session.SshTunnelBridge;
-import com.aqishi.toolbox.misc.ZooKeeperPanel;
+import com.aqishi.toolbox.feature.network.ui.HttpTestPanel;
+import com.aqishi.toolbox.feature.network.ui.SshClientPanel;
+import com.aqishi.toolbox.feature.network.ssh.session.SshTunnelBridge;
+import com.aqishi.toolbox.feature.data.ui.ZooKeeperPanel;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.ConfigManager;

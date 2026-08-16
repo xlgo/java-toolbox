@@ -1,56 +1,11 @@
 package com.aqishi.toolbox.ui;
 
-import com.aqishi.toolbox.algo.HanoiPanel;
-import com.aqishi.toolbox.algo.PinGamePanel;
-import com.aqishi.toolbox.algo.SearchPanel;
-import com.aqishi.toolbox.algo.SortPanel;
-import com.aqishi.toolbox.calc.CalculatorPanel;
-import com.aqishi.toolbox.calc.ChmodPanel;
-import com.aqishi.toolbox.calc.StatisticsPanel;
-import com.aqishi.toolbox.convert.Base64ImagePanel;
-import com.aqishi.toolbox.convert.ConvertPanel;
-import com.aqishi.toolbox.convert.FormatConvertPanel;
-import com.aqishi.toolbox.convert.TimePanel;
-import com.aqishi.toolbox.convert.UrlToolPanel;
-import com.aqishi.toolbox.crypto.AsymmetricPanel;
-import com.aqishi.toolbox.crypto.CryptoPanel;
-import com.aqishi.toolbox.crypto.SymmetricPanel;
-import com.aqishi.toolbox.misc.AccountManagerPanel;
-import com.aqishi.toolbox.misc.BpmnPanel;
-import com.aqishi.toolbox.misc.CallbackTestPanel;
-import com.aqishi.toolbox.misc.CertPanel;
-import com.aqishi.toolbox.misc.ColorPanel;
-import com.aqishi.toolbox.misc.CronPanel;
-import com.aqishi.toolbox.misc.DatabasePanel;
-import com.aqishi.toolbox.misc.DockerComposePanel;
-import com.aqishi.toolbox.misc.FlowchartPanel;
-import com.aqishi.toolbox.misc.HostsManagerPanel;
+import com.aqishi.toolbox.catalog.ToolboxContext;
+import com.aqishi.toolbox.catalog.ToolRegistry;
 import com.aqishi.toolbox.misc.HttpTestPanel;
-import com.aqishi.toolbox.misc.JsonPanel;
-import com.aqishi.toolbox.misc.JwtPanel;
-import com.aqishi.toolbox.misc.K8sManagerPanel;
-import com.aqishi.toolbox.misc.K8sPanel;
-import com.aqishi.toolbox.misc.KafkaPanel;
-import com.aqishi.toolbox.misc.MermaidPanel;
-import com.aqishi.toolbox.misc.DataGeneratorPanel;
-import com.aqishi.toolbox.misc.MqttClientPanel;
-import com.aqishi.toolbox.misc.PortScannerPanel;
-import com.aqishi.toolbox.misc.QrCodePanel;
-import com.aqishi.toolbox.misc.RedisPanel;
-import com.aqishi.toolbox.misc.RegexPanel;
-import com.aqishi.toolbox.misc.SqlPanel;
 import com.aqishi.toolbox.misc.SshClientPanel;
 import com.aqishi.toolbox.misc.ssh.session.SshTunnelBridge;
-import com.aqishi.toolbox.misc.StringToolPanel;
-import com.aqishi.toolbox.misc.SubnetPanel;
-import com.aqishi.toolbox.misc.TextDiffPanel;
-import com.aqishi.toolbox.misc.TotpPanel;
-import com.aqishi.toolbox.misc.WeChatPanel;
-import com.aqishi.toolbox.misc.WebSocketClientPanel;
-import com.aqishi.toolbox.misc.XmlPanel;
 import com.aqishi.toolbox.misc.ZooKeeperPanel;
-import com.aqishi.toolbox.monitor.RemoteDesktopPanel;
-import com.aqishi.toolbox.monitor.VideoMonitorPanel;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.ConfigManager;
@@ -88,6 +43,7 @@ public class MainFrame extends JFrame {
     private java.util.List<JLabel> statusSegments;
     private JButton expandSidebarButton;
     private ToolNavigationModel navigationModel;
+    private ToolRegistry toolRegistry;
     private ToolSidebar sidebar;
     private ToolContentHost contentHost;
     private JSplitPane workspaceSplit;
@@ -99,26 +55,13 @@ public class MainFrame extends JFrame {
     private ToolPanel[] tools;
 
     private void createTools() {
-        java.util.function.Supplier<ToolPanel>[] creators = new java.util.function.Supplier[]{
-            CryptoPanel::new, SymmetricPanel::new, AsymmetricPanel::new,
-            () -> new AccountManagerPanel(vaultService, secureClipboard),
-            () -> new TotpPanel(vaultService, secureClipboard),
-            ConvertPanel::new, TimePanel::new, Base64ImagePanel::new, FormatConvertPanel::new, UrlToolPanel::new,
-            JsonPanel::new, XmlPanel::new, SqlPanel::new, RegexPanel::new, JwtPanel::new,
-            CronPanel::new, TextDiffPanel::new, DockerComposePanel::new, SubnetPanel::new,
-            HttpTestPanel::new, CallbackTestPanel::new, ColorPanel::new, CertPanel::new,
-            K8sPanel::new, K8sManagerPanel::new, DataGeneratorPanel::new,
-            CalculatorPanel::new, StatisticsPanel::new, ChmodPanel::new, SortPanel::new,
-            SearchPanel::new, HanoiPanel::new, PinGamePanel::new, VideoMonitorPanel::new, RemoteDesktopPanel::new, RedisPanel::new, BpmnPanel::new,
-            DatabasePanel::new, StringToolPanel::new, KafkaPanel::new, ZooKeeperPanel::new, WeChatPanel::new, MermaidPanel::new, FlowchartPanel::new, SshClientPanel::new, QrCodePanel::new,
-            HostsManagerPanel::new, WebSocketClientPanel::new, MqttClientPanel::new, PortScannerPanel::new
-        };
-
-        tools = new ToolPanel[creators.length];
-        for (int i = 0; i < creators.length; i++) {
-            tools[i] = creators[i].get();
+        toolRegistry = ToolRegistry.createDefault();
+        ToolboxContext context = new ToolboxContext(vaultService, secureClipboard);
+        java.util.List<ToolPanel> registered = toolRegistry.createAll(context);
+        tools = registered.toArray(new ToolPanel[0]);
+        for (int i = 0; i < tools.length; i++) {
             if (com.aqishi.toolbox.Main.startupProgressUpdater != null) {
-                int percent = 40 + (int) (60.0 * (i + 1) / creators.length);
+                int percent = 40 + (int) (60.0 * (i + 1) / tools.length);
                 String name = tools[i].getClass().getSimpleName().replace("Panel", "");
                 com.aqishi.toolbox.Main.startupProgressUpdater.accept(percent, "正在载入工具组件: " + name);
             }

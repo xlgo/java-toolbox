@@ -118,7 +118,8 @@ public final class ToolRegistry {
         factories.put("zookeeper.management", context -> new ZooKeeperPanel());
         factories.put("docker.convert", context -> new DockerComposePanel());
         factories.put("k8s.deployment", context -> new K8sPanel());
-        factories.put("k8s.manager", context -> new K8sManagerPanel());
+        factories.put("k8s.manager", context -> new K8sManagerPanel(
+                context.getKubernetesServiceFactory()));
         factories.put("chmod.calc", context -> new ChmodPanel());
         factories.put("cron.parser", context -> new CronPanel());
         factories.put("hosts.manager", context -> new HostsManagerPanel());

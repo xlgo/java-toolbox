@@ -1,8 +1,15 @@
 package com.aqishi.toolbox.feature.data.ui;
 
+import com.aqishi.toolbox.feature.data.application.SqlExecutionService;
+import com.aqishi.toolbox.feature.data.domain.DatabaseProfile;
+import com.aqishi.toolbox.feature.data.domain.QueryResult;
 import com.aqishi.toolbox.feature.network.ssh.model.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.session.SshTunnelBridge;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.database.DatabaseConnectionFactory;
+import com.aqishi.toolbox.infra.database.JdbcConnectionResource;
+import com.aqishi.toolbox.infra.database.DatabaseProfileStore;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -14,8 +21,6 @@ import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.util.I18n;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -24,15 +29,10 @@ import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.TreePath;
 import java.awt.*;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.sql.*;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.prefs.Preferences;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 
@@ -40,14 +40,17 @@ import java.util.regex.Matcher;
  * 数据库客户端面板：支持 MySQL、PostgreSQL、Oracle 及自定义驱动链接自定义数据库。
  * 支持连接折叠、函数/视图/表树形浏览、数据库/Schema切换、SQL 智能提示及可视化条件编辑器。
  */
-public class DatabasePanel extends ToolPanel {
+public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
+
+    private final SqlExecutionService sqlExecutionService = new SqlExecutionService();
+    private final DatabaseConnectionFactory connectionFactory = new DatabaseConnectionFactory();
 
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
     private JButton delProfileBtn;
-    private final Map<String, DbConfigProfile> profiles = new LinkedHashMap<>();
-    private final Preferences prefs = Preferences.userNodeForPackage(DatabasePanel.class);
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final Map<String, DatabaseProfile> profiles = new LinkedHashMap<>();
+    private final DatabaseProfileStore profileStore = new DatabaseProfileStore(
+            java.util.prefs.Preferences.userNodeForPackage(DatabasePanel.class));
     private boolean ignoreProfileEvents = false;
     private boolean ignoreUrlUpdate = false;
 
@@ -75,6 +78,7 @@ public class DatabasePanel extends ToolPanel {
     private JButton connBtn;
     private boolean isConnected = false;
     private Connection connection = null;
+    private JdbcConnectionResource connectionResource;
     private volatile SshTunnelBridge.BridgeResult activeSshBridge;
 
     // Database & Schema Switchers in Workspace
@@ -553,7 +557,8 @@ public class DatabasePanel extends ToolPanel {
     }
 
     // Dynamic Connection Factory
-    private Connection createConnection(String url, String user, String pwd, String driverClass, String jarPath) throws Exception {
+    private JdbcConnectionResource createConnection(
+            String url, String user, String pwd, String driverClass, String jarPath) throws Exception {
         String finalUrl = url.trim();
         SshTunnelBridge.BridgeResult bridge = null;
         try {
@@ -568,29 +573,8 @@ public class DatabasePanel extends ToolPanel {
                 finalUrl = replaceJdbcEndpoint(finalUrl, rawHost, rawPort, bridge.getLocalPort());
             }
 
-            Connection result;
-            if (jarPath != null && !jarPath.trim().isEmpty()) {
-                File jarFile = new File(jarPath.trim());
-                if (!jarFile.exists()) {
-                    throw new FileNotFoundException("未找到驱动 JAR 文件：" + jarPath);
-                }
-                URL[] urls = new URL[]{ jarFile.toURI().toURL() };
-                URLClassLoader loader = new URLClassLoader(urls, DatabasePanel.class.getClassLoader());
-                Class<?> clazz = Class.forName(driverClass.trim(), true, loader);
-                Driver driver = (Driver) clazz.getDeclaredConstructor().newInstance();
-                Properties props = new Properties();
-                if (user != null && !user.isEmpty()) props.setProperty("user", user);
-                if (pwd != null && !pwd.isEmpty()) props.setProperty("password", pwd);
-                result = driver.connect(finalUrl, props);
-                if (result == null) {
-                    throw new SQLException("驱动程序未接受此 JDBC URL，请检查格式是否匹配。");
-                }
-            } else {
-                if (driverClass != null && !driverClass.trim().isEmpty()) {
-                    try { Class.forName(driverClass.trim()); } catch (Exception ignored) { }
-                }
-                result = DriverManager.getConnection(finalUrl, user, pwd);
-            }
+            JdbcConnectionResource result = connectionFactory.open(
+                    finalUrl, user, pwd, driverClass, jarPath);
             if (bridge != null) activeSshBridge = bridge;
             return result;
         } catch (Exception error) {
@@ -681,15 +665,13 @@ public class DatabasePanel extends ToolPanel {
             private String error = null;
             @Override
             protected Void doInBackground() throws Exception {
-                Connection conn = null;
+                JdbcConnectionResource resource = null;
                 try {
-                    conn = createConnection(url, user, pwd, driverClass, jarPath);
+                    resource = createConnection(url, user, pwd, driverClass, jarPath);
                 } catch (Exception ex) {
                     error = ex.getMessage();
                 } finally {
-                    if (conn != null) {
-                        try { conn.close(); } catch (Exception ignored) {}
-                    }
+                    if (resource != null) resource.close();
                     releaseSshBridge();
                 }
                 return null;
@@ -728,18 +710,19 @@ public class DatabasePanel extends ToolPanel {
         testBtn.setEnabled(false);
         consoleLog("正在建立连接：" + url);
 
-        new SwingWorker<Connection, Void>() {
+        new SwingWorker<JdbcConnectionResource, Void>() {
             private String error = null;
 
             @Override
-            protected Connection doInBackground() throws Exception {
+            protected JdbcConnectionResource doInBackground() throws Exception {
                 return createConnection(url, user, pwd, driverClass, jarPath);
             }
 
             @Override
             protected void done() {
                 try {
-                    connection = get();
+                    connectionResource = get();
+                    connection = connectionResource.connection();
                     isConnected = true;
                     connBtn.setText("断开");
                     connBtn.setEnabled(true);
@@ -778,14 +761,12 @@ public class DatabasePanel extends ToolPanel {
     }
 
     private void disconnect() {
-        if (connection != null) {
-            try {
-                connection.close();
-                consoleLog("数据库连接已关闭。");
-            } catch (Exception ex) {
-                consoleLog("关闭连接时出错：" + ex.getMessage());
-            }
-            connection = null;
+        JdbcConnectionResource resource = connectionResource;
+        connectionResource = null;
+        connection = null;
+        if (resource != null) {
+            resource.close();
+            consoleLog("数据库连接已关闭。");
         }
         releaseSshBridge();
         isConnected = false;
@@ -1015,15 +996,17 @@ public class DatabasePanel extends ToolPanel {
                     String newUrl = currentUrl.replaceAll("(?i)(postgresql://[^/]+/)([^?#/]+)", "$1" + dbName);
                     
                     consoleLog("PostgreSQL 需要重新建立物理连接。新 URL: " + newUrl);
-                    try {
-                        connection.close();
-                    } catch (Exception ignored) {}
+                    JdbcConnectionResource oldResource = connectionResource;
+                    connectionResource = null;
+                    connection = null;
+                    if (oldResource != null) oldResource.close();
 
                     String user = userField.getText().trim();
                     String pwd = new String(passField.getPassword());
                     String driverClass = driverClassField.getText().trim();
                     String jarPath = jarPathField.getText().trim();
-                    connection = createConnection(newUrl, user, pwd, driverClass, jarPath);
+                    connectionResource = createConnection(newUrl, user, pwd, driverClass, jarPath);
+                    connection = connectionResource.connection();
                     
                     SwingUtilities.invokeLater(() -> urlField.setText(newUrl));
                 } else {
@@ -1761,74 +1744,40 @@ public class DatabasePanel extends ToolPanel {
         resultTable.setModel(new DefaultTableModel());
         consoleLog("执行 SQL: " + sql);
 
-        new SwingWorker<SqlResult, Void>() {
+        new SwingWorker<QueryResult, Void>() {
             @Override
-            protected SqlResult doInBackground() throws Exception {
-                long startTime = System.currentTimeMillis();
-                SqlResult result = new SqlResult();
-                try (Statement stmt = connection.createStatement()) {
-                    boolean isResultSet = stmt.execute(sql);
-                    result.durationMs = System.currentTimeMillis() - startTime;
-                    if (isResultSet) {
-                        try (ResultSet rs = stmt.getResultSet()) {
-                            ResultSetMetaData meta = rs.getMetaData();
-                            int colCount = meta.getColumnCount();
-                            for (int i = 1; i <= colCount; i++) {
-                                result.columnNames.add(meta.getColumnLabel(i));
-                            }
-                            int count = 0;
-                            while (rs.next()) {
-                                Vector<Object> row = new Vector<>();
-                                for (int i = 1; i <= colCount; i++) {
-                                    Object val = rs.getObject(i);
-                                    if (val instanceof byte[]) {
-                                        row.add("[Binary: " + ((byte[]) val).length + " bytes]");
-                                    } else if (val != null) {
-                                        row.add(val.toString());
-                                    } else {
-                                        row.add(null);
-                                    }
-                                }
-                                result.data.add(row);
-                                count++;
-                                if (count >= 5000) {
-                                    result.warning = "数据集超过 5000 行限制，已自动截断。";
-                                    break;
-                                }
-                            }
-                        }
-                    } else {
-                        result.updateCount = stmt.getUpdateCount();
-                    }
-                }
-                return result;
+            protected QueryResult doInBackground() throws Exception {
+                return sqlExecutionService.execute(connection, sql);
             }
 
             @Override
             protected void done() {
                 runBtn.setEnabled(true);
                 try {
-                    SqlResult res = get();
-                    String statusText = "执行成功，耗时: " + res.durationMs + " ms. ";
-                    if (res.updateCount != -1) {
-                        statusText += "影响行数: " + res.updateCount;
-                        resultStatusLabel.setText("影响行数: " + res.updateCount + " | 耗时: " + res.durationMs + " ms");
+                    QueryResult res = get();
+                    String statusText = "执行成功，耗时: " + res.getDurationMillis() + " ms. ";
+                    if (res.isUpdate()) {
+                        statusText += "影响行数: " + res.getUpdateCount();
+                        resultStatusLabel.setText("影响行数: " + res.getUpdateCount()
+                                + " | 耗时: " + res.getDurationMillis() + " ms");
                         rightTabbedPane.setSelectedIndex(1);
                     } else {
-                        statusText += "返回记录数: " + res.data.size();
-                        if (res.warning != null) {
-                            statusText += " (" + res.warning + ")";
+                        statusText += "返回记录数: " + res.getRows().size();
+                        if (res.getWarning() != null) {
+                            statusText += " (" + res.getWarning() + ")";
                         }
-                        DefaultTableModel model = new DefaultTableModel(res.data, res.columnNames) {
+                        DefaultTableModel model = new DefaultTableModel(
+                                toTableRows(res), res.getColumnNames().toArray()) {
                             @Override
                             public boolean isCellEditable(int row, int column) {
                                 return false;
                             }
                         };
                         resultTable.setModel(model);
-                        String sText = "返回行数: " + res.data.size() + " | 耗时: " + res.durationMs + " ms";
-                        if (res.warning != null) {
-                            sText += " [" + res.warning + "]";
+                        String sText = "返回行数: " + res.getRows().size()
+                                + " | 耗时: " + res.getDurationMillis() + " ms";
+                        if (res.getWarning() != null) {
+                            sText += " [" + res.getWarning() + "]";
                         }
                         resultStatusLabel.setText(sText);
                         rightTabbedPane.setSelectedIndex(0);
@@ -1845,12 +1794,33 @@ public class DatabasePanel extends ToolPanel {
         }.execute();
     }
 
+    /**
+     * Releases the JDBC connection and temporary SSH forwarding without
+     * touching lazy Swing controls. The desktop shell calls this at shutdown.
+     */
+    @Override
+    public void closeResources() {
+        JdbcConnectionResource resource = connectionResource;
+        connectionResource = null;
+        connection = null;
+        if (resource != null) resource.close();
+        releaseSshBridge();
+    }
+
+    private static Object[][] toTableRows(QueryResult result) {
+        Object[][] rows = new Object[result.getRows().size()][];
+        for (int index = 0; index < rows.length; index++) {
+            rows[index] = result.getRows().get(index).toArray();
+        }
+        return rows;
+    }
+
     private void saveProfile() {
         String name = UIUtils.input(getView(), "请输入要保存的配置名称:", "");
         if (name == null || name.trim().isEmpty()) return;
         name = name.trim();
 
-        DbConfigProfile p = new DbConfigProfile(
+        DatabaseProfile p = new DatabaseProfile(
                 name,
                 (String) dbTypeCombo.getSelectedItem(),
                 hostField.getText().trim(),
@@ -1882,12 +1852,8 @@ public class DatabasePanel extends ToolPanel {
 
     private void loadProfilesFromPrefs() {
         try {
-            String json = prefs.get("db_profiles", null);
-            if (json != null && !json.trim().isEmpty()) {
-                Map<String, DbConfigProfile> loaded = mapper.readValue(json, new TypeReference<LinkedHashMap<String, DbConfigProfile>>(){});
-                profiles.clear();
-                profiles.putAll(loaded);
-            }
+            profiles.clear();
+            profiles.putAll(profileStore.load());
             refreshProfilesCombo(null);
         } catch (Exception ex) {
             ex.printStackTrace();
@@ -1896,8 +1862,7 @@ public class DatabasePanel extends ToolPanel {
 
     private void saveProfilesToPrefs() {
         try {
-            String json = mapper.writeValueAsString(profiles);
-            prefs.put("db_profiles", json);
+            profileStore.save(profiles);
         } catch (Exception ex) {
             ex.printStackTrace();
         }
@@ -1922,7 +1887,7 @@ public class DatabasePanel extends ToolPanel {
         if (ignoreProfileEvents) return;
         String name = (String) profileCombo.getSelectedItem();
         if (name == null) return;
-        DbConfigProfile p = profiles.get(name);
+        DatabaseProfile p = profiles.get(name);
         if (p == null) return;
 
         ignoreProfileEvents = true;
@@ -2113,39 +2078,4 @@ public class DatabasePanel extends ToolPanel {
         }
     }
 
-    private static class SqlResult {
-        public Vector<String> columnNames = new Vector<>();
-        public Vector<Vector<Object>> data = new Vector<>();
-        public int updateCount = -1;
-        public long durationMs;
-        public String warning;
-    }
-
-    public static class DbConfigProfile {
-        public String name;
-        public String dbType;
-        public String host;
-        public String port;
-        public String database;
-        public String username;
-        public String password;
-        public String driverClass;
-        public String url;
-        public String jarPath;
-
-        public DbConfigProfile() {}
-
-        public DbConfigProfile(String name, String dbType, String host, String port, String database, String username, String password, String driverClass, String url, String jarPath) {
-            this.name = name;
-            this.dbType = dbType;
-            this.host = host;
-            this.port = port;
-            this.database = database;
-            this.username = username;
-            this.password = password;
-            this.driverClass = driverClass;
-            this.url = url;
-            this.jarPath = jarPath;
-        }
-    }
 }

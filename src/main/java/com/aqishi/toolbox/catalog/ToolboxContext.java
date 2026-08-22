@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.catalog;
 
+import com.aqishi.toolbox.feature.cloud.application.KubernetesServiceFactory;
 import com.aqishi.toolbox.vault.SecureClipboard;
 import com.aqishi.toolbox.vault.VaultService;
 
@@ -12,10 +13,18 @@ public final class ToolboxContext {
 
     private final VaultService vaultService;
     private final SecureClipboard secureClipboard;
+    private final KubernetesServiceFactory kubernetesServiceFactory;
 
     public ToolboxContext(VaultService vaultService, SecureClipboard secureClipboard) {
+        this(vaultService, secureClipboard, KubernetesServiceFactory.standard());
+    }
+
+    public ToolboxContext(VaultService vaultService, SecureClipboard secureClipboard,
+                          KubernetesServiceFactory kubernetesServiceFactory) {
         this.vaultService = Objects.requireNonNull(vaultService, "vaultService");
         this.secureClipboard = Objects.requireNonNull(secureClipboard, "secureClipboard");
+        this.kubernetesServiceFactory = Objects.requireNonNull(
+                kubernetesServiceFactory, "kubernetesServiceFactory");
     }
 
     public VaultService getVaultService() {
@@ -24,5 +33,9 @@ public final class ToolboxContext {
 
     public SecureClipboard getSecureClipboard() {
         return secureClipboard;
+    }
+
+    public KubernetesServiceFactory getKubernetesServiceFactory() {
+        return kubernetesServiceFactory;
     }
 }

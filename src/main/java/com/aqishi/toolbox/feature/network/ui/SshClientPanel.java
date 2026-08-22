@@ -4,6 +4,7 @@ import com.aqishi.toolbox.feature.network.ssh.model.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.ui.SshConfigDialog;
 import com.aqishi.toolbox.feature.network.ssh.ui.SshSessionTabPanel;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -24,7 +25,7 @@ import java.util.Map;
 /**
  * SSH 客户端工具面板：支持服务器连接管理、分组树展示、多会话交互终端与 SFTP 文件传输
  */
-public class SshClientPanel extends ToolPanel {
+public class SshClientPanel extends ToolPanel implements ManagedResourceOwner {
 
     private final SshConfigStore configStore;
 
@@ -50,6 +51,11 @@ public class SshClientPanel extends ToolPanel {
                 ((SshSessionTabPanel) component).closeSession();
             }
         }
+    }
+
+    @Override
+    public void closeResources() {
+        closeSessions();
     }
 
     @Override

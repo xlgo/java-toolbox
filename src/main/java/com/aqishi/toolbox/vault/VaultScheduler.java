@@ -6,6 +6,12 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 保险库空闲锁定使用的可取消调度器。
+ *
+ * <p>任务在守护线程执行，取消不会中断已经开始的任务；调用 {@link #close()}
+ * 会取消并关闭调度线程，关闭后不得再提交新任务。</p>
+ */
 public interface VaultScheduler extends AutoCloseable {
     Cancellable schedule(Runnable task, long delay, TimeUnit unit);
 

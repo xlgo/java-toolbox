@@ -4,6 +4,13 @@ import java.awt.Color;
 import java.awt.Point;
 import java.awt.geom.Point2D;
 
+/**
+ * 流程图节点领域模型。
+ *
+ * <p>{@code x/y/w/h} 使用画布像素坐标，公开字段保持可变以兼容现有编辑器和
+ * JSON 序列化。节点类型使用本类的 {@code TYPE_*} 字符串常量，端口编号固定为
+ * 0=上、1=右、2=下、3=左；非矩形节点的连线会按实际轮廓吸附。</p>
+ */
 public class FlowNode {
     // 节点类型定义
     public static final String TYPE_START_END = "start_end";       // 起止框 (椭圆)

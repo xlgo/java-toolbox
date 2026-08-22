@@ -2,11 +2,16 @@ package com.aqishi.toolbox.feature.data.ui;
 
 import com.aqishi.toolbox.feature.codec.ui.JsonPanel;
 import com.aqishi.toolbox.feature.codec.ui.XmlPanel;
+import com.aqishi.toolbox.feature.data.application.KafkaProfileStore;
+import com.aqishi.toolbox.feature.data.domain.KafkaProfile;
 import com.aqishi.toolbox.feature.network.ssh.model.RemoteEndpoint;
 import com.aqishi.toolbox.feature.network.ssh.model.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.session.SshTunnelBridge;
 import com.aqishi.toolbox.feature.network.ssh.session.KafkaTunnelSupport;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.kafka.KafkaClient;
+import com.aqishi.toolbox.infra.messaging.KafkaResource;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -17,7 +22,6 @@ import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.apache.kafka.clients.admin.*;
@@ -48,21 +52,21 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
-import java.util.prefs.Preferences;
 import java.util.stream.Collectors;
 
 /**
  * Kafka 管理工具面板：支持连接到 Kafka 集群，浏览主题和消费组，查看消费 Lag，拉取并检索消息，以及发送测试消息。
  */
-public class KafkaPanel extends ToolPanel {
+public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
 
     private static final int DEFAULT_KAFKA_PORT = 9093;
 
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
     private JButton delProfileBtn;
-    private final Map<String, KafkaConfigProfile> profiles = new LinkedHashMap<>();
-    private final Preferences prefs = Preferences.userNodeForPackage(KafkaPanel.class);
+    private final Map<String, KafkaProfile> profiles = new LinkedHashMap<>();
+    private final KafkaProfileStore profileStore = new KafkaProfileStore(
+            java.util.prefs.Preferences.userNodeForPackage(KafkaPanel.class));
     private final ObjectMapper mapper = new ObjectMapper();
     private boolean ignoreProfileEvents = false;
 
@@ -83,6 +87,8 @@ public class KafkaPanel extends ToolPanel {
 
     private boolean isConnected = false;
     private AdminClient adminClient = null;
+    private KafkaResource adminResource;
+    private final KafkaClient kafkaClient = new KafkaClient();
     private String activeBootstrapServers = "";
     private Properties activeCustomProperties = new Properties();
     private volatile List<SshTunnelBridge.BridgeResult> activeSshBridges = new ArrayList<>();
@@ -1383,8 +1389,11 @@ public class KafkaPanel extends ToolPanel {
                 String targetServers = resolveBootstrapServers(servers);
                 Properties props = kafkaProperties(targetServers, custom);
 
-                try (AdminClient testClient = AdminClient.create(props)) {
-                    verifyAndListTopics(testClient, servers, props);
+                KafkaResource resource = kafkaClient.connect(props);
+                try {
+                    verifyAndListTopics(kafkaClient.adminClient(resource), servers, props);
+                } finally {
+                    resource.close();
                 }
                 return null;
             }
@@ -1424,28 +1433,29 @@ public class KafkaPanel extends ToolPanel {
         testBtn.setEnabled(false);
         consoleLog("正在建立 Kafka 连接: " + servers);
 
-        new SwingWorker<AdminClient, Void>() {
+        new SwingWorker<KafkaResource, Void>() {
             private String err = null;
             private String resolvedServers;
 
             @Override
-            protected AdminClient doInBackground() throws Exception {
+            protected KafkaResource doInBackground() throws Exception {
                 resolvedServers = resolveBootstrapServers(servers);
                 Properties props = kafkaProperties(resolvedServers, custom);
-                AdminClient client = AdminClient.create(props);
+                KafkaResource resource = kafkaClient.connect(props);
                 try {
-                    verifyAndListTopics(client, servers, props);
+                    verifyAndListTopics(kafkaClient.adminClient(resource), servers, props);
                 } catch (Exception error) {
-                    client.close();
+                    resource.close();
                     throw error;
                 }
-                return client;
+                return resource;
             }
 
             @Override
             protected void done() {
                 try {
-                    adminClient = get();
+                    adminResource = get();
+                    adminClient = kafkaClient.adminClient(adminResource);
                     isConnected = true;
                     activeBootstrapServers = resolvedServers == null ? servers : resolvedServers;
                     activeCustomProperties = custom;
@@ -1480,14 +1490,12 @@ public class KafkaPanel extends ToolPanel {
     }
 
     private void disconnect() {
-        if (adminClient != null) {
-            try {
-                adminClient.close();
-                consoleLog("Kafka 管理端连接已关闭。");
-            } catch (Exception ex) {
-                consoleLog("关闭连接异常: " + ex.getMessage());
-            }
-            adminClient = null;
+        KafkaResource resource = adminResource;
+        adminResource = null;
+        adminClient = null;
+        if (resource != null) {
+            resource.close();
+            consoleLog("Kafka 管理端连接已关闭。");
         }
         releaseSshBridges();
 
@@ -1521,6 +1529,19 @@ public class KafkaPanel extends ToolPanel {
         subscriberMemberTableModel.setRowCount(0);
         subscribersStatusLabel.setText("连接断开。");
         groupTopicActiveMembers.clear();
+    }
+
+    /**
+     * Closes the persistent admin client and SSH tunnels without changing
+     * Swing state. Invoked by the desktop shell during shutdown.
+     */
+    @Override
+    public void closeResources() {
+        KafkaResource resource = adminResource;
+        adminResource = null;
+        adminClient = null;
+        if (resource != null) resource.close();
+        releaseSshBridges();
     }
 
     private void loadTopicsList() {
@@ -1924,7 +1945,7 @@ public class KafkaPanel extends ToolPanel {
         if (name == null || name.trim().isEmpty()) return;
         name = name.trim();
 
-        KafkaConfigProfile p = new KafkaConfigProfile(
+        KafkaProfile p = new KafkaProfile(
                 name,
                 serversField.getText().trim(),
                 customPropsArea.getText().trim()
@@ -1949,12 +1970,8 @@ public class KafkaPanel extends ToolPanel {
 
     private void loadProfilesFromPrefs() {
         try {
-            String json = prefs.get("kafka_profiles", null);
-            if (json != null && !json.trim().isEmpty()) {
-                Map<String, KafkaConfigProfile> loaded = mapper.readValue(json, new TypeReference<LinkedHashMap<String, KafkaConfigProfile>>(){});
-                profiles.clear();
-                profiles.putAll(loaded);
-            }
+            profiles.clear();
+            profiles.putAll(profileStore.load());
             refreshProfilesCombo(null);
         } catch (Exception ex) {
             ex.printStackTrace();
@@ -1963,8 +1980,7 @@ public class KafkaPanel extends ToolPanel {
 
     private void saveProfilesToPrefs() {
         try {
-            String json = mapper.writeValueAsString(profiles);
-            prefs.put("kafka_profiles", json);
+            profileStore.save(profiles);
         } catch (Exception ex) {
             ex.printStackTrace();
         }
@@ -1989,28 +2005,13 @@ public class KafkaPanel extends ToolPanel {
         if (ignoreProfileEvents) return;
         String name = (String) profileCombo.getSelectedItem();
         if (name == null) return;
-        KafkaConfigProfile p = profiles.get(name);
+        KafkaProfile p = profiles.get(name);
         if (p == null) return;
 
         ignoreProfileEvents = true;
         serversField.setText(p.bootstrapServers);
         customPropsArea.setText(p.customProperties);
         ignoreProfileEvents = false;
-    }
-
-    // Profile DTO
-    public static class KafkaConfigProfile {
-        public String name;
-        public String bootstrapServers;
-        public String customProperties;
-
-        public KafkaConfigProfile() {}
-
-        public KafkaConfigProfile(String name, String bootstrapServers, String customProperties) {
-            this.name = name;
-            this.bootstrapServers = bootstrapServers;
-            this.customProperties = customProperties;
-        }
     }
 
     // Consumer Group Lag DTO

@@ -6,6 +6,13 @@ import java.awt.geom.Point2D;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 流程图连线领域模型。
+ *
+ * <p>相对端点坐标取值范围为 0.0 到 1.0，并作为序列化的主要连接信息；
+ * {@code sourcePort}/{@code targetPort} 是兼容旧模型的近似端口。路由类型支持
+ * {@code manhattan}、{@code straight} 和 {@code bezier}，自定义折点优先于自动路由。</p>
+ */
 public class FlowEdge {
     public String id;
     public String label;

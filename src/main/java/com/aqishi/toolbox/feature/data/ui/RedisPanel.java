@@ -3,6 +3,11 @@ package com.aqishi.toolbox.feature.data.ui;
 import com.aqishi.toolbox.feature.network.ssh.model.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.session.SshTunnelBridge;
+import com.aqishi.toolbox.feature.data.domain.RedisProfile;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.redis.RedisClient;
+import com.aqishi.toolbox.infra.redis.RedisResource;
+import com.aqishi.toolbox.infra.redis.RedisProfileStore;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -23,21 +28,18 @@ import java.awt.*;
 import java.util.*;
 import java.util.List;
 import java.util.regex.Pattern;
-import java.util.prefs.Preferences;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.type.TypeReference;
 
 /**
  * Redis 管理工具：连接管理、键浏览器、值编辑、命令控制台。
  */
-public class RedisPanel extends ToolPanel {
+public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
     // Profile Management Support
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
     private JButton delProfileBtn;
-    private final Map<String, RedisConfigProfile> profiles = new LinkedHashMap<>();
-    private final Preferences prefs = Preferences.userNodeForPackage(RedisPanel.class);
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final Map<String, RedisProfile> profiles = new LinkedHashMap<>();
+    private final RedisProfileStore profileStore = new RedisProfileStore(
+            java.util.prefs.Preferences.userNodeForPackage(RedisPanel.class));
     private boolean ignoreProfileEvents = false;
     private JTextField hostField;
     private JTextField portField;
@@ -113,6 +115,8 @@ public class RedisPanel extends ToolPanel {
     private JButton runCmdBtn;
 
     private Jedis jedis;
+    private RedisResource redisResource;
+    private final RedisClient redisClient = new RedisClient();
     private String connHost;
     private int connPort;
     private String connPassword;
@@ -541,7 +545,7 @@ public class RedisPanel extends ToolPanel {
             if (ignoreProfileEvents) return;
             String selectedName = (String) profileCombo.getSelectedItem();
             if (selectedName != null && profiles.containsKey(selectedName)) {
-                RedisConfigProfile p = profiles.get(selectedName);
+                RedisProfile p = profiles.get(selectedName);
                 hostField.setText(p.host);
                 portField.setText(String.valueOf(p.port));
                 passField.setText(p.password);
@@ -562,7 +566,7 @@ public class RedisPanel extends ToolPanel {
                 return;
             }
             
-            RedisConfigProfile p = new RedisConfigProfile(
+            RedisProfile p = new RedisProfile(
                 name,
                 hostField.getText().trim(),
                 port,
@@ -670,9 +674,11 @@ public class RedisPanel extends ToolPanel {
                 closeJedis();
                 releaseSshBridge();
                 try {
-                    Jedis client = createRedisClient();
+                    RedisResource resource = createRedisResource();
+                    Jedis client = resource.client();
                     client.ping();
                     jedis = client;
+                    redisResource = resource;
                     consoleOutput.append("自动重连成功\n");
                     return true;
                 } catch (Exception ex) {
@@ -685,14 +691,16 @@ public class RedisPanel extends ToolPanel {
 
     private void closeJedis() {
         synchronized (redisLock) {
-            if (jedis != null) {
-                try { jedis.close(); } catch (Exception ignored) {}
-                jedis = null;
+            RedisResource resource = redisResource;
+            redisResource = null;
+            jedis = null;
+            if (resource != null) {
+                resource.close();
             }
         }
     }
 
-    private Jedis createRedisClient() throws Exception {
+    private RedisResource createRedisResource() throws Exception {
         synchronized (redisLock) {
             String targetHost = connHost;
             int targetPort = connPort;
@@ -705,11 +713,10 @@ public class RedisPanel extends ToolPanel {
                     targetHost = bridge.getLocalHost();
                     targetPort = bridge.getLocalPort();
                 }
-                Jedis client = new Jedis(targetHost, targetPort, 5000);
-                if (!connPassword.isEmpty()) client.auth(connPassword);
-                client.select(connDb);
+                RedisResource resource = redisClient.open(
+                        targetHost, targetPort, 5000, connPassword, connDb);
                 activeSshBridge = bridge;
-                return client;
+                return resource;
             } catch (Exception error) {
                 if (bridge != null) bridge.close();
                 throw error;
@@ -763,20 +770,21 @@ public class RedisPanel extends ToolPanel {
         connBtn.setEnabled(false);
         connBtn.setText("连接中...");
 
-        new SwingWorker<Jedis, Void>() {
+        new SwingWorker<RedisResource, Void>() {
             @Override
-            protected Jedis doInBackground() throws Exception {
+            protected RedisResource doInBackground() throws Exception {
                 synchronized (redisLock) {
-                    Jedis client = createRedisClient();
-                    client.ping(); // test connection
-                    return client;
+                    RedisResource resource = createRedisResource();
+                    resource.client().ping(); // test connection
+                    return resource;
                 }
             }
 
             @Override
             protected void done() {
                 try {
-                    jedis = get();
+                    redisResource = get();
+                    jedis = redisResource.client();
                     toggleState(true);
                     refreshKeys();
                     consoleOutput.append("成功连接至 Redis 服务器: " + connHost + ":" + connPort + ", DB: " + connDb + "\n");
@@ -788,6 +796,16 @@ public class RedisPanel extends ToolPanel {
                 }
             }
         }.execute();
+    }
+
+    /**
+     * Releases the stateful Redis client and any temporary SSH forwarding.
+     * This method is called by the desktop shell during shutdown.
+     */
+    @Override
+    public void closeResources() {
+        closeJedis();
+        releaseSshBridge();
     }
 
     private void refreshKeys() {
@@ -1316,8 +1334,7 @@ public class RedisPanel extends ToolPanel {
 
     private void saveProfilesToPrefs() {
         try {
-            String json = mapper.writeValueAsString(profiles);
-            prefs.put("redis_profiles", json);
+            profileStore.save(profiles);
         } catch (Exception ex) {
             ex.printStackTrace();
         }
@@ -1325,12 +1342,8 @@ public class RedisPanel extends ToolPanel {
 
     private void loadProfilesFromPrefs() {
         try {
-            String json = prefs.get("redis_profiles", null);
-            if (json != null && !json.trim().isEmpty()) {
-                Map<String, RedisConfigProfile> loaded = mapper.readValue(json, new TypeReference<LinkedHashMap<String, RedisConfigProfile>>(){});
-                profiles.clear();
-                profiles.putAll(loaded);
-            }
+            profiles.clear();
+            profiles.putAll(profileStore.load());
             refreshProfilesCombo(null);
         } catch (Exception ex) {
             ex.printStackTrace();
@@ -1348,7 +1361,7 @@ public class RedisPanel extends ToolPanel {
         } else if (profileCombo.getItemCount() > 0) {
             profileCombo.setSelectedIndex(0);
             String first = profileCombo.getItemAt(0);
-            RedisConfigProfile p = profiles.get(first);
+            RedisProfile p = profiles.get(first);
             hostField.setText(p.host);
             portField.setText(String.valueOf(p.port));
             passField.setText(p.password);
@@ -1357,21 +1370,4 @@ public class RedisPanel extends ToolPanel {
         ignoreProfileEvents = false;
     }
 
-    public static class RedisConfigProfile {
-        public String name;
-        public String host;
-        public int port;
-        public String password;
-        public int db;
-
-        public RedisConfigProfile() {}
-
-        public RedisConfigProfile(String name, String host, int port, String password, int db) {
-            this.name = name;
-            this.host = host;
-            this.port = port;
-            this.password = password;
-            this.db = db;
-        }
-    }
 }

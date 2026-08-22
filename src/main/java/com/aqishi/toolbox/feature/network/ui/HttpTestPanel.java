@@ -5,6 +5,7 @@ import com.aqishi.toolbox.feature.network.ssh.model.RemoteEndpoint;
 import com.aqishi.toolbox.feature.network.ssh.model.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.session.SshTunnelBridge;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -30,7 +31,7 @@ import java.util.Map;
  * 轻量级 HTTP 接口测试面板。
  * 支持 GET, POST, PUT, DELETE 请求，支持自定义请求头和请求体，采用 SwingWorker 异步执行网络请求。
  */
-public class HttpTestPanel extends ToolPanel {
+public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
 
     private JComboBox<String> methodBox;
     private JTextField urlField;
@@ -365,6 +366,7 @@ public class HttpTestPanel extends ToolPanel {
         return local.toURL();
     }
 
+    @Override
     public void closeResources() {
         releaseSshBridge();
     }

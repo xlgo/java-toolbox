@@ -7,6 +7,13 @@ import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+/**
+ * 侧边导航的持久化状态兼容层。
+ *
+ * <p>负责限制侧栏宽度、解析当前工具以及把旧版本分类 ID 映射到新领域分类。
+ * 迁移只发生在读取阶段，序列化始终写入当前分类 ID；因此用户已有的展开状态
+ * 可以无损升级。</p>
+ */
 public final class ToolNavigationState {
 
     private static final Map<String, String> LEGACY_GROUP_IDS = legacyGroupIds();

@@ -2,10 +2,8 @@ package com.aqishi.toolbox.ui;
 
 import com.aqishi.toolbox.catalog.ToolboxContext;
 import com.aqishi.toolbox.catalog.ToolRegistry;
-import com.aqishi.toolbox.feature.network.ui.HttpTestPanel;
-import com.aqishi.toolbox.feature.network.ui.SshClientPanel;
 import com.aqishi.toolbox.feature.network.ssh.session.SshTunnelBridge;
-import com.aqishi.toolbox.feature.data.ui.ZooKeeperPanel;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.ConfigManager;
@@ -116,7 +114,7 @@ public class MainFrame extends JFrame {
                 ConfigManager.setInt("y", p.y);
                 persistNavigationState();
                 ConfigManager.save();
-                closeSshResources();
+                closeManagedResources();
                 vaultService.close();
             }
         });
@@ -139,22 +137,21 @@ public class MainFrame extends JFrame {
     @Override
     public void dispose() {
         if (statusTimer != null) statusTimer.stop();
-        closeSshResources();
+        closeManagedResources();
         vaultService.close();
         super.dispose();
     }
 
-    private void closeSshResources() {
+    /**
+     * Releases resources held by lazily created tool panels before the process
+     * exits. Each panel owns its own client details; the shell only knows the
+     * common lifecycle boundary.
+     */
+    private void closeManagedResources() {
         if (tools == null) return;
         for (ToolPanel tool : tools) {
-            if (tool instanceof SshClientPanel) {
-                ((SshClientPanel) tool).closeSessions();
-            }
-            if (tool instanceof ZooKeeperPanel) {
-                ((ZooKeeperPanel) tool).closeResources();
-            }
-            if (tool instanceof HttpTestPanel) {
-                ((HttpTestPanel) tool).closeResources();
+            if (tool instanceof ManagedResourceOwner) {
+                ((ManagedResourceOwner) tool).closeResources();
             }
         }
         SshTunnelBridge.shutdown();

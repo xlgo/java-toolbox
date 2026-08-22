@@ -8,6 +8,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * 以稳定工具 ID 管理惰性挂载的内容视图。
+ *
+ * <p>构造时只建立 ID 到 {@link ToolPanel} 的索引；首次显示工具时才创建并挂载
+ * Swing 组件。所有公开方法都应在 Swing EDT 上调用，以保证 {@link CardLayout}
+ * 和组件树的访问安全。</p>
+ */
 public final class ToolContentHost extends JPanel {
 
     private final CardLayout cards = new CardLayout();

@@ -9,6 +9,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * 工具导航的只读索引。
+ *
+ * <p>输入顺序决定分类和工具的显示顺序；每个稳定工具 ID 必须唯一，重复 ID
+ * 会在构造时立即拒绝。{@link #filter(String)} 只返回匹配工具，不会修改原始
+ * 分类或已挂载的工具视图。</p>
+ */
 public final class ToolNavigationModel {
 
     public static final class Group {

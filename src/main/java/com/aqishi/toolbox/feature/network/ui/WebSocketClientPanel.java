@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.network.ui;
 
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.network.WebSocketResource;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
 import org.java_websocket.client.WebSocketClient;
@@ -19,7 +21,7 @@ import java.util.Map;
 /**
  * WebSocket / 长连接测试客户端面板
  */
-public class WebSocketClientPanel extends ToolPanel {
+public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOwner {
 
     private JTextField urlField;
     private JButton connectBtn;
@@ -38,6 +40,7 @@ public class WebSocketClientPanel extends ToolPanel {
     private Timer heartbeatTimer;
 
     private WebSocketClient webSocketClient;
+    private WebSocketResource webSocketResource;
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("HH:mm:ss.SSS");
 
     public WebSocketClientPanel() {
@@ -217,6 +220,7 @@ public class WebSocketClientPanel extends ToolPanel {
         }
 
         try {
+            closeResources();
             URI uri = new URI(urlStr);
             Map<String, String> headers = new HashMap<>();
             for (int i = 0; i < headersTableModel.getRowCount(); i++) {
@@ -267,9 +271,11 @@ public class WebSocketClientPanel extends ToolPanel {
                     SwingUtilities.invokeLater(() -> appendLog("[ERROR]", "发生异常: " + ex.getMessage()));
                 }
             };
+            webSocketResource = new WebSocketResource(webSocketClient);
 
             webSocketClient.connect();
         } catch (Exception e) {
+            closeResources();
             statusLabel.setText("连接失败");
             statusLabel.setBackground(Color.RED);
             connectBtn.setEnabled(true);
@@ -278,13 +284,30 @@ public class WebSocketClientPanel extends ToolPanel {
     }
 
     private void disconnectWebSocket() {
-        if (webSocketClient != null) {
+        WebSocketResource resource = webSocketResource;
+        webSocketResource = null;
+        if (resource != null) {
             try {
-                webSocketClient.close();
+                resource.close();
             } catch (Exception e) {
                 appendLog("[ERROR]", "关闭连接异常: " + e.getMessage());
             }
+        } else if (webSocketClient != null) {
+            webSocketClient.close();
         }
+    }
+
+    /** Releases the socket and heartbeat timer without relying on visible UI. */
+    @Override
+    public void closeResources() {
+        if (heartbeatTimer != null) {
+            heartbeatTimer.stop();
+            heartbeatTimer = null;
+        }
+        WebSocketResource resource = webSocketResource;
+        webSocketResource = null;
+        if (resource != null) resource.close();
+        else if (webSocketClient != null) webSocketClient.close();
     }
 
     private void sendTextMessage() {

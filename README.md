@@ -2,6 +2,8 @@
 
 > 桌面端多功能工具箱，基于 Java Swing + FlatLaf 外观包。基础工具使用 JDK 8+；远程桌面的完整 ICE 直连功能要求 JDK 11+。双击 `run.bat` 或 `java -jar target/java-toolbox.jar` 启动。
 
+架构重写说明见 [全量架构重写设计](docs/superpowers/specs/2026-08-16-full-architecture-rewrite-design.md)，新增能力规划见 [功能路线图](docs/feature-roadmap.md)。
+
 <p align="center">
   <img src="screenshots/overview.png" alt="Java 工具箱概览" width="750"/>
 </p>
@@ -117,7 +119,7 @@ java -Xmx512m -Dfile.encoding=UTF-8 -jar .\target\java-toolbox.jar
 ## 编译
 
 ```bash
-mvn clean package -DskipTests
+mvn clean package "-Dmaven.test.skip=true"
 # 产物：target/java-toolbox.jar
 ```
 
@@ -143,207 +145,48 @@ git push
 
 ```
 src/main/java/com/aqishi/toolbox/
-├── Main.java              # 启动入口
-├── ui/
-│   ├── MainFrame.java     # 主窗口：统一侧边导航 + 搜索 + 主题/语言 + 内容工作台
-│   ├── ToolPanel.java     # 工具面板抽象基类（含搜索关键词匹配）
-│   ├── ToolNavigationModel.java # 有序分组、搜索过滤与稳定工具 ID
-│   ├── ToolNavigationState.java # 侧栏宽度、展开分组与当前工具状态
-│   ├── ToolSidebar.java   # 分组侧栏、内联搜索与键盘导航
-│   ├── ToolContentHost.java # 惰性 CardLayout 内容宿主
-│   └── ThemeManager.java  # FlatLaf 主题管理（54 套主题）
-├── crypto/                # 加密
-│   ├── CryptoPanel.java   # 摘要与编解码
-│   ├── SymmetricPanel.java# 对称加密
-│   ├── AsymmetricPanel.java# 非对称加密
-│   ├── CertUtils.java     # 证书工具（X.509 PEM 解析、根证书创建、签发）
-│   ├── acme/              # ACME 协议免费证书申请
-│   │   ├── AcmeClient.java           # RFC 8555 (ACME v2) 客户端（JWS 签名、Order/Challenge 管理）
-│   │   ├── CloudflareDnsProvider.java# Cloudflare API DNS-01 自动添加与清理 TXT 记录
-│   │   └── AcmeChallengeHelper.java  # HTTP-01 本地轻量 Web 服务与文件写库
-│   └── RSAUtils/SM2Utils/SM3Utils/SM4Utils/SymmetricUtils.java
-├── convert/               # 转换
-│   ├── ConvertPanel.java  # 进制与编码
-│   ├── TimePanel.java     # 时间戳
-│   ├── Base64ImagePanel.java # Base64 图片
-│   └── FormatConvertPanel.java # 格式互转
-├── algo/                  # 算法
-│   ├── SortPanel.java     # 排序可视化
-│   ├── SearchPanel.java   # 查找算法
-│   └── HanoiPanel.java    # 汉诺塔
-├── calc/                  # 计算
-│   ├── CalculatorPanel.java # 科学计算器
-│   └── StatisticsPanel.java # 统计计算
-├── misc/                  # 格式化 / 开发工具 / 生成
-│   ├── JsonPanel.java     # JSON 格式化
-│   ├── JsonFormatter.java # JSON 格式化状态机
-│   ├── XmlPanel.java      # XML 格式化
-│   ├── SqlPanel.java      # SQL 格式化
-│   ├── RegexPanel.java    # 正则测试
-│   ├── JwtPanel.java      # JWT 编解码
-│   ├── CronPanel.java     # Cron 表达式
-│   ├── TextDiffPanel.java # 文本对比
-│   ├── DockerComposePanel.java # Docker 转换
-│   ├── SubnetPanel.java   # 子网计算器
-│   ├── HttpTestPanel.java # HTTP 接口测试
-│   ├── CallbackTestPanel.java # 回调 Mock
-│   ├── ColorPanel.java    # 颜色转换
-│   ├── CertPanel.java     # 证书管理
-│   ├── K8sPanel.java      # K8s 部署生成
-│   ├── K8sManagerPanel.java # K8s 集群管理（终端、日志、文件上传下载）
-│   ├── KafkaPanel.java    # Kafka 管理（含主题订阅者视图）
-│   ├── RedisPanel.java    # Redis 管理
-│   ├── DatabasePanel.java # 数据库管理（多 DB 客户端）
-│   ├── BpmnPanel.java     # BPMN 2.0 流程图设计器
-│   ├── FlowchartPanel.java # 流程图与时序图设计（多功能拓扑、撤销重做、极速连线）
-│   ├── MermaidPanel.java  # Mermaid 绘图与预览
-│   ├── StringToolPanel.java # 字符串工具
-│   ├── AccountManagerPanel.java # 账号密码管理
-│   ├── TotpPanel.java     # 谷歌身份验证器 (TOTP)
-│   ├── RandomNumberPanel.java # 随机测试数据生成
-│   ├── UuidPanel.java     # UUID 生成
-│   ├── PasswordPanel.java # 密码生成器
-│   ├── WeChatPanel.java   # 微信工具（群发与通讯录读取）
-│   └── WeChatContactReader.java # 微信数据库解析工具
-├── monitor/               # 监控
-│   ├── VideoMonitorPanel.java # 视频监控
-│   ├── RemoteDesktopPanel.java # 远程桌面（控制端/被控端面板）
-│   ├── Ice4jDirectConnector.java # 完整 ICE UDP 直连协商器（远程桌面当前使用）
-│   ├── P2PConnector.java       # 旧版轻量 UDP 打洞实现（兼容与测试保留）
-│   ├── TcpDirectConnector.java # UDP 失败后的 TCP 直连协商器
-│   ├── StunClient.java         # STUN 客户端，获取公网反射 IP 与映射端口
-│   ├── UpnpPortMapper.java     # UPnP IGD 公网端口映射与双重 NAT 校验
-│   ├── NatPmpPortMapper.java   # NAT-PMP 公网端口映射
-│   ├── UdpChannelImpl.java     # 基于 UDP 协议的 P2P 通信通道
-│   ├── DesktopSignalClient.java# 信令服务器客户端
-│   └── DesktopSignalServer.java# 局域网/公网多端同组信令中转服务器
-├── tools/                  # 辅助工具脚本
-│   └── wechat_export.py    # 微信聊天记录/联系人UI自动化导出脚本（基于 UIAutomation，提供悬浮控制面板）
-└── util/UIUtils.java      # UI 辅助
+├── Main.java                         # 启动入口
+├── catalog/                          # 稳定工具 ID、分类、描述与工厂注册表
+│   ├── ToolCatalog.java
+│   ├── ToolDescriptor.java
+│   ├── ToolRegistry.java
+│   └── ToolboxContext.java
+├── ui/                               # Swing 壳层、导航和共享组件
+│   ├── MainFrame.java
+│   ├── ToolPanel.java
+│   ├── ToolNavigationModel.java
+│   ├── ToolNavigationState.java
+│   ├── ToolSidebar.java
+│   └── ToolContentHost.java
+├── feature/                          # 按功能领域组织的 UI、应用服务和领域模型
+│   ├── security/                     # 加密、证书、账号密码和 TOTP
+│   ├── codec/                        # 编码、格式、文本和时间转换
+│   ├── network/                      # HTTP、MQTT、WebSocket、SSH 和网络诊断
+│   ├── data/                         # 数据库、Redis、Kafka、ZooKeeper
+│   ├── cloud/                        # Docker/Kubernetes 工具与应用服务
+│   ├── system/                       # Hosts、权限、Cron 和微信工具
+│   ├── generation/                   # 数据、二维码和颜色生成/转换
+│   ├── compute/                      # 计算器、统计、算法和游戏
+│   ├── diagram/                      # BPMN、Mermaid、流程图与 DTO
+│   └── monitor/                      # 视频监控、远程桌面与传输实现
+├── infra/                            # 外部连接、配置持久化和生命周期适配器
+│   ├── database/                     # JDBC 连接与数据库配置存储
+│   ├── kubernetes/                   # Kubernetes REST 与 kubeconfig
+│   ├── kafka/                        # Kafka 管理客户端工厂
+│   ├── redis/                        # Jedis 与 Redis 配置存储
+│   ├── messaging/                    # Kafka/MQTT 资源生命周期
+│   ├── network/                      # HTTP/WebSocket 资源生命周期
+│   └── ssh/                          # JSch 会话生命周期
+├── vault/                            # 加密保险库、迁移和剪贴板策略
+└── util/                             # 国际化、配置和 UI 辅助
+
+tools/wechat_export.py                # 唯一维护的微信 UIAutomation 脚本源
 ```
+## Roadmap
+
+当前版本不新增路线图功能。P0 优先评估 OpenAPI、JSONPath/JMESPath、格式转换、摘要校验、证书链检查、网络诊断、日志过滤和工作区导入导出；完整范围、依赖和分类见 [功能路线图](docs/feature-roadmap.md)。
 
 ## 详细功能文档
-
-针对涉及复杂打洞、容器交互及UI自动化的工具，提供了专门的技术与使用指南文档：
-
-```bash
-# 方式一：双击或直接执行
-run.bat
-
-# 方式二：命令行启动（指定最大堆内存和文件编码）
-java -Xmx512m -Dfile.encoding=UTF-8 -jar .\target\java-toolbox.jar
-```
-
-## 编译
-
-```bash
-mvn clean package -DskipTests
-# 产物：target/java-toolbox.jar
-```
-
-## 开发
-
-```bash
-# 推送代码（本地已缓存 GitHub 凭据）
-git push
-```
-
-基于 GitHub MCP 进行开发，提交后直接 `git push` 即可推送代码到远程。
-
-## 技术栈
-
-- Java Swing（GUI）
-- FlatLaf 3.5.4（外观包 + IntelliJ 主题包）
-- BouncyCastle 1.70（国密 SM2/SM3/SM4 算法支持，提供与经典加解密的统一调用）
-- ice4j 3.2（远程桌面完整 ICE/STUN UDP 直连；未启用 TURN）
-- Maven Shade（打 fat jar）
-- 纯 JDK 实现：JSON 美化、中缀表达式求值、标准 AES/DES/3DES/RSA 加解密
-
-## 项目结构
-
-```
-src/main/java/com/aqishi/toolbox/
-├── Main.java              # 启动入口
-├── ui/
-│   ├── MainFrame.java     # 主窗口：统一侧边导航 + 搜索 + 主题/语言 + 内容工作台
-│   ├── ToolPanel.java     # 工具面板抽象基类（含搜索关键词匹配）
-│   ├── ToolNavigationModel.java # 有序分组、搜索过滤与稳定工具 ID
-│   ├── ToolNavigationState.java # 侧栏宽度、展开分组与当前工具状态
-│   ├── ToolSidebar.java   # 分组侧栏、内联搜索与键盘导航
-│   ├── ToolContentHost.java # 惰性 CardLayout 内容宿主
-│   └── ThemeManager.java  # FlatLaf 主题管理（54 套主题）
-├── crypto/                # 加密
-│   ├── CryptoPanel.java   # 摘要与编解码
-│   ├── SymmetricPanel.java# 对称加密
-│   ├── AsymmetricPanel.java# 非对称加密
-│   ├── CertUtils.java     # 证书工具（X.509 PEM 解析、根证书创建、签发）
-│   ├── acme/              # ACME 协议免费证书申请
-│   │   ├── AcmeClient.java           # RFC 8555 (ACME v2) 客户端（JWS 签名、Order/Challenge 管理）
-│   │   ├── CloudflareDnsProvider.java# Cloudflare API DNS-01 自动添加与清理 TXT 记录
-│   │   └── AcmeChallengeHelper.java  # HTTP-01 本地轻量 Web 服务与文件写库
-│   └── RSAUtils/SM2Utils/SM3Utils/SM4Utils/SymmetricUtils.java
-├── convert/               # 转换
-│   ├── ConvertPanel.java  # 进制与编码
-│   ├── TimePanel.java     # 时间戳
-│   ├── Base64ImagePanel.java # Base64 图片
-│   └── FormatConvertPanel.java # 格式互转
-├── algo/                  # 算法
-│   ├── SortPanel.java     # 排序可视化
-│   ├── SearchPanel.java   # 查找算法
-│   └── HanoiPanel.java    # 汉诺塔
-├── calc/                  # 计算
-│   ├── CalculatorPanel.java # 科学计算器
-│   └── StatisticsPanel.java # 统计计算
-├── misc/                  # 格式化 / 开发工具 / 生成
-│   ├── JsonPanel.java     # JSON 格式化
-│   ├── JsonFormatter.java # JSON 格式化状态机
-│   ├── XmlPanel.java      # XML 格式化
-│   ├── SqlPanel.java      # SQL 格式化
-│   ├── RegexPanel.java    # 正则测试
-│   ├── JwtPanel.java      # JWT 编解码
-│   ├── CronPanel.java     # Cron 表达式
-│   ├── TextDiffPanel.java # 文本对比
-│   ├── DockerComposePanel.java # Docker 转换
-│   ├── SubnetPanel.java   # 子网计算器
-│   ├── HttpTestPanel.java # HTTP 接口测试
-│   ├── CallbackTestPanel.java # 回调 Mock
-│   ├── ColorPanel.java    # 颜色转换
-│   ├── CertPanel.java     # 证书管理
-│   ├── K8sPanel.java      # K8s 部署生成
-│   ├── K8sManagerPanel.java # K8s 集群管理（终端、日志、文件上传下载）
-│   ├── KafkaPanel.java    # Kafka 管理（含主题订阅者视图）
-│   ├── RedisPanel.java    # Redis 管理
-│   ├── DatabasePanel.java # 数据库管理（多 DB 客户端）
-│   ├── BpmnPanel.java     # BPMN 2.0 流程图设计器
-│   ├── FlowchartPanel.java # 流程图与时序图设计（多功能拓扑、撤销重做、极速连线）
-│   ├── MermaidPanel.java  # Mermaid 绘图与预览
-│   ├── StringToolPanel.java # 字符串工具
-│   ├── AccountManagerPanel.java # 账号密码管理
-│   ├── TotpPanel.java     # 谷歌身份验证器 (TOTP)
-│   ├── RandomNumberPanel.java # 随机测试数据生成
-│   ├── UuidPanel.java     # UUID 生成
-│   ├── PasswordPanel.java # 密码生成器
-│   ├── WeChatPanel.java   # 微信工具（群发与通讯录读取）
-│   └── WeChatContactReader.java # 微信数据库解析工具
-├── monitor/               # 监控
-│   ├── VideoMonitorPanel.java # 视频监控
-│   ├── RemoteDesktopPanel.java # 远程桌面（控制端/被控端面板）
-│   ├── Ice4jDirectConnector.java # 完整 ICE UDP 直连协商器（远程桌面当前使用）
-│   ├── P2PConnector.java       # 旧版轻量 UDP 打洞实现（兼容与测试保留）
-│   ├── TcpDirectConnector.java # UDP 失败后的 TCP 直连协商器
-│   ├── StunClient.java         # STUN 客户端，获取公网反射 IP 与映射端口
-│   ├── UpnpPortMapper.java     # UPnP IGD 公网端口映射与双重 NAT 校验
-│   ├── NatPmpPortMapper.java   # NAT-PMP 公网端口映射
-│   ├── UdpChannelImpl.java     # 基于 UDP 协议的 P2P 通信通道
-│   ├── DesktopSignalClient.java# 信令服务器客户端
-│   └── DesktopSignalServer.java# 局域网/公网多端同组信令中转服务器
-├── tools/                  # 辅助工具脚本
-│   └── wechat_export.py    # 微信聊天记录/联系人UI自动化导出脚本（基于 UIAutomation，提供悬浮控制面板）
-└── util/UIUtils.java      # UI 辅助
-```
-
-## 详细功能文档
-
 针对涉及复杂打洞、容器交互及UI自动化的工具，提供了专门的技术与使用指南文档：
 
 - 📡 [远程桌面 (Remote Desktop) 技术与使用指南](docs/remote_desktop_guide.md)：包含 ICE/STUN 打洞机制、TCP 回退原理及自建信令服务器指导。
@@ -364,8 +207,8 @@ src/main/java/com/aqishi/toolbox/
 
 开发者触发自动构建发布的命令：
 ```bash
-git tag v1.5.2
-git push origin v1.5.2
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 此外，也可以在 GitHub 仓库的 **Actions** 标签页下手动选择 `Release Application` 工作流点击 **Run workflow** 触发跨平台构建。

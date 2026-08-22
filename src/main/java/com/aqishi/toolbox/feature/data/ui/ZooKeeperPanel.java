@@ -4,6 +4,7 @@ import com.aqishi.toolbox.feature.network.ssh.model.RemoteEndpoint;
 import com.aqishi.toolbox.feature.network.ssh.model.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.session.SshTunnelBridge;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -32,7 +33,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /** ZooKeeper node browser and editor with optional SSH local forwarding. */
-public class ZooKeeperPanel extends ToolPanel {
+public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
 
     private JTextField serversField;
     private JSpinner timeoutSpinner;

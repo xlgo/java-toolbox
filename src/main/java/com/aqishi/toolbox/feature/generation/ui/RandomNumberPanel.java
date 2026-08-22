@@ -350,7 +350,7 @@ public class RandomNumberPanel {
             case "addr":   return genAddress();
             case "idcard": return genIdCard();
             case "bank":   return genBankCard();
-            default:       return "???";
+            default:       return field + "（未知字段，无法生成）";
         }
     }
 

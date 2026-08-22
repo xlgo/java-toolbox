@@ -1,5 +1,11 @@
 package com.aqishi.toolbox.feature.cloud.ui;
 
+import com.aqishi.toolbox.feature.cloud.application.KubernetesService;
+import com.aqishi.toolbox.feature.cloud.application.KubernetesServiceFactory;
+import com.aqishi.toolbox.feature.cloud.domain.KubernetesProfile;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.kubernetes.KubeconfigParser;
+import com.aqishi.toolbox.infra.kubernetes.KubeconfigStore;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -10,7 +16,6 @@ import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
@@ -30,7 +35,6 @@ import java.time.Instant;
 import java.time.Duration;
 import java.util.*;
 import java.util.List;
-import java.util.prefs.Preferences;
 import com.jediterm.terminal.TtyConnector;
 import com.jediterm.terminal.ui.JediTermWidget;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
@@ -43,7 +47,7 @@ import java.io.IOException;
  * 支持多集群配置管理、Kubeconfig导入、命名空间切换，
  * 以及 Pods, Deployments, Services, ConfigMaps, Nodes 的列表展示、查看 YAML、查看日志、修改副本数、删除资源等。
  */
-public class K8sManagerPanel extends ToolPanel {
+public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
 
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
@@ -112,14 +116,30 @@ public class K8sManagerPanel extends ToolPanel {
     private String activeClientCert = null;
     private String activeClientKey = null;
     private javax.net.ssl.SSLSocketFactory activeSocketFactory = null;
-    private final Map<String, K8sProfile> profiles = new LinkedHashMap<>();
-    private final Preferences prefs = Preferences.userNodeForPackage(K8sManagerPanel.class);
+    private KubernetesService kubernetesService;
+    private final KubernetesServiceFactory kubernetesServiceFactory;
+    /** Transfer sockets and workers are tracked so application shutdown can cancel them. */
+    private final Set<org.java_websocket.client.WebSocketClient> activeTransferClients =
+            Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<
+                    org.java_websocket.client.WebSocketClient, Boolean>());
+    private final Set<Thread> activeTransferThreads = Collections.newSetFromMap(
+            new java.util.concurrent.ConcurrentHashMap<Thread, Boolean>());
+    private final Map<String, KubernetesProfile> profiles = new LinkedHashMap<>();
+    private final KubeconfigStore profileStore = new KubeconfigStore(
+            java.util.prefs.Preferences.userNodeForPackage(K8sManagerPanel.class));
+    private final KubeconfigParser kubeconfigParser = new KubeconfigParser();
     private final ObjectMapper mapper = new ObjectMapper();
     private boolean ignoreProfileEvents = false;
 
     public K8sManagerPanel() {
+        this(KubernetesServiceFactory.standard());
+    }
+
+    public K8sManagerPanel(KubernetesServiceFactory kubernetesServiceFactory) {
         super("dev", "k8s.manager",
                 "k8s", "kubernetes", "容器", "集群", "运维", "kubeconfig", "docker", "pod", "deployment");
+        this.kubernetesServiceFactory = java.util.Objects.requireNonNull(
+                kubernetesServiceFactory, "kubernetesServiceFactory");
     }
 
     @Override
@@ -436,6 +456,7 @@ public class K8sManagerPanel extends ToolPanel {
         resourceTabs.setEnabled(connected);
 
         if (!connected) {
+            closeKubernetesService();
             nsCombo.removeAllItems();
             clearAllTables();
             activeSocketFactory = null;
@@ -470,7 +491,7 @@ public class K8sManagerPanel extends ToolPanel {
             if (ignoreProfileEvents) return;
             String selected = (String) profileCombo.getSelectedItem();
             if (selected != null && profiles.containsKey(selected)) {
-                K8sProfile p = profiles.get(selected);
+                KubernetesProfile p = profiles.get(selected);
                 serverField.setText(p.serverUrl);
                 tokenField.setText(p.token);
                 skipTlsCheck.setSelected(p.skipTls);
@@ -484,7 +505,7 @@ public class K8sManagerPanel extends ToolPanel {
             String name = UIUtils.input(null, "请输入集群配置名称:", "我的K8s服务器");
             if (name == null || name.trim().isEmpty()) return;
             name = name.trim();
-            K8sProfile p = new K8sProfile(
+            KubernetesProfile p = new KubernetesProfile(
                     name,
                     serverField.getText().trim(),
                     new String(tokenField.getPassword()),
@@ -623,6 +644,9 @@ public class K8sManagerPanel extends ToolPanel {
             @Override
             protected Boolean doInBackground() throws Exception {
                 activeSocketFactory = buildSSLSocketFactory(activeSkipTls, activeClientCert, activeClientKey);
+                closeKubernetesService();
+                kubernetesService = kubernetesServiceFactory.create(
+                        activeServerUrl, activeToken, activeSkipTls, activeSocketFactory);
                 // Test connectivity by querying API version info or namespaces
                 executeRequest("GET", "/api/v1/namespaces", null, activeSkipTls);
                 return true;
@@ -1458,7 +1482,7 @@ public class K8sManagerPanel extends ToolPanel {
         JLabel statusLabel = new JLabel("正在连接 API Server...", SwingConstants.CENTER);
         progressDialog.add(statusLabel, BorderLayout.CENTER);
 
-        new Thread(() -> {
+        startTransferWorker("k8s-file-download", () -> {
             boolean success = false;
             String errorMsg = "";
             java.io.FileOutputStream fos = null;
@@ -1535,6 +1559,7 @@ public class K8sManagerPanel extends ToolPanel {
                     client.setSocketFactory(getTrustAllSocketFactory());
                 }
 
+                registerTransferClient(client);
                 client.connect();
                 latch.await();
 
@@ -1551,6 +1576,7 @@ public class K8sManagerPanel extends ToolPanel {
                 }
                 if (client != null) {
                     try { client.close(); } catch (Exception e) {}
+                    unregisterTransferClient(client);
                 }
             }
 
@@ -1565,7 +1591,7 @@ public class K8sManagerPanel extends ToolPanel {
                     UIUtils.error(null, "文件下载失败: " + finalError);
                 }
             });
-        }).start();
+        });
 
         progressDialog.setVisible(true);
     }
@@ -1588,7 +1614,7 @@ public class K8sManagerPanel extends ToolPanel {
         JLabel statusLabel = new JLabel("正在连接 API Server...", SwingConstants.CENTER);
         progressDialog.add(statusLabel, BorderLayout.CENTER);
 
-        new Thread(() -> {
+        startTransferWorker("k8s-file-upload", () -> {
             boolean success = false;
             String errorMsg = "";
             org.java_websocket.client.WebSocketClient client = null;
@@ -1624,7 +1650,7 @@ public class K8sManagerPanel extends ToolPanel {
                     @Override
                     public void onOpen(org.java_websocket.handshake.ServerHandshake handshakedata) {
                         SwingUtilities.invokeLater(() -> statusLabel.setText("正在上传数据..."));
-                        new Thread(() -> {
+                        startTransferWorker("k8s-file-upload-stream", () -> {
                             try (java.io.FileInputStream fis = new java.io.FileInputStream(localFile)) {
                                 byte[] buffer = new byte[8192];
                                 int read;
@@ -1640,7 +1666,7 @@ public class K8sManagerPanel extends ToolPanel {
                             } finally {
                                 close();
                             }
-                        }).start();
+                        });
                     }
 
                     @Override
@@ -1676,6 +1702,7 @@ public class K8sManagerPanel extends ToolPanel {
                     client.setSocketFactory(getTrustAllSocketFactory());
                 }
 
+                registerTransferClient(client);
                 client.connect();
                 latch.await();
 
@@ -1686,6 +1713,11 @@ public class K8sManagerPanel extends ToolPanel {
                 }
             } catch (Exception ex) {
                 errorMsg = ex.getMessage();
+            } finally {
+                if (client != null) {
+                    try { client.close(); } catch (Exception ignored) {}
+                    unregisterTransferClient(client);
+                }
             }
 
             final boolean finalSuccess = success;
@@ -1698,7 +1730,7 @@ public class K8sManagerPanel extends ToolPanel {
                     UIUtils.error(null, "文件上传失败: " + finalError);
                 }
             });
-        }).start();
+        });
 
         progressDialog.setVisible(true);
     }
@@ -2373,7 +2405,7 @@ public class K8sManagerPanel extends ToolPanel {
         }
     }
 
-    private void handleImportSuccess(K8sProfile p) {
+    private void handleImportSuccess(KubernetesProfile p) {
         serverField.setText(p.serverUrl);
         tokenField.setText(p.token);
         skipTlsCheck.setSelected(p.skipTls);
@@ -2394,84 +2426,8 @@ public class K8sManagerPanel extends ToolPanel {
         refreshProfilesCombo(p.name);
     }
 
-    private K8sProfile parseKubeconfig(String yamlText, File baseDir, String sourceName) throws Exception {
-        ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
-        JsonNode root = yamlMapper.readTree(yamlText);
-        
-        // 1. 获取当前 Context
-        String currentContext = root.path("current-context").asText();
-        
-        // 2. 解析 clusters 和 users
-        String serverUrl = "https://127.0.0.1:6443";
-        String token = "";
-        String clientCertData = null;
-        String clientKeyData = null;
-        
-        JsonNode contexts = root.path("contexts");
-        String clusterName = "";
-        String userName = "";
-        
-        if (contexts.isArray() && contexts.size() > 0) {
-            for (JsonNode ctx : contexts) {
-                String cName = ctx.path("name").asText();
-                if (cName.equals(currentContext) || clusterName.isEmpty()) {
-                    clusterName = ctx.path("context").path("cluster").asText();
-                    userName = ctx.path("context").path("user").asText();
-                }
-            }
-        }
-
-        // 获取集群 API 地址
-        JsonNode clusters = root.path("clusters");
-        if (clusters.isArray()) {
-            for (JsonNode c : clusters) {
-                if (c.path("name").asText().equals(clusterName) || clusters.size() == 1) {
-                    serverUrl = c.path("cluster").path("server").asText();
-                    break;
-                }
-            }
-        }
-
-        // 获取用户信息（Token 或是客户端证书）
-        JsonNode users = root.path("users");
-        if (users.isArray()) {
-            for (JsonNode u : users) {
-                if (u.path("name").asText().equals(userName) || users.size() == 1) {
-                    token = u.path("user").path("token").asText("");
-                    
-                    // 解析 inline 的 Base64 证书或文件路径引用的证书
-                    if (u.path("user").has("client-certificate-data")) {
-                        byte[] bytes = Base64.getDecoder().decode(u.path("user").path("client-certificate-data").asText().trim());
-                        clientCertData = new String(bytes, StandardCharsets.UTF_8);
-                    } else if (u.path("user").has("client-certificate") && baseDir != null) {
-                        String pathStr = u.path("user").path("client-certificate").asText();
-                        File f = resolveFile(baseDir, pathStr);
-                        if (f != null && f.exists()) {
-                            clientCertData = new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
-                        }
-                    }
-                    
-                    // 解析 inline 的 Base64 私钥或文件路径引用的私钥
-                    if (u.path("user").has("client-key-data")) {
-                        byte[] bytes = Base64.getDecoder().decode(u.path("user").path("client-key-data").asText().trim());
-                        clientKeyData = new String(bytes, StandardCharsets.UTF_8);
-                    } else if (u.path("user").has("client-key") && baseDir != null) {
-                        String pathStr = u.path("user").path("client-key").asText();
-                        File f = resolveFile(baseDir, pathStr);
-                        if (f != null && f.exists()) {
-                            clientKeyData = new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-
-        if (serverUrl.isEmpty()) {
-            throw new Exception("在 Kubeconfig 中无法解析出 API Server 地址。");
-        }
-
-        return new K8sProfile(serverUrl, serverUrl, token, true, clientCertData, clientKeyData);
+    private KubernetesProfile parseKubeconfig(String yamlText, File baseDir, String sourceName) throws Exception {
+        return kubeconfigParser.parse(yamlText, baseDir);
     }
 
     private void importKubeconfigFromFile() {
@@ -2489,9 +2445,9 @@ public class K8sManagerPanel extends ToolPanel {
         int ret = chooser.showOpenDialog(null);
         if (ret == JFileChooser.APPROVE_OPTION) {
             File selectedFile = chooser.getSelectedFile();
-            new SwingWorker<K8sProfile, Void>() {
+            new SwingWorker<KubernetesProfile, Void>() {
                 @Override
-                protected K8sProfile doInBackground() throws Exception {
+                protected KubernetesProfile doInBackground() throws Exception {
                     String content = new String(java.nio.file.Files.readAllBytes(selectedFile.toPath()), StandardCharsets.UTF_8);
                     return parseKubeconfig(content, selectedFile.getParentFile(), selectedFile.getName());
                 }
@@ -2499,7 +2455,7 @@ public class K8sManagerPanel extends ToolPanel {
                 @Override
                 protected void done() {
                     try {
-                        K8sProfile p = get();
+                        KubernetesProfile p = get();
                         handleImportSuccess(p);
                         UIUtils.info(null, "解析并导入 Kubeconfig 成功！配置已自动保存并选中。");
                     } catch (Exception ex) {
@@ -2527,9 +2483,9 @@ public class K8sManagerPanel extends ToolPanel {
                 return;
             }
             importBtn.setEnabled(false);
-            new SwingWorker<K8sProfile, Void>() {
+            new SwingWorker<KubernetesProfile, Void>() {
                 @Override
-                protected K8sProfile doInBackground() throws Exception {
+                protected KubernetesProfile doInBackground() throws Exception {
                     String timeStr = String.valueOf(System.currentTimeMillis() % 100000);
                     return parseKubeconfig(text, null, "Text_" + timeStr);
                 }
@@ -2537,7 +2493,7 @@ public class K8sManagerPanel extends ToolPanel {
                 @Override
                 protected void done() {
                     try {
-                        K8sProfile p = get();
+                        KubernetesProfile p = get();
                         handleImportSuccess(p);
                         UIUtils.info(dialog, "解析并导入 Kubeconfig 成功！配置已自动保存。");
                         dialog.dispose();
@@ -2563,18 +2519,9 @@ public class K8sManagerPanel extends ToolPanel {
         dialog.setVisible(true);
     }
 
-    private File resolveFile(File baseDir, String pathStr) {
-        File f = new File(pathStr);
-        if (f.isAbsolute()) {
-            return f;
-        }
-        return new File(baseDir, pathStr);
-    }
-
     private void saveProfilesToPrefs() {
         try {
-            String json = mapper.writeValueAsString(profiles);
-            prefs.put("k8s_manager_profiles", json);
+            profileStore.save(profiles);
         } catch (Exception ex) {
             ex.printStackTrace();
         }
@@ -2582,12 +2529,8 @@ public class K8sManagerPanel extends ToolPanel {
 
     private void loadProfilesFromPrefs() {
         try {
-            String json = prefs.get("k8s_manager_profiles", null);
-            if (json != null && !json.trim().isEmpty()) {
-                Map<String, K8sProfile> loaded = mapper.readValue(json, new TypeReference<LinkedHashMap<String, K8sProfile>>(){});
-                profiles.clear();
-                profiles.putAll(loaded);
-            }
+            profiles.clear();
+            profiles.putAll(profileStore.load());
             refreshProfilesCombo(null);
         } catch (Exception ex) {
             ex.printStackTrace();
@@ -2602,7 +2545,7 @@ public class K8sManagerPanel extends ToolPanel {
         }
         if (selectName != null) {
             profileCombo.setSelectedItem(selectName);
-            K8sProfile p = profiles.get(selectName);
+            KubernetesProfile p = profiles.get(selectName);
             if (p != null) {
                 activeClientCert = p.clientCertData;
                 activeClientKey = p.clientKeyData;
@@ -2610,7 +2553,7 @@ public class K8sManagerPanel extends ToolPanel {
         } else if (profileCombo.getItemCount() > 0) {
             profileCombo.setSelectedIndex(0);
             String first = profileCombo.getItemAt(0);
-            K8sProfile p = profiles.get(first);
+            KubernetesProfile p = profiles.get(first);
             if (p != null) {
                 serverField.setText(p.serverUrl);
                 tokenField.setText(p.token);
@@ -2710,84 +2653,60 @@ public class K8sManagerPanel extends ToolPanel {
     }
 
     private String executeRequest(String method, String apiPath, String body, boolean skipTls) throws Exception {
-        URL url = new URL(activeServerUrl.replaceAll("/+$", "") + apiPath);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setConnectTimeout(6000);
-        conn.setReadTimeout(12000);
-        conn.setRequestMethod(method);
-        if (activeToken != null && !activeToken.trim().isEmpty()) {
-            conn.setRequestProperty("Authorization", "Bearer " + activeToken);
+        KubernetesService service = kubernetesService;
+        if (service == null || !service.isOpen()) {
+            throw new IllegalStateException("Kubernetes 集群连接未建立");
         }
-        conn.setRequestProperty("Accept", "application/json");
-
-        if (body != null) {
-            conn.setRequestProperty("Content-Type", "application/json");
-            conn.setDoOutput(true);
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(body.getBytes(StandardCharsets.UTF_8));
-            }
-        }
-
-        if (conn instanceof HttpsURLConnection) {
-            HttpsURLConnection httpsConn = (HttpsURLConnection) conn;
-            if (activeSocketFactory != null) {
-                httpsConn.setSSLSocketFactory(activeSocketFactory);
-            } else if (skipTls) {
-                httpsConn.setSSLSocketFactory(getTrustAllSocketFactory());
-            }
-            if (skipTls) {
-                httpsConn.setHostnameVerifier((h, s) -> true);
-            }
-        }
-
-        int code = conn.getResponseCode();
-        if (code >= 200 && code < 300) {
-            try (InputStream is = conn.getInputStream();
-                 ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-                byte[] buf = new byte[4096];
-                int len;
-                while ((len = is.read(buf)) != -1) {
-                    bos.write(buf, 0, len);
-                }
-                return bos.toString("UTF-8");
-            }
-        } else {
-            try (InputStream es = conn.getErrorStream();
-                 ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-                if (es != null) {
-                    byte[] buf = new byte[4096];
-                    int len;
-                    while ((len = es.read(buf)) != -1) {
-                        bos.write(buf, 0, len);
-                    }
-                    throw new Exception("HTTP " + code + ": " + bos.toString("UTF-8"));
-                }
-                throw new Exception("HTTP " + code);
-            }
-        }
+        return service.request(method, apiPath, body);
     }
 
-    public static class K8sProfile {
-        public String name;
-        public String serverUrl;
-        public String token;
-        public boolean skipTls;
-        public String clientCertData;
-        public String clientKeyData;
+    private void closeKubernetesService() {
+        KubernetesService service = kubernetesService;
+        kubernetesService = null;
+        if (service != null) service.close();
+    }
 
-        public K8sProfile() {}
+    /** Releases the HTTP transport used by all non-streaming cluster actions. */
+    @Override
+    public void closeResources() {
+        cancelTransferWorkers();
+        closeKubernetesService();
+        activeSocketFactory = null;
+    }
 
-        public K8sProfile(String name, String serverUrl, String token, boolean skipTls) {
-            this(name, serverUrl, token, skipTls, null, null);
+    private void startTransferWorker(String name, Runnable action) {
+        Thread worker = new Thread(() -> {
+            try {
+                action.run();
+            } finally {
+                activeTransferThreads.remove(Thread.currentThread());
+            }
+        }, name);
+        worker.setDaemon(true);
+        activeTransferThreads.add(worker);
+        worker.start();
+    }
+
+    private void registerTransferClient(org.java_websocket.client.WebSocketClient client) {
+        if (client != null) activeTransferClients.add(client);
+    }
+
+    private void unregisterTransferClient(org.java_websocket.client.WebSocketClient client) {
+        if (client != null) activeTransferClients.remove(client);
+    }
+
+    /** Cancels transfer sockets before interrupting their waits and stream workers. */
+    private void cancelTransferWorkers() {
+        for (org.java_websocket.client.WebSocketClient client : activeTransferClients.toArray(
+                new org.java_websocket.client.WebSocketClient[0])) {
+            try {
+                client.close();
+            } catch (Exception ignored) {
+            }
         }
-
-        public K8sProfile(String name, String serverUrl, String token, boolean skipTls, String clientCertData, String clientKeyData) {
-            this.name = name;
-            this.serverUrl = serverUrl;
-            this.token = token;
-            this.skipTls = skipTls;
-            this.clientCertData = clientCertData;
-            this.clientKeyData = clientKeyData;
+        activeTransferClients.clear();
+        for (Thread worker : activeTransferThreads.toArray(new Thread[0])) {
+            worker.interrupt();
         }
     }
 

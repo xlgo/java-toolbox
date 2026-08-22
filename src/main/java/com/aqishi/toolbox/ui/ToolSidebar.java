@@ -26,6 +26,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 
+/**
+ * 基于 {@link JTree} 的工具分类侧栏。
+ *
+ * <p>组件及其过滤计时器必须在 EDT 上创建和操作。搜索仅重建导航树，不销毁
+ * 已打开的工具视图；选择回调始终以稳定工具 ID 通知宿主，展开状态则由调用方
+ * 持久化。</p>
+ */
 public final class ToolSidebar extends JPanel {
 
     private enum Kind { ROOT, GROUP, TOOL, EMPTY }

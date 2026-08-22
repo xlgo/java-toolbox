@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.network.ui;
 
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.messaging.MqttResource;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,7 +27,7 @@ import java.util.UUID;
 /**
  * MQTT v3.1 / v3.1.1 客户端测试工具
  */
-public class MqttClientPanel extends ToolPanel {
+public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
 
     private JTextField brokerUrlField;
     private JTextField clientIdField;
@@ -56,6 +58,7 @@ public class MqttClientPanel extends ToolPanel {
     private JTextArea msgDetailArea;
 
     private MqttClient mqttClient;
+    private MqttResource mqttResource;
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("HH:mm:ss.SSS");
     private static final ObjectMapper jsonMapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
 
@@ -336,9 +339,11 @@ public class MqttClientPanel extends ToolPanel {
             return;
         }
 
+        closeMqttResource();
         try {
             MemoryPersistence persistence = new MemoryPersistence();
             mqttClient = new MqttClient(brokerUrl, clientId, persistence);
+            mqttResource = new MqttResource(mqttClient);
 
             MqttConnectOptions options = new MqttConnectOptions();
             options.setCleanSession(cleanSessionCheckBox.isSelected());
@@ -401,16 +406,22 @@ public class MqttClientPanel extends ToolPanel {
     }
 
     private synchronized void doDisconnect() {
-        if (mqttClient != null && mqttClient.isConnected()) {
-            try {
-                mqttClient.disconnect();
-                mqttClient.close();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
+        closeMqttResource();
         updateStatus(false, "未连接");
         appendLog("System", "-", 0, false, "手动已断开连接");
+    }
+
+    /** Releases the MQTT client without updating Swing controls during exit. */
+    @Override
+    public synchronized void closeResources() {
+        closeMqttResource();
+    }
+
+    private void closeMqttResource() {
+        MqttResource resource = mqttResource;
+        mqttResource = null;
+        mqttClient = null;
+        if (resource != null) resource.close();
     }
 
     private void doSubscribe() {

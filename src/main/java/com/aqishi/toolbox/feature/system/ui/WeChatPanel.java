@@ -1475,10 +1475,12 @@ public class WeChatPanel extends ToolPanel {
         autoCollectThread = new Thread(() -> {
             File tempScriptFile = null;
             try {
-                // Extract python script from JAR resource to a temp file
-                try (java.io.InputStream is = WeChatPanel.class.getResourceAsStream("/tools/wechat_export.py")) {
+                // Prefer the packaged resource; direct IDE launches may use
+                // the canonical source before Maven copies it to the classpath.
+                try (java.io.InputStream is = openWeChatExportScript()) {
                     if (is == null) {
-                        throw new java.io.FileNotFoundException("未在 JAR 资源中找到 /tools/wechat_export.py！");
+                        throw new java.io.FileNotFoundException(
+                                "未找到微信导出脚本：/tools/wechat_export.py 或 tools/wechat_export.py");
                     }
                     tempScriptFile = File.createTempFile("wechat_export_", ".py");
                     tempScriptFile.deleteOnExit();
@@ -1616,6 +1618,19 @@ public class WeChatPanel extends ToolPanel {
         });
         
         autoCollectThread.start();
+    }
+
+    /**
+     * Uses the packaged script when available, then the canonical repository
+     * source for direct IDE/classpath launches that skip Maven resources.
+     */
+    private static java.io.InputStream openWeChatExportScript() throws java.io.IOException {
+        java.io.InputStream resource = WeChatPanel.class.getResourceAsStream("/tools/wechat_export.py");
+        if (resource != null) {
+            return resource;
+        }
+        File source = new File("tools", "wechat_export.py");
+        return source.isFile() ? new java.io.FileInputStream(source) : null;
     }
 
     private void stopAutoCollect() {

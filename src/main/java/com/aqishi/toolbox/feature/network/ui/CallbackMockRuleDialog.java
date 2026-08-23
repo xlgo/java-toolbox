@@ -13,23 +13,28 @@ import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.FormGrid;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.I18n;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.DefaultListCellRenderer;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
+import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import java.awt.BorderLayout;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Window;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
 
 /** Independent editor for one callback-mock response rule. */
@@ -44,7 +49,8 @@ public final class CallbackMockRuleDialog extends JDialog {
             new ArrayList<ConditionEditor>();
 
     private final JTextField ruleNameField = Fields.text("");
-    private final JCheckBox enabledCheck = Fields.check("启用此规则", true);
+    private final JCheckBox enabledCheck = Fields.check(
+            I18n.get("callback.mock.enableRule"), true);
     private final JComboBox<String> methodBox = Fields.combo(COMMON_METHODS, 140);
     private final JComboBox<PathMatchMode> pathModeBox =
             Fields.combo(PathMatchMode.values(), 140);
@@ -57,7 +63,8 @@ public final class CallbackMockRuleDialog extends JDialog {
 
     public CallbackMockRuleDialog(Window owner, MockRule initialRule,
                                   Consumer<MockRule> onSaved) {
-        super(owner, initialRule == null ? "新增响应规则" : "编辑响应规则",
+        super(owner, initialRule == null ? I18n.get("callback.mock.addRule")
+                : I18n.get("callback.mock.editRule"),
                 ModalityType.APPLICATION_MODAL);
         this.initialRule = initialRule;
         this.onSaved = onSaved;
@@ -72,6 +79,7 @@ public final class CallbackMockRuleDialog extends JDialog {
 
     private void configureControls() {
         methodBox.setEditable(true);
+        pathModeBox.setRenderer(new LocalizedEnumRenderer("callback.mock.pathMode."));
         conditionsBody.setOpaque(false);
         conditionsBody.setLayout(new javax.swing.BoxLayout(
                 conditionsBody, javax.swing.BoxLayout.Y_AXIS));
@@ -79,49 +87,50 @@ public final class CallbackMockRuleDialog extends JDialog {
         validationMessage.setFont(Tokens.fontCaption());
         validationMessage.setBorder(BorderFactory.createEmptyBorder(
                 Tokens.SPACE_XS, 0, 0, 0));
-        ruleNameField.getAccessibleContext().setAccessibleName("规则名称");
-        methodBox.getAccessibleContext().setAccessibleName("请求方法");
-        pathField.getAccessibleContext().setAccessibleName("请求路径");
-        contentTypeField.getAccessibleContext().setAccessibleName("响应 Content-Type");
-        responseBodyArea.getAccessibleContext().setAccessibleName("响应报文");
+        ruleNameField.getAccessibleContext().setAccessibleName(t("callback.mock.ruleName"));
+        methodBox.getAccessibleContext().setAccessibleName(t("callback.mock.method"));
+        pathField.getAccessibleContext().setAccessibleName(t("callback.mock.path"));
+        contentTypeField.getAccessibleContext().setAccessibleName(t("callback.mock.contentType"));
+        responseBodyArea.getAccessibleContext().setAccessibleName(t("callback.mock.responseBody"));
     }
 
     private JPanel buildContent() {
         FormGrid matchForm = new FormGrid();
-        matchForm.row("规则名称", ruleNameField);
-        matchForm.rowCompact("请求方法", methodBox);
-        matchForm.rowCompact("路径方式", pathModeBox);
-        matchForm.row("路径", pathField);
+        matchForm.row(t("callback.mock.ruleName"), ruleNameField);
+        matchForm.rowCompact(t("callback.mock.method"), methodBox);
+        matchForm.rowCompact(t("callback.mock.pathMode"), pathModeBox);
+        matchForm.row(t("callback.mock.path"), pathField);
         matchForm.fullRow(enabledCheck);
-        Card matchCard = Card.titled("请求匹配");
+        Card matchCard = Card.titled(t("callback.mock.requestMatching"));
         matchCard.setContent(matchForm);
 
-        JButton addCondition = Buttons.secondary("添加条件");
+        JButton addCondition = Buttons.secondary(t("callback.mock.addCondition"));
         addCondition.addActionListener(event -> addCondition(null));
-        Card conditionCard = Card.titled("匹配条件", "所有条件均需满足");
+        Card conditionCard = Card.titled(t("callback.mock.condition"),
+                t("callback.mock.allConditions"));
         conditionCard.addHeaderAction(addCondition);
         JScrollPane conditionScroll = Fields.scrollVertical(conditionsBody);
         conditionScroll.setPreferredSize(new Dimension(560, 140));
         conditionCard.setContent(conditionScroll);
 
         FormGrid responseForm = new FormGrid();
-        responseForm.rowCompact("状态码", statusSpinner);
-        responseForm.row("Content-Type", contentTypeField);
+        responseForm.rowCompact(t("callback.mock.statusCode"), statusSpinner);
+        responseForm.row(t("callback.mock.contentType"), contentTypeField);
         responseForm.fullRow(Fields.caption(
-                "可用变量：${query.name}、${header.Name}、${form.name}、${json.path}"));
+                t("callback.mock.templateHelp")));
         JPanel responseBody = Layouts.box(0, Tokens.SPACE_XS);
-        responseBody.add(Fields.caption("响应报文"), BorderLayout.NORTH);
+        responseBody.add(Fields.caption(t("callback.mock.responseBody")), BorderLayout.NORTH);
         responseBody.add(Fields.scrollBoxed(responseBodyArea), BorderLayout.CENTER);
         responseForm.fullRow(responseBody);
-        Card responseCard = Card.titled("响应");
+        Card responseCard = Card.titled(t("callback.mock.response"));
         responseCard.setContent(responseForm);
 
         JPanel form = Layouts.stack(Tokens.SPACE_MD, matchCard, conditionCard, responseCard);
         JScrollPane scroll = Fields.scrollVertical(form);
 
-        JButton cancel = Buttons.secondary("取消");
+        JButton cancel = Buttons.secondary(t("callback.mock.cancel"));
         cancel.addActionListener(event -> dispose());
-        JButton save = Buttons.primary("保存规则");
+        JButton save = Buttons.primary(t("callback.mock.saveRule"));
         save.addActionListener(event -> saveRule());
         JPanel actions = Layouts.wrapRow(Tokens.SPACE_SM, Tokens.SPACE_XS,
                 validationMessage, cancel, save);
@@ -165,7 +174,7 @@ public final class CallbackMockRuleDialog extends JDialog {
     private void refreshConditions() {
         conditionsBody.removeAll();
         if (conditionEditors.isEmpty()) {
-            conditionsBody.add(Fields.caption("未配置附加条件，匹配方法和路径即可响应。"));
+            conditionsBody.add(Fields.caption(t("callback.mock.noConditions")));
         } else {
             for (ConditionEditor editor : conditionEditors) {
                 conditionsBody.add(editor.getView());
@@ -240,6 +249,8 @@ public final class CallbackMockRuleDialog extends JDialog {
         private final JPanel view;
 
         private ConditionEditor(MockCondition initial) {
+            sourceBox.setRenderer(new LocalizedEnumRenderer("callback.mock.source."));
+            operatorBox.setRenderer(new LocalizedEnumRenderer("callback.mock.operator."));
             sourceBox.setSelectedItem(initial == null || initial.getSource() == null
                     ? MatchSource.QUERY : initial.getSource());
             operatorBox.setSelectedItem(initial == null || initial.getOperator() == null
@@ -247,14 +258,14 @@ public final class CallbackMockRuleDialog extends JDialog {
             fieldField.setText(initial == null ? "" : initial.getField());
             expectedField.setText(initial == null || initial.getExpected() == null
                     ? "" : initial.getExpected());
-            sourceBox.getAccessibleContext().setAccessibleName("条件来源");
-            operatorBox.getAccessibleContext().setAccessibleName("条件操作符");
-            fieldField.getAccessibleContext().setAccessibleName("条件字段");
-            expectedField.getAccessibleContext().setAccessibleName("条件期望值");
+            sourceBox.getAccessibleContext().setAccessibleName(t("callback.mock.conditionSource"));
+            operatorBox.getAccessibleContext().setAccessibleName(t("callback.mock.conditionOperator"));
+            fieldField.getAccessibleContext().setAccessibleName(t("callback.mock.conditionField"));
+            expectedField.getAccessibleContext().setAccessibleName(t("callback.mock.conditionExpected"));
             operatorBox.addActionListener(event -> updateExpectedState());
             JButton remove = Buttons.compact("×");
-            remove.setToolTipText("删除条件");
-            remove.getAccessibleContext().setAccessibleName("删除条件");
+            remove.setToolTipText(t("callback.mock.deleteCondition"));
+            remove.getAccessibleContext().setAccessibleName(t("callback.mock.deleteCondition"));
             remove.addActionListener(event -> {
                 conditionEditors.remove(ConditionEditor.this);
                 refreshConditions();
@@ -278,6 +289,31 @@ public final class CallbackMockRuleDialog extends JDialog {
             return new MockCondition((MatchSource) sourceBox.getSelectedItem(),
                     fieldField.getText(), operator,
                     operator == MatchOperator.EXISTS ? null : expectedField.getText());
+        }
+    }
+
+    private static String t(String key) {
+        return I18n.get(key);
+    }
+
+    private static final class LocalizedEnumRenderer extends DefaultListCellRenderer {
+        private final String keyPrefix;
+
+        private LocalizedEnumRenderer(String keyPrefix) {
+            this.keyPrefix = keyPrefix;
+        }
+
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value,
+                                                      int index, boolean selected,
+                                                      boolean hasFocus) {
+            Component component = super.getListCellRendererComponent(
+                    list, value, index, selected, hasFocus);
+            if (value instanceof Enum<?>) {
+                setText(I18n.get(keyPrefix + ((Enum<?>) value).name()
+                        .toLowerCase(Locale.ROOT)));
+            }
+            return component;
         }
     }
 }

@@ -2,16 +2,16 @@ package com.aqishi.toolbox.feature.network.ui;
 
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockCondition;
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRule;
+import com.aqishi.toolbox.util.I18n;
 
 import javax.swing.table.AbstractTableModel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 /** Table view of an ordered callback-mock rule list. */
 public final class CallbackMockRuleTableModel extends AbstractTableModel {
-    private static final String[] COLUMNS = {"启用", "规则", "请求", "状态"};
-
     private List<MockRule> rules = Collections.emptyList();
 
     public void setRules(List<MockRule> newRules) {
@@ -36,12 +36,23 @@ public final class CallbackMockRuleTableModel extends AbstractTableModel {
 
     @Override
     public int getColumnCount() {
-        return COLUMNS.length;
+        return 4;
     }
 
     @Override
     public String getColumnName(int column) {
-        return COLUMNS[column];
+        switch (column) {
+            case 0:
+                return I18n.get("callback.mock.table.enabled");
+            case 1:
+                return I18n.get("callback.mock.table.name");
+            case 2:
+                return I18n.get("callback.mock.table.request");
+            case 3:
+                return I18n.get("callback.mock.table.status");
+            default:
+                return "";
+        }
     }
 
     @Override
@@ -90,7 +101,7 @@ public final class CallbackMockRuleTableModel extends AbstractTableModel {
 
     public String conditionSummary(MockRule rule) {
         if (rule == null || rule.getConditions().isEmpty()) {
-            return "无附加条件";
+            return I18n.get("callback.mock.noConditions.short");
         }
         StringBuilder summary = new StringBuilder();
         for (MockCondition condition : rule.getConditions()) {
@@ -98,11 +109,12 @@ public final class CallbackMockRuleTableModel extends AbstractTableModel {
                 summary.append(" AND ");
             }
             if (condition == null) {
-                summary.append("无效条件");
+                summary.append(I18n.get("callback.mock.invalidCondition"));
                 continue;
             }
-            summary.append(condition.getSource()).append('.').append(condition.getField())
-                    .append(' ').append(condition.getOperator());
+            summary.append(enumLabel("callback.mock.source.", condition.getSource()))
+                    .append('.').append(condition.getField()).append(' ')
+                    .append(enumLabel("callback.mock.operator.", condition.getOperator()));
             if (condition.getExpected() != null && condition.getExpected().length() > 0) {
                 summary.append(' ').append(condition.getExpected());
             }
@@ -115,6 +127,11 @@ public final class CallbackMockRuleTableModel extends AbstractTableModel {
         String path = rule.getPath() == null ? "" : rule.getPath();
         String conditions = conditionSummary(rule);
         return conditions.length() == 0 ? method + " " + path
-                : method + " " + path + "，" + conditions;
+                : method + " " + path + " · " + conditions;
+    }
+
+    private static String enumLabel(String prefix, Enum<?> value) {
+        return value == null ? "" : I18n.get(prefix
+                + value.name().toLowerCase(Locale.ROOT));
     }
 }

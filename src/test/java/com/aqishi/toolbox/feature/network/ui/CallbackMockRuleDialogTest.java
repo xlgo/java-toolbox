@@ -30,7 +30,7 @@ class CallbackMockRuleDialogTest {
 
         assertEquals(1, model.getRowCount());
         assertEquals("original", model.getValueAt(0, 1));
-        assertTrue(model.conditionSummary(rule).contains("QUERY.status"));
+        assertTrue(model.conditionSummary(rule).contains("status"));
         assertTrue(model.isCellEditable(0, 0));
         assertFalse(model.isCellEditable(0, 1));
         model.setValueAt(Boolean.FALSE, 0, 0);

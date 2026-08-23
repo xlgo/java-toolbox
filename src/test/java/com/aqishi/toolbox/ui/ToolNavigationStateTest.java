@@ -31,14 +31,14 @@ class ToolNavigationStateTest {
 
     @Test
     void distinguishesMissingExpansionStateFromIntentionallyEmptyState() {
-        LinkedHashSet<String> valid = new LinkedHashSet<>(Arrays.asList("crypto", "convert"));
+        LinkedHashSet<String> valid = new LinkedHashSet<>(Arrays.asList("security", "codec"));
 
         assertEquals(valid, ToolNavigationState.parseExpandedGroups(null, valid));
         assertEquals(Collections.emptySet(), ToolNavigationState.parseExpandedGroups("", valid));
         assertEquals(
-                new LinkedHashSet<>(Collections.singletonList("convert")),
+                new LinkedHashSet<>(Collections.singletonList("codec")),
                 ToolNavigationState.parseExpandedGroups("removed,convert", valid));
-        assertEquals("crypto,convert", ToolNavigationState.serializeExpandedGroups(valid));
+        assertEquals("security,codec", ToolNavigationState.serializeExpandedGroups(valid));
     }
 
     private static ToolPanel tool(String group, String id) {

@@ -43,8 +43,10 @@ public final class MockRuleResolver {
         if (expected == null || actual == null) {
             return false;
         }
-        return "ANY".equalsIgnoreCase(expected)
-                || expected.equalsIgnoreCase(actual);
+        String expectedMethod = expected.trim();
+        String actualMethod = actual.trim();
+        return "ANY".equalsIgnoreCase(expectedMethod)
+                || expectedMethod.equalsIgnoreCase(actualMethod);
     }
 
     private boolean pathMatches(PathMatchMode mode, String expected, String actual) {

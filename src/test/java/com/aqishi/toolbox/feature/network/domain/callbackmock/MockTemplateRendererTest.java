@@ -48,4 +48,22 @@ class MockTemplateRendererTest {
         assertEquals("${unknown.x}|ok|${query}",
                 new MockTemplateRenderer().render("${unknown.x}|${query.x}|${query}", request));
     }
+
+    @Test
+    void rendersRootJsonArrayValuesAndValidatorAcceptsTheirPaths() throws Exception {
+        MockRequest request = MockRequest.builder()
+                .json(new ObjectMapper().readTree("[{\"id\":42}]")).build();
+        MockRule rule = MockRule.builder("root-array")
+                .path(PathMatchMode.EXACT, "/x")
+                .condition(new MockCondition(MatchSource.JSON, "[0].id",
+                        MatchOperator.EQUALS, "42"))
+                .response(new MockResponse(200, "application/json",
+                        "{\"id\":${json.[0].id}}"))
+                .build();
+
+        assertEquals("{\"id\":42}",
+                new MockTemplateRenderer().render(rule.getResponse().getBody(), request));
+        assertEquals(java.util.Collections.emptyList(),
+                new MockRuleValidator().validate(rule));
+    }
 }

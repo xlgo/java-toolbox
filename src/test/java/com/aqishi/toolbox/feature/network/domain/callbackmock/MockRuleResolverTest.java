@@ -138,4 +138,67 @@ class MockRuleResolverTest {
 
         assertEquals("operators", resolution.getRuleName());
     }
+
+    @Test
+    void trimsConfiguredMethodsBeforeMatching() {
+        MockRule rule = MockRule.builder("trimmed-method")
+                .method(" ANY ")
+                .path(PathMatchMode.EXACT, "/x")
+                .response(new MockResponse(200, "text/plain", "matched"))
+                .build();
+
+        MockResolution resolution = new MockRuleResolver().resolve(MockRuleSet.of(
+                Collections.singletonList(rule),
+                new MockResponse(500, "text/plain", "fallback")),
+                MockRequest.builder().method("GET").path("/x").build());
+
+        assertEquals("trimmed-method", resolution.getRuleName());
+    }
+
+    @Test
+    void truncatedBodiesDoNotMatchFormOrJsonConditions() throws Exception {
+        MockRule formRule = MockRule.builder("form")
+                .path(PathMatchMode.EXACT, "/form")
+                .condition(new MockCondition(MatchSource.FORM, "status",
+                        MatchOperator.EQUALS, "paid"))
+                .response(new MockResponse(201, "text/plain", "form"))
+                .build();
+        MockRule jsonRule = MockRule.builder("json")
+                .path(PathMatchMode.EXACT, "/json")
+                .condition(new MockCondition(MatchSource.JSON, "status",
+                        MatchOperator.EQUALS, "paid"))
+                .response(new MockResponse(202, "text/plain", "json"))
+                .build();
+        MockRuleSet rules = MockRuleSet.of(Arrays.asList(formRule, jsonRule),
+                new MockResponse(200, "text/plain", "fallback"));
+
+        MockRequest formRequest = MockRequest.builder().path("/form")
+                .form("status", "paid").body("status=paid", true).build();
+        MockRequest jsonRequest = MockRequest.builder().path("/json")
+                .json(new ObjectMapper().readTree("{\"status\":\"paid\"}"))
+                .body("{\"status\":\"paid\"}", true).build();
+
+        assertTrue(new MockRuleResolver().resolve(rules, formRequest).isFallback());
+        assertTrue(new MockRuleResolver().resolve(rules, jsonRequest).isFallback());
+    }
+
+    @Test
+    void usesFirstRuleWhenMultipleEnabledRulesMatch() {
+        MockRule first = MockRule.builder("first")
+                .path(PathMatchMode.EXACT, "/x")
+                .response(new MockResponse(201, "text/plain", "first"))
+                .build();
+        MockRule second = MockRule.builder("second")
+                .path(PathMatchMode.EXACT, "/x")
+                .response(new MockResponse(202, "text/plain", "second"))
+                .build();
+
+        MockResolution resolution = new MockRuleResolver().resolve(MockRuleSet.of(
+                Arrays.asList(first, second),
+                new MockResponse(500, "text/plain", "fallback")),
+                MockRequest.builder().path("/x").build());
+
+        assertEquals("first", resolution.getRuleName());
+        assertEquals(201, resolution.getResponse().getStatusCode());
+    }
 }

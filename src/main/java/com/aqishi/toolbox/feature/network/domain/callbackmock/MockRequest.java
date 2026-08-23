@@ -97,6 +97,9 @@ public final class MockRequest {
         if (source == null) {
             return Collections.emptyList();
         }
+        if (bodyTruncated && (source == MatchSource.FORM || source == MatchSource.JSON)) {
+            return Collections.emptyList();
+        }
         switch (source) {
             case QUERY:
                 return valuesFrom(query, field, false);

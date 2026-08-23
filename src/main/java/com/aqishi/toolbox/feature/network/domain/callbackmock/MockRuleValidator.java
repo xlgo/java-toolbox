@@ -205,15 +205,21 @@ public final class MockRuleValidator {
                 expectName = true;
             }
 
-            int start = position;
-            while (position < path.length()
-                    && path.charAt(position) != '.'
-                    && path.charAt(position) != '[') {
-                position++;
+            boolean hasName = false;
+            if (path.charAt(position) != '[') {
+                int start = position;
+                while (position < path.length()
+                        && path.charAt(position) != '.'
+                        && path.charAt(position) != '[') {
+                    position++;
+                }
+                if (start == position
+                        || !JSON_NAME.matcher(path.substring(start, position)).matches()) {
+                    return false;
+                }
+                hasName = true;
             }
-            if (start == position || !JSON_NAME.matcher(path.substring(start, position)).matches()) {
-                return false;
-            }
+            int indexCount = 0;
             while (position < path.length() && path.charAt(position) == '[') {
                 int close = path.indexOf(']', position + 1);
                 if (close < 0 || close == position + 1) {
@@ -226,6 +232,10 @@ public final class MockRuleValidator {
                     }
                 }
                 position = close + 1;
+                indexCount++;
+            }
+            if (!hasName && indexCount == 0) {
+                return false;
             }
             if (position < path.length() && path.charAt(position) != '.') {
                 return false;

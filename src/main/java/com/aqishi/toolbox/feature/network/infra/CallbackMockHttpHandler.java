@@ -74,9 +74,14 @@ public final class CallbackMockHttpHandler implements HttpHandler {
         if (response.getContentType() != null && response.getContentType().trim().length() > 0) {
             exchange.getResponseHeaders().set("Content-Type", response.getContentType());
         }
-        exchange.sendResponseHeaders(response.getStatusCode(), bytes.length);
+        boolean bodyForbidden = response.getStatusCode() >= 100
+                && response.getStatusCode() < 200
+                || response.getStatusCode() == 204
+                || response.getStatusCode() == 304;
+        exchange.sendResponseHeaders(response.getStatusCode(),
+                bodyForbidden ? -1 : bytes.length);
         try (OutputStream output = exchange.getResponseBody()) {
-            if (bytes.length > 0) {
+            if (!bodyForbidden && bytes.length > 0) {
                 output.write(bytes);
             }
         }

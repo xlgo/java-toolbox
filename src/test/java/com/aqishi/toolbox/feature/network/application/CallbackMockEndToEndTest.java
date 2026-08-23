@@ -52,9 +52,9 @@ class CallbackMockEndToEndTest {
             header.put("X-Channel", "mobile");
             assertResponse(request(port, "GET", "/callback", null, null, header),
                     206, "text/plain", "header-mobile");
-            assertResponse(request(port, "GET", "/unmatched", null, null,
+            assertResponse(request(port, "GET", "/unmatched?source=fallback", null, null,
                     Collections.<String, String>emptyMap()),
-                    200, "application/json", "fallback");
+                    200, "application/json", "fallback-fallback");
         } finally {
             service.closeResources();
         }
@@ -79,7 +79,7 @@ class CallbackMockEndToEndTest {
                         "mobile"),
                 new MockResponse(206, "text/plain", "header-${header.X-Channel}"));
         return MockRuleSet.of(Arrays.asList(json, form, query, header),
-                new MockResponse(200, "application/json", "fallback"));
+                new MockResponse(200, "application/json", "fallback-${query.source}"));
     }
 
     private static MockRule rule(String name, String method, String path,

@@ -78,6 +78,23 @@ class CallbackMockServiceTest {
         }
     }
 
+    @Test
+    void handlesNoContentResponsesWithoutWritingAForbiddenBody() throws Exception {
+        CallbackMockService service = new CallbackMockService(
+                new MockRuleResolver(), new MockHttpRequestParser());
+        service.replaceRuleSet(ruleSetFor("paid", 204, "body-is-not-on-the-wire"));
+        service.start(0);
+        try {
+            HttpResult result = postJson(service.getPort(), "/orders",
+                    "{\"status\":\"paid\"}");
+
+            assertEquals(204, result.status);
+            assertEquals("", result.body);
+        } finally {
+            service.closeResources();
+        }
+    }
+
     private static MockRuleSet ruleSetFor(String status, int responseStatus,
                                           String responseBody) {
         MockRule rule = MockRule.builder(status)

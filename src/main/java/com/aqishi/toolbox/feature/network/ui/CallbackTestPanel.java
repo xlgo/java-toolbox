@@ -1,248 +1,528 @@
 package com.aqishi.toolbox.feature.network.ui;
 
 import com.aqishi.toolbox.feature.codec.domain.JsonFormatter;
+import com.aqishi.toolbox.feature.network.application.CallbackMockService;
+import com.aqishi.toolbox.feature.network.application.MockRequestRecord;
+import com.aqishi.toolbox.feature.network.domain.callbackmock.MockResponse;
+import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRule;
+import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRuleResolver;
+import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRuleSet;
+import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRuleValidator;
+import com.aqishi.toolbox.feature.network.infra.CallbackMockRuleRepository;
+import com.aqishi.toolbox.feature.network.infra.MockHttpRequestParser;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.FormGrid;
-import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
-import com.sun.net.httpserver.Headers;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
-import com.sun.net.httpserver.HttpServer;
+import com.aqishi.toolbox.vault.ApplicationPaths;
+import com.aqishi.toolbox.vault.AtomicFiles;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
+import javax.swing.JButton;
+import javax.swing.JDialog;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JSpinner;
+import javax.swing.JTable;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingUtilities;
 import javax.swing.event.ListSelectionEvent;
-import java.awt.*;
-import java.io.ByteArrayOutputStream;
+import javax.swing.event.TableModelEvent;
+import java.awt.BorderLayout;
+import java.awt.Dimension;
+import java.awt.Window;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Date;
+import java.util.Collections;
 import java.util.List;
 
 /**
- * 回调接口测试工具（轻量级 HTTP Mock 服务器）。
- * 支持动态启动内置 HTTP 服务，自定义接口响应状态码、Content-Type 与响应内容，
- * 实时回显并解析所有接收到的 HTTP 请求包头、请求参数与请求体。
+ * Local callback mock server composed from a persistent ordered rule set.
+ * UI state is deliberately kept out of the HTTP handler; saving a full
+ * immutable snapshot succeeds before it becomes live on the server.
  */
-public class CallbackTestPanel extends ToolPanel {
+public class CallbackTestPanel extends ToolPanel implements ManagedResourceOwner {
+    private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter
+            .ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault());
+
+    private final CallbackMockRuleRepository repository;
+    private final CallbackMockService service;
+    private final MockRuleValidator validator = new MockRuleValidator();
+    private final List<MockRequestRecord> records = new ArrayList<MockRequestRecord>();
+
+    private MockRuleSet ruleSet;
+    private String loadWarning;
+    private boolean applyingTableModel;
 
     private JTextField portField;
-    private JButton toggleBtn;
+    private JButton toggleServerButton;
     private JLabel serverStatusLabel;
+    private JLabel loadWarningLabel;
 
-    // 自定义返回数据
-    private JTextField respCodeField;
-    private JTextField respContentTypeField;
-    private JTextArea respBodyArea;
+    private CallbackMockRuleTableModel ruleTableModel;
+    private JTable ruleTable;
+    private JButton editRuleButton;
+    private JButton deleteRuleButton;
+    private JButton moveUpButton;
+    private JButton moveDownButton;
 
-    // 历史回调列表
-    private DefaultListModel<String> requestListModel;
+    private javax.swing.DefaultListModel<String> requestListModel;
     private JList<String> requestList;
-    private final List<MockRequestRecord> records = new ArrayList<>();
-    private JButton clearBtn;
-
-    // 详情区
     private JTextArea detailsArea;
     private JTextArea headersArea;
     private JTextArea bodyArea;
 
-    private HttpServer server;
-    private boolean isRunning = false;
-
     public CallbackTestPanel() {
+        this(defaultRepository(), new CallbackMockService(
+                new MockRuleResolver(), new MockHttpRequestParser()));
+    }
+
+    CallbackTestPanel(CallbackMockRuleRepository repository,
+                      CallbackMockService service) {
         super("dev", "callback.mock",
                 "回调", "接口测试", "Mock", "Webhook", "Server", "服务器", "HTTP Mock");
+        this.repository = repository;
+        this.service = service;
+    }
+
+    private static CallbackMockRuleRepository defaultRepository() {
+        return new CallbackMockRuleRepository(
+                ApplicationPaths.systemDefault().getCallbackMockRulesFile(),
+                new AtomicFiles(), new ObjectMapper());
     }
 
     @Override
-    protected JComponent build() {
-        JPanel root = Layouts.page();
+    protected javax.swing.JComponent build() {
+        loadRuleSet();
+        service.setRequestListener(this::receiveRequest);
 
-        // ===== 顶部：服务开关卡片，启停是全页面唯一的主操作，放标题右侧 =====
+        JPanel root = Layouts.page();
+        root.add(buildServerArea(), BorderLayout.NORTH);
+        root.add(buildWorkspace(), BorderLayout.CENTER);
+        return root;
+    }
+
+    private javax.swing.JComponent buildServerArea() {
         portField = Fields.text("8080");
-        serverStatusLabel = new JLabel("状态: 已停止");
+        portField.getAccessibleContext().setAccessibleName(t("callback.mock.port"));
+        serverStatusLabel = new JLabel(t("callback.mock.stopped"));
         serverStatusLabel.setFont(Tokens.fontBody());
 
-        toggleBtn = Buttons.primary("启动服务");
-        toggleBtn.addActionListener(e -> toggleServer());
+        toggleServerButton = Buttons.primary(t("callback.mock.start"));
+        toggleServerButton.addActionListener(event -> toggleServer());
 
-        // 端口是定长输入，靠左固定；剩余宽度留给随运行状态变长的监听地址
         JPanel portRow = Layouts.box(Tokens.SPACE_MD, 0);
         portRow.add(portField, BorderLayout.WEST);
         portRow.add(serverStatusLabel, BorderLayout.CENTER);
 
         FormGrid serverForm = new FormGrid();
-        serverForm.row("服务端口:", portRow);
-
-        Card serverCard = Card.titled("回调服务");
+        serverForm.row(t("callback.mock.port"), portRow);
+        Card serverCard = Card.titled(t("callback.mock.server"),
+                t("callback.mock.loopback"));
         serverCard.setContent(serverForm);
-        serverCard.addHeaderAction(toggleBtn);
+        serverCard.addHeaderAction(toggleServerButton);
 
-        // ===== 左侧：Mock 响应配置 + 流量记录，上下可拖动分配高度 =====
-        respCodeField = Fields.text("200");
-        respContentTypeField = Fields.text("application/json");
-
-        FormGrid mockForm = new FormGrid();
-        mockForm.row("状态码:", respCodeField);
-        mockForm.row("Content-Type:", respContentTypeField);
-
-        respBodyArea = Fields.area(4, 20);
-        respBodyArea.setText("{\n  \"status\": \"success\",\n  \"message\": \"Callback received\"\n}");
-
-        // 响应体是这张卡片里唯一需要长高的控件，单独放 CENTER
-        JPanel respBodyBox = Layouts.box(0, Tokens.SPACE_XS);
-        respBodyBox.add(Fields.caption("响应体:"), BorderLayout.NORTH);
-        respBodyBox.add(boxedScroll(respBodyArea), BorderLayout.CENTER);
-
-        JPanel mockBody = Layouts.box(0, Tokens.SPACE_MD);
-        mockBody.add(mockForm, BorderLayout.NORTH);
-        mockBody.add(respBodyBox, BorderLayout.CENTER);
-
-        Card mockCard = Card.titled("自定义响应数据");
-        mockCard.setContent(mockBody);
-
-        requestListModel = new DefaultListModel<>();
-        requestList = new JList<>(requestListModel);
-        requestList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        requestList.addListSelectionListener(this::handleListSelection);
-        requestList.setFont(Tokens.fontBody());
-
-        clearBtn = Buttons.danger("清空历史记录");
-        clearBtn.addActionListener(e -> clearRecords());
-
-        Card recordsCard = Card.flush("请求流量记录");
-        recordsCard.setContent(Fields.scroll(requestList));
-        recordsCard.addHeaderAction(clearBtn);
-
-        // ===== 右侧：请求详情回显，三个页签铺满整张卡片 =====
-        JTabbedPane rightTabs = new JTabbedPane();
-        rightTabs.setBorder(null);
-        // 详情区在分栏右侧，窗口一窄三个页签就会折成两行并压进内容区，改成单行滚动
-        rightTabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-
-        detailsArea = Fields.output(8, 30);
-        rightTabs.addTab("请求概要 (Summary)", Fields.scroll(detailsArea));
-
-        headersArea = Fields.output(8, 30);
-        rightTabs.addTab("请求头 (Headers)", Fields.scroll(headersArea));
-
-        bodyArea = Fields.output(8, 30);
-        rightTabs.addTab("请求体 (Body)", Fields.scroll(bodyArea));
-
-        Card detailCard = Card.plain().setFlush(true);
-        detailCard.setContent(rightTabs);
-
-        root.add(serverCard, BorderLayout.NORTH);
-        root.add(Layouts.splitHorizontal(
-                Layouts.splitVertical(mockCard, recordsCard, 0.45), detailCard, 0.35),
-                BorderLayout.CENTER);
-
-        return root;
+        JPanel area = Layouts.box(0, Tokens.SPACE_SM);
+        area.add(serverCard, BorderLayout.NORTH);
+        if (loadWarning != null && !loadWarning.trim().isEmpty()) {
+            loadWarningLabel = Fields.note(t("callback.mock.loadedWarning", loadWarning));
+            area.add(loadWarningLabel, BorderLayout.SOUTH);
+        }
+        return area;
     }
 
-    /**
-     * 卡片内部嵌的文本域滚动区。
-     *
-     * <p>卡片底色与文本域底色相同，不描一条细线的话输入框会整个「消失」在卡片里；
-     * 这里只用最弱的分隔色画 1px，不会和卡片描边叠成双层边框。</p>
-     */
-    private static JScrollPane boxedScroll(JTextArea area) {
-        JScrollPane scroll = Fields.scroll(area);
-        scroll.setBorder(KitBorders.lineSubtle(1, 1, 1, 1));
-        return scroll;
-    }
-
-    private synchronized void toggleServer() {
-        if (isRunning) {
-            // 停止服务
-            try {
-                if (server != null) {
-                    server.stop(0);
-                }
-                isRunning = false;
-                toggleBtn.setText("启动服务");
-                serverStatusLabel.setText("状态: 已停止");
-                portField.setEnabled(true);
-            } catch (Exception ex) {
-                UIUtils.error(getView(), "停止服务器失败: " + ex.getMessage());
-            }
-        } else {
-            // 启动服务
-            String portStr = portField.getText().trim();
-            int port;
-            try {
-                port = Integer.parseInt(portStr);
-                if (port < 1 || port > 65535) throw new Exception();
-            } catch (Exception ex) {
-                UIUtils.error(getView(), "请输入有效的端口号 (1-65535)！");
+    private javax.swing.JComponent buildWorkspace() {
+        ruleTableModel = new CallbackMockRuleTableModel();
+        applyRuleTable(ruleSet.getRules());
+        ruleTableModel.addTableModelListener(event -> {
+            if (applyingTableModel || event.getType() != TableModelEvent.UPDATE
+                    || event.getFirstRow() == TableModelEvent.HEADER_ROW) {
                 return;
             }
+            if (!persistRuleSet(ruleTableModel.getRules(), ruleSet.getFallbackResponse())) {
+                applyRuleTable(ruleSet.getRules());
+            }
+        });
 
-            try {
-                server = HttpServer.create(new InetSocketAddress(port), 0);
-                // 监听全局路径
-                server.createContext("/", new MockHttpHandler());
-                server.setExecutor(null); // 用默认的线程池执行
-                server.start();
+        ruleTable = new JTable(ruleTableModel);
+        ruleTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        ruleTable.setFillsViewportHeight(true);
+        ruleTable.setRowHeight(Tokens.TABLE_ROW_HEIGHT);
+        ruleTable.getSelectionModel().addListSelectionListener(this::updateRuleActions);
+        if (ruleTable.getColumnModel().getColumnCount() > 0) {
+            ruleTable.getColumnModel().getColumn(0).setMaxWidth(56);
+            ruleTable.getColumnModel().getColumn(3).setMaxWidth(72);
+        }
 
-                isRunning = true;
-                toggleBtn.setText("停止服务");
-                serverStatusLabel.setText("运行中 (监听: http://localhost:" + port + "/)");
-                portField.setEnabled(false);
-            } catch (Exception ex) {
-                UIUtils.error(getView(), "启动服务器失败，请检查端口是否被占用:\n" + ex.getMessage());
+        JButton addRuleButton = Buttons.primary(t("callback.mock.add"));
+        addRuleButton.addActionListener(event -> openRuleDialog(null, -1));
+        JButton editFallbackButton = Buttons.secondary(t("callback.mock.fallback"));
+        editFallbackButton.addActionListener(event -> openFallbackDialog());
+
+        editRuleButton = Buttons.secondary(t("callback.mock.edit"));
+        editRuleButton.addActionListener(event -> editSelectedRule());
+        deleteRuleButton = Buttons.danger(t("callback.mock.delete"));
+        deleteRuleButton.addActionListener(event -> deleteSelectedRule());
+        moveUpButton = Buttons.secondary(t("callback.mock.moveUp"));
+        moveUpButton.addActionListener(event -> moveSelectedRule(-1));
+        moveDownButton = Buttons.secondary(t("callback.mock.moveDown"));
+        moveDownButton.addActionListener(event -> moveSelectedRule(1));
+
+        Card rulesCard = Card.flush(t("callback.mock.rules"),
+                t("callback.mock.ruleOrderHelp"));
+        rulesCard.setContent(Fields.scroll(ruleTable));
+        rulesCard.addHeaderAction(editFallbackButton);
+        rulesCard.addHeaderAction(addRuleButton);
+        rulesCard.setFooter(Layouts.wrapRow(Tokens.SPACE_SM, Tokens.SPACE_XS,
+                editRuleButton, deleteRuleButton, moveUpButton, moveDownButton));
+
+        requestListModel = new javax.swing.DefaultListModel<String>();
+        requestList = new JList<String>(requestListModel);
+        requestList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        requestList.setFont(Tokens.fontBody());
+        requestList.addListSelectionListener(this::showSelectedRequest);
+        JButton clearHistoryButton = Buttons.danger(t("callback.mock.clearHistory"));
+        clearHistoryButton.addActionListener(event -> clearRecords());
+
+        Card historyCard = Card.flush(t("callback.mock.history"));
+        historyCard.setContent(Fields.scroll(requestList));
+        historyCard.addHeaderAction(clearHistoryButton);
+
+        javax.swing.JSplitPane left = Layouts.splitVertical(
+                rulesCard, historyCard, 0.62, 0.58);
+        javax.swing.JComponent requestDetail = buildRequestDetail();
+        updateRuleActions(null);
+        return Layouts.splitHorizontal(left, requestDetail, 0.50, 0.46);
+    }
+
+    private javax.swing.JComponent buildRequestDetail() {
+        javax.swing.JTabbedPane tabs = new javax.swing.JTabbedPane();
+        tabs.setBorder(null);
+        tabs.setTabLayoutPolicy(javax.swing.JTabbedPane.SCROLL_TAB_LAYOUT);
+        detailsArea = Fields.output(12, 42);
+        tabs.addTab(t("callback.mock.requestSummary"), Fields.scroll(detailsArea));
+        headersArea = Fields.output(12, 42);
+        tabs.addTab(t("callback.mock.requestHeaders"), Fields.scroll(headersArea));
+        bodyArea = Fields.output(12, 42);
+        tabs.addTab(t("callback.mock.requestBody"), Fields.scroll(bodyArea));
+        Card detailCard = Card.flush(t("callback.mock.requestDetail"));
+        detailCard.setContent(tabs);
+        return detailCard;
+    }
+
+    private void loadRuleSet() {
+        CallbackMockRuleRepository.LoadResult result = repository.load();
+        ruleSet = result.getRuleSet();
+        loadWarning = result.getWarning();
+        service.replaceRuleSet(ruleSet);
+    }
+
+    private void toggleServer() {
+        if (service.isRunning()) {
+            service.stop();
+            updateServerStatus();
+            return;
+        }
+        int port;
+        try {
+            port = Integer.parseInt(portField.getText().trim());
+            if (port < 1 || port > 65535) {
+                throw new IllegalArgumentException();
+            }
+        } catch (RuntimeException invalid) {
+            UIUtils.error(getView(), t("callback.mock.invalidPort"));
+            return;
+        }
+        try {
+            service.start(port);
+            updateServerStatus();
+        } catch (IOException error) {
+            UIUtils.error(getView(), t("callback.mock.startFailed", error.getMessage()));
+        }
+    }
+
+    private void updateServerStatus() {
+        if (serverStatusLabel == null || toggleServerButton == null || portField == null) {
+            return;
+        }
+        if (service.isRunning()) {
+            int port = service.getPort();
+            serverStatusLabel.setText(t("callback.mock.running", port));
+            toggleServerButton.setText(t("callback.mock.stop"));
+            portField.setEnabled(false);
+        } else {
+            serverStatusLabel.setText(t("callback.mock.stopped"));
+            toggleServerButton.setText(t("callback.mock.start"));
+            portField.setEnabled(true);
+        }
+    }
+
+    private void openRuleDialog(MockRule initialRule, int replacementIndex) {
+        Window owner = SwingUtilities.getWindowAncestor(getView());
+        CallbackMockRuleDialog dialog = new CallbackMockRuleDialog(owner, initialRule,
+                saved -> {
+                    List<MockRule> rules = new ArrayList<MockRule>(ruleSet.getRules());
+                    if (replacementIndex >= 0 && replacementIndex < rules.size()) {
+                        rules.set(replacementIndex, saved);
+                    } else {
+                        rules.add(saved);
+                    }
+                    if (persistRuleSet(rules, ruleSet.getFallbackResponse())) {
+                        int selected = replacementIndex >= 0 ? replacementIndex : rules.size() - 1;
+                        ruleTable.setRowSelectionInterval(selected, selected);
+                    }
+                });
+        dialog.setLocationRelativeTo(owner == null ? getView() : owner);
+        dialog.setVisible(true);
+    }
+
+    private void editSelectedRule() {
+        int row = ruleTable == null ? -1 : ruleTable.getSelectedRow();
+        MockRule selected = ruleTableModel == null ? null : ruleTableModel.getRuleAt(row);
+        if (selected != null) {
+            openRuleDialog(selected, row);
+        }
+    }
+
+    private void deleteSelectedRule() {
+        int row = ruleTable == null ? -1 : ruleTable.getSelectedRow();
+        if (deleteRuleAt(row)) {
+            int next = Math.min(row, ruleTableModel.getRowCount() - 1);
+            if (next >= 0) {
+                ruleTable.setRowSelectionInterval(next, next);
             }
         }
     }
 
-    private void handleListSelection(ListSelectionEvent e) {
-        if (e.getValueIsAdjusting()) return;
-        int idx = requestList.getSelectedIndex();
-        if (idx >= 0 && idx < records.size()) {
-            MockRequestRecord rec = records.get(idx);
-            
-            // 1. 概要
-            StringBuilder sbSum = new StringBuilder();
-            sbSum.append("接收时间: ").append(rec.time).append("\n");
-            sbSum.append("请求方法: ").append(rec.method).append("\n");
-            sbSum.append("请求路径: ").append(rec.path).append("\n");
-            if (rec.query != null && !rec.query.isEmpty()) {
-                sbSum.append("查询参数: ").append(rec.query).append("\n");
-            }
-            sbSum.append("客户端地址: ").append(rec.clientIp).append("\n");
-            detailsArea.setText(sbSum.toString());
+    private void moveSelectedRule(int delta) {
+        int row = ruleTable == null ? -1 : ruleTable.getSelectedRow();
+        int target = row + delta;
+        if (moveRule(row, target)) {
+            ruleTable.setRowSelectionInterval(target, target);
+        }
+    }
 
-            // 2. 头部
-            headersArea.setText(rec.headers);
+    private void openFallbackDialog() {
+        MockResponse current = ruleSet.getFallbackResponse();
+        Window owner = SwingUtilities.getWindowAncestor(getView());
+        JDialog dialog = new JDialog(owner, t("callback.mock.fallback"),
+                JDialog.ModalityType.APPLICATION_MODAL);
+        JSpinner status = Fields.spinner(current.getStatusCode(), 100, 599, 1);
+        JTextField contentType = Fields.text(current.getContentType());
+        JTextArea body = Fields.area(10, 48);
+        body.setText(current.getBody());
+        JLabel error = new JLabel(" ");
+        error.setFont(Tokens.fontCaption());
+        error.setForeground(Tokens.danger());
 
-            // 3. 请求体
-            String rawBody = rec.body.trim();
-            if ((rawBody.startsWith("{") && rawBody.endsWith("}")) ||
-                (rawBody.startsWith("[") && rawBody.endsWith("]"))) {
-                try {
-                    bodyArea.setText(JsonFormatter.pretty(rawBody));
-                } catch (Exception ex) {
-                    bodyArea.setText(rawBody);
-                }
-            } else {
-                bodyArea.setText(rawBody);
+        FormGrid form = new FormGrid();
+        form.rowCompact(t("callback.mock.statusCode"), status);
+        form.row(t("callback.mock.contentType"), contentType);
+        JPanel responseBody = Layouts.box(0, Tokens.SPACE_XS);
+        responseBody.add(Fields.caption(t("callback.mock.responseBody")), BorderLayout.NORTH);
+        responseBody.add(Fields.scrollBoxed(body), BorderLayout.CENTER);
+        form.fullRow(responseBody);
+        Card card = Card.titled(t("callback.mock.fallback"),
+                t("callback.mock.defaultResponseHelp"));
+        card.setContent(form);
+
+        JButton cancel = Buttons.secondary(t("callback.mock.cancel"));
+        cancel.addActionListener(event -> dialog.dispose());
+        JButton save = Buttons.primary(t("callback.mock.saveFallback"));
+        save.addActionListener(event -> {
+            MockResponse replacement = new MockResponse(
+                    ((Number) status.getValue()).intValue(), contentType.getText(), body.getText());
+            List<String> errors = validator.validate(replacement);
+            if (!errors.isEmpty()) {
+                error.setText(String.join("；", errors));
+                error.setToolTipText(error.getText());
+                dialog.revalidate();
+                return;
             }
-        } else {
+            if (persistRuleSet(ruleSet.getRules(), replacement)) {
+                dialog.dispose();
+            }
+        });
+
+        JPanel actions = Layouts.wrapRow(Tokens.SPACE_SM, Tokens.SPACE_XS,
+                error, cancel, save);
+        JPanel content = Layouts.box(0, Tokens.SPACE_SM);
+        content.setBorder(javax.swing.BorderFactory.createEmptyBorder(
+                Tokens.SPACE_MD, Tokens.SPACE_MD, Tokens.SPACE_MD, Tokens.SPACE_MD));
+        content.add(card, BorderLayout.CENTER);
+        content.add(actions, BorderLayout.SOUTH);
+        dialog.setContentPane(content);
+        dialog.setMinimumSize(new Dimension(560, 420));
+        dialog.setPreferredSize(new Dimension(680, 560));
+        dialog.pack();
+        dialog.setLocationRelativeTo(owner == null ? getView() : owner);
+        dialog.setVisible(true);
+    }
+
+    private boolean persistRuleSet(List<MockRule> rules, MockResponse fallback) {
+        MockRuleSet candidate = MockRuleSet.of(rules, fallback);
+        List<String> errors = validator.validate(candidate);
+        if (!errors.isEmpty()) {
+            UIUtils.error(getView(), t("callback.mock.validationFailed",
+                    String.join("；", errors)));
+            return false;
+        }
+        try {
+            repository.save(candidate);
+            ruleSet = candidate;
+            service.replaceRuleSet(candidate);
+            applyRuleTable(candidate.getRules());
+            return true;
+        } catch (IOException error) {
+            UIUtils.error(getView(), t("callback.mock.saveFailed", error.getMessage()));
+            return false;
+        }
+    }
+
+    private void applyRuleTable(List<MockRule> rules) {
+        if (ruleTableModel == null) {
+            return;
+        }
+        applyingTableModel = true;
+        try {
+            ruleTableModel.setRules(rules);
+        } finally {
+            applyingTableModel = false;
+        }
+        updateRuleActions(null);
+    }
+
+    private boolean addRule(MockRule rule) {
+        if (rule == null) {
+            return false;
+        }
+        List<MockRule> rules = new ArrayList<MockRule>(ruleSet.getRules());
+        rules.add(rule);
+        return persistRuleSet(rules, ruleSet.getFallbackResponse());
+    }
+
+    private boolean deleteRuleAt(int row) {
+        if (row < 0 || row >= ruleSet.getRules().size()) {
+            return false;
+        }
+        List<MockRule> rules = new ArrayList<MockRule>(ruleSet.getRules());
+        rules.remove(row);
+        return persistRuleSet(rules, ruleSet.getFallbackResponse());
+    }
+
+    private boolean moveRule(int from, int to) {
+        List<MockRule> current = ruleSet.getRules();
+        if (from < 0 || to < 0 || from >= current.size() || to >= current.size()
+                || from == to) {
+            return false;
+        }
+        List<MockRule> rules = new ArrayList<MockRule>(current);
+        Collections.swap(rules, from, to);
+        return persistRuleSet(rules, ruleSet.getFallbackResponse());
+    }
+
+    private void updateRuleActions(ListSelectionEvent ignored) {
+        int row = ruleTable == null ? -1 : ruleTable.getSelectedRow();
+        int size = ruleTableModel == null ? 0 : ruleTableModel.getRowCount();
+        boolean selected = row >= 0 && row < size;
+        if (editRuleButton != null) {
+            editRuleButton.setEnabled(selected);
+        }
+        if (deleteRuleButton != null) {
+            deleteRuleButton.setEnabled(selected);
+        }
+        if (moveUpButton != null) {
+            moveUpButton.setEnabled(selected && row > 0);
+        }
+        if (moveDownButton != null) {
+            moveDownButton.setEnabled(selected && row < size - 1);
+        }
+    }
+
+    private void receiveRequest(MockRequestRecord record) {
+        SwingUtilities.invokeLater(() -> appendRequest(record));
+    }
+
+    private void appendRequest(MockRequestRecord record) {
+        if (record == null || requestListModel == null) {
+            return;
+        }
+        records.add(record);
+        String matched = record.isFallback() ? t("callback.mock.fallbackHit")
+                : record.getRuleName();
+        requestListModel.addElement("[" + TIME_FORMAT.format(record.getReceivedAt()) + "] "
+                + record.getMethod() + " " + record.getPath() + " · " + matched);
+        requestList.setSelectedIndex(requestListModel.getSize() - 1);
+    }
+
+    private void showSelectedRequest(ListSelectionEvent event) {
+        if (event.getValueIsAdjusting()) {
+            return;
+        }
+        int index = requestList == null ? -1 : requestList.getSelectedIndex();
+        if (index < 0 || index >= records.size()) {
             detailsArea.setText("");
             headersArea.setText("");
             bodyArea.setText("");
+            return;
         }
+        MockRequestRecord record = records.get(index);
+        String matched = record.isFallback() ? t("callback.mock.fallbackHit")
+                : record.getRuleName();
+        StringBuilder summary = new StringBuilder();
+        summary.append(t("callback.mock.receivedAt")).append("：")
+                .append(TIME_FORMAT.format(record.getReceivedAt())).append('\n');
+        summary.append(t("callback.mock.requestMethod")).append("：")
+                .append(record.getMethod()).append('\n');
+        summary.append(t("callback.mock.requestPath")).append("：")
+                .append(record.getPath()).append('\n');
+        if (record.getQuery() != null && !record.getQuery().isEmpty()) {
+            summary.append(t("callback.mock.query")).append("：")
+                    .append(record.getQuery()).append('\n');
+        }
+        summary.append(t("callback.mock.client")).append("：")
+                .append(record.getClientAddress()).append('\n');
+        summary.append(t("callback.mock.matchedRule")).append("：")
+                .append(matched).append('\n');
+        summary.append(t("callback.mock.responseStatus")).append("：")
+                .append(record.getResponseStatus()).append('\n');
+        detailsArea.setText(summary.toString());
+        headersArea.setText(formatHeaders(record));
+        bodyArea.setText(prettyBody(record.getBody()));
+    }
+
+    private static String formatHeaders(MockRequestRecord record) {
+        StringBuilder headers = new StringBuilder();
+        for (java.util.Map.Entry<String, List<String>> entry : record.getHeaders().entrySet()) {
+            headers.append(entry.getKey()).append(": ");
+            headers.append(String.join(", ", entry.getValue())).append('\n');
+        }
+        return headers.toString();
+    }
+
+    private static String prettyBody(String body) {
+        String raw = body == null ? "" : body.trim();
+        if ((raw.startsWith("{") && raw.endsWith("}"))
+                || (raw.startsWith("[") && raw.endsWith("]"))) {
+            try {
+                return JsonFormatter.pretty(raw);
+            } catch (RuntimeException ignored) {
+                return raw;
+            }
+        }
+        return raw;
     }
 
     private void clearRecords() {
@@ -253,76 +533,44 @@ public class CallbackTestPanel extends ToolPanel {
         bodyArea.setText("");
     }
 
-    // ===== Mock 服务器 Handler =====
-    private class MockHttpHandler implements HttpHandler {
-        private final SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            MockRequestRecord rec = new MockRequestRecord();
-            rec.time = sdf.format(new Date());
-            rec.method = exchange.getRequestMethod();
-            rec.path = exchange.getRequestURI().getPath();
-            rec.query = exchange.getRequestURI().getQuery();
-            rec.clientIp = exchange.getRemoteAddress().toString();
-
-            // 解析 Headers
-            Headers reqHeaders = exchange.getRequestHeaders();
-            StringBuilder sbHead = new StringBuilder();
-            for (String name : reqHeaders.keySet()) {
-                sbHead.append(name).append(": ").append(String.join(", ", reqHeaders.get(name))).append("\n");
-            }
-            rec.headers = sbHead.toString();
-
-            // 读取 Body
-            InputStream is = exchange.getRequestBody();
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            byte[] buf = new byte[1024];
-            int read;
-            while ((read = is.read(buf)) != -1) {
-                baos.write(buf, 0, read);
-            }
-            rec.body = baos.toString("UTF-8");
-
-            // 将请求记录发布到 GUI 线程中
-            SwingUtilities.invokeLater(() -> {
-                records.add(rec);
-                String listLabel = String.format("[%s] %s %s", rec.time.substring(11), rec.method, rec.path);
-                requestListModel.addElement(listLabel);
-                // 默认选择最新一条
-                requestList.setSelectedIndex(requestListModel.getSize() - 1);
-            });
-
-            // 获取 Mock 响应配置并做出应答
-            int respCode = 200;
-            try {
-                respCode = Integer.parseInt(respCodeField.getText().trim());
-            } catch (Exception ignored) {}
-
-            String contentType = respContentTypeField.getText().trim();
-            String responseBody = respBodyArea.getText();
-            byte[] respBytes = responseBody.getBytes(StandardCharsets.UTF_8);
-
-            // 写入响应
-            exchange.getResponseHeaders().set("Content-Type", contentType);
-            exchange.sendResponseHeaders(respCode, respBytes.length > 0 ? respBytes.length : -1);
-            if (respBytes.length > 0) {
-                try (OutputStream os = exchange.getResponseBody()) {
-                    os.write(respBytes);
-                }
-            }
-            exchange.close();
-        }
+    @Override
+    public void closeResources() {
+        service.closeResources();
     }
 
-    // ===== 回调请求结构 =====
-    private static class MockRequestRecord {
-        String time;
-        String method;
-        String path;
-        String query;
-        String clientIp;
-        String headers;
-        String body;
+    CallbackMockRuleTableModel getRuleTableModelForTest() {
+        return ruleTableModel;
+    }
+
+    JButton getDeleteRuleButtonForTest() {
+        return deleteRuleButton;
+    }
+
+    MockResponse getFallbackResponseForTest() {
+        return ruleSet.getFallbackResponse();
+    }
+
+    String getLoadWarningForTest() {
+        return loadWarning;
+    }
+
+    boolean addRuleForTest(MockRule rule) {
+        return addRule(rule);
+    }
+
+    boolean deleteRuleForTest(int row) {
+        return deleteRuleAt(row);
+    }
+
+    boolean moveRuleForTest(int from, int to) {
+        return moveRule(from, to);
+    }
+
+    private static String t(String key) {
+        return I18n.get(key);
+    }
+
+    private static String t(String key, Object... args) {
+        return I18n.get(key, args);
     }
 }

@@ -25,6 +25,7 @@ public final class ApplicationPaths {
     private static final String VAULT_FILE_NAME = "toolbox-vault.json.enc";
     private static final String LOCK_FILE_NAME = "toolbox-vault.lock";
     private static final String LEGACY_PASSWORD_FILE_NAME = "toolbox-passwords.enc";
+    private static final String CALLBACK_MOCK_RULES_FILE_NAME = "callback-mock-rules.json";
 
     private final Path dataDirectory;
     private final Path configDirectory;
@@ -125,6 +126,10 @@ public final class ApplicationPaths {
 
     public Path getConfigFile() {
         return configDirectory.resolve(CONFIG_FILE_NAME);
+    }
+
+    public Path getCallbackMockRulesFile() {
+        return configDirectory.resolve(CALLBACK_MOCK_RULES_FILE_NAME);
     }
 
     public Path getDataDirectory() {

@@ -49,6 +49,20 @@ class ApplicationPathsTest {
                 portable(paths.getVaultFile()));
         assertEquals("C:/Users/dev/.java-toolbox/toolbox-vault.lock",
                 portable(paths.getLockFile()));
+        assertEquals("C:/Users/dev/.java-toolbox/callback-mock-rules.json",
+                portable(paths.getCallbackMockRulesFile()));
+    }
+
+    @Test
+    void callbackRulesFileLivesBesideOtherApplicationConfiguration() {
+        Map<String, String> env = new HashMap<>();
+        env.put("APPDATA", "C:\\Users\\dev\\AppData\\Roaming");
+
+        ApplicationPaths paths = ApplicationPaths.resolve(
+                "Windows 11", "C:\\Users\\dev", env, Paths.get("D:\\portable"));
+
+        assertEquals("C:/Users/dev/AppData/Roaming/JavaToolbox/callback-mock-rules.json",
+                portable(paths.getCallbackMockRulesFile()));
     }
 
     @Test

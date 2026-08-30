@@ -1039,16 +1039,17 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() throws Exception {
+                String safeSchema = safeIdentifier(schemaName);
                 try {
-                    connection.setSchema(schemaName);
+                    connection.setSchema(safeSchema);
                 } catch (Throwable ex) {
                     if ("Oracle".equals(dbType)) {
                         try (Statement stmt = connection.createStatement()) {
-                            stmt.execute("ALTER SESSION SET CURRENT_SCHEMA = " + schemaName);
+                            stmt.execute("ALTER SESSION SET CURRENT_SCHEMA = " + safeSchema);
                         }
                     } else if ("PostgreSQL".equals(dbType)) {
                         try (Statement stmt = connection.createStatement()) {
-                            stmt.execute("SET search_path TO " + schemaName);
+                            stmt.execute("SET search_path TO " + safeSchema);
                         }
                     }
                 }
@@ -1068,6 +1069,19 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                 }
             }
         }.execute();
+    }
+
+    /**
+     * Validates a schema name before it is interpolated into DDL/SET
+     * statements. Only unquoted SQL identifiers (letters, digits, underscore,
+     * dollar, hash; not starting with a digit) are accepted, so a hostile
+     * value can never break out of the identifier position.
+     */
+    private static String safeIdentifier(String name) {
+        if (name == null || !name.matches("[A-Za-z_][A-Za-z0-9_$#]*")) {
+            throw new IllegalArgumentException("非法的模式名: " + name);
+        }
+        return name;
     }
 
     private void loadMetadataTree() {

@@ -3,11 +3,18 @@ package com.aqishi.toolbox.feature.network.domain.callbackmock;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 /** Resolves the first enabled rule whose method, path, and conditions match. */
 public final class MockRuleResolver {
+    /** Compiled-pattern cache keyed by regex source; avoids recompiling on every request. */
+    private static final Map<String, Pattern> PATTERN_CACHE = new ConcurrentHashMap<>();
+    /** Upper bound so user-edited rules cannot grow the cache without limit. */
+    private static final int PATTERN_CACHE_MAX = 256;
+
     public MockResolution resolve(MockRuleSet ruleSet, MockRequest request) {
         if (ruleSet == null) {
             return MockResolution.fallback(null);
@@ -60,7 +67,7 @@ public final class MockRuleResolver {
                 return actual.startsWith(expected);
             case REGEX:
                 try {
-                    return Pattern.compile(expected).matcher(actual).matches();
+                    return compiled(expected).matcher(actual).matches();
                 } catch (PatternSyntaxException e) {
                     // Invalid rules are rejected by MockRuleValidator. Treat a
                     // stale/externally loaded invalid rule as a no-match so it
@@ -103,7 +110,7 @@ public final class MockRuleResolver {
                     break;
                 case REGEX:
                     try {
-                        if (Pattern.compile(expected).matcher(value).matches()) {
+                        if (compiled(expected).matcher(value).matches()) {
                             return true;
                         }
                     } catch (PatternSyntaxException e) {
@@ -117,5 +124,17 @@ public final class MockRuleResolver {
             }
         }
         return false;
+    }
+
+    /**
+     * Returns a cached {@link Pattern} for the given regex source. Failed
+     * compilations are not cached, so an invalid rule keeps failing fast
+     * without occupying cache slots.
+     */
+    private static Pattern compiled(String regex) {
+        if (PATTERN_CACHE.size() >= PATTERN_CACHE_MAX) {
+            PATTERN_CACHE.clear();
+        }
+        return PATTERN_CACHE.computeIfAbsent(regex, Pattern::compile);
     }
 }

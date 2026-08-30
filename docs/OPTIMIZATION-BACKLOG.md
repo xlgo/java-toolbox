@@ -11,6 +11,7 @@
 | 第 1 批 | P0-1~P0-5、P1-1、P1-3、P1-6、P1-10、P1-27、B1、B6 | ✅ `515005c` |
 | 第 2 批 | P2-5 monitor 分层、P2-6 ssh 分层、P2-7 打破包级环 | ✅ `e7ad260` / `b8c1a04` / `f2d9e31` |
 | 第 3 批 | P2-1 K8s 模板收敛、P2-4 格式化与剪贴板收敛 | ✅ 部分完成（`a8edb67`、`4c3f8a1`） |
+| 补漏 | P1-5 Pattern 缓存、P1-8 SQL 标识符校验、P1-9 HttpURLConnection disconnect | ✅ 2026-08-30 |
 | 第 3 批 | P2-2✅（随 P2-1 一起）、P2-3 codec 面板继承、P2-4 ObjectMapper/JOptionPane、P2-9 UI 逻辑下沉 | ⏳ 待做 |
 | 第 4 批 | T1~T4 测试补齐、B7 CI 门禁 | ⏳ 待做 |
 | 第 5 批 | D1~D7 文档校准、I1~I2 i18n 分批 | ⏳ 待做 |
@@ -70,6 +71,12 @@
 
 - **P2-1 + P2-2**：K8s 九类资源加载模板收敛为 `loadResourceTable(model, path, label, rowMapper)`，抽出 `listPath`/`namespaceOf`/`nameOf`/`ageOf`/`readyCount`，427 行 → 222 行；表格回填改为批量写入数据向量后只广播一次 `fireTableDataChanged`（原逐个 `addRow` 会触发上千次事件）
 - **P2-4（部分）**：新增 `util/FormatUtils`（`bytes()` 统一四份不一致的字节格式化、`duration()`）；7 处手写剪贴板改用 `UIUtils.copyToClipboard()`（`vault/SecureClipboard` 是独立的安全实现，保持不变）
+
+### 补漏落地（2026-08-30）
+
+- **P1-5**：`MockRuleResolver` 新增 `PATTERN_CACHE`（ConcurrentHashMap，上限 256，超限整体清空），REGEX 匹配不再逐请求重编译；非法正则不占缓存位
+- **P1-8**：`DatabasePanel.switchSchema()` 改走 `safeIdentifier()` 白名单校验（`[A-Za-z_][A-Za-z0-9_$#]*`），Oracle `CURRENT_SCHEMA` 与 PostgreSQL `search_path` 拼接前先校验
+- **P1-9**：`MermaidPanel` 云端渲染、`QrCodePanel` Replicate 提交与轮询共 3 处 `HttpURLConnection` 补 `finally { disconnect(); }`
 
 ## 0. 一句话结论
 

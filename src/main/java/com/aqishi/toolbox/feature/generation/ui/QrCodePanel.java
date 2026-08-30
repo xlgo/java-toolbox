@@ -341,33 +341,38 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
                 // Start Prediction
                 URL url = new URL("https://api.replicate.com/v1/predictions");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Authorization", "Bearer " + token);
-                conn.setRequestProperty("Content-Type", "application/json");
-                conn.setDoOutput(true);
+                String getUrl;
+                try {
+                    conn.setRequestMethod("POST");
+                    conn.setRequestProperty("Authorization", "Bearer " + token);
+                    conn.setRequestProperty("Content-Type", "application/json");
+                    conn.setDoOutput(true);
 
-                Map<String, Object> input = new HashMap<>();
-                input.put("qr_code_content", text);
-                input.put("prompt", prompt);
-                input.put("negative_prompt", negativePrompt);
+                    Map<String, Object> input = new HashMap<>();
+                    input.put("qr_code_content", text);
+                    input.put("prompt", prompt);
+                    input.put("negative_prompt", negativePrompt);
 
-                Map<String, Object> body = new HashMap<>();
-                // z-uo/qrcode-controlnet version
-                body.put("version", "628e604e13fc636433fbe4d9c0e5a95efd58117a421b4700d11f9746e16694e8");
-                body.put("input", input);
+                    Map<String, Object> body = new HashMap<>();
+                    // z-uo/qrcode-controlnet version
+                    body.put("version", "628e604e13fc636433fbe4d9c0e5a95efd58117a421b4700d11f9746e16694e8");
+                    body.put("input", input);
 
-                try (OutputStream os = conn.getOutputStream()) {
-                    mapper.writeValue(os, body);
+                    try (OutputStream os = conn.getOutputStream()) {
+                        mapper.writeValue(os, body);
+                    }
+
+                    if (conn.getResponseCode() >= 400) {
+                        BufferedReader br = new BufferedReader(new InputStreamReader(conn.getErrorStream(), StandardCharsets.UTF_8));
+                        String err = br.lines().reduce("", String::concat);
+                        throw new Exception("API 请求失败: " + conn.getResponseCode() + " " + err);
+                    }
+
+                    JsonNode root = mapper.readTree(conn.getInputStream());
+                    getUrl = root.path("urls").path("get").asText();
+                } finally {
+                    conn.disconnect();
                 }
-
-                if (conn.getResponseCode() >= 400) {
-                    BufferedReader br = new BufferedReader(new InputStreamReader(conn.getErrorStream(), StandardCharsets.UTF_8));
-                    String err = br.lines().reduce("", String::concat);
-                    throw new Exception("API 请求失败: " + conn.getResponseCode() + " " + err);
-                }
-
-                JsonNode root = mapper.readTree(conn.getInputStream());
-                String getUrl = root.path("urls").path("get").asText();
 
                 SwingUtilities.invokeLater(() -> {
                     previewImageLabel.setText("任务已提交，正在等待云端渲染完成 (可能需要数十秒)...");
@@ -395,34 +400,38 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
                 try {
                     URL url = new URL(getUrl);
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("GET");
-                    conn.setRequestProperty("Authorization", "Bearer " + token);
-                    
-                    JsonNode root = mapper.readTree(conn.getInputStream());
-                    String status = root.path("status").asText();
-                    
-                    if ("succeeded".equals(status)) {
-                        String imageUrl = root.path("output").get(0).asText(); // For this model it returns an array of urls
-                        BufferedImage img = ImageIO.read(new URL(imageUrl));
-                        SwingUtilities.invokeLater(() -> {
-                            currentQrImage = img;
-                            // scale for preview if too large, but model generates 768x768 usually
-                            Image scaled = img.getScaledInstance(350, 350, Image.SCALE_SMOOTH);
-                            previewImageLabel.setIcon(new ImageIcon(scaled));
-                            previewImageLabel.setText("AI 艺术二维码生成完毕");
-                            generateAiBtn.setEnabled(true);
-                            generateAiBtn.setText("生成 AI 艺术二维码");
-                        });
-                        timer.cancel();
-                    } else if ("failed".equals(status) || "canceled".equals(status)) {
-                        String error = root.path("error").asText();
-                        SwingUtilities.invokeLater(() -> {
-                            generateAiBtn.setEnabled(true);
-                            generateAiBtn.setText("生成 AI 艺术二维码");
-                            previewImageLabel.setText("");
-                            JOptionPane.showMessageDialog(getView(), "AI 任务失败或被取消: " + error, "错误", JOptionPane.ERROR_MESSAGE);
-                        });
-                        timer.cancel();
+                    try {
+                        conn.setRequestMethod("GET");
+                        conn.setRequestProperty("Authorization", "Bearer " + token);
+
+                        JsonNode root = mapper.readTree(conn.getInputStream());
+                        String status = root.path("status").asText();
+
+                        if ("succeeded".equals(status)) {
+                            String imageUrl = root.path("output").get(0).asText(); // For this model it returns an array of urls
+                            BufferedImage img = ImageIO.read(new URL(imageUrl));
+                            SwingUtilities.invokeLater(() -> {
+                                currentQrImage = img;
+                                // scale for preview if too large, but model generates 768x768 usually
+                                Image scaled = img.getScaledInstance(350, 350, Image.SCALE_SMOOTH);
+                                previewImageLabel.setIcon(new ImageIcon(scaled));
+                                previewImageLabel.setText("AI 艺术二维码生成完毕");
+                                generateAiBtn.setEnabled(true);
+                                generateAiBtn.setText("生成 AI 艺术二维码");
+                            });
+                            timer.cancel();
+                        } else if ("failed".equals(status) || "canceled".equals(status)) {
+                            String error = root.path("error").asText();
+                            SwingUtilities.invokeLater(() -> {
+                                generateAiBtn.setEnabled(true);
+                                generateAiBtn.setText("生成 AI 艺术二维码");
+                                previewImageLabel.setText("");
+                                JOptionPane.showMessageDialog(getView(), "AI 任务失败或被取消: " + error, "错误", JOptionPane.ERROR_MESSAGE);
+                            });
+                            timer.cancel();
+                        }
+                    } finally {
+                        conn.disconnect();
                     }
                 } catch (Exception ex) {
                     // Ignore transient network errors during polling

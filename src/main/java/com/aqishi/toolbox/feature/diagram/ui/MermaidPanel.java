@@ -241,28 +241,32 @@ public class MermaidPanel extends ToolPanel {
                 
                 URL url = new URL(requestUrl);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("GET");
-                conn.setConnectTimeout(8000);
-                conn.setReadTimeout(12000);
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+                try {
+                    conn.setRequestMethod("GET");
+                    conn.setConnectTimeout(8000);
+                    conn.setReadTimeout(12000);
+                    conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
 
-                int responseCode = conn.getResponseCode();
-                if (responseCode == HttpURLConnection.HTTP_OK) {
-                    try (InputStream is = conn.getInputStream();
-                         ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-                        byte[] buffer = new byte[4096];
-                        int bytesRead;
-                        while ((bytesRead = is.read(buffer)) != -1) {
-                            baos.write(buffer, 0, bytesRead);
+                    int responseCode = conn.getResponseCode();
+                    if (responseCode == HttpURLConnection.HTTP_OK) {
+                        try (InputStream is = conn.getInputStream();
+                             ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+                            byte[] buffer = new byte[4096];
+                            int bytesRead;
+                            while ((bytesRead = is.read(buffer)) != -1) {
+                                baos.write(buffer, 0, bytesRead);
+                            }
+                            byte[] imageBytes = baos.toByteArray();
+                            try (ByteArrayInputStream bais = new ByteArrayInputStream(imageBytes)) {
+                                return ImageIO.read(bais);
+                            }
                         }
-                        byte[] imageBytes = baos.toByteArray();
-                        try (ByteArrayInputStream bais = new ByteArrayInputStream(imageBytes)) {
-                            return ImageIO.read(bais);
-                        }
+                    } else {
+                        errorMsg = "云端渲染失败 (HTTP " + responseCode + ")！\n请检查您的 Mermaid 语法是否正确。";
+                        return null;
                     }
-                } else {
-                    errorMsg = "云端渲染失败 (HTTP " + responseCode + ")！\n请检查您的 Mermaid 语法是否正确。";
-                    return null;
+                } finally {
+                    conn.disconnect();
                 }
             }
 

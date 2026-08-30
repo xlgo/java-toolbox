@@ -35,6 +35,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.Duration;
 import java.util.*;
+import java.util.function.Function;
 import java.util.List;
 import com.jediterm.terminal.TtyConnector;
 import com.jediterm.terminal.ui.JediTermWidget;
@@ -802,349 +803,171 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         }
     }
 
-    // Load Pods
+    // ===== 资源列表加载 =====
+    /**
+     * 九类资源的加载流程完全一致：后台拉取 items、逐条映射成表格行、回写表格。
+     * 差异只在 API 路径与行映射，因此统一走 {@link #loadResourceTable}，
+     * 各资源只保留自己的映射逻辑。
+     */
     private void loadPods() {
-        String ns = getSelectedNamespace();
-        String path = ns.equals("all") ? "/api/v1/pods" : "/api/v1/namespaces/" + ns + "/pods";
-
-        podModel.setRowCount(0);
-        new SwingWorker<List<Object[]>, Void>() {
-            @Override
-            protected List<Object[]> doInBackground() throws Exception {
-                String resp = executeRequest("GET", path, null, activeSkipTls);
-                JsonNode root = mapper.readTree(resp);
-                List<Object[]> rows = new ArrayList<>();
-                JsonNode items = root.path("items");
-                if (items.isArray()) {
-                    for (JsonNode item : items) {
-                        String namespace = item.path("metadata").path("namespace").asText();
-                        String name = item.path("metadata").path("name").asText();
-                        String status = item.path("status").path("phase").asText();
-                        
-                        int restarts = 0;
-                        JsonNode statuses = item.path("status").path("containerStatuses");
-                        if (statuses.isArray()) {
-                            for (JsonNode cs : statuses) {
-                                restarts += cs.path("restartCount").asInt();
-                            }
-                        }
-                        
-                        String ip = item.path("status").path("podIP").asText("-");
-                        String node = item.path("spec").path("nodeName").asText("-");
-                        String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
-                        
-                        rows.add(new Object[]{namespace, name, status, restarts, ip, node, age});
-                    }
-                }
-                return rows;
+        loadResourceTable(podModel, listPath("/api/v1", "pods"), "Pods", item -> {
+            int restarts = 0;
+            for (JsonNode status : item.path("status").path("containerStatuses")) {
+                restarts += status.path("restartCount").asInt();
             }
-
-            @Override
-            protected void done() {
-                try {
-                    for (Object[] r : get()) {
-                        podModel.addRow(r);
-                    }
-                } catch (Exception ex) {
-                    UIUtils.error(null, "加载 Pods 失败: " + ex.getMessage());
-                }
-            }
-        }.execute();
+            return new Object[]{
+                    namespaceOf(item), nameOf(item),
+                    item.path("status").path("phase").asText(),
+                    restarts,
+                    item.path("status").path("podIP").asText("-"),
+                    item.path("spec").path("nodeName").asText("-"),
+                    ageOf(item)
+            };
+        });
     }
 
-    // Load Deployments
     private void loadDeployments() {
-        String ns = getSelectedNamespace();
-        String path = ns.equals("all") ? "/apis/apps/v1/deployments" : "/apis/apps/v1/namespaces/" + ns + "/deployments";
-
-        deployModel.setRowCount(0);
-        new SwingWorker<List<Object[]>, Void>() {
-            @Override
-            protected List<Object[]> doInBackground() throws Exception {
-                String resp = executeRequest("GET", path, null, activeSkipTls);
-                JsonNode root = mapper.readTree(resp);
-                List<Object[]> rows = new ArrayList<>();
-                JsonNode items = root.path("items");
-                if (items.isArray()) {
-                    for (JsonNode item : items) {
-                        String namespace = item.path("metadata").path("namespace").asText();
-                        String name = item.path("metadata").path("name").asText();
-                        int specReplicas = item.path("spec").path("replicas").asInt(0);
-                        int readyReplicas = item.path("status").path("readyReplicas").asInt(0);
-                        String ready = readyReplicas + "/" + specReplicas;
-                        
-                        int updated = item.path("status").path("updatedReplicas").asInt(0);
-                        int available = item.path("status").path("availableReplicas").asInt(0);
-                        String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
-
-                        rows.add(new Object[]{namespace, name, ready, updated, available, age});
-                    }
-                }
-                return rows;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    for (Object[] r : get()) {
-                        deployModel.addRow(r);
-                    }
-                } catch (Exception ex) {
-                    UIUtils.error(null, "加载 Deployments 失败: " + ex.getMessage());
-                }
-            }
-        }.execute();
+        loadResourceTable(deployModel, listPath("/apis/apps/v1", "deployments"), "Deployments", item ->
+                new Object[]{
+                        namespaceOf(item), nameOf(item),
+                        readyCount(item),
+                        item.path("status").path("updatedReplicas").asInt(0),
+                        item.path("status").path("availableReplicas").asInt(0),
+                        ageOf(item)
+                });
     }
 
-    // Load Services
-    private void loadServices() {
-        String ns = getSelectedNamespace();
-        String path = ns.equals("all") ? "/api/v1/services" : "/api/v1/namespaces/" + ns + "/services";
-
-        svcModel.setRowCount(0);
-        new SwingWorker<List<Object[]>, Void>() {
-            @Override
-            protected List<Object[]> doInBackground() throws Exception {
-                String resp = executeRequest("GET", path, null, activeSkipTls);
-                JsonNode root = mapper.readTree(resp);
-                List<Object[]> rows = new ArrayList<>();
-                JsonNode items = root.path("items");
-                if (items.isArray()) {
-                    for (JsonNode item : items) {
-                        String namespace = item.path("metadata").path("namespace").asText();
-                        String name = item.path("metadata").path("name").asText();
-                        String type = item.path("spec").path("type").asText();
-                        String clusterIp = item.path("spec").path("clusterIP").asText();
-                        
-                        StringBuilder extIp = new StringBuilder();
-                        JsonNode ingresses = item.path("status").path("loadBalancer").path("ingress");
-                        if (ingresses.isArray()) {
-                            for (JsonNode ing : ingresses) {
-                                if (extIp.length() > 0) extIp.append(",");
-                                if (ing.has("ip")) extIp.append(ing.path("ip").asText());
-                                else if (ing.has("hostname")) extIp.append(ing.path("hostname").asText());
-                            }
-                        }
-                        if (extIp.length() == 0) {
-                            extIp.append("<none>");
-                        }
-
-                        StringBuilder ports = new StringBuilder();
-                        JsonNode pNode = item.path("spec").path("ports");
-                        if (pNode.isArray()) {
-                            for (JsonNode p : pNode) {
-                                if (ports.length() > 0) ports.append(",");
-                                ports.append(p.path("port").asInt()).append("/").append(p.path("protocol").asText());
-                            }
-                        }
-                        String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
-
-                        rows.add(new Object[]{namespace, name, type, clusterIp, extIp.toString(), ports.toString(), age});
-                    }
-                }
-                return rows;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    for (Object[] r : get()) {
-                        svcModel.addRow(r);
-                    }
-                } catch (Exception ex) {
-                    UIUtils.error(null, "加载 Services 失败: " + ex.getMessage());
-                }
-            }
-        }.execute();
-    }
-
-    // Load ConfigMaps
-    private void loadConfigMaps() {
-        String ns = getSelectedNamespace();
-        String path = ns.equals("all") ? "/api/v1/configmaps" : "/api/v1/namespaces/" + ns + "/configmaps";
-
-        cmModel.setRowCount(0);
-        new SwingWorker<List<Object[]>, Void>() {
-            @Override
-            protected List<Object[]> doInBackground() throws Exception {
-                String resp = executeRequest("GET", path, null, activeSkipTls);
-                JsonNode root = mapper.readTree(resp);
-                List<Object[]> rows = new ArrayList<>();
-                JsonNode items = root.path("items");
-                if (items.isArray()) {
-                    for (JsonNode item : items) {
-                        String namespace = item.path("metadata").path("namespace").asText();
-                        String name = item.path("metadata").path("name").asText();
-                        int keys = item.path("data").size();
-                        String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
-
-                        rows.add(new Object[]{namespace, name, keys, age});
-                    }
-                }
-                return rows;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    for (Object[] r : get()) {
-                        cmModel.addRow(r);
-                    }
-                } catch (Exception ex) {
-                    UIUtils.error(null, "加载 ConfigMaps 失败: " + ex.getMessage());
-                }
-            }
-        }.execute();
-    }
-
-    // Load StatefulSets
     private void loadStatefulSets() {
-        String ns = getSelectedNamespace();
-        String path = ns.equals("all") ? "/apis/apps/v1/statefulsets" : "/apis/apps/v1/namespaces/" + ns + "/statefulsets";
-
-        statefulSetModel.setRowCount(0);
-        new SwingWorker<List<Object[]>, Void>() {
-            @Override
-            protected List<Object[]> doInBackground() throws Exception {
-                String resp = executeRequest("GET", path, null, activeSkipTls);
-                JsonNode root = mapper.readTree(resp);
-                List<Object[]> rows = new ArrayList<>();
-                JsonNode items = root.path("items");
-                if (items.isArray()) {
-                    for (JsonNode item : items) {
-                        String namespace = item.path("metadata").path("namespace").asText();
-                        String name = item.path("metadata").path("name").asText();
-                        int specReplicas = item.path("spec").path("replicas").asInt(0);
-                        int readyReplicas = item.path("status").path("readyReplicas").asInt(0);
-                        String ready = readyReplicas + "/" + specReplicas;
-                        int currentReplicas = item.path("status").path("currentReplicas").asInt(0);
-                        String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
-
-                        rows.add(new Object[]{namespace, name, ready, currentReplicas, age});
-                    }
-                }
-                return rows;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    for (Object[] r : get()) {
-                        statefulSetModel.addRow(r);
-                    }
-                } catch (Exception ex) {
-                    UIUtils.error(null, "加载 StatefulSets 失败: " + ex.getMessage());
-                }
-            }
-        }.execute();
+        loadResourceTable(statefulSetModel, listPath("/apis/apps/v1", "statefulsets"), "StatefulSets", item ->
+                new Object[]{
+                        namespaceOf(item), nameOf(item),
+                        readyCount(item),
+                        item.path("status").path("currentReplicas").asInt(0),
+                        ageOf(item)
+                });
     }
 
-    // Load DaemonSets
     private void loadDaemonSets() {
-        String ns = getSelectedNamespace();
-        String path = ns.equals("all") ? "/apis/apps/v1/daemonsets" : "/apis/apps/v1/namespaces/" + ns + "/daemonsets";
-
-        daemonSetModel.setRowCount(0);
-        new SwingWorker<List<Object[]>, Void>() {
-            @Override
-            protected List<Object[]> doInBackground() throws Exception {
-                String resp = executeRequest("GET", path, null, activeSkipTls);
-                JsonNode root = mapper.readTree(resp);
-                List<Object[]> rows = new ArrayList<>();
-                JsonNode items = root.path("items");
-                if (items.isArray()) {
-                    for (JsonNode item : items) {
-                        String namespace = item.path("metadata").path("namespace").asText();
-                        String name = item.path("metadata").path("name").asText();
-                        int desired = item.path("status").path("desiredNumberScheduled").asInt(0);
-                        int current = item.path("status").path("currentNumberScheduled").asInt(0);
-                        int ready = item.path("status").path("numberReady").asInt(0);
-                        int updated = item.path("status").path("updatedNumberScheduled").asInt(0);
-                        String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
-
-                        rows.add(new Object[]{namespace, name, desired, current, ready, updated, age});
-                    }
-                }
-                return rows;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    for (Object[] r : get()) {
-                        daemonSetModel.addRow(r);
-                    }
-                } catch (Exception ex) {
-                    UIUtils.error(null, "加载 DaemonSets 失败: " + ex.getMessage());
-                }
-            }
-        }.execute();
+        loadResourceTable(daemonSetModel, listPath("/apis/apps/v1", "daemonsets"), "DaemonSets", item ->
+                new Object[]{
+                        namespaceOf(item), nameOf(item),
+                        item.path("status").path("desiredNumberScheduled").asInt(0),
+                        item.path("status").path("currentNumberScheduled").asInt(0),
+                        item.path("status").path("numberReady").asInt(0),
+                        item.path("status").path("updatedNumberScheduled").asInt(0),
+                        ageOf(item)
+                });
     }
 
-    // Load CronJobs
     private void loadCronJobs() {
-        String ns = getSelectedNamespace();
-        String path = ns.equals("all") ? "/apis/batch/v1/cronjobs" : "/apis/batch/v1/namespaces/" + ns + "/cronjobs";
-
-        cronJobModel.setRowCount(0);
-        new SwingWorker<List<Object[]>, Void>() {
-            @Override
-            protected List<Object[]> doInBackground() throws Exception {
-                String resp = executeRequest("GET", path, null, activeSkipTls);
-                JsonNode root = mapper.readTree(resp);
-                List<Object[]> rows = new ArrayList<>();
-                JsonNode items = root.path("items");
-                if (items.isArray()) {
-                    for (JsonNode item : items) {
-                        String namespace = item.path("metadata").path("namespace").asText();
-                        String name = item.path("metadata").path("name").asText();
-                        String schedule = item.path("spec").path("schedule").asText("-");
-                        boolean suspend = item.path("spec").path("suspend").asBoolean(false);
-                        int active = item.path("status").path("active").size();
-                        String lastSchedule = item.path("status").path("lastScheduleTime").asText("-");
-                        String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
-
-                        rows.add(new Object[]{namespace, name, schedule, suspend, active, lastSchedule, age});
-                    }
-                }
-                return rows;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    for (Object[] r : get()) {
-                        cronJobModel.addRow(r);
-                    }
-                } catch (Exception ex) {
-                    UIUtils.error(null, "加载 CronJobs 失败: " + ex.getMessage());
-                }
-            }
-        }.execute();
+        loadResourceTable(cronJobModel, listPath("/apis/batch/v1", "cronjobs"), "CronJobs", item ->
+                new Object[]{
+                        namespaceOf(item), nameOf(item),
+                        item.path("spec").path("schedule").asText("-"),
+                        item.path("spec").path("suspend").asBoolean(false),
+                        item.path("status").path("active").size(),
+                        item.path("status").path("lastScheduleTime").asText("-"),
+                        ageOf(item)
+                });
     }
 
-    // Load Secrets
+    private void loadServices() {
+        loadResourceTable(svcModel, listPath("/api/v1", "services"), "Services", item -> {
+            StringBuilder external = new StringBuilder();
+            for (JsonNode ingress : item.path("status").path("loadBalancer").path("ingress")) {
+                if (external.length() > 0) external.append(",");
+                if (ingress.has("ip")) {
+                    external.append(ingress.path("ip").asText());
+                } else if (ingress.has("hostname")) {
+                    external.append(ingress.path("hostname").asText());
+                }
+            }
+            if (external.length() == 0) {
+                external.append("<none>");
+            }
+
+            StringBuilder ports = new StringBuilder();
+            for (JsonNode port : item.path("spec").path("ports")) {
+                if (ports.length() > 0) ports.append(",");
+                ports.append(port.path("port").asInt()).append("/").append(port.path("protocol").asText());
+            }
+
+            return new Object[]{
+                    namespaceOf(item), nameOf(item),
+                    item.path("spec").path("type").asText(),
+                    item.path("spec").path("clusterIP").asText(),
+                    external.toString(), ports.toString(), ageOf(item)
+            };
+        });
+    }
+
+    private void loadConfigMaps() {
+        loadResourceTable(cmModel, listPath("/api/v1", "configmaps"), "ConfigMaps", item ->
+                new Object[]{namespaceOf(item), nameOf(item), item.path("data").size(), ageOf(item)});
+    }
+
     private void loadSecrets() {
-        String ns = getSelectedNamespace();
-        String path = ns.equals("all") ? "/api/v1/secrets" : "/api/v1/namespaces/" + ns + "/secrets";
+        loadResourceTable(secretModel, listPath("/api/v1", "secrets"), "Secrets", item ->
+                new Object[]{
+                        namespaceOf(item), nameOf(item),
+                        item.path("type").asText(),
+                        item.path("data").size(),
+                        ageOf(item)
+                });
+    }
 
-        secretModel.setRowCount(0);
+    private void loadNodes() {
+        loadResourceTable(nodeModel, "/api/v1/nodes", "Nodes", item -> {
+            String status = "NotReady";
+            for (JsonNode condition : item.path("status").path("conditions")) {
+                if ("Ready".equals(condition.path("type").asText())) {
+                    if ("True".equals(condition.path("status").asText())) {
+                        status = "Ready";
+                    }
+                    break;
+                }
+            }
+
+            StringBuilder roles = new StringBuilder();
+            Iterator<Map.Entry<String, JsonNode>> labels = item.path("metadata").path("labels").fields();
+            while (labels.hasNext()) {
+                Map.Entry<String, JsonNode> label = labels.next();
+                if (label.getKey().startsWith("node-role.kubernetes.io/")) {
+                    if (roles.length() > 0) roles.append(",");
+                    roles.append(label.getKey().substring("node-role.kubernetes.io/".length()));
+                }
+            }
+            if (roles.length() == 0) {
+                roles.append("<none>");
+            }
+
+            return new Object[]{
+                    nameOf(item), status, roles.toString(),
+                    item.path("status").path("nodeInfo").path("kubeletVersion").asText(),
+                    item.path("status").path("nodeInfo").path("osImage").asText(),
+                    ageOf(item)
+            };
+        });
+    }
+
+    /**
+     * 拉取资源列表并整体替换表格内容。
+     *
+     * <p>行数据写入模型后只广播一次变更：逐个 {@code addRow} 会让上千个 Pod
+     * 触发上千次表格事件，刷新期间界面明显卡顿。</p>
+     */
+    private void loadResourceTable(DefaultTableModel model, String path, String resourceLabel,
+                                   Function<JsonNode, Object[]> rowMapper) {
+        model.setRowCount(0);
         new SwingWorker<List<Object[]>, Void>() {
             @Override
             protected List<Object[]> doInBackground() throws Exception {
-                String resp = executeRequest("GET", path, null, activeSkipTls);
-                JsonNode root = mapper.readTree(resp);
+                String response = executeRequest("GET", path, null, activeSkipTls);
                 List<Object[]> rows = new ArrayList<>();
-                JsonNode items = root.path("items");
-                if (items.isArray()) {
-                    for (JsonNode item : items) {
-                        String namespace = item.path("metadata").path("namespace").asText();
-                        String name = item.path("metadata").path("name").asText();
-                        String type = item.path("type").asText();
-                        int keys = item.path("data").size();
-                        String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
-
-                        rows.add(new Object[]{namespace, name, type, keys, age});
+                for (JsonNode item : mapper.readTree(response).path("items")) {
+                    Object[] row = rowMapper.apply(item);
+                    if (row != null) {
+                        rows.add(row);
                     }
                 }
                 return rows;
@@ -1152,81 +975,54 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
 
             @Override
             protected void done() {
+                List<Object[]> rows;
                 try {
-                    for (Object[] r : get()) {
-                        secretModel.addRow(r);
-                    }
+                    rows = get();
                 } catch (Exception ex) {
-                    UIUtils.error(null, "加载 Secrets 失败: " + ex.getMessage());
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    UIUtils.error(getView(), "加载 " + resourceLabel + " 失败: " + cause.getMessage());
+                    return;
                 }
+                replaceRows(model, rows);
             }
         }.execute();
     }
 
-    // Load Nodes
-    private void loadNodes() {
-        nodeModel.setRowCount(0);
-        new SwingWorker<List<Object[]>, Void>() {
-            @Override
-            protected List<Object[]> doInBackground() throws Exception {
-                String resp = executeRequest("GET", "/api/v1/nodes", null, activeSkipTls);
-                JsonNode root = mapper.readTree(resp);
-                List<Object[]> rows = new ArrayList<>();
-                JsonNode items = root.path("items");
-                if (items.isArray()) {
-                    for (JsonNode item : items) {
-                        String name = item.path("metadata").path("name").asText();
-                        
-                        String status = "NotReady";
-                        JsonNode conditions = item.path("status").path("conditions");
-                        if (conditions.isArray()) {
-                            for (JsonNode cond : conditions) {
-                                if ("Ready".equals(cond.path("type").asText())) {
-                                    if ("True".equals(cond.path("status").asText())) {
-                                        status = "Ready";
-                                    }
-                                    break;
-                                }
-                            }
-                        }
+    /** 批量替换行：清空后一次性写入，只广播一次数据变更。 */
+    private static void replaceRows(DefaultTableModel model, List<Object[]> rows) {
+        Vector<Vector<Object>> data = new Vector<>(rows.size());
+        for (Object[] row : rows) {
+            data.add(new Vector<>(Arrays.asList(row)));
+        }
+        model.getDataVector().clear();
+        model.getDataVector().addAll(data);
+        model.fireTableDataChanged();
+    }
 
-                        StringBuilder roles = new StringBuilder();
-                        JsonNode labels = item.path("metadata").path("labels");
-                        if (labels.isObject()) {
-                            Iterator<Map.Entry<String, JsonNode>> fields = labels.fields();
-                            while (fields.hasNext()) {
-                                Map.Entry<String, JsonNode> entry = fields.next();
-                                if (entry.getKey().startsWith("node-role.kubernetes.io/")) {
-                                    if (roles.length() > 0) roles.append(",");
-                                    roles.append(entry.getKey().substring("node-role.kubernetes.io/".length()));
-                                }
-                            }
-                        }
-                        if (roles.length() == 0) {
-                            roles.append("<none>");
-                        }
+    /** 按当前命名空间拼资源列表路径；"all" 表示跨命名空间查询。 */
+    private String listPath(String apiGroup, String resource) {
+        String ns = getSelectedNamespace();
+        return ns.equals("all")
+                ? apiGroup + "/" + resource
+                : apiGroup + "/namespaces/" + ns + "/" + resource;
+    }
 
-                        String version = item.path("status").path("nodeInfo").path("kubeletVersion").asText();
-                        String os = item.path("status").path("nodeInfo").path("osImage").asText();
-                        String age = formatAge(item.path("metadata").path("creationTimestamp").asText());
+    private static String namespaceOf(JsonNode item) {
+        return item.path("metadata").path("namespace").asText();
+    }
 
-                        rows.add(new Object[]{name, status, roles.toString(), version, os, age});
-                    }
-                }
-                return rows;
-            }
+    private static String nameOf(JsonNode item) {
+        return item.path("metadata").path("name").asText();
+    }
 
-            @Override
-            protected void done() {
-                try {
-                    for (Object[] r : get()) {
-                        nodeModel.addRow(r);
-                    }
-                } catch (Exception ex) {
-                    UIUtils.error(null, "加载 Nodes 失败: " + ex.getMessage());
-                }
-            }
-        }.execute();
+    private String ageOf(JsonNode item) {
+        return formatAge(item.path("metadata").path("creationTimestamp").asText());
+    }
+
+    /** 就绪/期望副本数，如 "2/3"。 */
+    private static String readyCount(JsonNode item) {
+        return item.path("status").path("readyReplicas").asInt(0)
+                + "/" + item.path("spec").path("replicas").asInt(0);
     }
 
     private void viewResourceYaml(String resourceType, JTable table) {

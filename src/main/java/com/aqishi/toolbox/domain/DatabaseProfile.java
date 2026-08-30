@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.data.domain;
+package com.aqishi.toolbox.domain;
 
 /**
  * Persisted JDBC connection profile. The mutable public fields preserve the

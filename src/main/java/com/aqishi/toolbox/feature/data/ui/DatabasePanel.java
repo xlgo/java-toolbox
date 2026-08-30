@@ -1,7 +1,7 @@
 package com.aqishi.toolbox.feature.data.ui;
 
 import com.aqishi.toolbox.feature.data.application.SqlExecutionService;
-import com.aqishi.toolbox.feature.data.domain.DatabaseProfile;
+import com.aqishi.toolbox.domain.DatabaseProfile;
 import com.aqishi.toolbox.feature.data.domain.QueryResult;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;

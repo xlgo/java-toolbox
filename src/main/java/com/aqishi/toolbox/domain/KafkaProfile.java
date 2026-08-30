@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.data.domain;
+package com.aqishi.toolbox.domain;
 
 /**
  * Persisted Kafka connection profile. Its JSON field names are part of the

@@ -3,7 +3,7 @@ package com.aqishi.toolbox.feature.data.ui;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshTunnelBridge;
-import com.aqishi.toolbox.feature.data.domain.RedisProfile;
+import com.aqishi.toolbox.domain.RedisProfile;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.infra.redis.RedisClient;
 import com.aqishi.toolbox.infra.redis.RedisResource;

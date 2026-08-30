@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.data.domain;
+package com.aqishi.toolbox.domain;
 
 /**
  * Persisted Redis connection profile. Field names preserve the existing

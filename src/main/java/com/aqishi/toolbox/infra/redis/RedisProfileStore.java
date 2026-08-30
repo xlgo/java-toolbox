@@ -1,6 +1,6 @@
 package com.aqishi.toolbox.infra.redis;
 
-import com.aqishi.toolbox.feature.data.domain.RedisProfile;
+import com.aqishi.toolbox.domain.RedisProfile;
 import com.aqishi.toolbox.infra.config.JsonPreferencesStore;
 import com.fasterxml.jackson.core.type.TypeReference;
 

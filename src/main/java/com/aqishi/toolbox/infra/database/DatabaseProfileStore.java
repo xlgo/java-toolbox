@@ -1,6 +1,6 @@
 package com.aqishi.toolbox.infra.database;
 
-import com.aqishi.toolbox.feature.data.domain.DatabaseProfile;
+import com.aqishi.toolbox.domain.DatabaseProfile;
 import com.aqishi.toolbox.infra.config.JsonPreferencesStore;
 import com.fasterxml.jackson.core.type.TypeReference;
 

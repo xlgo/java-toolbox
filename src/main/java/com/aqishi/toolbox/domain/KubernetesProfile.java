@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.cloud.domain;
+package com.aqishi.toolbox.domain;
 
 /**
  * Persisted Kubernetes cluster profile. Field names intentionally match the

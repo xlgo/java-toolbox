@@ -1,6 +1,6 @@
 package com.aqishi.toolbox.infra.kubernetes;
 
-import com.aqishi.toolbox.feature.cloud.domain.KubernetesProfile;
+import com.aqishi.toolbox.domain.KubernetesProfile;
 import com.aqishi.toolbox.infra.InfrastructureException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

@@ -3,7 +3,7 @@ package com.aqishi.toolbox.feature.data.ui;
 import com.aqishi.toolbox.feature.codec.ui.JsonPanel;
 import com.aqishi.toolbox.feature.codec.ui.XmlPanel;
 import com.aqishi.toolbox.feature.data.application.KafkaProfileStore;
-import com.aqishi.toolbox.feature.data.domain.KafkaProfile;
+import com.aqishi.toolbox.domain.KafkaProfile;
 import com.aqishi.toolbox.feature.network.ssh.domain.RemoteEndpoint;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;

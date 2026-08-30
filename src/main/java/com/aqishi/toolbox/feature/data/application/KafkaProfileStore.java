@@ -1,6 +1,6 @@
 package com.aqishi.toolbox.feature.data.application;
 
-import com.aqishi.toolbox.feature.data.domain.KafkaProfile;
+import com.aqishi.toolbox.domain.KafkaProfile;
 import com.aqishi.toolbox.infra.config.JsonPreferencesStore;
 import com.fasterxml.jackson.core.type.TypeReference;
 

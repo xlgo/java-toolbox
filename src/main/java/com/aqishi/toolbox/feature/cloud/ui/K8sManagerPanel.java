@@ -2,7 +2,7 @@ package com.aqishi.toolbox.feature.cloud.ui;
 
 import com.aqishi.toolbox.feature.cloud.application.KubernetesService;
 import com.aqishi.toolbox.feature.cloud.application.KubernetesServiceFactory;
-import com.aqishi.toolbox.feature.cloud.domain.KubernetesProfile;
+import com.aqishi.toolbox.domain.KubernetesProfile;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.infra.kubernetes.KubeconfigParser;
 import com.aqishi.toolbox.infra.kubernetes.KubernetesTls;

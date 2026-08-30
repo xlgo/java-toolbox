@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.monitor;
+package com.aqishi.toolbox.feature.monitor.infra;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.java_websocket.client.WebSocketClient;

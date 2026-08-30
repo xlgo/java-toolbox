@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.monitor;
+package com.aqishi.toolbox.feature.monitor.domain;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -20,10 +20,10 @@ import java.util.zip.CRC32;
  * IDs and MESSAGE-INTEGRITY also prevent delayed public-STUN responses from
  * being mistaken for a peer handshake.</p>
  */
-final class IceProbeCodec {
+public final class IceProbeCodec {
 
-    static final int BINDING_REQUEST = 0x0001;
-    static final int BINDING_SUCCESS = 0x0101;
+    public static final int BINDING_REQUEST = 0x0001;
+    public static final int BINDING_SUCCESS = 0x0101;
 
     private static final int MAGIC_COOKIE = 0x2112A442;
     private static final int ATTR_USERNAME = 0x0006;
@@ -46,13 +46,13 @@ final class IceProbeCodec {
     private IceProbeCodec() {
     }
 
-    static byte[] newTransactionId() {
+    public static byte[] newTransactionId() {
         byte[] transactionId = new byte[12];
         RANDOM.nextBytes(transactionId);
         return transactionId;
     }
 
-    static byte[] createBindingRequest(byte[] transactionId) {
+    public static byte[] createBindingRequest(byte[] transactionId) {
         ByteBuffer buffer = startMessage(BINDING_REQUEST, transactionId);
         putAttribute(buffer, ATTR_USERNAME, USERNAME);
         putIntAttribute(buffer, ATTR_PRIORITY, 1_845_501_695);
@@ -62,7 +62,7 @@ final class IceProbeCodec {
         return finishAuthenticatedMessage(buffer);
     }
 
-    static byte[] createBindingSuccess(byte[] transactionId, InetSocketAddress peerAddress) {
+    public static byte[] createBindingSuccess(byte[] transactionId, InetSocketAddress peerAddress) {
         if (peerAddress == null || !(peerAddress.getAddress() instanceof Inet4Address)) {
             throw new IllegalArgumentException("Only IPv4 ICE probes are supported");
         }
@@ -82,7 +82,7 @@ final class IceProbeCodec {
         return finishAuthenticatedMessage(buffer);
     }
 
-    static ParsedMessage parse(byte[] packet, int offset, int length) {
+    public static ParsedMessage parse(byte[] packet, int offset, int length) {
         if (packet == null || offset < 0 || length < 20 || offset + length > packet.length) {
             return null;
         }
@@ -132,7 +132,7 @@ final class IceProbeCodec {
         return new ParsedMessage(type, transactionId);
     }
 
-    static String transactionKey(byte[] transactionId) {
+    public static String transactionKey(byte[] transactionId) {
         if (transactionId == null) return "";
         StringBuilder key = new StringBuilder(transactionId.length * 2);
         for (byte value : transactionId) {
@@ -231,7 +231,7 @@ final class IceProbeCodec {
         return ((data[offset] & 0xff) << 8) | (data[offset + 1] & 0xff);
     }
 
-    static final class ParsedMessage {
+    public static final class ParsedMessage {
         private final int type;
         private final byte[] transactionId;
 
@@ -240,11 +240,11 @@ final class IceProbeCodec {
             this.transactionId = transactionId;
         }
 
-        int getType() {
+        public int getType() {
             return type;
         }
 
-        byte[] getTransactionId() {
+        public byte[] getTransactionId() {
             return Arrays.copyOf(transactionId, transactionId.length);
         }
     }

@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.monitor;
+package com.aqishi.toolbox.feature.monitor.infra;
 
 import java.io.IOException;
 import java.net.DatagramPacket;
@@ -12,6 +12,9 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import com.aqishi.toolbox.feature.monitor.domain.DesktopChannel;
+import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
+import com.aqishi.toolbox.feature.monitor.domain.IceProbeCodec;
 
 /**
  * 远程桌面的 UDP P2P 数据通道实现。

@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.monitor;
+package com.aqishi.toolbox.feature.monitor.ui;
 
 import com.aqishi.toolbox.util.I18n;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,6 +14,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import com.aqishi.toolbox.feature.monitor.domain.DesktopChannel;
+import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
 
 /**
  * 文件传输管理及进度显示窗口。

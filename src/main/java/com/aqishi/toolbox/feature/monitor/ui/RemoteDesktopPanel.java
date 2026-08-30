@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.monitor;
+package com.aqishi.toolbox.feature.monitor.ui;
 
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
@@ -34,6 +34,15 @@ import javax.imageio.ImageIO;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageOutputStream;
+import com.aqishi.toolbox.feature.monitor.domain.DesktopChannel;
+import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
+import com.aqishi.toolbox.feature.monitor.domain.RemoteSessionIds;
+import com.aqishi.toolbox.feature.monitor.infra.DesktopSignalClient;
+import com.aqishi.toolbox.feature.monitor.infra.DesktopSignalServer;
+import com.aqishi.toolbox.feature.monitor.infra.Ice4jDirectConnector;
+import com.aqishi.toolbox.feature.monitor.infra.P2PConnector;
+import com.aqishi.toolbox.feature.monitor.infra.SocketChannelImpl;
+import com.aqishi.toolbox.feature.monitor.infra.TcpDirectConnector;
 
 /**
  * P2P 远程桌面工具面板 (完全支持 WebRTC ICE, Offer, Answer 信令协商)。

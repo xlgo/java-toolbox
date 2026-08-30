@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.monitor;
+package com.aqishi.toolbox.feature.monitor.ui;
 
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
@@ -13,6 +13,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import com.aqishi.toolbox.feature.monitor.domain.DesktopChannel;
+import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
 
 /**
  * 控制端的远程命令行交互终端对话框。

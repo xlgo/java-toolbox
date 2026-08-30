@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.monitor;
+package com.aqishi.toolbox.feature.monitor.infra;
 
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;

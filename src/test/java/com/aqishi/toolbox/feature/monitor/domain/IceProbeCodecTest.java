@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.monitor;
+package com.aqishi.toolbox.feature.monitor.domain;
 
 import org.junit.jupiter.api.Test;
 

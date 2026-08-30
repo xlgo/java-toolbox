@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.monitor;
+package com.aqishi.toolbox.feature.monitor.infra;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.ice4j.Transport;
@@ -34,6 +34,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.logging.Level;
+import com.aqishi.toolbox.feature.monitor.domain.DesktopChannel;
+import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
 
 /**
  * 完整 ICE UDP 直连协商器。

@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.monitor;
+package com.aqishi.toolbox.feature.monitor.infra;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.java_websocket.WebSocket;
@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import com.aqishi.toolbox.feature.monitor.domain.RemoteSessionIds;
 
 /**
  * 支持同组广播与转发的信令中转服务器。

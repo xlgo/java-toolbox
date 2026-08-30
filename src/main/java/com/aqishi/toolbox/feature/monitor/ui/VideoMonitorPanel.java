@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.monitor;
+package com.aqishi.toolbox.feature.monitor.ui;
 
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;

@@ -1,8 +1,10 @@
-package com.aqishi.toolbox.feature.monitor;
+package com.aqishi.toolbox.feature.monitor.infra;
 
 import java.io.*;
 import java.net.Socket;
 import java.util.function.Consumer;
+import com.aqishi.toolbox.feature.monitor.domain.DesktopChannel;
+import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
 
 /**
  * 远程桌面的 P2P TCP 直连通道实现。

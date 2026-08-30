@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.monitor;
+package com.aqishi.toolbox.feature.monitor.domain;
 
 /**
  * 远程桌面自定义二进制通信消息包。

@@ -48,8 +48,8 @@ import com.aqishi.toolbox.feature.system.ui.WeChatPanel;
 import com.aqishi.toolbox.feature.network.ui.WebSocketClientPanel;
 import com.aqishi.toolbox.feature.codec.ui.XmlPanel;
 import com.aqishi.toolbox.feature.data.ui.ZooKeeperPanel;
-import com.aqishi.toolbox.feature.monitor.RemoteDesktopPanel;
-import com.aqishi.toolbox.feature.monitor.VideoMonitorPanel;
+import com.aqishi.toolbox.feature.monitor.ui.RemoteDesktopPanel;
+import com.aqishi.toolbox.feature.monitor.ui.VideoMonitorPanel;
 import com.aqishi.toolbox.ui.ToolPanel;
 
 import java.util.ArrayList;

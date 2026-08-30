@@ -3,6 +3,7 @@ package com.aqishi.toolbox.feature.network.infra;
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonParser;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 
@@ -74,9 +75,12 @@ public final class MockHttpRequestParser {
             return;
         }
         if ("application/json".equals(mediaType) || mediaType.endsWith("+json")) {
-            try {
-                JsonNode root = objectMapper.readTree(body);
-                if (root != null) {
+            try (JsonParser parser = objectMapper.getFactory().createParser(body)) {
+                JsonNode root = objectMapper.readTree(parser);
+                // A request body is one JSON document, not a JSON value followed
+                // by arbitrary bytes.  Checking the parser after the root token
+                // also rejects a second root value and malformed trailing text.
+                if (root != null && parser.nextToken() == null) {
                     request.json(root);
                 }
             } catch (IOException ignored) {

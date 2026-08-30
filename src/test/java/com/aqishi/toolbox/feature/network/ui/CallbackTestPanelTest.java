@@ -1,6 +1,9 @@
 package com.aqishi.toolbox.feature.network.ui;
 
 import com.aqishi.toolbox.feature.network.application.CallbackMockService;
+import com.aqishi.toolbox.feature.network.application.MockRequestRecord;
+import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRequest;
+import com.aqishi.toolbox.feature.network.domain.callbackmock.MockResolution;
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockResponse;
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRule;
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRuleResolver;
@@ -14,9 +17,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import javax.swing.SwingUtilities;
+import javax.swing.JTabbedPane;
+import javax.swing.JTextArea;
+import java.awt.Component;
+import java.awt.Container;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -81,6 +90,75 @@ class CallbackTestPanelTest {
         } finally {
             panel.closeResources();
         }
+    }
+
+    @Test
+    void showsActualResponseInItsOwnRequestDetailTab() throws Exception {
+        CallbackTestPanel panel = build(repository(temp.resolve("rules.json")), service());
+        try {
+            MockResponse response = new MockResponse(201, "application/json",
+                    "{\"result\":\"paid\"}");
+            MockRequestRecord record = new MockRequestRecord(Instant.now(),
+                    MockRequest.builder().method("POST").path("/callback").build(),
+                    MockResolution.fallback(response), response);
+
+            SwingUtilities.invokeAndWait(() -> appendRequest(panel, record));
+
+            JTabbedPane tabs = findTabs(panel.getView());
+            assertNotNull(tabs);
+            assertEquals(4, tabs.getTabCount());
+            assertEquals(com.aqishi.toolbox.util.I18n.get("callback.mock.response"),
+                    tabs.getTitleAt(3));
+            Component responseTab = tabs.getComponentAt(3);
+            JTextArea responseArea = findTextArea(responseTab);
+            assertNotNull(responseArea);
+            assertTrue(responseArea.getText().contains("201"));
+            assertTrue(responseArea.getText().contains("application/json"));
+            assertTrue(responseArea.getText().contains("\"result\""));
+        } finally {
+            panel.closeResources();
+        }
+    }
+
+    private static void appendRequest(CallbackTestPanel panel, MockRequestRecord record) {
+        try {
+            Method method = CallbackTestPanel.class.getDeclaredMethod(
+                    "appendRequest", MockRequestRecord.class);
+            method.setAccessible(true);
+            method.invoke(panel, record);
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError(error);
+        }
+    }
+
+    private static JTabbedPane findTabs(Component component) {
+        if (component instanceof JTabbedPane) {
+            return (JTabbedPane) component;
+        }
+        if (component instanceof Container) {
+            for (Component child : ((Container) component).getComponents()) {
+                JTabbedPane tabs = findTabs(child);
+                if (tabs != null) {
+                    return tabs;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static JTextArea findTextArea(Component component) {
+        if (component instanceof JTextArea) {
+            return (JTextArea) component;
+        }
+        if (component instanceof Container) {
+            for (Component child : ((Container) component).getComponents()) {
+                JTextArea textArea = findTextArea(child);
+                if (textArea != null) {
+                    return textArea;
+                }
+            }
+        }
+        return null;
     }
 
     private CallbackTestPanel build(CallbackMockRuleRepository repository,

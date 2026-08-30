@@ -110,6 +110,23 @@ class MockHttpRequestParserTest {
     }
 
     @Test
+    void keepsBoundaryLikeTextInsideMultipartFieldValues() throws Exception {
+        String boundary = "----callback-boundary";
+        String value = "prefix --" + boundary + " suffix";
+        String body = "--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"message\"\r\n"
+                + "\r\n"
+                + value + "\r\n"
+                + "--" + boundary + "--\r\n";
+
+        MockRequest request = parse("POST", "/callback",
+                "multipart/form-data; boundary=" + boundary, body, noHeaders());
+
+        assertEquals(Collections.singletonList(value),
+                request.values(MatchSource.FORM, "message"));
+    }
+
+    @Test
     void parsesJsonObjectBodies() throws Exception {
         MockRequest request = parse("POST", "/callback", "application/json; charset=UTF-8",
                 "{\"order\":{\"status\":\"paid\"},\"items\":[{\"sku\":\"A\"}]}",
@@ -152,6 +169,15 @@ class MockHttpRequestParserTest {
 
         assertEquals("{not-valid-json", request.getRawBody());
         assertNull(request.getJsonRoot());
+    }
+
+    @Test
+    void rejectsJsonWithTrailingNonWhitespaceContent() throws Exception {
+        MockRequest request = parse("POST", "/callback", "application/json",
+                "{\"status\":\"paid\"} trailing", noHeaders());
+
+        assertNull(request.getJsonRoot());
+        assertEquals(Collections.emptyList(), request.values(MatchSource.JSON, "status"));
     }
 
     @Test

@@ -48,10 +48,11 @@ public final class CallbackMockHttpHandler implements HttpHandler {
             MockRuleSet snapshot = ruleSet.get();
             MockResolution resolution = resolver.resolve(snapshot, request);
             MockResponse configured = resolution.getResponse();
-            MockResponse response = configured == null
+            MockResponse rendered = configured == null
                     ? EMPTY_RESPONSE : new MockResponse(configured.getStatusCode(),
                     configured.getContentType(),
                     renderer.render(configured.getBody(), request));
+            MockResponse response = normalizeWireResponse(rendered, request.getMethod());
 
             publish(new MockRequestRecord(Instant.now(), request, resolution, response));
             writeResponse(exchange, response);
@@ -74,10 +75,8 @@ public final class CallbackMockHttpHandler implements HttpHandler {
         if (response.getContentType() != null && response.getContentType().trim().length() > 0) {
             exchange.getResponseHeaders().set("Content-Type", response.getContentType());
         }
-        boolean bodyForbidden = response.getStatusCode() >= 100
-                && response.getStatusCode() < 200
-                || response.getStatusCode() == 204
-                || response.getStatusCode() == 304;
+        boolean bodyForbidden = isBodyForbidden(response.getStatusCode(),
+                exchange.getRequestMethod());
         exchange.sendResponseHeaders(response.getStatusCode(),
                 bodyForbidden ? -1 : bytes.length);
         try (OutputStream output = exchange.getResponseBody()) {
@@ -85,5 +84,21 @@ public final class CallbackMockHttpHandler implements HttpHandler {
                 output.write(bytes);
             }
         }
+    }
+
+    private static MockResponse normalizeWireResponse(MockResponse response,
+                                                      String requestMethod) {
+        if (!isBodyForbidden(response.getStatusCode(), requestMethod)) {
+            return response;
+        }
+        return new MockResponse(response.getStatusCode(), response.getContentType(), "");
+    }
+
+    private static boolean isBodyForbidden(int statusCode, String requestMethod) {
+        return "HEAD".equalsIgnoreCase(requestMethod)
+                || statusCode >= 100 && statusCode < 200
+                || statusCode == 204
+                || statusCode == 205
+                || statusCode == 304;
     }
 }

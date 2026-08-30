@@ -22,15 +22,67 @@ final class MultipartFormDataParser {
         }
 
         String delimiter = "--" + boundary;
-        String[] parts = body.split(Pattern.quote(delimiter), -1);
-        for (int index = 1; index < parts.length; index++) {
-            String part = removeLeadingLineBreak(parts[index]);
-            if (part.startsWith("--")) {
+        int delimiterStart = findDelimiter(body, delimiter, 0);
+        while (delimiterStart >= 0) {
+            int contentStart = delimiterStart + delimiter.length();
+            if (startsWith(body, contentStart, "--")) {
                 break;
             }
-            addTextField(part, values);
+
+            int lineBreakLength = lineBreakLength(body, contentStart);
+            if (lineBreakLength == 0) {
+                break;
+            }
+            contentStart += lineBreakLength;
+
+            int nextDelimiter = findDelimiter(body, delimiter, contentStart);
+            if (nextDelimiter < 0) {
+                break;
+            }
+            addTextField(body.substring(contentStart, nextDelimiter), values);
+            delimiterStart = nextDelimiter;
         }
         return values;
+    }
+
+    /**
+     * Finds a delimiter only when it is a complete multipart delimiter line.
+     * A boundary token embedded in a field value is therefore left untouched.
+     */
+    private static int findDelimiter(String body, String delimiter, int fromIndex) {
+        int candidate = body.indexOf(delimiter, fromIndex);
+        while (candidate >= 0) {
+            boolean atLineStart = candidate == 0 || body.charAt(candidate - 1) == '\n';
+            if (atLineStart) {
+                int after = candidate + delimiter.length();
+                if (startsWith(body, after, "--")) {
+                    int closingEnd = after + 2;
+                    if (closingEnd == body.length()
+                            || lineBreakLength(body, closingEnd) > 0) {
+                        return candidate;
+                    }
+                } else if (lineBreakLength(body, after) > 0) {
+                    return candidate;
+                }
+            }
+            candidate = body.indexOf(delimiter, candidate + 1);
+        }
+        return -1;
+    }
+
+    private static boolean startsWith(String value, int offset, String prefix) {
+        return offset >= 0 && offset + prefix.length() <= value.length()
+                && value.regionMatches(offset, prefix, 0, prefix.length());
+    }
+
+    private static int lineBreakLength(String value, int offset) {
+        if (offset < 0 || offset >= value.length()) {
+            return 0;
+        }
+        if (startsWith(value, offset, "\r\n")) {
+            return 2;
+        }
+        return value.charAt(offset) == '\n' ? 1 : 0;
     }
 
     private static void addTextField(String part, Map<String, List<String>> values) {

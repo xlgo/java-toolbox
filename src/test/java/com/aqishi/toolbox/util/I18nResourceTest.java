@@ -16,6 +16,7 @@ class I18nResourceTest {
             "callback.mock.delete", "callback.mock.moveUp", "callback.mock.moveDown",
             "callback.mock.fallback", "callback.mock.method", "callback.mock.path",
             "callback.mock.pathMode", "callback.mock.condition",
+            "callback.mock.conditionAnd",
             "callback.mock.source.query", "callback.mock.source.header",
             "callback.mock.source.form", "callback.mock.source.json",
             "callback.mock.operator.equals", "callback.mock.operator.exists",

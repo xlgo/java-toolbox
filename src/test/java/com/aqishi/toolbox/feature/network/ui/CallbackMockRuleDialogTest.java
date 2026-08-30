@@ -31,6 +31,8 @@ class CallbackMockRuleDialogTest {
         assertEquals(1, model.getRowCount());
         assertEquals("original", model.getValueAt(0, 1));
         assertTrue(model.conditionSummary(rule).contains("status"));
+        assertTrue(model.conditionSummary(rule).contains(
+                com.aqishi.toolbox.util.I18n.get("callback.mock.conditionAnd")));
         assertTrue(model.isCellEditable(0, 0));
         assertFalse(model.isCellEditable(0, 1));
         model.setValueAt(Boolean.FALSE, 0, 0);
@@ -73,12 +75,31 @@ class CallbackMockRuleDialogTest {
         SwingUtilities.invokeAndWait(dialog::dispose);
     }
 
+    @Test
+    void keepsDialogOpenWhenSaveHandlerRejects() throws Exception {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless());
+        AtomicReference<CallbackMockRuleDialog> ref =
+                new AtomicReference<CallbackMockRuleDialog>();
+        SwingUtilities.invokeAndWait(() -> ref.set(CallbackMockRuleDialog.withSaveHandler(
+                null, null, rule -> false)));
+
+        CallbackMockRuleDialog dialog = ref.get();
+        SwingUtilities.invokeAndWait(() -> {
+            dialog.getRuleNameFieldForTest().setText("rejected");
+            assertFalse(dialog.saveForTest());
+        });
+        assertTrue(dialog.isDisplayable());
+        SwingUtilities.invokeAndWait(dialog::dispose);
+    }
+
     private static MockRule originalRule() {
         return MockRule.builder("original")
                 .id("original-id")
                 .method("POST")
                 .path(PathMatchMode.PREFIX, "/orders")
                 .condition(new MockCondition(MatchSource.QUERY, "status",
+                        MatchOperator.EXISTS, null))
+                .condition(new MockCondition(MatchSource.HEADER, "X-Channel",
                         MatchOperator.EXISTS, null))
                 .response(new MockResponse(201, "application/json", "{}"))
                 .build();

@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /** Independent editor for one callback-mock response rule. */
 public final class CallbackMockRuleDialog extends JDialog {
@@ -43,7 +44,7 @@ public final class CallbackMockRuleDialog extends JDialog {
             "ANY", "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"};
 
     private final MockRule initialRule;
-    private final Consumer<MockRule> onSaved;
+    private final Predicate<MockRule> saveHandler;
     private final MockRuleValidator validator = new MockRuleValidator();
     private final List<ConditionEditor> conditionEditors =
             new ArrayList<ConditionEditor>();
@@ -63,11 +64,29 @@ public final class CallbackMockRuleDialog extends JDialog {
 
     public CallbackMockRuleDialog(Window owner, MockRule initialRule,
                                   Consumer<MockRule> onSaved) {
+        this(owner, initialRule, asSaveHandler(onSaved), true);
+    }
+
+    /**
+     * Creates an editor whose handler reports whether the candidate was
+     * persisted.  The dialog remains open when the handler returns false.
+     * This is package-private so the panel can keep persistence and UI state
+     * coordinated without widening the public editor API.
+     */
+    static CallbackMockRuleDialog withSaveHandler(Window owner,
+                                                  MockRule initialRule,
+                                                  Predicate<MockRule> saveHandler) {
+        return new CallbackMockRuleDialog(owner, initialRule, saveHandler, true);
+    }
+
+    private CallbackMockRuleDialog(Window owner, MockRule initialRule,
+                                   Predicate<MockRule> saveHandler,
+                                   boolean handlerConstructor) {
         super(owner, initialRule == null ? I18n.get("callback.mock.addRule")
                 : I18n.get("callback.mock.editRule"),
                 ModalityType.APPLICATION_MODAL);
         this.initialRule = initialRule;
-        this.onSaved = onSaved;
+        this.saveHandler = saveHandler;
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         configureControls();
         setContentPane(buildContent());
@@ -75,6 +94,16 @@ public final class CallbackMockRuleDialog extends JDialog {
         setMinimumSize(new Dimension(680, 560));
         setPreferredSize(new Dimension(840, 700));
         pack();
+    }
+
+    private static Predicate<MockRule> asSaveHandler(Consumer<MockRule> onSaved) {
+        if (onSaved == null) {
+            return null;
+        }
+        return rule -> {
+            onSaved.accept(rule);
+            return true;
+        };
     }
 
     private void configureControls() {
@@ -194,8 +223,8 @@ public final class CallbackMockRuleDialog extends JDialog {
             revalidate();
             return false;
         }
-        if (onSaved != null) {
-            onSaved.accept(candidate);
+        if (saveHandler != null && !saveHandler.test(candidate)) {
+            return false;
         }
         dispose();
         return true;

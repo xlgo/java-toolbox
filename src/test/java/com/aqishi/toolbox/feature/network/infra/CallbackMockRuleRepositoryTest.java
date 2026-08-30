@@ -114,6 +114,46 @@ class CallbackMockRuleRepositoryTest {
     }
 
     @Test
+    void semanticallyInvalidRulesFallBackToDefaultsWithWarning() throws Exception {
+        byte[] invalid = ("{\"version\":1,\"rules\":[{"
+                + "\"id\":\"bad-rule\",\"name\":\"bad\",\"enabled\":true,"
+                + "\"method\":\"GET\",\"pathMode\":\"REGEX\",\"path\":\"[\","
+                + "\"conditions\":[],\"response\":{\"statusCode\":99,"
+                + "\"contentType\":\"application/json\",\"body\":\"bad\"}}],"
+                + "\"fallbackResponse\":{\"statusCode\":200,"
+                + "\"contentType\":\"application/json\",\"body\":\"fallback\"}}")
+                .getBytes(StandardCharsets.UTF_8);
+        Files.write(file(), invalid);
+
+        CallbackMockRuleRepository.LoadResult result = repository(new AtomicFiles()).load();
+
+        assertTrue(result.getRuleSet().getRules().isEmpty());
+        assertEquals(new MockResponse(200, "application/json", defaultBody()),
+                result.getRuleSet().getFallbackResponse());
+        assertNotNull(result.getWarning());
+        assertFalse(result.getWarning().trim().isEmpty());
+        assertArrayEquals(invalid, Files.readAllBytes(file()));
+    }
+
+    @Test
+    void trailingJsonTokensFallBackToDefaultsWithWarning() throws Exception {
+        byte[] trailing = ("{\"version\":1,\"rules\":[],\"fallbackResponse\":{"
+                + "\"statusCode\":200,\"contentType\":\"application/json\","
+                + "\"body\":\"persisted\"}} trailing")
+                .getBytes(StandardCharsets.UTF_8);
+        Files.write(file(), trailing);
+
+        CallbackMockRuleRepository.LoadResult result = repository(new AtomicFiles()).load();
+
+        assertTrue(result.getRuleSet().getRules().isEmpty());
+        assertEquals(new MockResponse(200, "application/json", defaultBody()),
+                result.getRuleSet().getFallbackResponse());
+        assertNotNull(result.getWarning());
+        assertFalse(result.getWarning().trim().isEmpty());
+        assertArrayEquals(trailing, Files.readAllBytes(file()));
+    }
+
+    @Test
     void writeFailureLeavesExistingRuleFileAndLoadedRulesUnchanged() throws Exception {
         MockRuleSet original = MockRuleSet.of(Arrays.asList(MockRule.builder("original")
                         .id("original-rule")

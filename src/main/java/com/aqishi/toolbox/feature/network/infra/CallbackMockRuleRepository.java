@@ -6,12 +6,14 @@ import com.aqishi.toolbox.feature.network.domain.callbackmock.MockCondition;
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockResponse;
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRule;
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRuleSet;
+import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRuleValidator;
 import com.aqishi.toolbox.feature.network.domain.callbackmock.PathMatchMode;
 import com.aqishi.toolbox.vault.AtomicFiles;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.core.JsonParser;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -31,12 +33,14 @@ public final class CallbackMockRuleRepository {
     private final Path file;
     private final AtomicFiles atomicFiles;
     private final ObjectMapper mapper;
+    private final MockRuleValidator validator;
 
     public CallbackMockRuleRepository(Path file, AtomicFiles atomicFiles,
                                       ObjectMapper mapper) {
         this.file = Objects.requireNonNull(file, "file");
         this.atomicFiles = Objects.requireNonNull(atomicFiles, "atomicFiles");
         this.mapper = Objects.requireNonNull(mapper, "mapper");
+        this.validator = new MockRuleValidator();
     }
 
     /**
@@ -50,14 +54,27 @@ public final class CallbackMockRuleRepository {
                 return new LoadResult(defaultRuleSet(), null);
             }
 
-            JsonNode root = mapper.readTree(Files.readAllBytes(file));
+            JsonNode root;
+            try (JsonParser parser = mapper.getFactory()
+                    .createParser(Files.readAllBytes(file))) {
+                root = mapper.readTree(parser);
+                if (parser.nextToken() != null) {
+                    throw invalid("trailing JSON content");
+                }
+            }
             int version = requiredInt(root, "version");
             if (version != MockRuleSet.CURRENT_VERSION) {
                 return new LoadResult(defaultRuleSet(),
                         "Unsupported callback mock rule version " + version
                                 + "; built-in defaults are in use.");
             }
-            return new LoadResult(readRuleSet(root), null);
+            MockRuleSet loaded = readRuleSet(root);
+            List<String> validationErrors = validator.validate(loaded);
+            if (!validationErrors.isEmpty()) {
+                throw invalid("semantic validation failed: "
+                        + String.join("; ", validationErrors));
+            }
+            return new LoadResult(loaded, null);
         } catch (Exception error) {
             return new LoadResult(defaultRuleSet(),
                     "Unable to load callback mock rules; built-in defaults are in use.");

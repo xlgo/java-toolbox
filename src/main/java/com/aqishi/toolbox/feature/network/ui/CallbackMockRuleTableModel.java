@@ -106,7 +106,9 @@ public final class CallbackMockRuleTableModel extends AbstractTableModel {
         StringBuilder summary = new StringBuilder();
         for (MockCondition condition : rule.getConditions()) {
             if (summary.length() > 0) {
-                summary.append(" AND ");
+                summary.append(' ')
+                        .append(I18n.get("callback.mock.conditionAnd"))
+                        .append(' ');
             }
             if (condition == null) {
                 summary.append(I18n.get("callback.mock.invalidCondition"));

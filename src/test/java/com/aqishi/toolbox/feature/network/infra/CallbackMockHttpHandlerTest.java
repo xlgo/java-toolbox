@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.network.infra;
 
+import com.aqishi.toolbox.feature.network.application.MockRequestRecord;
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockResponse;
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRule;
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRuleResolver;
@@ -22,6 +23,7 @@ import java.util.Collections;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CallbackMockHttpHandlerTest {
@@ -34,6 +36,33 @@ class CallbackMockHttpHandlerTest {
         AtomicReference<MockRuleSet> rules = new AtomicReference<MockRuleSet>(
                 MockRuleSet.of(Collections.singletonList(rule),
                         new MockResponse(200, "text/plain", "fallback")));
+        AtomicReference<MockRequestRecord> record =
+                new AtomicReference<MockRequestRecord>();
+        FakeExchange exchange = new FakeExchange();
+        CallbackMockHttpHandler handler = new CallbackMockHttpHandler(
+                new MockRuleResolver(), new MockHttpRequestParser(),
+                new MockTemplateRenderer(), rules,
+                record::set);
+
+        handler.handle(exchange);
+
+        assertEquals(204, exchange.responseStatus);
+        assertEquals(-1L, exchange.responseLength);
+        assertEquals(0, exchange.responseBody.size());
+        assertNotNull(record.get());
+        assertEquals("", record.get().getResponseBody());
+        assertTrue(exchange.closed);
+    }
+
+    @Test
+    void sendsNoBodyLengthForResetContentStatus() throws Exception {
+        MockRule rule = MockRule.builder("reset-content")
+                .path(PathMatchMode.EXACT, "/x")
+                .response(new MockResponse(205, "text/plain", "must-not-be-sent"))
+                .build();
+        AtomicReference<MockRuleSet> rules = new AtomicReference<MockRuleSet>(
+                MockRuleSet.of(Collections.singletonList(rule),
+                        new MockResponse(200, "text/plain", "fallback")));
         FakeExchange exchange = new FakeExchange();
         CallbackMockHttpHandler handler = new CallbackMockHttpHandler(
                 new MockRuleResolver(), new MockHttpRequestParser(),
@@ -42,19 +71,56 @@ class CallbackMockHttpHandlerTest {
 
         handler.handle(exchange);
 
-        assertEquals(204, exchange.responseStatus);
+        assertEquals(205, exchange.responseStatus);
         assertEquals(-1L, exchange.responseLength);
         assertEquals(0, exchange.responseBody.size());
         assertTrue(exchange.closed);
     }
 
+    @Test
+    void sendsNoBodyForHeadRequestsAndRecordsTheWireResponse() throws Exception {
+        MockRule rule = MockRule.builder("head-response")
+                .method("HEAD")
+                .path(PathMatchMode.EXACT, "/x")
+                .response(new MockResponse(200, "text/plain", "must-not-be-sent"))
+                .build();
+        AtomicReference<MockRuleSet> rules = new AtomicReference<MockRuleSet>(
+                MockRuleSet.of(Collections.singletonList(rule),
+                        new MockResponse(200, "text/plain", "fallback")));
+        AtomicReference<MockRequestRecord> record =
+                new AtomicReference<MockRequestRecord>();
+        FakeExchange exchange = new FakeExchange("HEAD");
+        CallbackMockHttpHandler handler = new CallbackMockHttpHandler(
+                new MockRuleResolver(), new MockHttpRequestParser(),
+                new MockTemplateRenderer(), rules,
+                record::set);
+
+        handler.handle(exchange);
+
+        assertEquals(200, exchange.responseStatus);
+        assertEquals(-1L, exchange.responseLength);
+        assertEquals(0, exchange.responseBody.size());
+        assertNotNull(record.get());
+        assertEquals("", record.get().getResponseBody());
+        assertTrue(exchange.closed);
+    }
+
     private static final class FakeExchange extends HttpExchange {
+        private final String requestMethod;
         private final Headers requestHeaders = new Headers();
         private final Headers responseHeaders = new Headers();
         private final ByteArrayOutputStream responseBody = new ByteArrayOutputStream();
         private int responseStatus;
         private long responseLength;
         private boolean closed;
+
+        private FakeExchange() {
+            this("GET");
+        }
+
+        private FakeExchange(String requestMethod) {
+            this.requestMethod = requestMethod;
+        }
 
         @Override
         public Headers getRequestHeaders() {
@@ -73,7 +139,7 @@ class CallbackMockHttpHandlerTest {
 
         @Override
         public String getRequestMethod() {
-            return "GET";
+            return requestMethod;
         }
 
         @Override

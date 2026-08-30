@@ -83,6 +83,7 @@ public class CallbackTestPanel extends ToolPanel implements ManagedResourceOwner
     private JTextArea detailsArea;
     private JTextArea headersArea;
     private JTextArea bodyArea;
+    private JTextArea responseArea;
 
     public CallbackTestPanel() {
         this(defaultRepository(), new CallbackMockService(
@@ -217,6 +218,8 @@ public class CallbackTestPanel extends ToolPanel implements ManagedResourceOwner
         tabs.addTab(t("callback.mock.requestHeaders"), Fields.scroll(headersArea));
         bodyArea = Fields.output(12, 42);
         tabs.addTab(t("callback.mock.requestBody"), Fields.scroll(bodyArea));
+        responseArea = Fields.output(12, 42);
+        tabs.addTab(t("callback.mock.response"), Fields.scroll(responseArea));
         Card detailCard = Card.flush(t("callback.mock.requestDetail"));
         detailCard.setContent(tabs);
         return detailCard;
@@ -271,7 +274,8 @@ public class CallbackTestPanel extends ToolPanel implements ManagedResourceOwner
 
     private void openRuleDialog(MockRule initialRule, int replacementIndex) {
         Window owner = SwingUtilities.getWindowAncestor(getView());
-        CallbackMockRuleDialog dialog = new CallbackMockRuleDialog(owner, initialRule,
+        CallbackMockRuleDialog dialog = CallbackMockRuleDialog.withSaveHandler(
+                owner, initialRule,
                 saved -> {
                     List<MockRule> rules = new ArrayList<MockRule>(ruleSet.getRules());
                     if (replacementIndex >= 0 && replacementIndex < rules.size()) {
@@ -279,10 +283,12 @@ public class CallbackTestPanel extends ToolPanel implements ManagedResourceOwner
                     } else {
                         rules.add(saved);
                     }
-                    if (persistRuleSet(rules, ruleSet.getFallbackResponse())) {
+                    boolean persisted = persistRuleSet(rules, ruleSet.getFallbackResponse());
+                    if (persisted) {
                         int selected = replacementIndex >= 0 ? replacementIndex : rules.size() - 1;
                         ruleTable.setRowSelectionInterval(selected, selected);
                     }
+                    return persisted;
                 });
         dialog.setLocationRelativeTo(owner == null ? getView() : owner);
         dialog.setVisible(true);
@@ -476,6 +482,7 @@ public class CallbackTestPanel extends ToolPanel implements ManagedResourceOwner
             detailsArea.setText("");
             headersArea.setText("");
             bodyArea.setText("");
+            responseArea.setText("");
             return;
         }
         MockRequestRecord record = records.get(index);
@@ -501,6 +508,7 @@ public class CallbackTestPanel extends ToolPanel implements ManagedResourceOwner
         detailsArea.setText(summary.toString());
         headersArea.setText(formatHeaders(record));
         bodyArea.setText(prettyBody(record.getBody()));
+        responseArea.setText(formatResponse(record));
     }
 
     private static String formatHeaders(MockRequestRecord record) {
@@ -525,12 +533,27 @@ public class CallbackTestPanel extends ToolPanel implements ManagedResourceOwner
         return raw;
     }
 
+    private static String formatResponse(MockRequestRecord record) {
+        StringBuilder response = new StringBuilder();
+        response.append(t("callback.mock.responseStatus")).append("：")
+                .append(record.getResponseStatus()).append('\n');
+        response.append(t("callback.mock.contentType")).append("：")
+                .append(record.getResponseContentType() == null
+                        ? "" : record.getResponseContentType()).append('\n');
+        String body = prettyBody(record.getResponseBody());
+        if (!body.isEmpty()) {
+            response.append('\n').append(body);
+        }
+        return response.toString();
+    }
+
     private void clearRecords() {
         records.clear();
         requestListModel.clear();
         detailsArea.setText("");
         headersArea.setText("");
         bodyArea.setText("");
+        responseArea.setText("");
     }
 
     @Override

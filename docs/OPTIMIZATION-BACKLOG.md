@@ -14,7 +14,8 @@
 | 补漏 | P1-5 Pattern 缓存、P1-8 SQL 标识符校验、P1-9 HttpURLConnection disconnect | ✅ 2026-08-30 |
 | 第 3 批 | P2-3 codec 面板继承（TreeFormat 骨架）、P2-4 ObjectMapper（util/Json）、P2-4 JOptionPane 收敛 | ✅ `747182b` / 本批 |
 | 第 3 批 | P2-9 UI 逻辑下沉 | ⏳ 待做 |
-| 第 4 批 | T1~T4 测试补齐、B7 CI 门禁 | ⏳ 待做 |
+| 第 4 批 | B7 CI 门禁、T1 data/cloud/compute 领域层测试（SimpleEval/QueryResult/SqlExecutionService/K8sResourceRef 共 20 例） | ✅ 部分完成 |
+| 第 4 批 | T2 security 加密 round-trip、T3 codec 格式化 round-trip、T4 SSH 核心测试 | ⏳ 待做 |
 | 第 5 批 | D1~D7 文档校准、I1~I2 i18n 分批 | ⏳ 待做 |
 
 已完成项保留原文，作为问题背景与证据。

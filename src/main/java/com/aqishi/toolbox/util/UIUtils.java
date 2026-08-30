@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.util;
 
+import com.aqishi.toolbox.util.UIUtils;
+
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Tokens;
@@ -113,30 +115,44 @@ public final class UIUtils {
     }
 
     /** 弹出信息提示 */
-    public static void info(Component parent, String msg) {
-        JOptionPane.showMessageDialog(parent, msg, text("dialog.info", "提示"),
-                JOptionPane.INFORMATION_MESSAGE);
+    public static void info(Component parent, Object msg) {
+        UIUtils.info(parent, msg, text("dialog.info", "提示"));
     }
 
     /** 弹出带标题的信息提示（自定义消息内容，如嵌套面板） */
     public static void info(Component parent, Object msg, String title) {
-        JOptionPane.showMessageDialog(parent, msg, title, JOptionPane.INFORMATION_MESSAGE);
+        UIUtils.info(parent, msg, title);
     }
 
     /** 弹出普通消息对话框（PLAIN 级别，适合承载自定义组件内容） */
     public static void dialog(Component parent, Object msg, String title) {
-        JOptionPane.showMessageDialog(parent, msg, title, JOptionPane.PLAIN_MESSAGE);
+        UIUtils.dialog(parent, msg, title);
+    }
+
+    /** 弹出警告提示 */
+    public static void warn(Component parent, Object msg, String title) {
+        UIUtils.warn(parent, msg, title);
     }
 
     /** 弹出错误提示 */
-    public static void error(Component parent, String msg) {
-        JOptionPane.showMessageDialog(parent, msg, text("dialog.error", "错误"),
-                JOptionPane.ERROR_MESSAGE);
+    public static void error(Component parent, Object msg) {
+        UIUtils.error(parent, msg, text("dialog.error", "错误"));
+    }
+
+    /** 弹出带自定义标题的错误提示 */
+    public static void error(Component parent, Object msg, String title) {
+        UIUtils.error(parent, msg, title);
     }
 
     /** 弹出输入框，返回 null 表示取消 */
     public static String input(Component parent, String msg, String def) {
-        return (String) JOptionPane.showInputDialog(parent, msg, text("dialog.input", "输入"),
+        return input(parent, msg, null, def);
+    }
+
+    /** 弹出带标题的输入框，返回 null 表示取消 */
+    public static String input(Component parent, String msg, String title, String def) {
+        return (String) JOptionPane.showInputDialog(parent, msg,
+                title == null ? text("dialog.input", "输入") : title,
                 JOptionPane.PLAIN_MESSAGE, null, null, def);
     }
 

@@ -177,9 +177,7 @@ public final class TotpPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void importLink() {
-        String input = JOptionPane.showInputDialog(getView(),
-                "粘贴 otpauth://totp/... 链接：", "导入 TOTP",
-                JOptionPane.PLAIN_MESSAGE);
+        String input = UIUtils.input(getView(), "粘贴 otpauth://totp/... 链接：", "导入 TOTP", null);
         if (input == null || input.trim().isEmpty()) return;
         try {
             OtpUtils.OtpConfig parsed = OtpUtils.parseOtpAuthUrl(input.trim());
@@ -288,10 +286,7 @@ public final class TotpPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void deleteAccount(TotpAccount account) {
-        if (JOptionPane.showConfirmDialog(getView(),
-                "确定删除验证器账户 [" + account.getLabel() + "]？", "确认删除",
-                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE)
-                != JOptionPane.YES_OPTION) return;
+        if (!UIUtils.confirm(getView(), "确定删除验证器账户 [" + account.getLabel() + "]？", "确认删除")) return;
         List<TotpAccount> copy = new ArrayList<>(service.getTotpAccounts());
         for (Iterator<TotpAccount> iterator = copy.iterator(); iterator.hasNext(); ) {
             if (iterator.next().getId().equals(account.getId())) iterator.remove();

@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
+import com.aqishi.toolbox.util.UIUtils;
+
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
@@ -226,7 +228,7 @@ public class SshConfigDialog extends JDialog {
     private void testConnection() {
         SshConnectionConfig cfg = buildFromForm();
         if (cfg.getHost() == null || cfg.getHost().isEmpty()) {
-            JOptionPane.showMessageDialog(this, "请输入服务器地址 (Host)", "提示", JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(this, "请输入服务器地址 (Host)", "提示");
             return;
         }
 
@@ -249,9 +251,9 @@ public class SshConfigDialog extends JDialog {
             SwingUtilities.invokeLater(() -> {
                 loadingDialog.dispose();
                 if (ok) {
-                    JOptionPane.showMessageDialog(this, "测试连接成功！能够正常建立 SSH 会话。", "成功", JOptionPane.INFORMATION_MESSAGE);
+                    UIUtils.info(this, "测试连接成功！能够正常建立 SSH 会话。", "成功");
                 } else {
-                    JOptionPane.showMessageDialog(this, "测试连接失败:\n" + session.getLastErrorMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                    UIUtils.error(this, "测试连接失败:\n" + session.getLastErrorMessage());
                 }
             });
         }).start();
@@ -261,11 +263,11 @@ public class SshConfigDialog extends JDialog {
 
     private void saveConfig() {
         if (hostField.getText().trim().isEmpty()) {
-            JOptionPane.showMessageDialog(this, "请输入服务器地址 (Host)", "校验失败", JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(this, "请输入服务器地址 (Host)", "校验失败");
             return;
         }
         if (usernameField.getText().trim().isEmpty()) {
-            JOptionPane.showMessageDialog(this, "请输入用户名", "校验失败", JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(this, "请输入用户名", "校验失败");
             return;
         }
 

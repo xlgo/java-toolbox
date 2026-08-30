@@ -222,13 +222,11 @@ public class HostsManagerPanel extends ToolPanel {
         try (FileWriter writer = new FileWriter(hostsFile)) {
             writer.write(sb.toString());
             statusLabel.setText("保存成功！已更新系统 Hosts");
-            JOptionPane.showMessageDialog(getView(), "系统 Hosts 文件已成功更新！", "提示", JOptionPane.INFORMATION_MESSAGE);
+            UIUtils.info(getView(), "系统 Hosts 文件已成功更新！");
         } catch (Exception e) {
             statusLabel.setText("保存失败 (无写入权限)");
             UIUtils.copyToClipboard(sb.toString());
-            JOptionPane.showMessageDialog(getView(),
-                    "写入系统 Hosts 失败（可能是由于没有管理员权限）。\n最新 Hosts 内容已自动复制到剪贴板，您可以手动保存至:\n" + hostsFile.getAbsolutePath(),
-                    "权限受限提示", JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(getView(), "写入系统 Hosts 失败（可能是由于没有管理员权限）。\n最新 Hosts 内容已自动复制到剪贴板，您可以手动保存至:\n" + hostsFile.getAbsolutePath(), "权限受限提示");
         }
     }
 

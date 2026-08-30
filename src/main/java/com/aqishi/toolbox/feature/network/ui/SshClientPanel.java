@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.network.ui;
 
+import com.aqishi.toolbox.util.UIUtils;
+
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.ui.SshConfigDialog;
@@ -239,7 +241,7 @@ public class SshClientPanel extends ToolPanel implements ManagedResourceOwner {
         if (cfg != null) {
             openConfigDialog(cfg);
         } else {
-            JOptionPane.showMessageDialog(serverTree, "请先在左侧树中选择要修改的服务器配置", "提示", JOptionPane.INFORMATION_MESSAGE);
+            UIUtils.info(serverTree, "请先在左侧树中选择要修改的服务器配置");
         }
     }
 
@@ -256,13 +258,13 @@ public class SshClientPanel extends ToolPanel implements ManagedResourceOwner {
     private void deleteSelectedServer() {
         SshConnectionConfig cfg = getSelectedConfig();
         if (cfg != null) {
-            int confirm = JOptionPane.showConfirmDialog(serverTree, "确定删除服务器配置 \"" + cfg.getName() + "\" ?", "确认删除", JOptionPane.YES_NO_OPTION);
-            if (confirm == JOptionPane.YES_OPTION) {
+            boolean confirm = UIUtils.confirm(serverTree, "确定删除服务器配置 \"" + cfg.getName() + "\" ?", "确认删除");
+            if (confirm) {
                 configStore.delete(cfg.getId());
                 refreshServerTree();
             }
         } else {
-            JOptionPane.showMessageDialog(serverTree, "请先在左侧树中选择要删除的服务器配置", "提示", JOptionPane.INFORMATION_MESSAGE);
+            UIUtils.info(serverTree, "请先在左侧树中选择要删除的服务器配置");
         }
     }
 
@@ -272,7 +274,7 @@ public class SshClientPanel extends ToolPanel implements ManagedResourceOwner {
     private void connectSelectedServer() {
         SshConnectionConfig cfg = getSelectedConfig();
         if (cfg == null) {
-            JOptionPane.showMessageDialog(serverTree, "请先在左侧选择要连接的服务器", "提示", JOptionPane.INFORMATION_MESSAGE);
+            UIUtils.info(serverTree, "请先在左侧选择要连接的服务器");
             return;
         }
 

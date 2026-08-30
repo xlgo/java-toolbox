@@ -302,13 +302,13 @@ public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner 
     private void startScan() {
         String host = hostField.getText().trim();
         if (host.isEmpty()) {
-            JOptionPane.showMessageDialog(getView(), "请输入要扫描的目标主机/IP！", "错误", JOptionPane.ERROR_MESSAGE);
+            UIUtils.error(getView(), "请输入要扫描的目标主机/IP！");
             return;
         }
 
         List<Integer> ports = parsePorts();
         if (ports.isEmpty()) {
-            JOptionPane.showMessageDialog(getView(), "未勾选或未指定有效端口！", "提示", JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(getView(), "未勾选或未指定有效端口！", "提示");
             return;
         }
 
@@ -456,9 +456,9 @@ public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner 
         }
         if (sb.length() > 0) {
             UIUtils.copyToClipboard(sb.toString());
-            JOptionPane.showMessageDialog(getView(), "开放端口列表已复制到剪贴板", "成功", JOptionPane.INFORMATION_MESSAGE);
+            UIUtils.info(getView(), "开放端口列表已复制到剪贴板", "成功");
         } else {
-            JOptionPane.showMessageDialog(getView(), "未找到开放端口", "提示", JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(getView(), "未找到开放端口", "提示");
         }
     }
 }

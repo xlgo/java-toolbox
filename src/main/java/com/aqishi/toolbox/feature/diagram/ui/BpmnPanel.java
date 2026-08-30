@@ -213,7 +213,7 @@ public class BpmnPanel extends ToolPanel {
 
         JButton clearBtn = Buttons.danger("清空画布");
         clearBtn.addActionListener(e -> {
-            if (JOptionPane.showConfirmDialog(root, "确定要清空画布吗？", "确认", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
+            if (UIUtils.confirm(root, "确定要清空画布吗？", "确认")) {
                 nodes.clear();
                 edges.clear();
                 clearSelection();
@@ -973,7 +973,7 @@ public class BpmnPanel extends ToolPanel {
 
         JMenuItem clearAll = new JMenuItem("清空画布");
         clearAll.addActionListener(ev -> {
-            if (JOptionPane.showConfirmDialog(comp, "确定要清空画布吗？", "确认", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
+            if (UIUtils.confirm(comp, "确定要清空画布吗？", "确认")) {
                 nodes.clear();
                 edges.clear();
                 clearSelection();
@@ -1014,7 +1014,7 @@ public class BpmnPanel extends ToolPanel {
 
         JMenuItem rename = new JMenuItem("重命名 (Rename)");
         rename.addActionListener(ev -> {
-            String input = JOptionPane.showInputDialog(comp, "输入节点新名称：", node.name);
+            String input = UIUtils.input(comp, "输入节点新名称：", node.name);
             if (input != null) {
                 node.name = input.trim();
                 setSelectedNode(node);
@@ -1068,7 +1068,7 @@ public class BpmnPanel extends ToolPanel {
 
         JMenuItem rename = new JMenuItem("编辑名称");
         rename.addActionListener(ev -> {
-            String input = JOptionPane.showInputDialog(comp, "输入连线名称：", edge.name);
+            String input = UIUtils.input(comp, "输入连线名称：", edge.name);
             if (input != null) {
                 edge.name = input.trim();
                 setSelectedEdge(edge);
@@ -1079,7 +1079,7 @@ public class BpmnPanel extends ToolPanel {
 
         JMenuItem cond = new JMenuItem("编辑流转条件");
         cond.addActionListener(ev -> {
-            String input = JOptionPane.showInputDialog(comp, "输入流转条件表达式：", edge.condition);
+            String input = UIUtils.input(comp, "输入流转条件表达式：", edge.condition);
             if (input != null) {
                 edge.condition = input.trim();
                 setSelectedEdge(edge);
@@ -1113,9 +1113,9 @@ public class BpmnPanel extends ToolPanel {
             File file = chooser.getSelectedFile();
             try (FileWriter writer = new FileWriter(file)) {
                 writer.write(generateXmlString());
-                JOptionPane.showMessageDialog(canvasPanel, "导出成功：" + file.getName());
+                UIUtils.info(canvasPanel, "导出成功：" + file.getName());
             } catch (IOException ex) {
-                JOptionPane.showMessageDialog(canvasPanel, "导出失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                UIUtils.error(canvasPanel, "导出失败: " + ex.getMessage());
             }
         }
     }
@@ -1161,9 +1161,9 @@ public class BpmnPanel extends ToolPanel {
                 g2.dispose();
 
                 ImageIO.write(image, "png", file);
-                JOptionPane.showMessageDialog(canvasPanel, "导出成功：" + file.getName());
+                UIUtils.info(canvasPanel, "导出成功：" + file.getName());
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(canvasPanel, "导出失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                UIUtils.error(canvasPanel, "导出失败: " + ex.getMessage());
             }
         }
     }

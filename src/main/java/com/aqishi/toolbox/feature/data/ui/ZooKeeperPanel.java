@@ -441,9 +441,8 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
             UIUtils.info(getView(), "请选择要删除的非根节点");
             return;
         }
-        int confirm = JOptionPane.showConfirmDialog(getView(), "确认删除节点 " + ref.path + "？", "确认删除",
-                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-        if (confirm != JOptionPane.YES_OPTION) return;
+        boolean confirm = UIUtils.confirm(getView(), "确认删除节点 " + ref.path + "？", "确认删除");
+        if (!confirm) return;
 
         new SwingWorker<Void, Void>() {
             @Override

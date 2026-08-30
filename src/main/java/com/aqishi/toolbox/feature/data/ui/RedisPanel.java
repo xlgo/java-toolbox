@@ -584,8 +584,8 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
                 UIUtils.info(null, "请先选择需要删除的配置项目。");
                 return;
             }
-            int opt = JOptionPane.showConfirmDialog(null, "确定要删除配置 \"" + selectedName + "\" 吗？", "提示", JOptionPane.YES_NO_OPTION);
-            if (opt == JOptionPane.YES_OPTION) {
+            boolean opt = UIUtils.confirm(null, "确定要删除配置 \"" + selectedName + "\" 吗？", "提示");
+            if (opt) {
                 profiles.remove(selectedName);
                 saveProfilesToPrefs();
                 refreshProfilesCombo(null);
@@ -1011,8 +1011,8 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
 
     private void deleteSelectedKey() {
         if (jedis == null || currentSelectedKey == null) return;
-        int opt = JOptionPane.showConfirmDialog(null, "确定删除键: " + currentSelectedKey + " 吗？", "提示", JOptionPane.YES_NO_OPTION);
-        if (opt == JOptionPane.YES_OPTION) {
+        boolean opt = UIUtils.confirm(null, "确定删除键: " + currentSelectedKey + " 吗？", "提示");
+        if (opt) {
             new SwingWorker<Void, Void>() {
                 @Override
                 protected Void doInBackground() {

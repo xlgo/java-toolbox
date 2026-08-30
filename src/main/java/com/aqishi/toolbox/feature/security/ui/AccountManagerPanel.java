@@ -318,10 +318,7 @@ public final class AccountManagerPanel extends ToolPanel {
         int row = selectedModelRow();
         if (row < 0) return;
         PasswordAccount account = accounts.get(row);
-        if (JOptionPane.showConfirmDialog(getView(),
-                "确定删除账号 [" + account.getName() + "]？", "确认删除",
-                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE)
-                != JOptionPane.YES_OPTION) return;
+        if (!UIUtils.confirm(getView(), "确定删除账号 [" + account.getName() + "]？", "确认删除")) return;
         List<PasswordAccount> copy = new ArrayList<>(service.getPasswordAccounts());
         copy.remove(row);
         service.replacePasswordAccounts(copy).whenComplete((ignored, error) ->

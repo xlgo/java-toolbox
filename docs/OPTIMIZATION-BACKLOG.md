@@ -12,7 +12,8 @@
 | 第 2 批 | P2-5 monitor 分层、P2-6 ssh 分层、P2-7 打破包级环 | ✅ `e7ad260` / `b8c1a04` / `f2d9e31` |
 | 第 3 批 | P2-1 K8s 模板收敛、P2-4 格式化与剪贴板收敛 | ✅ 部分完成（`a8edb67`、`4c3f8a1`） |
 | 补漏 | P1-5 Pattern 缓存、P1-8 SQL 标识符校验、P1-9 HttpURLConnection disconnect | ✅ 2026-08-30 |
-| 第 3 批 | P2-2✅（随 P2-1 一起）、P2-3 codec 面板继承、P2-4 ObjectMapper/JOptionPane、P2-9 UI 逻辑下沉 | ⏳ 待做 |
+| 第 3 批 | P2-3 codec 面板继承（TreeFormat 骨架）、P2-4 ObjectMapper（util/Json）、P2-4 JOptionPane 收敛 | ✅ `747182b` / 本批 |
+| 第 3 批 | P2-9 UI 逻辑下沉 | ⏳ 待做 |
 | 第 4 批 | T1~T4 测试补齐、B7 CI 门禁 | ⏳ 待做 |
 | 第 5 批 | D1~D7 文档校准、I1~I2 i18n 分批 | ⏳ 待做 |
 
@@ -77,6 +78,12 @@
 - **P1-5**：`MockRuleResolver` 新增 `PATTERN_CACHE`（ConcurrentHashMap，上限 256，超限整体清空），REGEX 匹配不再逐请求重编译；非法正则不占缓存位
 - **P1-8**：`DatabasePanel.switchSchema()` 改走 `safeIdentifier()` 白名单校验（`[A-Za-z_][A-Za-z0-9_$#]*`），Oracle `CURRENT_SCHEMA` 与 PostgreSQL `search_path` 拼接前先校验
 - **P1-9**：`MermaidPanel` 云端渲染、`QrCodePanel` Replicate 提交与轮询共 3 处 `HttpURLConnection` 补 `finally { disconnect(); }`
+
+### 第 3 批收尾落地（2026-08-30，`747182b` 及后续）
+
+- **P2-3**：新增 `codec/ui/AbstractTreeFormatPanel`（美化树 + 压缩文本双视图、清空/复制/返回源工具样板），`JsonPanel`/`XmlPanel` 改为继承，抽出共享 `CodeFolderNode`/`CodeTreeCellRenderer`/`escapeHtml`。`ConvertPanel`（页签容器）与 `FormatConvertPanel`（横向分栏 + 卡片头按钮）与基类形状不契合，明确不强行继承
+- **P2-4 ObjectMapper**：新增 `util/Json`（共享 `mapper()` / `prettyMapper()`，配置后线程安全），替换 25 处 `new ObjectMapper()`（vault 构造注入默认值、`YAMLFactory`/`XmlMapper` 特例保留）；直调从 30 → 5
+- **P2-4 JOptionPane**：`UIUtils` 补齐 `warn/error(parent,msg,title)`、`dialog`、`input(parent,msg,title,def)` 重载（消息参数放宽为 Object）；脚本化替换 102 处直调（83 message + 12 confirm 改 boolean + 7 input），直调从 155 → 20，剩余为自定义选择对话框、OK_CANCEL 语义与常量引用（合理保留）
 
 ## 0. 一句话结论
 

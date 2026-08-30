@@ -300,9 +300,7 @@ public class VideoMonitorPanel extends ToolPanel {
     // ==================== 合并 ====================
     private void mergeSelected() {
         if (multiSel.size() < 2) {
-            JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(videoGrid),
-                    "请先按住 Ctrl 并单击选中 2 个以上相邻格子，再点击合并。",
-                    "提示", JOptionPane.INFORMATION_MESSAGE);
+            UIUtils.info(SwingUtilities.getWindowAncestor(videoGrid), "请先按住 Ctrl 并单击选中 2 个以上相邻格子，再点击合并。");
             return;
         }
 
@@ -329,9 +327,7 @@ public class VideoMonitorPanel extends ToolPanel {
         for (int r = minR; r <= maxR; r++) {
             for (int c = minC; c <= maxC; c++) {
                 if (!covered.contains(r + "," + c)) {
-                    JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(videoGrid),
-                            "选中区域不是完整矩形，无法合并。\n请确保所选格子构成一个连续的矩形区域。",
-                            "无法合并", JOptionPane.WARNING_MESSAGE);
+                    UIUtils.warn(SwingUtilities.getWindowAncestor(videoGrid), "选中区域不是完整矩形，无法合并。\n请确保所选格子构成一个连续的矩形区域。", "无法合并");
                     return;
                 }
             }
@@ -355,8 +351,7 @@ public class VideoMonitorPanel extends ToolPanel {
         if (primaryCell == null) return;
         CellDef d = primaryCell.def;
         if (d.rowSpan == 1 && d.colSpan == 1) {
-            JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(videoGrid),
-                    "该格已是最小单元，无需拆分。", "提示", JOptionPane.INFORMATION_MESSAGE);
+            UIUtils.info(SwingUtilities.getWindowAncestor(videoGrid), "该格已是最小单元，无需拆分。");
             return;
         }
         List<CellDef> newDefs = new ArrayList<>();
@@ -407,8 +402,7 @@ public class VideoMonitorPanel extends ToolPanel {
     // ==================== 布局保存与恢复 ====================
     private void saveCurrentLayout() {
         Window owner = SwingUtilities.getWindowAncestor(videoGrid);
-        String name = JOptionPane.showInputDialog(owner,
-                "请输入布局名称（已有同名则覆盖）:", "保存布局", JOptionPane.PLAIN_MESSAGE);
+        String name = UIUtils.input(owner, "请输入布局名称（已有同名则覆盖）:", "保存布局", null);
         if (name == null || name.trim().isEmpty()) return;
         name = name.trim();
 
@@ -428,8 +422,7 @@ public class VideoMonitorPanel extends ToolPanel {
         rebuildCombo();
         layoutCombo.setSelectedIndex(PRESET_LABELS.length + savedNames.indexOf(name));
 
-        JOptionPane.showMessageDialog(owner, "布局 \"" + name + "\" 已保存！",
-                "保存成功", JOptionPane.INFORMATION_MESSAGE);
+        UIUtils.info(owner, "布局 \"" + name + "\" 已保存！", "保存成功");
     }
 
     private void loadSavedNames() {

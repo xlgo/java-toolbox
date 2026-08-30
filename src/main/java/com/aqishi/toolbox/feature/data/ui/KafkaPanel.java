@@ -1961,8 +1961,8 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     private void deleteProfile() {
         String name = (String) profileCombo.getSelectedItem();
         if (name == null) return;
-        int opt = JOptionPane.showConfirmDialog(getView(), "确定要删除 Kafka 配置 '" + name + "' 吗？", "确认删除", JOptionPane.YES_NO_OPTION);
-        if (opt == JOptionPane.YES_OPTION) {
+        boolean opt = UIUtils.confirm(getView(), "确定要删除 Kafka 配置 '" + name + "' 吗？", "确认删除");
+        if (opt) {
             profiles.remove(name);
             saveProfilesToPrefs();
             refreshProfilesCombo(null);

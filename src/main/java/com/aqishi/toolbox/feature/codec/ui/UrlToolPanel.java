@@ -244,7 +244,7 @@ public class UrlToolPanel extends ToolPanel {
                 }
             }
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(getView(), "URL 解析失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+            UIUtils.error(getView(), "URL 解析失败: " + e.getMessage());
         }
     }
 
@@ -285,7 +285,7 @@ public class UrlToolPanel extends ToolPanel {
                 }
                 sb.append(String.join("&", params));
             } catch (Exception e) {
-                JOptionPane.showMessageDialog(getView(), "编码参数失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                UIUtils.error(getView(), "编码参数失败: " + e.getMessage());
             }
         }
 
@@ -321,6 +321,6 @@ public class UrlToolPanel extends ToolPanel {
     private void copyToClipboard(String text) {
         if (text == null || text.isEmpty()) return;
         UIUtils.copyToClipboard(text);
-        JOptionPane.showMessageDialog(getView(), "已复制到剪贴板", "提示", JOptionPane.INFORMATION_MESSAGE);
+        UIUtils.info(getView(), "已复制到剪贴板");
     }
 }

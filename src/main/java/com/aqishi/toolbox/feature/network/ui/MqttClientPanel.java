@@ -269,7 +269,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
             String text = msgDetailArea.getText();
             if (text != null && !text.isEmpty()) {
                 UIUtils.copyToClipboard(text);
-                JOptionPane.showMessageDialog(getView(), "详情内容已复制到剪贴板", "提示", JOptionPane.INFORMATION_MESSAGE);
+                UIUtils.info(getView(), "详情内容已复制到剪贴板");
             }
         });
         btnPanel.add(copyBtn);
@@ -337,7 +337,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         String clientId = clientIdField.getText().trim();
 
         if (brokerUrl.isEmpty()) {
-            JOptionPane.showMessageDialog(getView(), "请输入 Broker 地址！", "错误", JOptionPane.ERROR_MESSAGE);
+            UIUtils.error(getView(), "请输入 Broker 地址！");
             return;
         }
 
@@ -395,7 +395,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
                     SwingUtilities.invokeLater(() -> {
                         updateStatus(false, "未连接");
                         connectBtn.setEnabled(true);
-                        JOptionPane.showMessageDialog(getView(), "连接失败: " + ex.getMessage(), "连接错误", JOptionPane.ERROR_MESSAGE);
+                        UIUtils.error(getView(), "连接失败: " + ex.getMessage(), "连接错误");
                     });
                 }
             }).start();
@@ -403,7 +403,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         } catch (Exception ex) {
             updateStatus(false, "未连接");
             connectBtn.setEnabled(true);
-            JOptionPane.showMessageDialog(getView(), "客户端创建失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+            UIUtils.error(getView(), "客户端创建失败: " + ex.getMessage());
         }
     }
 
@@ -428,7 +428,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
 
     private void doSubscribe() {
         if (mqttClient == null || !mqttClient.isConnected()) {
-            JOptionPane.showMessageDialog(getView(), "请先连接 MQTT Broker！", "提示", JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(getView(), "请先连接 MQTT Broker！", "提示");
             return;
         }
 
@@ -436,7 +436,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         int qos = (Integer) subQosCombo.getSelectedItem();
 
         if (topic.isEmpty()) {
-            JOptionPane.showMessageDialog(getView(), "请输入要订阅的主题！", "错误", JOptionPane.ERROR_MESSAGE);
+            UIUtils.error(getView(), "请输入要订阅的主题！");
             return;
         }
 
@@ -445,13 +445,13 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
             subTableModel.addRow(new Object[]{topic, qos, "已订阅"});
             appendLog("System", topic, qos, false, "已订阅主题: " + topic + " (QoS " + qos + ")");
         } catch (MqttException ex) {
-            JOptionPane.showMessageDialog(getView(), "订阅失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+            UIUtils.error(getView(), "订阅失败: " + ex.getMessage());
         }
     }
 
     private void doPublish() {
         if (mqttClient == null || !mqttClient.isConnected()) {
-            JOptionPane.showMessageDialog(getView(), "请先连接 MQTT Broker！", "提示", JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(getView(), "请先连接 MQTT Broker！", "提示");
             return;
         }
 
@@ -461,7 +461,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         String payloadStr = pubPayloadArea.getText();
 
         if (topic.isEmpty()) {
-            JOptionPane.showMessageDialog(getView(), "请输入发布目标主题！", "错误", JOptionPane.ERROR_MESSAGE);
+            UIUtils.error(getView(), "请输入发布目标主题！");
             return;
         }
 
@@ -473,7 +473,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
             mqttClient.publish(topic, message);
             appendLog("📤 发送", topic, qos, retain, payloadStr);
         } catch (MqttException ex) {
-            JOptionPane.showMessageDialog(getView(), "发送失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+            UIUtils.error(getView(), "发送失败: " + ex.getMessage());
         }
     }
 
@@ -484,7 +484,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
                 Object jsonObj = jsonMapper.readValue(text, Object.class);
                 pubPayloadArea.setText(jsonMapper.writeValueAsString(jsonObj));
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(getView(), "格式化失败: " + ex.getMessage(), "JSON 语法错误", JOptionPane.ERROR_MESSAGE);
+                UIUtils.error(getView(), "格式化失败: " + ex.getMessage(), "JSON 语法错误");
             }
         }
     }

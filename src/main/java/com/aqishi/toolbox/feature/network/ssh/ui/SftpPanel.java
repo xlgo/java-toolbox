@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
+import com.aqishi.toolbox.util.UIUtils;
+
 import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
 import com.aqishi.toolbox.util.FormatUtils;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -251,7 +253,7 @@ public class SftpPanel extends JPanel {
     }
 
     private void createDirectoryDialog() {
-        String name = JOptionPane.showInputDialog(this, "输入新建文件夹名称:", "新建文件夹", JOptionPane.PLAIN_MESSAGE);
+        String name = UIUtils.input(this, "输入新建文件夹名称:", "新建文件夹", null);
         if (name == null || name.trim().isEmpty()) return;
 
         new Thread(() -> {
@@ -263,7 +265,7 @@ public class SftpPanel extends JPanel {
                     SwingUtilities.invokeLater(this::refresh);
                 }
             } catch (Exception e) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "创建失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE));
+                SwingUtilities.invokeLater(() -> UIUtils.error(this, "创建失败: " + e.getMessage()));
             }
         }).start();
     }
@@ -308,7 +310,7 @@ public class SftpPanel extends JPanel {
                         SwingUtilities.invokeLater(() -> {
                             progressBar.setVisible(false);
                             statusLabel.setText("上传失败: " + e.getMessage());
-                            JOptionPane.showMessageDialog(this, "上传失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                            UIUtils.error(this, "上传失败: " + e.getMessage());
                         });
                     }
                 }).start();
@@ -322,7 +324,7 @@ public class SftpPanel extends JPanel {
         String type = (String) tableModel.getValueAt(row, 0);
         String name = (String) tableModel.getValueAt(row, 1);
         if ("<DIR>".equals(type)) {
-            JOptionPane.showMessageDialog(this, "目前仅支持单个文件下载", "提示", JOptionPane.INFORMATION_MESSAGE);
+            UIUtils.info(this, "目前仅支持单个文件下载");
             return;
         }
 
@@ -362,13 +364,13 @@ public class SftpPanel extends JPanel {
                     SwingUtilities.invokeLater(() -> {
                         progressBar.setVisible(false);
                         statusLabel.setText("下载成功: " + saveFile.getAbsolutePath());
-                        JOptionPane.showMessageDialog(this, "下载成功！文件保存在: " + saveFile.getAbsolutePath(), "成功", JOptionPane.INFORMATION_MESSAGE);
+                        UIUtils.info(this, "下载成功！文件保存在: " + saveFile.getAbsolutePath(), "成功");
                     });
                 } catch (Exception e) {
                     SwingUtilities.invokeLater(() -> {
                         progressBar.setVisible(false);
                         statusLabel.setText("下载失败: " + e.getMessage());
-                        JOptionPane.showMessageDialog(this, "下载失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                        UIUtils.error(this, "下载失败: " + e.getMessage());
                     });
                 }
             }).start();
@@ -379,7 +381,7 @@ public class SftpPanel extends JPanel {
         int row = fileTable.getSelectedRow();
         if (row < 0) return;
         String oldName = (String) tableModel.getValueAt(row, 1);
-        String newName = JOptionPane.showInputDialog(this, "修改名称:", oldName);
+        String newName = UIUtils.input(this, "修改名称:", oldName);
         if (newName == null || newName.trim().isEmpty() || newName.equals(oldName)) return;
 
         new Thread(() -> {
@@ -392,7 +394,7 @@ public class SftpPanel extends JPanel {
                     SwingUtilities.invokeLater(this::refresh);
                 }
             } catch (Exception e) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "重命名失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE));
+                SwingUtilities.invokeLater(() -> UIUtils.error(this, "重命名失败: " + e.getMessage()));
             }
         }).start();
     }
@@ -403,8 +405,8 @@ public class SftpPanel extends JPanel {
         String type = (String) tableModel.getValueAt(row, 0);
         String name = (String) tableModel.getValueAt(row, 1);
 
-        int confirm = JOptionPane.showConfirmDialog(this, "确定删除 " + name + " ?", "确认删除", JOptionPane.YES_NO_OPTION);
-        if (confirm != JOptionPane.YES_OPTION) return;
+        boolean confirm = UIUtils.confirm(this, "确定删除 " + name + " ?", "确认删除");
+        if (!confirm) return;
 
         new Thread(() -> {
             try {
@@ -419,7 +421,7 @@ public class SftpPanel extends JPanel {
                     SwingUtilities.invokeLater(this::refresh);
                 }
             } catch (Exception e) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "删除失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE));
+                SwingUtilities.invokeLater(() -> UIUtils.error(this, "删除失败: " + e.getMessage()));
             }
         }).start();
     }

@@ -184,13 +184,13 @@ public class SshTunnelPanel extends JPanel {
                     Desktop.getDesktop().browse(new java.net.URI(url));
                     statusHintLabel.setText("已在系统浏览器中打开: " + url);
                 } else {
-                    JOptionPane.showMessageDialog(this, "当前环境不支持自动打开浏览器，请手动访问: " + url, "提示", JOptionPane.INFORMATION_MESSAGE);
+                    UIUtils.info(this, "当前环境不支持自动打开浏览器，请手动访问: " + url);
                 }
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "打开浏览器失败: " + ex.getMessage() + "\n链接: " + url, "错误", JOptionPane.ERROR_MESSAGE);
+                UIUtils.error(this, "打开浏览器失败: " + ex.getMessage() + "\n链接: " + url);
             }
         } else {
-            JOptionPane.showMessageDialog(this, "请先在列表中选择要浏览的 HTTP 服务隧道", "提示", JOptionPane.INFORMATION_MESSAGE);
+            UIUtils.info(this, "请先在列表中选择要浏览的 HTTP 服务隧道");
         }
     }
 
@@ -236,7 +236,7 @@ public class SshTunnelPanel extends JPanel {
                 statusHintLabel.setText("服务连接已开启：127.0.0.1:" + tunnel.getAssignedLocalPort());
             }
         } else {
-            JOptionPane.showMessageDialog(this, "请选择要开启的远程服务隧道", "提示", JOptionPane.INFORMATION_MESSAGE);
+            UIUtils.info(this, "请选择要开启的远程服务隧道");
         }
     }
 
@@ -244,7 +244,7 @@ public class SshTunnelPanel extends JPanel {
     private boolean ensureTunnelReady(SshTunnelConfig tunnel) {
         if (!sessionInstance.isConnected()) {
             statusHintLabel.setText("提示：SSH 未连接，无法开启隧道");
-            JOptionPane.showMessageDialog(this, "SSH 连接尚未建立，请先建立 SSH 连接。", "提示", JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(this, "SSH 连接尚未建立，请先建立 SSH 连接。", "提示");
             return false;
         }
 
@@ -267,7 +267,7 @@ public class SshTunnelPanel extends JPanel {
             String message = tunnel.getErrorMessage();
             if (message == null || message.trim().isEmpty()) message = "隧道无法连接远程目标";
             statusHintLabel.setText("开启失败：" + message);
-            JOptionPane.showMessageDialog(this, "开启隧道失败：" + message, "错误", JOptionPane.ERROR_MESSAGE);
+            UIUtils.error(this, "开启隧道失败：" + message);
         }
         return started;
     }
@@ -279,7 +279,7 @@ public class SshTunnelPanel extends JPanel {
             refreshTable();
             statusHintLabel.setText("服务连接已关闭");
         } else {
-            JOptionPane.showMessageDialog(this, "请选择要关闭的远程服务隧道", "提示", JOptionPane.INFORMATION_MESSAGE);
+            UIUtils.info(this, "请选择要关闭的远程服务隧道");
         }
     }
 
@@ -301,9 +301,9 @@ public class SshTunnelPanel extends JPanel {
                 String addr = "127.0.0.1:" + tunnel.getAssignedLocalPort();
                 UIUtils.copyToClipboard(addr);
                 statusHintLabel.setText("已复制本地访问地址: " + addr);
-                JOptionPane.showMessageDialog(this, "已复制本地服务地址: " + addr, "成功", JOptionPane.INFORMATION_MESSAGE);
+                UIUtils.info(this, "已复制本地服务地址: " + addr, "成功");
             } else {
-                JOptionPane.showMessageDialog(this, "该服务连接尚未开启，请先开启连接。", "提示", JOptionPane.WARNING_MESSAGE);
+                UIUtils.warn(this, "该服务连接尚未开启，请先开启连接。", "提示");
             }
         }
     }
@@ -356,8 +356,8 @@ public class SshTunnelPanel extends JPanel {
     private void deleteSelectedTunnel() {
         SshTunnelConfig tunnel = getSelectedTunnel();
         if (tunnel != null) {
-            int confirm = JOptionPane.showConfirmDialog(this, "确定删除服务隧道 \"" + tunnel.getName() + "\" ?", "确认", JOptionPane.YES_NO_OPTION);
-            if (confirm == JOptionPane.YES_OPTION) {
+            boolean confirm = UIUtils.confirm(this, "确定删除服务隧道 \"" + tunnel.getName() + "\" ?", "确认");
+            if (confirm) {
                 sessionInstance.stopTunnel(tunnel);
                 connectionConfig.getTunnels().remove(tunnel);
                 SshConfigStore.getInstance().save();

@@ -861,8 +861,8 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
 
         clearBtn.addActionListener(e -> {
             if (tableModel.getRowCount() > 0) {
-                int opt = JOptionPane.showConfirmDialog(getView(), "确定要清空所有的联系人列表吗？", "确认清空", JOptionPane.YES_NO_OPTION);
-                if (opt == JOptionPane.YES_OPTION) {
+                boolean opt = UIUtils.confirm(getView(), "确定要清空所有的联系人列表吗？", "确认清空");
+                if (opt) {
                     tableModel.setRowCount(0);
                 }
             }

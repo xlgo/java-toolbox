@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.monitor.ui;
 
+import com.aqishi.toolbox.util.UIUtils;
+
 import com.aqishi.toolbox.util.Json;
 
 import com.aqishi.toolbox.util.I18n;
@@ -59,7 +61,7 @@ public class RemoteControlWindow extends JFrame {
         channel.setMessageListener(this::dispatchMessage);
         channel.setCloseListener(() -> {
             if (windowClosed.compareAndSet(false, true)) {
-                JOptionPane.showMessageDialog(this, I18n.get("remote_desktop.alert_disconnected"), I18n.get("remote_desktop.ft_title"), JOptionPane.INFORMATION_MESSAGE);
+                UIUtils.info(this, I18n.get("remote_desktop.alert_disconnected"), I18n.get("remote_desktop.ft_title"));
                 closeAndDispose();
             }
         });
@@ -337,7 +339,7 @@ public class RemoteControlWindow extends JFrame {
 
     private void takeLocalScreenshot() {
         if (currentFrame == null) {
-            JOptionPane.showMessageDialog(this, I18n.get("remote_desktop.alert_no_frame"), I18n.get("remote_desktop.ft_title"), JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(this, I18n.get("remote_desktop.alert_no_frame"), I18n.get("remote_desktop.ft_title"));
             return;
         }
         JFileChooser chooser = new JFileChooser();
@@ -346,9 +348,9 @@ public class RemoteControlWindow extends JFrame {
         if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
             try {
                 ImageIO.write(currentFrame, "png", chooser.getSelectedFile());
-                JOptionPane.showMessageDialog(this, I18n.get("remote_desktop.alert_ss_saved"), I18n.get("remote_desktop.ft_title"), JOptionPane.INFORMATION_MESSAGE);
+                UIUtils.info(this, I18n.get("remote_desktop.alert_ss_saved"), I18n.get("remote_desktop.ft_title"));
             } catch (Exception e) {
-                JOptionPane.showMessageDialog(this, I18n.get("remote_desktop.alert_ss_fail", e.getMessage()), I18n.get("remote_desktop.ft_title"), JOptionPane.ERROR_MESSAGE);
+                UIUtils.error(this, I18n.get("remote_desktop.alert_ss_fail", e.getMessage()), I18n.get("remote_desktop.ft_title"));
             }
         }
     }

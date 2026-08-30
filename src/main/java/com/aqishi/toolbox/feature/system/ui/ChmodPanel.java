@@ -382,7 +382,7 @@ public class ChmodPanel extends ToolPanel {
     private void copyToClipboard(String text) {
         if (text == null || text.isEmpty()) return;
         UIUtils.copyToClipboard(text);
-        JOptionPane.showMessageDialog(getView(), "已成功复制到剪贴板:\n" + text, "提示", JOptionPane.INFORMATION_MESSAGE);
+        UIUtils.info(getView(), "已成功复制到剪贴板:\n" + text);
     }
 
     @FunctionalInterface

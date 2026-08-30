@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.monitor.ui;
 
+import com.aqishi.toolbox.util.UIUtils;
+
 import com.aqishi.toolbox.util.Json;
 
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
@@ -362,7 +364,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         startControlBtn.addActionListener(e -> {
             String targetId = targetIdField.getText().trim();
             if (targetId.isEmpty()) {
-                JOptionPane.showMessageDialog(panel, "Please select target ID", "Prompt", JOptionPane.WARNING_MESSAGE);
+                UIUtils.warn(panel, "Please select target ID", "Prompt");
                 return;
             }
             controlTcpConnector.reset();
@@ -582,11 +584,9 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         Runnable failed = () -> {
             if (failedPaths.incrementAndGet() < 2 || selected.get()) return;
             appendLog(controlLogArea, "UDP 与双向 TCP 直连均失败，连接终止；未尝试中转数据通道。");
-            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(parent,
-                    "UDP 打洞和双向 TCP 直连均失败。\n"
+            SwingUtilities.invokeLater(() -> UIUtils.error(parent, "UDP 打洞和双向 TCP 直连均失败。\n"
                             + "双方都没有收到可用的公网入站路径。请查看 UPnP/NAT-PMP、"
-                            + "globalIPv6 和 STUN 明细日志。",
-                    "直连失败", JOptionPane.ERROR_MESSAGE));
+                            + "globalIPv6 和 STUN 明细日志。", "直连失败"));
         };
 
         int listenPort = controlTcpListenerConnector.startListener(

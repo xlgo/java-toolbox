@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.generation.ui;
 
+import com.aqishi.toolbox.util.UIUtils;
+
 import com.aqishi.toolbox.util.Json;
 
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
@@ -175,7 +177,7 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
                         decodeImage(img, decodedResultArea, imageDisplay);
                     }
                 } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(getView(), "图片读取失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                    UIUtils.error(getView(), "图片读取失败: " + ex.getMessage());
                 }
             }
         });
@@ -194,10 +196,10 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
                     String str = (String) tr.getTransferData(DataFlavor.stringFlavor);
                     decodedResultArea.setText("剪贴板包含文本内容:\n" + str);
                 } else {
-                    JOptionPane.showMessageDialog(getView(), "剪贴板中未找到图片或文本数据", "提示", JOptionPane.INFORMATION_MESSAGE);
+                    UIUtils.info(getView(), "剪贴板中未找到图片或文本数据");
                 }
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(getView(), "读取剪贴板失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                UIUtils.error(getView(), "读取剪贴板失败: " + ex.getMessage());
             }
         });
 
@@ -318,14 +320,14 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
     private void generateAiQrCode() {
         String token = new String(apiTokenField.getPassword());
         if (token.trim().isEmpty()) {
-            JOptionPane.showMessageDialog(getView(), "请提供 Replicate API Token", "错误", JOptionPane.ERROR_MESSAGE);
+            UIUtils.error(getView(), "请提供 Replicate API Token");
             return;
         }
         prefs.put("replicate_api_token", token);
         
         String text = inputContentArea.getText().trim();
         if (text.isEmpty()) {
-            JOptionPane.showMessageDialog(getView(), "二维码文本内容不能为空", "错误", JOptionPane.ERROR_MESSAGE);
+            UIUtils.error(getView(), "二维码文本内容不能为空");
             return;
         }
 
@@ -387,7 +389,7 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
                     generateAiBtn.setEnabled(true);
                     generateAiBtn.setText("生成 AI 艺术二维码");
                     previewImageLabel.setText("");
-                    JOptionPane.showMessageDialog(getView(), "AI 生成请求出错: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                    UIUtils.error(getView(), "AI 生成请求出错: " + ex.getMessage());
                 });
             }
         }).start();
@@ -428,7 +430,7 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
                                 generateAiBtn.setEnabled(true);
                                 generateAiBtn.setText("生成 AI 艺术二维码");
                                 previewImageLabel.setText("");
-                                JOptionPane.showMessageDialog(getView(), "AI 任务失败或被取消: " + error, "错误", JOptionPane.ERROR_MESSAGE);
+                                UIUtils.error(getView(), "AI 任务失败或被取消: " + error);
                             });
                             timer.cancel();
                         }
@@ -484,7 +486,7 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
             previewImageLabel.setIcon(new ImageIcon(currentQrImage));
             previewImageLabel.setText("二维码生成完毕 (" + size + "x" + size + " px)");
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(getView(), "二维码生成失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+            UIUtils.error(getView(), "二维码生成失败: " + ex.getMessage());
         }
     }
 
@@ -525,7 +527,7 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
         if (currentQrImage == null) return;
         TransferableImage transferable = new TransferableImage(currentQrImage);
         Toolkit.getDefaultToolkit().getSystemClipboard().setContents(transferable, null);
-        JOptionPane.showMessageDialog(getView(), "二维码图像已成功复制到系统剪贴板", "提示", JOptionPane.INFORMATION_MESSAGE);
+        UIUtils.info(getView(), "二维码图像已成功复制到系统剪贴板");
     }
 
     private void saveImageToFile() {
@@ -536,9 +538,9 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
             File f = fc.getSelectedFile();
             try {
                 ImageIO.write(currentQrImage, "PNG", f);
-                JOptionPane.showMessageDialog(getView(), "二维码图片已保存至:\n" + f.getAbsolutePath(), "成功", JOptionPane.INFORMATION_MESSAGE);
+                UIUtils.info(getView(), "二维码图片已保存至:\n" + f.getAbsolutePath(), "成功");
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(getView(), "保存图片失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                UIUtils.error(getView(), "保存图片失败: " + ex.getMessage());
             }
         }
     }

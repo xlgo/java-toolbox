@@ -872,7 +872,7 @@ public class FlowchartPanel extends ToolPanel {
     }
 
     private void clearCanvas() {
-        if (JOptionPane.showConfirmDialog(getView(), "确定要清空画布吗?", "提示", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
+        if (UIUtils.confirm(getView(), "确定要清空画布吗?", "提示")) {
             saveState();
             nodes.clear();
             edges.clear();

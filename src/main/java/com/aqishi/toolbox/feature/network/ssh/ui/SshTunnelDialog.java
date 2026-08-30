@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
+import com.aqishi.toolbox.util.UIUtils;
+
 import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Fields;
@@ -72,11 +74,11 @@ public class SshTunnelDialog extends JDialog {
 
     private void save() {
         if (nameField.getText().trim().isEmpty()) {
-            JOptionPane.showMessageDialog(this, "请输入服务名称", "提示", JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(this, "请输入服务名称", "提示");
             return;
         }
         if (remoteHostField.getText().trim().isEmpty()) {
-            JOptionPane.showMessageDialog(this, "请输入远程主机地址", "提示", JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(this, "请输入远程主机地址", "提示");
             return;
         }
 

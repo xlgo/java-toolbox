@@ -583,8 +583,8 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                 UIUtils.info(null, "请选择要删除的配置");
                 return;
             }
-            int opt = JOptionPane.showConfirmDialog(null, "确认删除配置 \"" + selected + "\"?", "提示", JOptionPane.YES_NO_OPTION);
-            if (opt == JOptionPane.YES_OPTION) {
+            boolean opt = UIUtils.confirm(null, "确认删除配置 \"" + selected + "\"?", "提示");
+            if (opt) {
                 profiles.remove(selected);
                 saveProfilesToPrefs();
                 refreshProfilesCombo(null);
@@ -2207,8 +2207,8 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         String ns = table.getValueAt(row, 0).toString();
         String name = table.getValueAt(row, 1).toString();
 
-        int opt = JOptionPane.showConfirmDialog(null, "确认要从集群中删除 " + resourceType + " \"" + name + "\"? 此操作无法撤销！", "安全警告", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-        if (opt == JOptionPane.YES_OPTION) {
+        boolean opt = UIUtils.confirm(null, "确认要从集群中删除 " + resourceType + " \"" + name + "\"? 此操作无法撤销！", "安全警告");
+        if (opt) {
             new SwingWorker<Void, Void>() {
                 @Override
                 protected Void doInBackground() throws Exception {

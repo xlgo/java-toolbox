@@ -294,7 +294,7 @@ public class HanoiPanel extends ToolPanel implements ManagedResourceOwner {
                 "【操作方式】\n" +
                 "- 拖动模式：鼠标按住盘子并拖拽到目标柱子上松开。\n" +
                 "- 点击模式：先点击起始柱子选中它，然后再点击目标柱子完成移动。";
-        JOptionPane.showMessageDialog(getView(), msg, "玩法说明", JOptionPane.INFORMATION_MESSAGE);
+        UIUtils.info(getView(), msg, "玩法说明");
     }
 
     private void updateControlsState() {

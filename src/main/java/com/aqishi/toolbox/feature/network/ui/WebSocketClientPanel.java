@@ -190,7 +190,7 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
         JButton copyLogBtn = new JButton("复制日志");
         copyLogBtn.addActionListener(e -> {
             UIUtils.copyToClipboard(logTextArea.getText());
-            JOptionPane.showMessageDialog(getView(), "已复制日志到剪贴板", "提示", JOptionPane.INFORMATION_MESSAGE);
+            UIUtils.info(getView(), "已复制日志到剪贴板");
         });
 
         logActionBtns.add(clearLogBtn);
@@ -216,7 +216,7 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
     private void connectWebSocket() {
         String urlStr = urlField.getText().trim();
         if (urlStr.isEmpty()) {
-            JOptionPane.showMessageDialog(getView(), "请输入有效的 WebSocket URL", "警告", JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(getView(), "请输入有效的 WebSocket URL", "警告");
             return;
         }
 
@@ -313,7 +313,7 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
 
     private void sendTextMessage() {
         if (webSocketClient == null || !webSocketClient.isOpen()) {
-            JOptionPane.showMessageDialog(getView(), "请先建立 WebSocket 连接后再发送消息！", "提示", JOptionPane.WARNING_MESSAGE);
+            UIUtils.warn(getView(), "请先建立 WebSocket 连接后再发送消息！", "提示");
             return;
         }
 
@@ -369,7 +369,7 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
             Object obj = mapper.readValue(input, Object.class);
             sendTextArea.setText(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(obj));
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(getView(), "JSON 格式化失败: " + e.getMessage(), "提示", JOptionPane.INFORMATION_MESSAGE);
+            UIUtils.info(getView(), "JSON 格式化失败: " + e.getMessage());
         }
     }
 }

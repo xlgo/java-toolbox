@@ -4,6 +4,45 @@
 > 规模：260 个 Java 文件 / 64,681 行 ｜ 53 个测试类 ｜ 10 个 feature 模块
 > 路径前缀简写：`src/main/java/com/aqishi/toolbox/` → `…/`
 
+## 进度
+
+| 批次 | 内容 | 状态 |
+|---|---|---|
+| 第 1 批 | P0-1~P0-5、P1-1、P1-3、P1-6、P1-10、P1-27、B1、B6 | ✅ 已完成（`515005c`，230 测试全绿） |
+| 第 2 批 | P2-5/P2-6 分层归位、P2-7 打破包级环 | ⏳ 待做 |
+| 第 3 批 | P2-1~P2-4 重复收敛、P2-9 UI 逻辑下沉 | ⏳ 待做 |
+| 第 4 批 | T1~T4 测试补齐、B7 CI 门禁 | ⏳ 待做 |
+| 第 5 批 | D1~D7 文档校准、I1~I2 i18n 分批 | ⏳ 待做 |
+
+已完成项保留原文，作为问题背景与证据。
+
+### 第 1 批落地要点
+
+**新增类**
+
+- `…/infra/kubernetes/KubernetesTls.java`：按连接构建 TLS 上下文（不再缓存进程级 trust-all 单例），支持集群 CA 作为唯一信任锚，缺省走系统信任库
+- `…/infra/concurrency/DaemonThreads.java`：具名守护线程池 + `shutdownQuietly()`，漏关也不再阻止 JVM 退出
+- `…/feature/monitor/RemoteSessionIds.java`：SecureRandom 生成 12 字符会话 ID（约 60bit）
+- `…/feature/network/ssh/session/SshHostKeyPrompt.java` + `…/feature/network/ssh/ui/SshHostKeyPrompts.java`：SSH 主机指纹确认的接口与 Swing 实现
+
+**接口调整**
+
+- `KubernetesClient` / `KubernetesServiceFactory`：不再接收 `skipTls` 布尔量，改为接收 `SSLSocketFactory` + `HostnameVerifier`
+- `KubernetesProfile` 新增 `caCertData`；`KubeconfigParser` 解析 `certificate-authority-data`，仅在明确 `insecure-skip-tls-verify` 且无 CA 时才跳过校验
+- `SshSessionInstance` 新增 `(config, hostKeyPrompt)` 构造器，默认构造器等同「一律拒绝」
+- `SymmetricUtils` 新增 GCM，`MODES = {GCM, CBC, ECB}`，GCM 下自动禁用 padding 选择
+- `UIUtils` 新增 `confirm(parent, msg, title)`
+
+**接入 `ManagedResourceOwner` 的面板（11 个）**
+
+`RemoteDesktopPanel`、`CertPanel`、`WeChatPanel`、`PortScannerPanel`、`TotpPanel`、`TimePanel`、`PinGamePanel`、`HanoiPanel`、`SortPanel`、`QrCodePanel`、`Base64ImagePanel`
+
+**构建**
+
+- JDK 统一 17（`maven.compiler.release`），与 CI 一致
+- `maven-resources-plugin` 2.6 → 3.3.1、`maven-surefire-plugin` 3.1.2 → 3.2.5（原版本在本地仓库不完整，无法构建和跑测试）
+- `target/` 已 clean，回收 261MB
+
 ## 0. 一句话结论
 
 代码整体质量**中上**（JDBC 全面 try-with-resources、ThemeManager 与 vault 包堪称样板、infra 配置持久化复用良好）。

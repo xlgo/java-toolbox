@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
 import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
+import com.aqishi.toolbox.util.FormatUtils;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.Tokens;
@@ -217,7 +218,7 @@ public class SftpPanel extends JPanel {
                     SftpATTRS attrs = entry.getAttrs();
                     boolean isDir = attrs.isDir();
                     String type = isDir ? "<DIR>" : "<FILE>";
-                    String sizeStr = isDir ? "-" : formatSize(attrs.getSize());
+                    String sizeStr = isDir ? "-" : FormatUtils.bytes(attrs.getSize());
                     String mtime = sdf.format(new Date(attrs.getMTime() * 1000L));
                     String permissions = attrs.getPermissionsString();
 
@@ -438,9 +439,4 @@ public class SftpPanel extends JPanel {
         sftp.rmdir(path);
     }
 
-    private String formatSize(long size) {
-        if (size < 1024) return size + " B";
-        int z = (63 - Long.numberOfLeadingZeros(size)) / 10;
-        return String.format("%.1f %cB", (double) size / (1L << (z * 10)), " KMGTPE".charAt(z));
-    }
 }

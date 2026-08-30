@@ -13,6 +13,7 @@ import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.util.FormatUtils;
 
 import javax.swing.*;
 import java.awt.*;
@@ -275,7 +276,7 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
                         respBodyArea.setText("错误信息: " + resp.error);
                     } else {
                         String statusStr = String.format("Status: %d %s  |  Time: %d ms  |  Size: %s",
-                                resp.code, resp.message, resp.timeMs, formatSize(resp.sizeBytes));
+                                resp.code, resp.message, resp.timeMs, FormatUtils.bytes(resp.sizeBytes));
                         statusLabel.setText(statusStr);
                         respHeadersArea.setText(resp.headers);
 
@@ -492,11 +493,6 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
         }
     }
 
-    private static String formatSize(long bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return String.format("%.2f KB", bytes / 1024.0);
-        return String.format("%.2f MB", bytes / (1024.0 * 1024.0));
-    }
 
     private static class ResponseData {
         int code;

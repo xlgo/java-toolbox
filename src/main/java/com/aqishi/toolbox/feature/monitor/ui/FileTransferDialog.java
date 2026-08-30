@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.monitor.ui;
 
 import com.aqishi.toolbox.util.I18n;
+import com.aqishi.toolbox.util.FormatUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.swing.*;
@@ -119,7 +120,7 @@ public class FileTransferDialog extends JDialog {
                     Number fileSizeNum = (Number) msg.get("fileSize");
                     long fileSize = fileSizeNum.longValue();
 
-                    log.accept(I18n.get("remote_desktop.ft_peer_req", fileName, formatBytes(fileSize)));
+                    log.accept(I18n.get("remote_desktop.ft_peer_req", fileName, FormatUtils.bytes(fileSize)));
 
                     // 默认静默保存在被控端下载目录
                     String userHome = System.getProperty("user.home");
@@ -291,7 +292,7 @@ public class FileTransferDialog extends JDialog {
         JPanel infoPanel = new JPanel(new GridLayout(2, 1, 2, 2));
         JLabel nameLbl = new JLabel(task.fileName);
         nameLbl.setFont(new Font(Font.DIALOG, Font.BOLD, 13));
-        JLabel sizeLbl = new JLabel(formatBytes(task.fileSize));
+        JLabel sizeLbl = new JLabel(FormatUtils.bytes(task.fileSize));
         sizeLbl.setFont(new Font(Font.DIALOG, Font.PLAIN, 11));
         sizeLbl.setForeground(Color.GRAY);
         infoPanel.add(nameLbl);
@@ -327,11 +328,6 @@ public class FileTransferDialog extends JDialog {
         tasksPanel.repaint();
     }
 
-    private static String formatBytes(long bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return String.format("%.2f KB", bytes / 1024.0);
-        return String.format("%.2f MB", bytes / 1024.0 / 1024.0);
-    }
 
     private static class TransferTask {
         String fileId;

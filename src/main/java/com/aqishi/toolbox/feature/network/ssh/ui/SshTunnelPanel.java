@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
+import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
@@ -298,7 +299,7 @@ public class SshTunnelPanel extends JPanel {
         if (tunnel != null) {
             if (tunnel.getStatus() == SshTunnelConfig.Status.RUNNING && tunnel.getAssignedLocalPort() > 0) {
                 String addr = "127.0.0.1:" + tunnel.getAssignedLocalPort();
-                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(addr), null);
+                UIUtils.copyToClipboard(addr);
                 statusHintLabel.setText("已复制本地访问地址: " + addr);
                 JOptionPane.showMessageDialog(this, "已复制本地服务地址: " + addr, "成功", JOptionPane.INFORMATION_MESSAGE);
             } else {

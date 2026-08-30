@@ -9,6 +9,7 @@ import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.util.FormatUtils;
 import com.aqishi.toolbox.vault.SecureClipboard;
 import com.aqishi.toolbox.vault.VaultBootstrap;
 import com.aqishi.toolbox.vault.VaultService;
@@ -545,7 +546,7 @@ public class MainFrame extends JFrame {
 
         String memoryTemplate = localized("status.memory", "内存 {0} / {1} ({2}%)");
         statusMemoryLabel.setText(java.text.MessageFormat.format(
-                memoryTemplate, formatBytes(used), formatBytes(max), memPct));
+                memoryTemplate, FormatUtils.bytes(used), FormatUtils.bytes(max), memPct));
     }
 
     /** 取本地化文案，键缺失时回退到内置中文，避免界面上出现原始 key */
@@ -554,10 +555,4 @@ public class MainFrame extends JFrame {
         return key.equals(value) ? fallback : value;
     }
 
-    private static String formatBytes(long bytes) {
-        if (bytes < 1024) return bytes + "B";
-        if (bytes < 1024 * 1024) return String.format("%.1fKB", bytes / 1024.0);
-        if (bytes < 1024 * 1024 * 1024) return String.format("%.1fMB", bytes / (1024.0 * 1024.0));
-        return String.format("%.1fGB", bytes / (1024.0 * 1024.0 * 1024.0));
-    }
 }

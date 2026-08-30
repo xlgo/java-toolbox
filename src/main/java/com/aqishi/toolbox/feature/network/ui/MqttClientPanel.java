@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.network.ui;
 
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.infra.messaging.MqttResource;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -266,7 +267,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         copyBtn.addActionListener(e -> {
             String text = msgDetailArea.getText();
             if (text != null && !text.isEmpty()) {
-                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+                UIUtils.copyToClipboard(text);
                 JOptionPane.showMessageDialog(getView(), "详情内容已复制到剪贴板", "提示", JOptionPane.INFORMATION_MESSAGE);
             }
         });

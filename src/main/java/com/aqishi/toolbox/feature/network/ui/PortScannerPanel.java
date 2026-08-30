@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.network.ui;
 
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -454,7 +455,7 @@ public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner 
             }
         }
         if (sb.length() > 0) {
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(sb.toString()), null);
+            UIUtils.copyToClipboard(sb.toString());
             JOptionPane.showMessageDialog(getView(), "开放端口列表已复制到剪贴板", "成功", JOptionPane.INFORMATION_MESSAGE);
         } else {
             JOptionPane.showMessageDialog(getView(), "未找到开放端口", "提示", JOptionPane.WARNING_MESSAGE);

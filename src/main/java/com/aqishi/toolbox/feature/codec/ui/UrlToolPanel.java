@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.ui.kit.Card;
 
 import javax.swing.*;
@@ -319,7 +320,7 @@ public class UrlToolPanel extends ToolPanel {
 
     private void copyToClipboard(String text) {
         if (text == null || text.isEmpty()) return;
-        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+        UIUtils.copyToClipboard(text);
         JOptionPane.showMessageDialog(getView(), "已复制到剪贴板", "提示", JOptionPane.INFORMATION_MESSAGE);
     }
 }

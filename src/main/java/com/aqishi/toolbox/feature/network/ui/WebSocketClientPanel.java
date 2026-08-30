@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.network.ui;
 
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.infra.network.WebSocketResource;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -188,7 +189,7 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
 
         JButton copyLogBtn = new JButton("复制日志");
         copyLogBtn.addActionListener(e -> {
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(logTextArea.getText()), null);
+            UIUtils.copyToClipboard(logTextArea.getText());
             JOptionPane.showMessageDialog(getView(), "已复制日志到剪贴板", "提示", JOptionPane.INFORMATION_MESSAGE);
         });
 

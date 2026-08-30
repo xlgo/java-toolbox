@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.system.ui;
 
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.ui.kit.Card;
 
 import javax.swing.*;
@@ -380,7 +381,7 @@ public class ChmodPanel extends ToolPanel {
 
     private void copyToClipboard(String text) {
         if (text == null || text.isEmpty()) return;
-        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+        UIUtils.copyToClipboard(text);
         JOptionPane.showMessageDialog(getView(), "已成功复制到剪贴板:\n" + text, "提示", JOptionPane.INFORMATION_MESSAGE);
     }
 

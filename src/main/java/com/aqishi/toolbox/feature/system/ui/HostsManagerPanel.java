@@ -225,7 +225,7 @@ public class HostsManagerPanel extends ToolPanel {
             JOptionPane.showMessageDialog(getView(), "系统 Hosts 文件已成功更新！", "提示", JOptionPane.INFORMATION_MESSAGE);
         } catch (Exception e) {
             statusLabel.setText("保存失败 (无写入权限)");
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(sb.toString()), null);
+            UIUtils.copyToClipboard(sb.toString());
             JOptionPane.showMessageDialog(getView(),
                     "写入系统 Hosts 失败（可能是由于没有管理员权限）。\n最新 Hosts 内容已自动复制到剪贴板，您可以手动保存至:\n" + hostsFile.getAbsolutePath(),
                     "权限受限提示", JOptionPane.WARNING_MESSAGE);

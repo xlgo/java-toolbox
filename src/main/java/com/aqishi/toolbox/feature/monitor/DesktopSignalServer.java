@@ -77,7 +77,7 @@ public class DesktopSignalServer extends WebSocketServer {
                     String name = (String) json.get("name");
 
                     if (id == null || id.trim().isEmpty()) {
-                        id = "RD-" + (int)((Math.random() * 9 + 1) * 100000);
+                        id = RemoteSessionIds.generate();
                     }
                     if (group == null || group.trim().isEmpty()) {
                         group = "default";

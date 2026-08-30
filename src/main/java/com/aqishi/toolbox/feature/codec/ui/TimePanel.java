@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -24,7 +25,7 @@ import java.util.List;
  * 时间戳 ↔ 日期互转面板，支持秒/毫秒、自定义格式与时区。
  * 按照新版 UI 设计重构：卡片纵向堆叠（当前时间 / 时间戳换算 / 时间换算），整体可滚动。
  */
-public class TimePanel extends ToolPanel {
+public class TimePanel extends ToolPanel implements ManagedResourceOwner {
 
     private Timer timer;
     private JLabel topMsValueLabel;
@@ -329,5 +330,17 @@ public class TimePanel extends ToolPanel {
         }
         return selected;
     }
-}
 
+    /**
+     * Stops the clock timer. Only runs at shutdown, so a later panel switch
+     * never needs to restart it.
+     */
+    @Override
+    public void closeResources() {
+        Timer running = timer;
+        timer = null;
+        if (running != null && running.isRunning()) {
+            running.stop();
+        }
+    }
+}

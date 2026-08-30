@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.monitor;
 
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -37,7 +38,7 @@ import javax.imageio.stream.ImageOutputStream;
 /**
  * P2P 远程桌面工具面板 (完全支持 WebRTC ICE, Offer, Answer 信令协商)。
  */
-public class RemoteDesktopPanel extends ToolPanel {
+public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwner {
 
     private static final String NEGOTIATION_VERSION = Ice4jDirectConnector.PROTOCOL;
 
@@ -286,7 +287,7 @@ public class RemoteDesktopPanel extends ToolPanel {
                     Timer joinTimer = new Timer(500, null);
                     joinTimer.addActionListener(evt -> {
                         if (signalClient.isOpen()) {
-                            String myId = "RD-" + (int)((Math.random() * 9 + 1) * 100000);
+                            String myId = RemoteSessionIds.generate();
                             String group = groupField.getText().trim();
                             String name = nameField.getText().trim();
                             signalClient.join(myId, group, name);
@@ -514,7 +515,7 @@ public class RemoteDesktopPanel extends ToolPanel {
             Timer hostJoinTimer = new Timer(500, null);
             hostJoinTimer.addActionListener(evt -> {
                 if (hostSignalClient.isOpen()) {
-                    String myHostId = "RD-" + (int)((Math.random() * 9 + 1) * 100000);
+                    String myHostId = RemoteSessionIds.generate();
                     String group = groupField.getText().trim();
                     String name = nameField.getText().trim() + "(Be Controlled)";
 
@@ -939,15 +940,25 @@ public class RemoteDesktopPanel extends ToolPanel {
     }
 
     private void stopHostService() {
-        stopHostSession();
+        releaseHostService();
+        hostStatusLabel.setText(I18n.get("remote_desktop.host_status_offline"));
+        hostStatusLabel.setForeground(Tokens.mutedForeground());
+        appendLog(hostLogArea, I18n.get("remote_desktop.host_log_stopped"));
+    }
 
+    /**
+     * Releases host-side resources without touching a single component.
+     *
+     * <p>Shutdown must work even when the panel was created but never shown,
+     * which is why the status label updates live in {@link #stopHostService()}
+     * and not here.</p>
+     */
+    private void releaseHostService() {
+        stopHostSession();
         if (hostSignalClient != null) {
             hostSignalClient.close();
             hostSignalClient = null;
         }
-        hostStatusLabel.setText(I18n.get("remote_desktop.host_status_offline"));
-        hostStatusLabel.setForeground(Tokens.mutedForeground());
-        appendLog(hostLogArea, I18n.get("remote_desktop.host_log_stopped"));
     }
 
     // ==================== 选项卡3：本地信令服务 ====================
@@ -999,20 +1010,31 @@ public class RemoteDesktopPanel extends ToolPanel {
     }
 
     private void stopLocalServer() {
-        if (localSignalServer != null) {
-            try {
-                localSignalServer.stop();
-                appendLog(serverLogArea, I18n.get("remote_desktop.server_log_stopped"));
-            } catch (Exception ex) {
-                appendLog(serverLogArea, "Relay stop error: " + ex.getMessage());
-            }
-            localSignalServer = null;
-        }
+        releaseLocalServer();
         startServerBtn.setText(I18n.get("remote_desktop.server_btn_start"));
         localPortField.setEnabled(true);
     }
 
+    /** Stops the relay server without touching a single component. */
+    private void releaseLocalServer() {
+        if (localSignalServer == null) {
+            return;
+        }
+        try {
+            localSignalServer.stop();
+            appendLog(serverLogArea, I18n.get("remote_desktop.server_log_stopped"));
+        } catch (Exception ex) {
+            appendLog(serverLogArea, "Relay stop error: " + ex.getMessage());
+        }
+        localSignalServer = null;
+    }
+
     private void appendLog(JTextArea area, String msg) {
+        if (area == null) {
+            // The panel can be asked to log before its view exists; there is
+            // simply nowhere to put the text yet.
+            return;
+        }
         SwingUtilities.invokeLater(() -> {
             area.append(msg + "\n");
             area.setCaretPosition(area.getDocument().getLength());
@@ -1047,17 +1069,37 @@ public class RemoteDesktopPanel extends ToolPanel {
         return baos.toByteArray();
     }
 
-    public void cleanup() {
-        stopHostService();
+    /**
+     * Releases every socket, scheduler, and child process owned by this panel.
+     *
+     * <p>The shell only reaches panels through {@link ManagedResourceOwner}, so
+     * wiring {@code cleanup()} to that contract is what stops the screen-push,
+     * ICE, and relay threads from keeping the JVM alive after the window
+     * closes. Safe to call repeatedly and from the shutdown path.</p>
+     */
+    @Override
+    public void closeResources() {
+        DesktopChannel controlChannel = activeControlChannel;
+        activeControlChannel = null;
+        if (controlChannel != null) {
+            try {
+                controlChannel.close();
+            } catch (Exception ignored) {
+                // Shutdown must not fail because a peer already vanished.
+            }
+        }
+        releaseHostService();
         if (signalClient != null) {
             signalClient.close();
         }
-        if (activeControlWindow != null) {
-            activeControlWindow.dispose();
+        RemoteControlWindow window = activeControlWindow;
+        activeControlWindow = null;
+        if (window != null) {
+            window.dispose();
         }
         controlIceConnector.stop();
         controlTcpConnector.stop();
         controlTcpListenerConnector.stop();
-        stopLocalServer();
+        releaseLocalServer();
     }
 }

@@ -150,8 +150,16 @@ public class MainFrame extends JFrame {
     private void closeManagedResources() {
         if (tools == null) return;
         for (ToolPanel tool : tools) {
-            if (tool instanceof ManagedResourceOwner) {
+            if (!(tool instanceof ManagedResourceOwner)) {
+                continue;
+            }
+            try {
                 ((ManagedResourceOwner) tool).closeResources();
+            } catch (RuntimeException error) {
+                // One panel failing to release must not strand the sockets and
+                // threads owned by every panel after it.
+                System.err.println("[shutdown] " + tool.getClass().getSimpleName()
+                        + " 资源释放失败: " + error.getMessage());
             }
         }
         SshTunnelBridge.shutdown();

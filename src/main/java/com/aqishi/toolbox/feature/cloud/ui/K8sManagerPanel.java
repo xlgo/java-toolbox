@@ -5,6 +5,7 @@ import com.aqishi.toolbox.feature.cloud.application.KubernetesServiceFactory;
 import com.aqishi.toolbox.feature.cloud.domain.KubernetesProfile;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.infra.kubernetes.KubeconfigParser;
+import com.aqishi.toolbox.infra.kubernetes.KubernetesTls;
 import com.aqishi.toolbox.infra.kubernetes.KubeconfigStore;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
@@ -57,6 +58,8 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
     private JTextField serverField;
     private JPasswordField tokenField;
     private JCheckBox skipTlsCheck;
+    private JButton pickCaCertBtn;
+    private JLabel caCertStatusLabel;
     private JButton connBtn;
 
     private JComboBox<String> nsCombo;
@@ -112,10 +115,12 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
     private boolean isConnected = false;
     private String activeServerUrl = "";
     private String activeToken = "";
-    private boolean activeSkipTls = true;
+    private boolean activeSkipTls = false;
     private String activeClientCert = null;
     private String activeClientKey = null;
+    private String activeCaCert = null;
     private javax.net.ssl.SSLSocketFactory activeSocketFactory = null;
+    private javax.net.ssl.HostnameVerifier activeHostnameVerifier = null;
     private KubernetesService kubernetesService;
     private final KubernetesServiceFactory kubernetesServiceFactory;
     /** Transfer sockets and workers are tracked so application shutdown can cancel them. */
@@ -196,7 +201,11 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
 
         serverField = Fields.text("https://127.0.0.1:6443");
         tokenField = Fields.password();
-        skipTlsCheck = Fields.check("跳过 TLS 证书验证 (推荐开发测试环境使用)", true);
+        skipTlsCheck = Fields.check("跳过 TLS 证书验证 (不推荐，仅限内网自签集群)", false);
+        pickCaCertBtn = Buttons.secondary("选择 CA 证书");
+        caCertStatusLabel = new JLabel("未设置，使用系统信任库");
+        caCertStatusLabel.setFont(caCertStatusLabel.getFont().deriveFont(11f));
+        pickCaCertBtn.addActionListener(e -> chooseCertificateAuthority());
 
         // 地址与凭据都是等长输入框，并成两列后卡片少占一行高度
         FormGrid endpoint = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
@@ -208,6 +217,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         FormGrid form = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
         form.rowCompact("集群配置", profileCombo, profileActions);
         form.fullRow(Layouts.columns(Tokens.SPACE_XL, endpoint, credential));
+        form.row("集群 CA 证书", Layouts.columns(Tokens.SPACE_SM, pickCaCertBtn, caCertStatusLabel));
         form.row("安全设置", skipTlsCheck);
 
         connBtn = Buttons.primary("连接集群");
@@ -216,6 +226,46 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         card.setContent(form);
         card.addHeaderAction(connBtn);
         return card;
+    }
+
+    /**
+     * Lets the caller pin the cluster's CA instead of disabling verification.
+     * The certificate is read once and kept in memory for the session.
+     */
+    private void chooseCertificateAuthority() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("选择集群 CA 证书 (PEM/CRT)");
+        if (chooser.showOpenDialog(getView()) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        File file = chooser.getSelectedFile();
+        try {
+            String pem = new String(java.nio.file.Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+            if (pem.trim().isEmpty()) {
+                UIUtils.error(getView(), "所选文件为空。");
+                return;
+            }
+            // Fail fast on a malformed file rather than at connect time.
+            KubernetesTls.socketFactory(false, pem, null, null);
+            activeCaCert = pem;
+            caCertStatusLabel.setText(file.getName());
+            caCertStatusLabel.setToolTipText(file.getAbsolutePath());
+            skipTlsCheck.setSelected(false);
+        } catch (Exception ex) {
+            Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+            UIUtils.error(getView(), "CA 证书解析失败: " + cause.getMessage());
+        }
+    }
+
+    /** Updates the CA caption after a profile import or profile switch. */
+    private void refreshCaCertLabel() {
+        if (activeCaCert == null || activeCaCert.trim().isEmpty()) {
+            caCertStatusLabel.setText("未设置，使用系统信任库");
+            caCertStatusLabel.setToolTipText(null);
+            return;
+        }
+        int count = activeCaCert.split("BEGIN CERTIFICATE", -1).length - 1;
+        caCertStatusLabel.setText(count > 1 ? ("已加载 " + count + " 张证书") : "已加载 1 张证书");
     }
 
     /**
@@ -448,6 +498,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         serverField.setEnabled(!connected);
         tokenField.setEnabled(!connected);
         skipTlsCheck.setEnabled(!connected);
+        pickCaCertBtn.setEnabled(!connected);
 
         nsCombo.setEnabled(connected);
         refreshNsBtn.setEnabled(connected);
@@ -460,6 +511,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
             nsCombo.removeAllItems();
             clearAllTables();
             activeSocketFactory = null;
+            activeHostnameVerifier = null;
         }
     }
 
@@ -497,6 +549,8 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                 skipTlsCheck.setSelected(p.skipTls);
                 activeClientCert = p.clientCertData;
                 activeClientKey = p.clientKeyData;
+                activeCaCert = p.caCertData;
+                refreshCaCertLabel();
             }
         });
 
@@ -511,7 +565,8 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                     new String(tokenField.getPassword()),
                     skipTlsCheck.isSelected(),
                     activeClientCert,
-                    activeClientKey
+                    activeClientKey,
+                    activeCaCert
             );
             profiles.put(name, p);
             saveProfilesToPrefs();
@@ -636,6 +691,9 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
             UIUtils.error(null, "API Server 地址不能为空！");
             return;
         }
+        if (activeSkipTls && !confirmSkipTlsVerification()) {
+            return;
+        }
 
         connBtn.setEnabled(false);
         connBtn.setText("连接中...");
@@ -643,10 +701,12 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         new SwingWorker<Boolean, Void>() {
             @Override
             protected Boolean doInBackground() throws Exception {
-                activeSocketFactory = buildSSLSocketFactory(activeSkipTls, activeClientCert, activeClientKey);
+                activeSocketFactory = KubernetesTls.socketFactory(
+                        activeSkipTls, activeCaCert, activeClientCert, activeClientKey);
+                activeHostnameVerifier = KubernetesTls.hostnameVerifier(activeSkipTls);
                 closeKubernetesService();
                 kubernetesService = kubernetesServiceFactory.create(
-                        activeServerUrl, activeToken, activeSkipTls, activeSocketFactory);
+                        activeServerUrl, activeToken, activeSocketFactory, activeHostnameVerifier);
                 // Test connectivity by querying API version info or namespaces
                 executeRequest("GET", "/api/v1/namespaces", null, activeSkipTls);
                 return true;
@@ -661,11 +721,24 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                 } catch (Exception ex) {
                     toggleState(false);
                     activeSocketFactory = null;
+                    activeHostnameVerifier = null;
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                     UIUtils.error(connBtn, "连接失败: " + cause.getMessage());
                 }
             }
         }.execute();
+    }
+
+    /**
+     * Verification is a security boundary, so turning it off must be a
+     * deliberate act rather than a checkbox left over from a previous session.
+     */
+    private boolean confirmSkipTlsVerification() {
+        String message = "<html><b>跳过 TLS 证书验证会让你暴露在中间人攻击之下。</b><br>"
+                + "该连接将不校验服务器证书链与主机名，Token 可能被窃取。<br><br>"
+                + "如果集群使用自签证书，请改为「选择 CA 证书」指定集群 CA。<br><br>"
+                + "确定要继续吗？</html>";
+        return UIUtils.confirm(getView(), message, "安全确认");
     }
 
     private void loadNamespaces() {
@@ -1553,11 +1626,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                     }
                 };
 
-                if (activeServerUrl.startsWith("https://") && activeSocketFactory != null) {
-                    client.setSocketFactory(activeSocketFactory);
-                } else if (activeSkipTls) {
-                    client.setSocketFactory(getTrustAllSocketFactory());
-                }
+                applyTls(client);
 
                 registerTransferClient(client);
                 client.connect();
@@ -1696,11 +1765,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                     }
                 };
 
-                if (activeServerUrl.startsWith("https://") && activeSocketFactory != null) {
-                    client.setSocketFactory(activeSocketFactory);
-                } else if (activeSkipTls) {
-                    client.setSocketFactory(getTrustAllSocketFactory());
-                }
+                applyTls(client);
 
                 registerTransferClient(client);
                 client.connect();
@@ -1987,9 +2052,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
 
             clientHolder[0] = client;
 
-            if (activeServerUrl.startsWith("https://") && activeSocketFactory != null) {
-                client.setSocketFactory(activeSocketFactory);
-            }
+            applyTls(client);
 
             dialog.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
@@ -2126,15 +2189,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                     conn.setRequestProperty("Accept", "application/json");
 
                     if (conn instanceof HttpsURLConnection) {
-                        HttpsURLConnection httpsConn = (HttpsURLConnection) conn;
-                        if (activeSocketFactory != null) {
-                            httpsConn.setSSLSocketFactory(activeSocketFactory);
-                        } else if (activeSkipTls) {
-                            httpsConn.setSSLSocketFactory(getTrustAllSocketFactory());
-                        }
-                        if (activeSkipTls) {
-                            httpsConn.setHostnameVerifier((h, s) -> true);
-                        }
+                        applyTls((HttpsURLConnection) conn);
                     }
 
                     activeConn[0] = conn;
@@ -2409,10 +2464,12 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         serverField.setText(p.serverUrl);
         tokenField.setText(p.token);
         skipTlsCheck.setSelected(p.skipTls);
-        
+
         activeClientCert = p.clientCertData;
         activeClientKey = p.clientKeyData;
-        
+        activeCaCert = p.caCertData;
+        refreshCaCertLabel();
+
         String baseName = p.name;
         String finalName = baseName;
         int count = 1;
@@ -2549,6 +2606,8 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
             if (p != null) {
                 activeClientCert = p.clientCertData;
                 activeClientKey = p.clientKeyData;
+                activeCaCert = p.caCertData;
+                refreshCaCertLabel();
             }
         } else if (profileCombo.getItemCount() > 0) {
             profileCombo.setSelectedIndex(0);
@@ -2560,10 +2619,14 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                 skipTlsCheck.setSelected(p.skipTls);
                 activeClientCert = p.clientCertData;
                 activeClientKey = p.clientKeyData;
+                activeCaCert = p.caCertData;
+                refreshCaCertLabel();
             }
         } else {
             activeClientCert = null;
             activeClientKey = null;
+            activeCaCert = null;
+            refreshCaCertLabel();
         }
         ignoreProfileEvents = false;
     }
@@ -2579,76 +2642,32 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         }
     }
 
-    private static javax.net.ssl.SSLSocketFactory trustAllSocketFactory;
-    private static synchronized javax.net.ssl.SSLSocketFactory getTrustAllSocketFactory() throws Exception {
-        if (trustAllSocketFactory == null) {
-            javax.net.ssl.TrustManager[] trustAllCerts = new javax.net.ssl.TrustManager[] {
-                new javax.net.ssl.X509TrustManager() {
-                    public java.security.cert.X509Certificate[] getAcceptedIssuers() { return null; }
-                    public void checkClientTrusted(java.security.cert.X509Certificate[] certs, String authType) {}
-                    public void checkServerTrusted(java.security.cert.X509Certificate[] certs, String authType) {}
-                }
-            };
-            javax.net.ssl.SSLContext sc = javax.net.ssl.SSLContext.getInstance("TLS");
-            sc.init(null, trustAllCerts, new java.security.SecureRandom());
-            trustAllSocketFactory = sc.getSocketFactory();
+    /**
+     * Applies the active cluster's TLS material to a WebSocket transport.
+     *
+     * <p>The factory is built once per connection in {@link #connectCluster()};
+     * rebuilding it here would only happen for a console opened outside that
+     * flow, and it still reflects the user's current verification choice.</p>
+     */
+    private void applyTls(org.java_websocket.client.WebSocketClient client) {
+        if (!activeServerUrl.startsWith("https://")) {
+            return;
         }
-        return trustAllSocketFactory;
+        javax.net.ssl.SSLSocketFactory factory = activeSocketFactory;
+        if (factory == null) {
+            factory = KubernetesTls.socketFactory(
+                    activeSkipTls, activeCaCert, activeClientCert, activeClientKey);
+        }
+        client.setSocketFactory(factory);
     }
 
-    private javax.net.ssl.SSLSocketFactory buildSSLSocketFactory(boolean skipTls, String certPem, String keyPem) throws Exception {
-        javax.net.ssl.KeyManager[] keyManagers = null;
-        if (certPem != null && !certPem.trim().isEmpty() && keyPem != null && !keyPem.trim().isEmpty()) {
-            java.security.cert.X509Certificate cert = parseCertificate(certPem);
-            java.security.PrivateKey privateKey = parsePrivateKey(keyPem);
-            
-            char[] password = "changeit".toCharArray();
-            java.security.KeyStore keyStore = java.security.KeyStore.getInstance("PKCS12");
-            keyStore.load(null, null);
-            keyStore.setKeyEntry("client", privateKey, password, new java.security.cert.Certificate[]{cert});
-            
-            javax.net.ssl.KeyManagerFactory kmf = javax.net.ssl.KeyManagerFactory.getInstance(javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm());
-            kmf.init(keyStore, password);
-            keyManagers = kmf.getKeyManagers();
+    /** Applies the active cluster's TLS material to an HTTPS connection. */
+    private void applyTls(HttpsURLConnection connection) {
+        if (activeSocketFactory != null) {
+            connection.setSSLSocketFactory(activeSocketFactory);
         }
-
-        javax.net.ssl.TrustManager[] trustManagers = null;
-        if (skipTls) {
-            trustManagers = new javax.net.ssl.TrustManager[] {
-                new javax.net.ssl.X509TrustManager() {
-                    public java.security.cert.X509Certificate[] getAcceptedIssuers() { return null; }
-                    public void checkClientTrusted(java.security.cert.X509Certificate[] certs, String authType) {}
-                    public void checkServerTrusted(java.security.cert.X509Certificate[] certs, String authType) {}
-                }
-            };
-        }
-
-        javax.net.ssl.SSLContext sc = javax.net.ssl.SSLContext.getInstance("TLS");
-        sc.init(keyManagers, trustManagers, new java.security.SecureRandom());
-        return sc.getSocketFactory();
-    }
-
-    private java.security.cert.X509Certificate parseCertificate(String pemStr) throws Exception {
-        java.security.cert.CertificateFactory cf = java.security.cert.CertificateFactory.getInstance("X.509");
-        try (java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(pemStr.getBytes(StandardCharsets.UTF_8))) {
-            return (java.security.cert.X509Certificate) cf.generateCertificate(bis);
-        }
-    }
-
-    private java.security.PrivateKey parsePrivateKey(String pemStr) throws Exception {
-        try (org.bouncycastle.openssl.PEMParser pemParser = new org.bouncycastle.openssl.PEMParser(new java.io.StringReader(pemStr))) {
-            Object object = pemParser.readObject();
-            org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter converter = new org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter();
-            if (object instanceof org.bouncycastle.openssl.PEMKeyPair) {
-                java.security.KeyPair kp = converter.getKeyPair((org.bouncycastle.openssl.PEMKeyPair) object);
-                return kp.getPrivate();
-            } else if (object instanceof org.bouncycastle.asn1.pkcs.PrivateKeyInfo) {
-                return converter.getPrivateKey((org.bouncycastle.asn1.pkcs.PrivateKeyInfo) object);
-            } else if (object instanceof org.bouncycastle.openssl.PEMEncryptedKeyPair) {
-                throw new Exception("不支持加密的私钥文件，请使用未加密的私钥。");
-            } else {
-                throw new Exception("无法解析的私钥格式: " + (object == null ? "null" : object.getClass().getName()));
-            }
+        if (activeHostnameVerifier != null) {
+            connection.setHostnameVerifier(activeHostnameVerifier);
         }
     }
 

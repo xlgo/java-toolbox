@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.compute.ui;
 
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -21,7 +22,7 @@ import java.util.List;
  * 见缝插针（AA Pin Game）游戏面板。
  * <p>极致性能优化版：纳秒级 Delta-Time 物理微积分、显存同步、对象复用与双缓冲。</p>
  */
-public class PinGamePanel extends ToolPanel {
+public class PinGamePanel extends ToolPanel implements ManagedResourceOwner {
 
     // 难度枚举
     public enum Difficulty {
@@ -762,6 +763,19 @@ public class PinGamePanel extends ToolPanel {
             int textX = (width - fm.stringWidth(statusMessage)) / 2;
             int textY = bannerY + bannerHeight / 2 + fm.getAscent() / 2 - 2;
             g2d.drawString(statusMessage, textX, textY);
+        }
+    }
+
+    /**
+     * Stops the 60Hz game loop, which would otherwise keep ticking in the
+     * background after the window closes.
+     */
+    @Override
+    public void closeResources() {
+        Timer running = gameLoopTimer;
+        gameLoopTimer = null;
+        if (running != null && running.isRunning()) {
+            running.stop();
         }
     }
 }

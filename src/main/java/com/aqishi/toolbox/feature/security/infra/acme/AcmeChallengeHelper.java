@@ -80,7 +80,10 @@ public class AcmeChallengeHelper {
                 }
             }
         });
-        server.setExecutor(Executors.newCachedThreadPool());
+        // Named daemon threads: an ACME challenge server is short-lived, and a
+        // forgotten stop() must not keep the JVM alive after the window closes.
+        server.setExecutor(com.aqishi.toolbox.infra.concurrency.DaemonThreads
+                .fixed("acme-challenge", 4));
         server.start();
         currentPort = port;
     }
@@ -89,10 +92,20 @@ public class AcmeChallengeHelper {
      * 停止内置 HTTP-01 服务器
      */
     public static synchronized void stopHttpServer() {
-        if (server != null) {
-            server.stop(0);
-            server = null;
-            currentPort = -1;
+        HttpServer running = server;
+        server = null;
+        currentPort = -1;
+        if (running == null) {
+            return;
+        }
+        try {
+            running.stop(0);
+        } finally {
+            // stop() closes the listener but not an executor supplied by us.
+            java.util.concurrent.Executor executor = running.getExecutor();
+            if (executor instanceof java.util.concurrent.ExecutorService) {
+                ((java.util.concurrent.ExecutorService) executor).shutdownNow();
+            }
         }
     }
 

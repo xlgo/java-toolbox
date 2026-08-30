@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.compute.ui;
 
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -22,7 +23,10 @@ import java.util.function.Function;
  * 排序算法可视化面板。
  * <p>支持冒泡、选择、插入、快排、归并五种算法，带逐帧动画与统计信息。</p>
  */
-public class SortPanel extends ToolPanel {
+public class SortPanel extends ToolPanel implements ManagedResourceOwner {
+
+    /** Held as a field so shutdown can stop playback started from a local scope. */
+    private final Timer[] sortTimer = new Timer[1];
 
     public SortPanel() {
         super("algo", "sort.visualizer",
@@ -96,13 +100,12 @@ public class SortPanel extends ToolPanel {
         root.add(visual, BorderLayout.CENTER);
 
         // ===== 状态 =====
-        Timer[] timerHolder = new Timer[1];
 
         speed.addChangeListener(e -> {
             int val = speed.getValue();
             speedL.setText("速度 (次/秒): " + val);
-            if (timerHolder[0] != null && timerHolder[0].isRunning()) {
-                timerHolder[0].setDelay(Math.max(1, 1000 / val));
+            if (sortTimer[0] != null && sortTimer[0].isRunning()) {
+                sortTimer[0].setDelay(Math.max(1, 1000 / val));
             }
         });
 
@@ -116,7 +119,7 @@ public class SortPanel extends ToolPanel {
         gen.doClick();
 
         start.addActionListener(e -> {
-            if (timerHolder[0] != null && timerHolder[0].isRunning()) return;
+            if (sortTimer[0] != null && sortTimer[0].isRunning()) return;
             int[] arr = canvas.array.clone();
             Function<int[], Snapshot> sorter = pickSorter((String) algo.getSelectedItem());
             Snapshot snap = sorter.apply(arr);
@@ -136,13 +139,13 @@ public class SortPanel extends ToolPanel {
                             algo.getSelectedItem(), snap.compares, snap.swaps, snap.elapsed));
                 }
             });
-            timerHolder[0] = t;
+            sortTimer[0] = t;
             t.start();
             status.setText("排序中…");
         });
 
         stop.addActionListener(e -> {
-            if (timerHolder[0] != null) timerHolder[0].stop();
+            if (sortTimer[0] != null) sortTimer[0].stop();
             canvas.resetHighlights(canvas.array);
             status.setText("已停止");
         });
@@ -409,5 +412,17 @@ public class SortPanel extends ToolPanel {
             g.drawString("交换/移动", 202, legendY + 11);
         }
     }
-}
 
+    /**
+     * Stops the playback timer. Sorting is CPU-bound on the event thread, so
+     * leaving it running would burn cycles after the window closes.
+     */
+    @Override
+    public void closeResources() {
+        Timer running = sortTimer[0];
+        sortTimer[0] = null;
+        if (running != null && running.isRunning()) {
+            running.stop();
+        }
+    }
+}

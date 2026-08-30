@@ -4,19 +4,15 @@ import com.aqishi.toolbox.infra.InfrastructureException;
 import com.aqishi.toolbox.infra.ManagedResource;
 import com.aqishi.toolbox.infra.network.HttpConnectionResource;
 
+import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -26,31 +22,30 @@ import java.util.Set;
  *
  * <p>The adapter owns only requests started through it. Closing it aborts all
  * in-flight HTTP connections and rejects new requests; callers own parsing and
- * UI presentation. TLS behavior intentionally matches the legacy panel,
- * including its explicit opt-in skip-verification mode.</p>
+ * UI presentation. TLS policy is supplied by the caller through
+ * {@link KubernetesTls}, so this class never decides on its own to trust an
+ * unverified server.</p>
  */
 public final class KubernetesClient implements ManagedResource {
 
-    private static SSLSocketFactory trustAllSocketFactory;
-
     private final String serverUrl;
     private final String token;
-    private final boolean skipTlsVerification;
     private final SSLSocketFactory socketFactory;
+    private final HostnameVerifier hostnameVerifier;
     private final Set<HttpConnectionResource> activeRequests =
             Collections.synchronizedSet(new LinkedHashSet<HttpConnectionResource>());
     private volatile boolean open = true;
 
     public KubernetesClient(String serverUrl, String token,
-                            boolean skipTlsVerification, SSLSocketFactory socketFactory) {
+                            SSLSocketFactory socketFactory, HostnameVerifier hostnameVerifier) {
         if (serverUrl == null || serverUrl.trim().isEmpty()) {
             throw new InfrastructureException(InfrastructureException.Kind.CONFIGURATION,
                     "Kubernetes API Server 地址不能为空");
         }
         this.serverUrl = serverUrl.replaceAll("/+$", "");
         this.token = token == null ? "" : token;
-        this.skipTlsVerification = skipTlsVerification;
         this.socketFactory = socketFactory;
+        this.hostnameVerifier = hostnameVerifier;
     }
 
     /**
@@ -118,11 +113,9 @@ public final class KubernetesClient implements ManagedResource {
             HttpsURLConnection secureConnection = (HttpsURLConnection) connection;
             if (socketFactory != null) {
                 secureConnection.setSSLSocketFactory(socketFactory);
-            } else if (skipTlsVerification) {
-                secureConnection.setSSLSocketFactory(trustAllSocketFactory());
             }
-            if (skipTlsVerification) {
-                secureConnection.setHostnameVerifier((host, session) -> true);
+            if (hostnameVerifier != null) {
+                secureConnection.setHostnameVerifier(hostnameVerifier);
             }
         }
     }
@@ -136,30 +129,6 @@ public final class KubernetesClient implements ManagedResource {
             }
             return output.toString("UTF-8");
         }
-    }
-
-    private static synchronized SSLSocketFactory trustAllSocketFactory() throws Exception {
-        if (trustAllSocketFactory != null) {
-            return trustAllSocketFactory;
-        }
-        TrustManager[] managers = new TrustManager[]{new X509TrustManager() {
-            @Override
-            public X509Certificate[] getAcceptedIssuers() {
-                return new X509Certificate[0];
-            }
-
-            @Override
-            public void checkClientTrusted(X509Certificate[] certificates, String authType) {
-            }
-
-            @Override
-            public void checkServerTrusted(X509Certificate[] certificates, String authType) {
-            }
-        }};
-        SSLContext context = SSLContext.getInstance("TLS");
-        context.init(null, managers, new SecureRandom());
-        trustAllSocketFactory = context.getSocketFactory();
-        return trustAllSocketFactory;
     }
 
     @Override

@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.system.ui;
 
 import com.aqishi.toolbox.feature.system.domain.WeChatContactReader;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -40,7 +41,7 @@ import java.util.Map;
  * 微信群发助手面板：通过 Java Robot 模拟按键实现微信 PC 端自动搜索联系人并发送消息。
  * 支持手动录入、导入 Excel 以及导出模板。
  */
-public class WeChatPanel extends ToolPanel {
+public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
 
     private JTable contactTable;
     private DefaultTableModel tableModel;
@@ -1633,15 +1634,51 @@ public class WeChatPanel extends ToolPanel {
         return source.isFile() ? new java.io.FileInputStream(source) : null;
     }
 
+    /**
+     * Stops the export helper and the bulk-send robot without touching the UI.
+     *
+     * <p>Called from {@link #closeResources()}, which runs on the shutdown path
+     * where components may already be disposed. The Python helper is killed
+     * forcibly because a graceful {@code destroy()} leaves it running whenever
+     * the interpreter ignores the close request.</p>
+     */
+    private void stopBackgroundWork() {
+        stopRequested = true;
+        autoCollectRunning = false;
+
+        Process process = autoCollectProcess;
+        autoCollectProcess = null;
+        if (process != null && process.isAlive()) {
+            process.destroyForcibly();
+        }
+
+        Thread collector = autoCollectThread;
+        autoCollectThread = null;
+        if (collector != null && collector.isAlive()) {
+            collector.interrupt();
+        }
+
+        Thread sender = sendThread;
+        sendThread = null;
+        if (sender != null && sender.isAlive()) {
+            sender.interrupt();
+        }
+    }
+
+    @Override
+    public void closeResources() {
+        stopBackgroundWork();
+    }
+
     private void stopAutoCollect() {
         autoCollectRunning = false;
         if (autoCollectProcess != null && autoCollectProcess.isAlive()) {
-            autoCollectProcess.destroy();
+            autoCollectProcess.destroyForcibly();
         }
         if (autoCollectThread != null && autoCollectThread.isAlive()) {
             autoCollectThread.interrupt();
         }
-        
+
         wxcAutoCollectBtn.setText("模拟人工点击获取...");
         wxcBrowseBtn.setEnabled(true);
         wxcLoadBtn.setEnabled(true);

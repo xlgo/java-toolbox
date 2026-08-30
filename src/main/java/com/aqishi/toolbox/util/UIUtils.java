@@ -130,6 +130,19 @@ public final class UIUtils {
                 JOptionPane.PLAIN_MESSAGE, null, null, def);
     }
 
+    /**
+     * 弹出确认框，返回 true 表示用户选择「是」。
+     *
+     * <p>安全相关操作（关闭 TLS 校验、删除远端资源等）应统一走这里，
+     * 便于后续集中接入审计日志与「不再提示」策略。</p>
+     */
+    public static boolean confirm(Component parent, String msg, String title) {
+        int choice = JOptionPane.showConfirmDialog(parent, msg,
+                title == null ? text("dialog.confirm", "确认") : title,
+                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        return choice == JOptionPane.YES_OPTION;
+    }
+
     /** 取本地化文案，缺失时回退到内置默认值 */
     private static String text(String key, String fallback) {
         String value = I18n.get(key);

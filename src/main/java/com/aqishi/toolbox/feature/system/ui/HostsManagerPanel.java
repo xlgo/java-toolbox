@@ -2,6 +2,7 @@ package com.aqishi.toolbox.feature.system.ui;
 
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -60,7 +61,7 @@ public class HostsManagerPanel extends ToolPanel {
         reloadBtn.addActionListener(e -> loadHostsFile());
 
         JButton flushDnsBtn = new JButton("刷新 DNS 缓存 (ipconfig /flushdns)");
-        flushDnsBtn.addActionListener(e -> flushDnsCache());
+        flushDnsBtn.addActionListener(e -> flushDnsCache(flushDnsBtn));
 
         searchBar.add(reloadBtn);
         searchBar.add(flushDnsBtn);
@@ -231,26 +232,85 @@ public class HostsManagerPanel extends ToolPanel {
         }
     }
 
-    private void flushDnsCache() {
-        try {
-            String os = System.getProperty("os.name").toLowerCase();
-            Process proc;
-            if (os.contains("win")) {
-                proc = Runtime.getRuntime().exec("ipconfig /flushdns");
-            } else if (os.contains("mac")) {
-                proc = Runtime.getRuntime().exec("sudo killall -HUP mDNSResponder");
-            } else {
-                proc = Runtime.getRuntime().exec("systemd-resolve --flush-caches");
-            }
-            int exit = proc.waitFor();
-            if (exit == 0) {
-                JOptionPane.showMessageDialog(getView(), "DNS 缓存已成功刷新！", "提示", JOptionPane.INFORMATION_MESSAGE);
-            } else {
-                JOptionPane.showMessageDialog(getView(), "DNS 刷新命令已执行 (退出代码: " + exit + ")", "提示", JOptionPane.INFORMATION_MESSAGE);
-            }
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(getView(), "刷新 DNS 失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+    /**
+     * Refreshes the OS DNS cache off the event thread.
+     *
+     * <p>{@code waitFor()} blocks until the child process exits, and the macOS
+     * command runs under {@code sudo}: when it prompts for a password the
+     * process never exits, so calling it on the EDT would freeze the whole
+     * window with no way back. Running in a worker also lets it time out, and
+     * the command is passed as an argument array so the shell cannot
+     * reinterpret it.</p>
+     */
+    private void flushDnsCache(JButton flushDnsBtn) {
+        String[] command = flushDnsCommand();
+        if (command == null) {
+            UIUtils.error(getView(), "当前操作系统暂不支持自动刷新 DNS 缓存。");
+            return;
         }
+
+        flushDnsBtn.setEnabled(false);
+        statusLabel.setText("正在刷新 DNS 缓存...");
+
+        new SwingWorker<Integer, Void>() {
+            @Override
+            protected Integer doInBackground() throws Exception {
+                ProcessBuilder builder = new ProcessBuilder(command);
+                builder.redirectErrorStream(true);
+                Process process = builder.start();
+                // Drain the stream: a chatty command would otherwise fill the
+                // pipe buffer and stall before it can exit.
+                try (java.io.InputStream output = process.getInputStream()) {
+                    byte[] buffer = new byte[4096];
+                    while (output.read(buffer) != -1) {
+                        // Discarded; the exit code is the only signal shown.
+                    }
+                }
+                if (!process.waitFor(15, java.util.concurrent.TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                    return null;
+                }
+                return process.exitValue();
+            }
+
+            @Override
+            protected void done() {
+                flushDnsBtn.setEnabled(true);
+                try {
+                    Integer exit = get();
+                    if (exit == null) {
+                        statusLabel.setText("刷新 DNS 超时");
+                        UIUtils.error(getView(), "刷新 DNS 超时（15 秒）。\n"
+                                + "若该命令需要管理员密码，请在终端中手动执行。");
+                    } else if (exit == 0) {
+                        statusLabel.setText("DNS 缓存已刷新");
+                        UIUtils.info(getView(), "DNS 缓存已成功刷新！");
+                    } else {
+                        statusLabel.setText("DNS 刷新命令已执行");
+                        UIUtils.info(getView(), "DNS 刷新命令已执行 (退出代码: " + exit + ")");
+                    }
+                } catch (Exception ex) {
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    statusLabel.setText("刷新 DNS 失败");
+                    UIUtils.error(getView(), "刷新 DNS 失败: " + cause.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    /** Returns the platform flush command as discrete arguments, or null if unknown. */
+    private static String[] flushDnsCommand() {
+        String os = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT);
+        if (os.contains("win")) {
+            return new String[]{"ipconfig", "/flushdns"};
+        }
+        if (os.contains("mac")) {
+            return new String[]{"sudo", "killall", "-HUP", "mDNSResponder"};
+        }
+        if (os.contains("nix") || os.contains("nux")) {
+            return new String[]{"systemd-resolve", "--flush-caches"};
+        }
+        return null;
     }
 
     private void filterTable() {

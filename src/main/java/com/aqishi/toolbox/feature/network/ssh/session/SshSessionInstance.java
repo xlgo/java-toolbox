@@ -9,8 +9,6 @@ import com.jcraft.jsch.ChannelDirectTCPIP;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.Session;
 
-import javax.swing.JOptionPane;
-import java.awt.GraphicsEnvironment;
 import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -66,14 +64,25 @@ public class SshSessionInstance implements AutoCloseable {
     private volatile String lastErrorMessage = "";
     private volatile boolean manualDisconnect;
     private volatile boolean closed;
+    /** Supplied by the UI layer; never null inside the session after construction. */
+    private final SshHostKeyPrompt hostKeyPrompt;
     private boolean reconnectPending;
     private long reconnectDelayMs = 2_000L;
     private ScheduledFuture<?> reconnectFuture;
     private ScheduledFuture<?> monitorFuture;
 
     public SshSessionInstance(SshConnectionConfig config) {
+        this(config, SshHostKeyPrompt.denyAll());
+    }
+
+    /**
+     * @param config         连接参数
+     * @param hostKeyPrompt  主机指纹确认回调；传 null 等同于一律拒绝
+     */
+    public SshSessionInstance(SshConnectionConfig config, SshHostKeyPrompt hostKeyPrompt) {
         if (config == null) throw new IllegalArgumentException("SSH 配置不能为空");
         this.config = config;
+        this.hostKeyPrompt = hostKeyPrompt;
         this.lifecycleExecutor = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
             @Override
             public Thread newThread(Runnable task) {
@@ -178,7 +187,7 @@ public class SshSessionInstance implements AutoCloseable {
             // 首次连接通过指纹确认，之后使用 known_hosts 拒绝未确认的变更。
             properties.put("StrictHostKeyChecking", "ask");
             session.setConfig(properties);
-            session.setUserInfo(new FingerprintUserInfo());
+            session.setUserInfo(new FingerprintUserInfo(hostKeyPrompt));
             if (config.getKeepAliveSec() > 0) {
                 session.setServerAliveInterval(config.getKeepAliveSec() * 1000);
             }
@@ -486,7 +495,19 @@ public class SshSessionInstance implements AutoCloseable {
         return "隧道建立失败（目标 " + target + "）：" + message;
     }
 
+    /**
+     * Bridges JSch's {@code UserInfo} to the prompt supplied by the UI layer.
+     *
+     * <p>When no prompt is available the session denies instead of trusting:
+     * an unattended process must not accept an unknown host key on its own.</p>
+     */
     private static final class FingerprintUserInfo implements com.jcraft.jsch.UserInfo {
+        private final SshHostKeyPrompt prompt;
+
+        FingerprintUserInfo(SshHostKeyPrompt prompt) {
+            this.prompt = prompt;
+        }
+
         @Override public String getPassphrase() { return null; }
         @Override public String getPassword() { return null; }
         @Override public boolean promptPassword(String message) { return false; }
@@ -494,16 +515,14 @@ public class SshSessionInstance implements AutoCloseable {
 
         @Override
         public boolean promptYesNo(String message) {
-            if (GraphicsEnvironment.isHeadless()) return false;
-            return JOptionPane.showConfirmDialog(null, message,
-                    "确认 SSH 主机指纹", JOptionPane.YES_NO_OPTION,
-                    JOptionPane.WARNING_MESSAGE) == JOptionPane.YES_OPTION;
+            if (prompt == null) return false;
+            return prompt.confirmHostKey(message);
         }
 
         @Override
         public void showMessage(String message) {
-            if (!GraphicsEnvironment.isHeadless()) {
-                JOptionPane.showMessageDialog(null, message, "SSH", JOptionPane.INFORMATION_MESSAGE);
+            if (prompt != null) {
+                prompt.showMessage(message);
             }
         }
     }

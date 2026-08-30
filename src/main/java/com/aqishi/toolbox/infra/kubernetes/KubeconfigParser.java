@@ -38,11 +38,18 @@ public final class KubeconfigParser {
         }
 
         String serverUrl = "https://127.0.0.1:6443";
+        String clusterCa = null;
+        boolean insecureSkipTlsVerify = false;
         JsonNode clusters = root.path("clusters");
         if (clusters.isArray()) {
             for (JsonNode cluster : clusters) {
                 if (cluster.path("name").asText().equals(clusterName) || clusters.size() == 1) {
-                    serverUrl = cluster.path("cluster").path("server").asText();
+                    JsonNode clusterBody = cluster.path("cluster");
+                    serverUrl = clusterBody.path("server").asText();
+                    clusterCa = readCredential(clusterBody, "certificate-authority-data",
+                            "certificate-authority", baseDirectory);
+                    insecureSkipTlsVerify =
+                            clusterBody.path("insecure-skip-tls-verify").asBoolean(false);
                     break;
                 }
             }
@@ -68,8 +75,15 @@ public final class KubeconfigParser {
                 }
             }
         }
-        return new KubernetesProfile(serverUrl, serverUrl, token, true,
-                clientCertificate, clientKey);
+        // Verification stays on unless the kubeconfig explicitly opts out; a
+        // supplied cluster CA is always the preferred trust anchor.
+        boolean skipTls = insecureSkipTlsVerify && isBlank(clusterCa);
+        return new KubernetesProfile(serverUrl, serverUrl, token, skipTls,
+                clientCertificate, clientKey, clusterCa);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 
     private static String readCredential(JsonNode user, String inlineKey, String fileKey,

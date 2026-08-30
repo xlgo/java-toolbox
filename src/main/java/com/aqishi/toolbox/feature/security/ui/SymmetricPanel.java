@@ -35,7 +35,7 @@ public class SymmetricPanel extends ToolPanel {
     public SymmetricPanel() {
         super("crypto", "symmetric.crypto",
                 "AES", "DES", "3DES", "SM4", "国密",
-                "ECB", "CBC", "PKCS5", "密钥", "加密", "解密",
+                "GCM", "ECB", "CBC", "PKCS5", "密钥", "加密", "解密",
                 "对称");
     }
 
@@ -44,7 +44,9 @@ public class SymmetricPanel extends ToolPanel {
         JPanel root = Layouts.page();
 
         algoCombo = Fields.combo(new String[]{"AES", "DES", "3DES", "SM4"});
-        modeCombo = Fields.combo(new String[]{"CBC", "ECB"});
+        // GCM first: it authenticates the ciphertext, so it is the right
+        // default. ECB stays only to decrypt data produced by older versions.
+        modeCombo = Fields.combo(SymmetricUtils.MODES);
         paddingCombo = Fields.combo(SymmetricUtils.PADDINGS);
         keySizeCombo = Fields.combo(new Integer[0]);
         encodingCombo = Fields.combo(new String[]{"Base64", "Hex", "UTF-8 文本"});
@@ -114,8 +116,8 @@ public class SymmetricPanel extends ToolPanel {
         modeCombo.addActionListener(e -> updateIvStatus());
 
         customIvCheckbox.addActionListener(e -> {
-            boolean selected = customIvCheckbox.isSelected();
-            ivField.setEnabled(selected && modeCombo.getSelectedItem().equals("CBC"));
+            String mode = (String) modeCombo.getSelectedItem();
+            ivField.setEnabled(customIvCheckbox.isSelected() && SymmetricUtils.requiresIv(mode));
             if (!ivField.isEnabled()) {
                 ivField.setText("");
             }
@@ -181,7 +183,13 @@ public class SymmetricPanel extends ToolPanel {
                 byte[] ivBytes = getIvBytes();
 
                 String cipher = SymmetricUtils.encrypt(algo, mode, padding, text, keyBytes, ivBytes, false);
-                outputArea.setText("[加密成功]\n算法：" + algo + "-" + mode + "-" + padding + "\n密文 (Base64)：\n" + cipher);
+                String header = "[加密成功]\n算法：" + algo + "-" + mode + "-"
+                        + (SymmetricUtils.isAuthenticated(mode) ? "NoPadding" : padding);
+                if ("ECB".equalsIgnoreCase(mode)) {
+                    header += "\n⚠ ECB 不提供语义安全：相同明文块会产生相同密文块，"
+                            + "会泄露数据模式。仅在兼容历史数据时使用，新数据请改用 GCM。";
+                }
+                outputArea.setText(header + "\n密文 (Base64)：\n" + cipher);
             } catch (Exception ex) {
                 UIUtils.error(root, "加密失败：" + ex.getMessage());
             }
@@ -254,17 +262,28 @@ public class SymmetricPanel extends ToolPanel {
         }
     }
 
+    /**
+     * IV 只在 CBC / GCM 下有意义；GCM 自带认证标签，padding 对它不适用。
+     *
+     * <p>ECB 保留可解密能力，但它不使用 IV，也不提供语义安全——相同的明文块
+     * 永远得到相同的密文块——所以这里同时把它标注出来。</p>
+     */
     private void updateIvStatus() {
-        boolean isCBC = "CBC".equals(modeCombo.getSelectedItem());
-        if (!isCBC) {
-            ivField.setEnabled(false);
-            customIvCheckbox.setEnabled(false);
+        String mode = (String) modeCombo.getSelectedItem();
+        boolean needsIv = SymmetricUtils.requiresIv(mode);
+        boolean authenticated = SymmetricUtils.isAuthenticated(mode);
+
+        paddingCombo.setEnabled(!authenticated);
+        paddingCombo.setToolTipText(authenticated
+                ? "GCM 自带认证标签，不接受填充设置"
+                : null);
+
+        customIvCheckbox.setEnabled(needsIv);
+        if (!needsIv) {
             customIvCheckbox.setSelected(false);
             ivField.setText("");
-        } else {
-            customIvCheckbox.setEnabled(true);
-            ivField.setEnabled(customIvCheckbox.isSelected());
         }
+        ivField.setEnabled(needsIv && customIvCheckbox.isSelected());
     }
 
     private byte[] getKeyBytes() {

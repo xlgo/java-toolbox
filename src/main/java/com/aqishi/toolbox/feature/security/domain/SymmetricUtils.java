@@ -3,6 +3,7 @@ package com.aqishi.toolbox.feature.security.domain;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -12,15 +13,31 @@ import java.util.Base64;
 
 /**
  * 通用对称加密工具类：支持 AES、DES、3DES、SM4 算法。
- * 支持 ECB、CBC 模式与 PKCS5Padding / NoPadding 填充。
+ *
+ * <p>支持 GCM（推荐，自带完整性校验）、CBC 与 ECB 模式。ECB 不提供语义安全
+ * ——相同明文块永远产生相同密文块，会直接泄露数据模式——因此仅保留用于解密
+ * 历史遗留数据，新数据请使用 GCM。</p>
  */
 public final class SymmetricUtils {
+
+    /** GCM 推荐的 96 位 nonce 长度。 */
+    private static final int GCM_IV_LENGTH = 12;
+    /** 认证标签长度（位），128 位是 GCM 的标准强度。 */
+    private static final int GCM_TAG_BITS = 128;
+
+    private static final char[] HEX = "0123456789abcdef".toCharArray();
+
+    private static volatile String providerInitError;
 
     static {
         try {
             // 动态注册 BouncyCastle 提供者以支持 SM4 算法
             Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
-        } catch (Throwable ignored) {
+        } catch (Throwable error) {
+            // SM4 依赖该提供者。静默吞掉会让加密在几步之后抛出难以理解的错误，
+            // 所以记录下来并在真正用到 SM4 时给出明确原因。
+            providerInitError = error.getClass().getSimpleName()
+                    + ": " + error.getMessage();
         }
     }
 
@@ -29,6 +46,29 @@ public final class SymmetricUtils {
 
     /** 支持的填充方式 */
     public static final String[] PADDINGS = {"PKCS5Padding", "NoPadding", "ISO10126Padding"};
+
+    /** 支持的分组模式，GCM 在最前以便作为默认选择。 */
+    public static final String[] MODES = {"GCM", "CBC", "ECB"};
+
+    /**
+     * BouncyCastle 提供者注册失败的原因，注册成功时为 null。
+     *
+     * <p>SM4 与国密相关功能依赖该提供者，UI 应据此提示用户而不是等到加解密
+     * 抛出底层异常。</p>
+     */
+    public static String providerInitError() {
+        return providerInitError;
+    }
+
+    /** 该模式是否需要 IV / nonce。 */
+    public static boolean requiresIv(String mode) {
+        return "CBC".equalsIgnoreCase(mode) || "GCM".equalsIgnoreCase(mode);
+    }
+
+    /** GCM 自带认证标签，不接受外部 padding 设置。 */
+    public static boolean isAuthenticated(String mode) {
+        return "GCM".equalsIgnoreCase(mode);
+    }
 
     /**
      * 生成随机密钥
@@ -75,22 +115,18 @@ public final class SymmetricUtils {
 
         SecretKeySpec keySpec = new SecretKeySpec(keyBytes, algorithm);
 
-        String transform = algorithm + "/" + mode + "/" + padding;
-        // SM4 需要 BC Provider
-        Cipher cipher = "SM4".equalsIgnoreCase(algorithm)
-                ? Cipher.getInstance(transform, "BC")
-                : Cipher.getInstance(transform);
+        // GCM 是认证加密，只在 NoPadding 下定义，padding 选择对它没有意义。
+        String effectivePadding = isAuthenticated(mode) ? "NoPadding" : padding;
+        String transform = algorithm + "/" + mode + "/" + effectivePadding;
+        Cipher cipher = createCipher(algorithm, transform);
 
         byte[] ivBytes = null;
-        if ("CBC".equalsIgnoreCase(mode)) {
+        if ("GCM".equalsIgnoreCase(mode)) {
+            ivBytes = resolveIv(customIv, GCM_IV_LENGTH);
+            cipher.init(Cipher.ENCRYPT_MODE, keySpec, new GCMParameterSpec(GCM_TAG_BITS, ivBytes));
+        } else if ("CBC".equalsIgnoreCase(mode)) {
             int blockSize = cipher.getBlockSize();
-            if (customIv != null && customIv.length > 0) {
-                ivBytes = new byte[blockSize];
-                System.arraycopy(customIv, 0, ivBytes, 0, Math.min(customIv.length, blockSize));
-            } else {
-                ivBytes = new byte[blockSize];
-                new SecureRandom().nextBytes(ivBytes);
-            }
+            ivBytes = resolveIv(customIv, blockSize);
             cipher.init(Cipher.ENCRYPT_MODE, keySpec, new IvParameterSpec(ivBytes));
         } else {
             cipher.init(Cipher.ENCRYPT_MODE, keySpec);
@@ -127,13 +163,26 @@ public final class SymmetricUtils {
         byte[] inputBytes = isHex ? hexToBytes(cipherText.trim()) : Base64.getDecoder().decode(cipherText.trim());
         SecretKeySpec keySpec = new SecretKeySpec(keyBytes, algorithm);
 
-        String transform = algorithm + "/" + mode + "/" + padding;
-        Cipher cipher = "SM4".equalsIgnoreCase(algorithm)
-                ? Cipher.getInstance(transform, "BC")
-                : Cipher.getInstance(transform);
+        String effectivePadding = isAuthenticated(mode) ? "NoPadding" : padding;
+        String transform = algorithm + "/" + mode + "/" + effectivePadding;
+        Cipher cipher = createCipher(algorithm, transform);
 
         byte[] cipherBytes;
-        if ("CBC".equalsIgnoreCase(mode)) {
+        if ("GCM".equalsIgnoreCase(mode)) {
+            byte[] nonce = new byte[GCM_IV_LENGTH];
+            if (customIv != null && customIv.length > 0) {
+                System.arraycopy(customIv, 0, nonce, 0, Math.min(customIv.length, GCM_IV_LENGTH));
+                cipherBytes = inputBytes;
+            } else {
+                if (inputBytes.length < GCM_IV_LENGTH) {
+                    throw new IllegalArgumentException("密文长度小于 GCM nonce 长度");
+                }
+                System.arraycopy(inputBytes, 0, nonce, 0, GCM_IV_LENGTH);
+                cipherBytes = new byte[inputBytes.length - GCM_IV_LENGTH];
+                System.arraycopy(inputBytes, GCM_IV_LENGTH, cipherBytes, 0, cipherBytes.length);
+            }
+            cipher.init(Cipher.DECRYPT_MODE, keySpec, new GCMParameterSpec(GCM_TAG_BITS, nonce));
+        } else if ("CBC".equalsIgnoreCase(mode)) {
             int blockSize = cipher.getBlockSize();
             byte[] ivBytes = new byte[blockSize];
             if (customIv != null && customIv.length > 0) {
@@ -153,16 +202,46 @@ public final class SymmetricUtils {
             cipher.init(Cipher.DECRYPT_MODE, keySpec);
         }
 
+        // A GCM tag mismatch throws AEADBadTagException: the payload was
+        // tampered with or the key is wrong. Either way the plaintext is not
+        // trustworthy, so it must never be surfaced to the caller.
         byte[] plainBytes = cipher.doFinal(cipherBytes);
         return new String(plainBytes, StandardCharsets.UTF_8);
     }
 
-    public static String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02x", b & 0xff));
+    /**
+     * 选择密码实例。SM4 必须走 BouncyCastle，注册失败时给出可操作的提示。
+     */
+    private static Cipher createCipher(String algorithm, String transform) throws Exception {
+        if ("SM4".equalsIgnoreCase(algorithm)) {
+            if (providerInitError != null) {
+                throw new IllegalStateException(
+                        "BouncyCastle 提供者注册失败，无法使用 SM4：" + providerInitError);
+            }
+            return Cipher.getInstance(transform, "BC");
         }
-        return sb.toString();
+        return Cipher.getInstance(transform);
+    }
+
+    /** 使用调用方提供的 IV，或在缺省时生成随机 IV。 */
+    private static byte[] resolveIv(byte[] customIv, int length) {
+        byte[] iv = new byte[length];
+        if (customIv != null && customIv.length > 0) {
+            System.arraycopy(customIv, 0, iv, 0, Math.min(customIv.length, length));
+            return iv;
+        }
+        new SecureRandom().nextBytes(iv);
+        return iv;
+    }
+
+    public static String bytesToHex(byte[] bytes) {
+        char[] out = new char[bytes.length * 2];
+        for (int i = 0; i < bytes.length; i++) {
+            int value = bytes[i] & 0xff;
+            out[i * 2] = HEX[value >>> 4];
+            out[i * 2 + 1] = HEX[value & 0x0f];
+        }
+        return new String(out);
     }
 
     public static byte[] hexToBytes(String hexString) {

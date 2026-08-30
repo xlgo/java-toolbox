@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.generation.ui;
 
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import java.util.prefs.Preferences;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -37,7 +38,10 @@ import com.google.zxing.qrcode.QRCodeWriter;
  * 二维码生成与解析工具 (QR Code Generator & Decoder)
  * 基于原生 Java 实现无第三方依赖的二维码矩阵绘制与展示。
  */
-public class QrCodePanel extends ToolPanel {
+public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
+
+    /** Held as a field so shutdown can cancel polling started from a local scope. */
+    private java.util.Timer aiPollTimer;
 
     private JTextArea inputContentArea;
     private JSpinner sizeSpinner;
@@ -384,6 +388,7 @@ public class QrCodePanel extends ToolPanel {
 
     private void pollAiResult(String getUrl, String token, ObjectMapper mapper) {
         Timer timer = new Timer(true);
+        aiPollTimer = timer;
         timer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
@@ -550,6 +555,19 @@ public class QrCodePanel extends ToolPanel {
                 return image;
             }
             return null;
+        }
+    }
+
+    /**
+     * Cancels the cloud polling timer. It is already a daemon, so this also
+     * stops the wasted HTTP polling after the window closes.
+     */
+    @Override
+    public void closeResources() {
+        java.util.Timer running = aiPollTimer;
+        aiPollTimer = null;
+        if (running != null) {
+            running.cancel();
         }
     }
 }

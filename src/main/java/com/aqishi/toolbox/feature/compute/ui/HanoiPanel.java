@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.compute.ui;
 
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -23,7 +24,7 @@ import java.util.Stack;
  * 汉诺塔（Tower of Hanoi）算法与交互展示面板。
  * 支持手动操作和自动演示两种模式，包含动画播放控制与速度滑块。
  */
-public class HanoiPanel extends ToolPanel {
+public class HanoiPanel extends ToolPanel implements ManagedResourceOwner {
 
     private static final int MIN_DISKS = 3;
     private static final int MAX_DISKS = 8;
@@ -612,6 +613,18 @@ public class HanoiPanel extends ToolPanel {
                 int numY = y + (diskHeight - 2 + fm.getAscent() - fm.getDescent()) / 2;
                 g2.drawString(numStr, numX, numY);
             }
+        }
+    }
+
+    /**
+     * Stops the auto-solve timer so a running demo cannot outlive the window.
+     */
+    @Override
+    public void closeResources() {
+        Timer running = timer;
+        timer = null;
+        if (running != null && running.isRunning()) {
+            running.stop();
         }
     }
 }

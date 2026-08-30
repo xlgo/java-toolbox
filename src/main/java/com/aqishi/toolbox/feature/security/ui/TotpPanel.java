@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.security.ui;
 
 import com.aqishi.toolbox.feature.security.domain.OtpUtils;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.VaultAccessPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
@@ -51,7 +52,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /** TOTP accounts UI backed exclusively by the shared encrypted vault. */
-public final class TotpPanel extends ToolPanel {
+public final class TotpPanel extends ToolPanel implements ManagedResourceOwner {
     /** 验证码字号：这是本页唯一需要一眼扫到的信息，明显大于正文 */
     private static final float CODE_FONT_SIZE = 28f;
 
@@ -393,6 +394,19 @@ public final class TotpPanel extends ToolPanel {
         private void setDefaultVisibility(boolean visible) {
             revealed = visible && account.isShowDirectly();
             refreshCode();
+        }
+    }
+
+    /**
+     * Stops the TOTP refresh timer so it cannot keep the event thread alive
+     * after the window closes.
+     */
+    @Override
+    public void closeResources() {
+        Timer running = refreshTimer;
+        refreshTimer = null;
+        if (running != null && running.isRunning()) {
+            running.stop();
         }
     }
 }

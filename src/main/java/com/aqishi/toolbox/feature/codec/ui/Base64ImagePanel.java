@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -20,13 +22,23 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.nio.file.Files;
 import java.util.Base64;
+import java.util.concurrent.ExecutorService;
 import java.util.Iterator;
 
 /**
  * Base64 图片互转面板。
  * <p>所有耗时操作（文件读取、Base64编解码、图片解码）均在后台线程执行。</p>
  */
-public class Base64ImagePanel extends ToolPanel {
+public class Base64ImagePanel extends ToolPanel implements ManagedResourceOwner {
+
+    /**
+     * Base64 doubles the size of the input and the preview decodes it again, so
+     * a large file costs several times its own footprint. Refusing up front
+     * keeps a multi-hundred-MB image from taking the desktop down with it.
+     */
+    private static final long MAX_IMAGE_BYTES = 32L * 1024 * 1024;
+
+    private final ExecutorService imageWorker = DaemonThreads.single("base64-image");
 
     private static final int DISPLAY_LIMIT = 5000;
 
@@ -114,12 +126,18 @@ public class Base64ImagePanel extends ToolPanel {
             if (chooser.showOpenDialog(root) != JFileChooser.APPROVE_OPTION) return;
 
             File file = chooser.getSelectedFile();
+            if (file.length() > MAX_IMAGE_BYTES) {
+                UIUtils.error(root, String.format(
+                        "图片过大（%.1f MB），超过 %d MB 上限，请先压缩后再转换。",
+                        file.length() / 1024.0 / 1024.0, MAX_IMAGE_BYTES / 1024 / 1024));
+                return;
+            }
             selectImgBtn.setEnabled(false);
             selectImgBtn.setText("加载中...");
             uploadPreview.setIcon(null);
             uploadPreview.setText("正在处理...");
 
-            new Thread(() -> {
+            imageWorker.submit(() -> {
                 try {
                     String name = file.getName().toLowerCase();
                     String fmt;
@@ -163,7 +181,7 @@ public class Base64ImagePanel extends ToolPanel {
                         selectImgBtn.setText("选择图片...");
                     });
                 }
-            }).start();
+            });
         });
 
         copyBase64Btn.addActionListener(e -> {
@@ -190,7 +208,7 @@ public class Base64ImagePanel extends ToolPanel {
             downloadPreview.setIcon(null);
             downloadPreview.setText("正在解码...");
 
-            new Thread(() -> {
+            imageWorker.submit(() -> {
                 try {
                     byte[] raw = Base64.getDecoder().decode(data);
                     ImageIcon icon = scaleImagePreview(raw, 180, 180);
@@ -214,7 +232,7 @@ public class Base64ImagePanel extends ToolPanel {
                         parseBtn.setText("解析并预览");
                     });
                 }
-            }).start();
+            });
         });
 
         // ===== 事件：保存 / 清空 =====
@@ -301,5 +319,10 @@ public class Base64ImagePanel extends ToolPanel {
             if (reader != null) reader.dispose();
             if (iis != null) try { iis.close(); } catch (Exception ignored) {}
         }
+    }
+
+    @Override
+    public void closeResources() {
+        DaemonThreads.shutdownQuietly(imageWorker);
     }
 }

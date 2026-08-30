@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.security.ui;
 
 import com.aqishi.toolbox.feature.security.domain.CertUtils;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.feature.security.infra.acme.AcmeChallengeHelper;
 import com.aqishi.toolbox.feature.security.infra.acme.AcmeClient;
 import com.aqishi.toolbox.feature.security.infra.acme.CloudflareDnsProvider;
@@ -29,7 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 证书管理面板：根证书创建、证书签发、证书解析、免费证书自动申请。
  */
-public class CertPanel extends ToolPanel {
+public class CertPanel extends ToolPanel implements ManagedResourceOwner {
 
     // ==================== 通用组件 ====================
     private static final String[] KEY_ALG_ITEMS = CertUtils.KEY_ALGORITHMS;
@@ -904,6 +905,26 @@ public class CertPanel extends ToolPanel {
             UIUtils.info(getView(), "下载成功：" + file.getName());
         } catch (Exception ex) {
             UIUtils.error(getView(), "下载失败：" + ex.getMessage());
+        }
+    }
+
+    /**
+     * Stops the ACME countdown and tears down the built-in challenge server.
+     *
+     * <p>The countdown runs on the EDT and the challenge server binds a port,
+     * so both outlive the panel unless the shell releases them here.</p>
+     */
+    @Override
+    public void closeResources() {
+        javax.swing.Timer timer = step2Timer;
+        step2Timer = null;
+        if (timer != null && timer.isRunning()) {
+            timer.stop();
+        }
+        try {
+            AcmeChallengeHelper.stopHttpServer();
+        } catch (RuntimeException ignored) {
+            // Shutdown continues even if the challenge server refuses to stop.
         }
     }
 }

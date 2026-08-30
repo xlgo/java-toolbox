@@ -35,7 +35,9 @@ public class SshSessionTabPanel extends JPanel implements SshSessionInstance.Ses
 
     public SshSessionTabPanel(SshConnectionConfig config) {
         this.config = config;
-        this.sessionInstance = new SshSessionInstance(config);
+        // The transport asks about unknown host keys through this panel rather
+        // than opening a dialog itself.
+        this.sessionInstance = new SshSessionInstance(config, SshHostKeyPrompts.dialogs(this));
         this.sessionInstance.addListener(this);
 
         setLayout(new BorderLayout());

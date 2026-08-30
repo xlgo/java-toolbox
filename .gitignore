@@ -31,3 +31,6 @@ META-INF/
 
 # Superpowers visual brainstorming sessions
 .superpowers/
+
+# WorkBuddy 工作区数据（项目记忆与任务状态，不入库）
+.workbuddy/

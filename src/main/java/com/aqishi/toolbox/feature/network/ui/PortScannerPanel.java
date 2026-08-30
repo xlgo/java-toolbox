@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.network.ui;
 
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
 
@@ -27,7 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * 端口扫描与网络连通性诊断工具
  */
-public class PortScannerPanel extends ToolPanel {
+public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner {
 
     private JTextField hostField;
     private JRadioButton presetRadio;
@@ -50,7 +52,11 @@ public class PortScannerPanel extends ToolPanel {
     private JTable resultTable;
 
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
-    private ExecutorService scanExecutor;
+    /** Pools are swapped atomically so abort, completion, and shutdown can race safely. */
+    private final java.util.concurrent.atomic.AtomicReference<ExecutorService> scanExecutor =
+            new java.util.concurrent.atomic.AtomicReference<>();
+    private final java.util.concurrent.atomic.AtomicReference<ExecutorService> dispatchExecutor =
+            new java.util.concurrent.atomic.AtomicReference<>();
 
     private static final Map<Integer, String> KNOWN_SERVICES = new HashMap<>();
 
@@ -318,57 +324,100 @@ public class PortScannerPanel extends ToolPanel {
 
         statusLabel.setText("扫描中... 目标: " + host + " (共 " + ports.size() + " 个端口)");
 
-        scanExecutor = Executors.newFixedThreadPool(threads);
+        scanExecutor.set(DaemonThreads.fixed("port-scanner", threads));
+        dispatchExecutor.set(DaemonThreads.single("port-scanner-dispatch"));
         AtomicInteger completedCount = new AtomicInteger(0);
         AtomicInteger openCount = new AtomicInteger(0);
+        ExecutorService scanPool = scanExecutor.get();
 
-        new Thread(() -> {
+        dispatchExecutor.get().submit(() -> {
             for (int port : ports) {
                 if (!isScanning.get()) break;
-
-                scanExecutor.submit(() -> {
-                    if (!isScanning.get()) return;
-
-                    long startMs = System.currentTimeMillis();
-                    boolean isOpen = false;
-                    try (Socket socket = new Socket()) {
-                        socket.connect(new InetSocketAddress(host, port), timeout);
-                        isOpen = true;
-                    } catch (IOException ignored) {
-                    }
-                    long costMs = System.currentTimeMillis() - startMs;
-
-                    if (isOpen) openCount.incrementAndGet();
-                    final boolean finalOpen = isOpen;
-
-                    SwingUtilities.invokeLater(() -> {
-                        String serviceName = KNOWN_SERVICES.getOrDefault(port, "未知服务/自定义");
-                        String statusStr = finalOpen ? "开放 (Open)" : "关闭 (Closed)";
-                        String costStr = finalOpen ? costMs + " ms" : "-";
-
-                        resultTableModel.addRow(new Object[]{port, statusStr, serviceName, costStr});
-
-                        int current = completedCount.incrementAndGet();
-                        progressBar.setValue(current);
-                        statusLabel.setText("扫描进度: " + current + " / " + ports.size() + " | 发现开放端口: " + openCount.get());
-
-                        if (current >= ports.size() || !isScanning.get()) {
-                            finishScan(openCount.get(), ports.size());
-                        }
-                    });
-                });
+                try {
+                    scanPool.submit(() -> probePort(host, port, timeout, ports.size(),
+                            openCount, completedCount));
+                } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                    // The scan was aborted while ports were still queued.
+                    break;
+                }
             }
+            // Gentle shutdown: queued probes still finish, no new ones arrive.
+            shutdownPool(scanExecutor, false);
+            shutdownPool(dispatchExecutor, false);
+        });
+    }
 
-            scanExecutor.shutdown();
-        }).start();
+    private void probePort(String host, int port, int timeout, int totalPorts,
+                           AtomicInteger openCount, AtomicInteger completedCount) {
+        if (!isScanning.get()) return;
+
+        long startMs = System.currentTimeMillis();
+        boolean isOpen = false;
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(host, port), timeout);
+            isOpen = true;
+        } catch (IOException ignored) {
+            // A closed or filtered port is a normal scan result, not an error.
+        }
+        long costMs = System.currentTimeMillis() - startMs;
+
+        if (isOpen) openCount.incrementAndGet();
+        final boolean finalOpen = isOpen;
+
+        SwingUtilities.invokeLater(() -> {
+            String serviceName = KNOWN_SERVICES.getOrDefault(port, "未知服务/自定义");
+            String statusStr = finalOpen ? "开放 (Open)" : "关闭 (Closed)";
+            String costStr = finalOpen ? costMs + " ms" : "-";
+
+            resultTableModel.addRow(new Object[]{port, statusStr, serviceName, costStr});
+
+            int current = completedCount.incrementAndGet();
+            progressBar.setValue(current);
+            statusLabel.setText("扫描进度: " + current + " / " + totalPorts
+                    + " | 发现开放端口: " + openCount.get());
+
+            if (current >= totalPorts || !isScanning.get()) {
+                finishScan(openCount.get(), totalPorts);
+            }
+        });
     }
 
     private void stopScan() {
         isScanning.set(false);
-        if (scanExecutor != null) {
-            scanExecutor.shutdownNow();
-        }
+        shutdownPool(scanExecutor, true);
+        shutdownPool(dispatchExecutor, true);
         finishScan(-1, -1);
+    }
+
+    /**
+     * Shuts a pool down, either letting queued work drain or discarding it.
+     *
+     * <p>A completed scan drains: aborting a scan whose probes are still queued
+     * would silently drop results the user already waited for. An abort or a
+     * shutdown interrupts instead.</p>
+     */
+    private void shutdownPool(java.util.concurrent.atomic.AtomicReference<ExecutorService> holder,
+                              boolean interruptRunning) {
+        ExecutorService pool = holder.getAndSet(null);
+        if (pool == null) {
+            return;
+        }
+        try {
+            if (interruptRunning) {
+                pool.shutdownNow();
+            } else {
+                pool.shutdown();
+            }
+        } catch (RuntimeException ignored) {
+            // Cleanup continues even if the pool rejects the shutdown.
+        }
+    }
+
+    @Override
+    public void closeResources() {
+        isScanning.set(false);
+        shutdownPool(scanExecutor, true);
+        shutdownPool(dispatchExecutor, true);
     }
 
     private void finishScan(int openNum, int totalNum) {

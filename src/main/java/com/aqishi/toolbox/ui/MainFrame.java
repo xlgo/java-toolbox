@@ -2,7 +2,7 @@ package com.aqishi.toolbox.ui;
 
 import com.aqishi.toolbox.catalog.ToolboxContext;
 import com.aqishi.toolbox.catalog.ToolRegistry;
-import com.aqishi.toolbox.feature.network.ssh.session.SshTunnelBridge;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshTunnelBridge;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Tokens;

@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.network.ssh.model;
+package com.aqishi.toolbox.feature.network.ssh.domain;
 
 import java.util.ArrayList;
 import java.util.Collections;

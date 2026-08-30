@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.network.ssh.session;
+package com.aqishi.toolbox.feature.network.ssh.domain;
 
 /**
  * Lets the SSH session ask the user about an unknown host key without

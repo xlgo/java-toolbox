@@ -1,6 +1,6 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
-import com.aqishi.toolbox.feature.network.ssh.model.SshTunnelConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.FormGrid;
@@ -8,6 +8,7 @@ import com.aqishi.toolbox.ui.kit.Tokens;
 
 import javax.swing.*;
 import java.awt.*;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
 
 /**
  * 远程服务隧道新增 / 编辑对话框

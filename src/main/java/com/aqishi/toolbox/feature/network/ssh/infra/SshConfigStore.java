@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.network.ssh.model;
+package com.aqishi.toolbox.feature.network.ssh.infra;
 
 import com.aqishi.toolbox.vault.ApplicationPaths;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -14,6 +14,8 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
 
 /**
  * SSH 服务器连接配置持久化存储

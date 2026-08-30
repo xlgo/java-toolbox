@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.network.ssh.session;
+package com.aqishi.toolbox.feature.network.ssh.infra;
 
 import org.apache.kafka.clients.DefaultHostResolver;
 import org.apache.kafka.clients.HostResolver;

@@ -1,9 +1,9 @@
-package com.aqishi.toolbox.feature.network.ssh.model;
+package com.aqishi.toolbox.feature.network.ssh.infra;
 
-import com.aqishi.toolbox.feature.network.ssh.model.SshConfigStore;
-import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
-import com.aqishi.toolbox.feature.network.ssh.model.SshSecurityUtils;
-import com.aqishi.toolbox.feature.network.ssh.model.SshTunnelConfig;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

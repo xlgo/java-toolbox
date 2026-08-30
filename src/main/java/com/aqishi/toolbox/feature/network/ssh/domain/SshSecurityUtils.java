@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.network.ssh.model;
+package com.aqishi.toolbox.feature.network.ssh.domain;
 
 import javax.crypto.AEADBadTagException;
 import javax.crypto.Cipher;

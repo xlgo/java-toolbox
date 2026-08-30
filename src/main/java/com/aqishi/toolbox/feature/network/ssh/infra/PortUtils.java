@@ -1,4 +1,4 @@
-package com.aqishi.toolbox.feature.network.ssh.session;
+package com.aqishi.toolbox.feature.network.ssh.infra;
 
 import java.io.IOException;
 import java.net.ServerSocket;

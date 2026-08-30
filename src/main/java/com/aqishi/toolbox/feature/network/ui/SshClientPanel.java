@@ -1,7 +1,7 @@
 package com.aqishi.toolbox.feature.network.ui;
 
-import com.aqishi.toolbox.feature.network.ssh.model.SshConfigStore;
-import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.ui.SshConfigDialog;
 import com.aqishi.toolbox.feature.network.ssh.ui.SshSessionTabPanel;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;

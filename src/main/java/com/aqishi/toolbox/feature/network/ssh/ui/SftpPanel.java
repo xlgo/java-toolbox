@@ -1,6 +1,6 @@
-package com.aqishi.toolbox.feature.network.ssh.sftp;
+package com.aqishi.toolbox.feature.network.ssh.ui;
 
-import com.aqishi.toolbox.feature.network.ssh.session.SshSessionInstance;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.Tokens;
@@ -19,6 +19,7 @@ import java.io.FileOutputStream;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.List;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
 
 /**
  * SFTP 远程文件传输与目录管理面板

@@ -1,9 +1,9 @@
 package com.aqishi.toolbox.feature.data.ui;
 
-import com.aqishi.toolbox.feature.network.ssh.model.RemoteEndpoint;
-import com.aqishi.toolbox.feature.network.ssh.model.SshConfigStore;
-import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
-import com.aqishi.toolbox.feature.network.ssh.session.SshTunnelBridge;
+import com.aqishi.toolbox.feature.network.ssh.domain.RemoteEndpoint;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshTunnelBridge;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;

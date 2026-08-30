@@ -1,7 +1,7 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
-import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
-import com.aqishi.toolbox.feature.network.ssh.model.SshSecurityUtils;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
 import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.FormGrid;
 import com.aqishi.toolbox.ui.kit.Layouts;
@@ -10,6 +10,8 @@ import com.aqishi.toolbox.ui.kit.Tokens;
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
 
 /**
  * 可复用的 SSH 隧道代理配置 UI 组件。

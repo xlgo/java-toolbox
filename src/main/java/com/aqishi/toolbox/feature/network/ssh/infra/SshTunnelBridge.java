@@ -1,12 +1,14 @@
-package com.aqishi.toolbox.feature.network.ssh.session;
+package com.aqishi.toolbox.feature.network.ssh.infra;
 
-import com.aqishi.toolbox.feature.network.ssh.model.SshConfigStore;
-import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
-import com.aqishi.toolbox.feature.network.ssh.model.SshTunnelConfig;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
 
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
 
 /**
  * 统一 SSH 隧道桥接调度器：为 Redis, 数据库, Kafka 等工具提供内网代理访问

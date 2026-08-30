@@ -1,8 +1,8 @@
-package com.aqishi.toolbox.feature.network.ssh.session;
+package com.aqishi.toolbox.feature.network.ssh.infra;
 
-import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
-import com.aqishi.toolbox.feature.network.ssh.model.SshSecurityUtils;
-import com.aqishi.toolbox.feature.network.ssh.model.SshTunnelConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
 import com.jcraft.jsch.ChannelShell;
 import com.jcraft.jsch.ChannelSftp;
 import com.jcraft.jsch.ChannelDirectTCPIP;
@@ -23,6 +23,10 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshHostKeyPrompt;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
 
 /**
  * 代表一个活动的 SSH 连接会话，包含终端、SFTP、端口转发及自动恢复能力。

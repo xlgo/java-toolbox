@@ -1,6 +1,6 @@
-package com.aqishi.toolbox.feature.network.ssh.model;
+package com.aqishi.toolbox.feature.network.ssh.domain;
 
-import com.aqishi.toolbox.feature.network.ssh.model.RemoteEndpoint;
+import com.aqishi.toolbox.feature.network.ssh.domain.RemoteEndpoint;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

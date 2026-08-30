@@ -1,12 +1,13 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
-import com.aqishi.toolbox.feature.network.ssh.session.SshHostKeyPrompt;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshHostKeyPrompt;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import java.awt.Component;
 import java.util.concurrent.atomic.AtomicBoolean;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshHostKeyPrompt;
 
 /**
  * Swing implementation of the SSH host-key prompt.

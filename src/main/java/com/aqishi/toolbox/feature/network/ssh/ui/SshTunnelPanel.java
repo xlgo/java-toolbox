@@ -1,9 +1,9 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
-import com.aqishi.toolbox.feature.network.ssh.model.SshConfigStore;
-import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
-import com.aqishi.toolbox.feature.network.ssh.model.SshTunnelConfig;
-import com.aqishi.toolbox.feature.network.ssh.session.SshSessionInstance;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Tokens;
 
@@ -15,6 +15,10 @@ import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
 
 /**
  * 端口转发 / 服务隧道管理面板

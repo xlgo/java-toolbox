@@ -1,6 +1,6 @@
-package com.aqishi.toolbox.feature.network.ssh.session;
+package com.aqishi.toolbox.feature.network.ssh.infra;
 
-import com.aqishi.toolbox.feature.network.ssh.session.PortUtils;
+import com.aqishi.toolbox.feature.network.ssh.infra.PortUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

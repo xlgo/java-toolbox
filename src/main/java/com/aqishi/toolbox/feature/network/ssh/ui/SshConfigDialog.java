@@ -1,8 +1,8 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
-import com.aqishi.toolbox.feature.network.ssh.model.SshConnectionConfig;
-import com.aqishi.toolbox.feature.network.ssh.model.SshSecurityUtils;
-import com.aqishi.toolbox.feature.network.ssh.session.SshSessionInstance;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.FormGrid;
@@ -11,6 +11,9 @@ import com.aqishi.toolbox.ui.kit.Tokens;
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
 
 /**
  * SSH 服务器连接配置编辑对话框

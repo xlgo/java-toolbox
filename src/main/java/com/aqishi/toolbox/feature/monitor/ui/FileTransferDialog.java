@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.monitor.ui;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.FormatUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,7 +26,7 @@ import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
 public class FileTransferDialog extends JDialog {
 
     private final DesktopChannel channel;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Json.mapper();
     private final Map<String, TransferTask> activeTasks = new ConcurrentHashMap<>();
 
     private JPanel tasksPanel;
@@ -105,7 +107,7 @@ public class FileTransferDialog extends JDialog {
         if (data == null || data.length < 1) return;
         byte subType = data[0];
 
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Json.mapper();
 
         if (subType == 0x00) {
             // JSON 控制指令

@@ -6,6 +6,7 @@ import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.FormGrid;
 import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.util.Json;
 import com.aqishi.toolbox.util.UIUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -31,8 +32,7 @@ public class FormatConvertPanel extends ToolPanel {
                 "JSON", "XML", "YAML", "CSV", "Properties",
                 "格式互转", "数据转换", "序列化");
         
-        this.jsonMapper = new ObjectMapper();
-        this.jsonMapper.enable(SerializationFeature.INDENT_OUTPUT);
+        this.jsonMapper = Json.prettyMapper();
         
         this.yamlMapper = new YAMLMapper();
         this.xmlMapper = new XmlMapper();

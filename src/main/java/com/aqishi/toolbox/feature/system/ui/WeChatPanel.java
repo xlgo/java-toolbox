@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.system.ui;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.aqishi.toolbox.feature.system.domain.WeChatContactReader;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
@@ -1508,7 +1510,7 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
                 
                 autoCollectProcess = pb.start();
                 
-                ObjectMapper mapper = new ObjectMapper();
+                ObjectMapper mapper = Json.mapper();
                 
                 StringBuilder outputLog = new StringBuilder();
                 try (BufferedReader reader = new BufferedReader(

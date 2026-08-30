@@ -118,6 +118,16 @@ public final class UIUtils {
                 JOptionPane.INFORMATION_MESSAGE);
     }
 
+    /** 弹出带标题的信息提示（自定义消息内容，如嵌套面板） */
+    public static void info(Component parent, Object msg, String title) {
+        JOptionPane.showMessageDialog(parent, msg, title, JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /** 弹出普通消息对话框（PLAIN 级别，适合承载自定义组件内容） */
+    public static void dialog(Component parent, Object msg, String title) {
+        JOptionPane.showMessageDialog(parent, msg, title, JOptionPane.PLAIN_MESSAGE);
+    }
+
     /** 弹出错误提示 */
     public static void error(Component parent, String msg) {
         JOptionPane.showMessageDialog(parent, msg, text("dialog.error", "错误"),

@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.generation.ui;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import java.util.prefs.Preferences;
@@ -337,7 +339,7 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
 
         new Thread(() -> {
             try {
-                ObjectMapper mapper = new ObjectMapper();
+                ObjectMapper mapper = Json.mapper();
                 // Start Prediction
                 URL url = new URL("https://api.replicate.com/v1/predictions");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();

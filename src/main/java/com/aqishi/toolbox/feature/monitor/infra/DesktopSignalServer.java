@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.monitor.infra;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
@@ -26,7 +28,7 @@ public class DesktopSignalServer extends WebSocketServer {
     private final Map<WebSocket, String> wsToGroup = new ConcurrentHashMap<>();
     private final Map<WebSocket, String> wsToName = new ConcurrentHashMap<>();
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Json.mapper();
     private Consumer<String> logListener;
 
     public DesktopSignalServer(int port) {

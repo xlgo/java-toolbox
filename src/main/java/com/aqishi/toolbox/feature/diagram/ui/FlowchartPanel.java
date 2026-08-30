@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.diagram.ui;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.aqishi.toolbox.feature.diagram.domain.DiagramData;
 import com.aqishi.toolbox.feature.diagram.domain.EdgeDto;
 import com.aqishi.toolbox.feature.diagram.domain.FlowEdge;
@@ -928,12 +930,12 @@ public class FlowchartPanel extends ToolPanel {
             }
             data.edges.add(e);
         }
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Json.mapper();
         return mapper.writeValueAsString(data);
     }
 
     private void deserializeFromJson(String json) throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Json.mapper();
         DiagramData data = mapper.readValue(json, DiagramData.class);
         
         // Restore nodes

@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.data.ui;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.aqishi.toolbox.feature.codec.ui.JsonPanel;
 import com.aqishi.toolbox.feature.codec.ui.XmlPanel;
 import com.aqishi.toolbox.feature.data.application.KafkaProfileStore;
@@ -67,7 +69,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     private final Map<String, KafkaProfile> profiles = new LinkedHashMap<>();
     private final KafkaProfileStore profileStore = new KafkaProfileStore(
             java.util.prefs.Preferences.userNodeForPackage(KafkaPanel.class));
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Json.mapper();
     private boolean ignoreProfileEvents = false;
 
     // Collapsible Connection Config

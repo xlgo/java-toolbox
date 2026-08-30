@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.monitor.ui;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.aqishi.toolbox.util.I18n;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -25,7 +27,7 @@ public class RemoteControlWindow extends JFrame {
 
     private final DesktopChannel channel;
     private final String peerId;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Json.mapper();
     private final java.util.concurrent.atomic.AtomicBoolean windowClosed = new java.util.concurrent.atomic.AtomicBoolean(false);
 
     private BufferedImage currentFrame;

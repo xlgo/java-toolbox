@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.monitor.infra;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -22,7 +24,7 @@ import java.util.function.Consumer;
  */
 public class DesktopSignalClient extends WebSocketClient {
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Json.mapper();
     private String clientId;
     private DesktopSignalListener listener;
     private Consumer<String> logListener;

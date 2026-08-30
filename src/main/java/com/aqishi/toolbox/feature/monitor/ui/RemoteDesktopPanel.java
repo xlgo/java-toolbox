@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.monitor.ui;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
@@ -51,7 +53,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
 
     private static final String NEGOTIATION_VERSION = Ice4jDirectConnector.PROTOCOL;
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Json.mapper();
 
     // UI 组件
     private JTabbedPane mainTabs;

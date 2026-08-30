@@ -1,40 +1,25 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
 import com.aqishi.toolbox.feature.codec.domain.JsonFormatter;
-import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
-import com.aqishi.toolbox.ui.kit.Card;
-import com.aqishi.toolbox.ui.kit.Fields;
-import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.util.Json;
 import com.aqishi.toolbox.util.UIUtils;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
-import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
 import java.awt.*;
-import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 
 /**
  * JSON 格式化 / 压缩面板：支持直接在生成结果中进行行内折叠，带彩虹括号和语法高亮。
  */
-public class JsonPanel extends ToolPanel {
-
-    private CardLayout cardLayout;
-    private JPanel outputCardPanel;
-
-    private JTree prettyTree;        // 美化视图（可折叠的代码树）
-    private JTextPane compactPane;   // 压缩视图（单行文本）
-
-    private JTextArea inputArea;
-    private JButton prettyBtn;
-    private JButton returnBtn;
-    private String returnToolId = null;
-
-    private String lastJson = "";
+public class JsonPanel extends AbstractTreeFormatPanel {
 
     // 彩虹括号颜色（粉紫、天蓝、橙黄、翠绿）
     private static final String[] BRACKET_COLORS = {
@@ -48,161 +33,66 @@ public class JsonPanel extends ToolPanel {
     }
 
     @Override
-    protected JComponent build() {
-        JPanel root = Layouts.page();
+    protected String configTitle() {
+        return "JSON 格式化与代码生成";
+    }
 
-        // ===== 顶部操作卡片 =====
-        prettyBtn = Buttons.primary("美化");
-        JButton compact = Buttons.secondary("压缩");
+    @Override
+    protected String caption() {
+        return "美化输出为可折叠的代码树，压缩输出为单行文本";
+    }
+
+    @Override
+    protected String inputCardTitle() {
+        return "输入 JSON";
+    }
+
+    @Override
+    protected String treeRootLabel() {
+        return "JSON";
+    }
+
+    @Override
+    protected String parseErrorPrefix() {
+        return "JSON 解析出错：";
+    }
+
+    @Override
+    protected String defaultInput() {
+        return "{\n  \"projectName\": \"JavaToolbox\",\n  \"version\": \"1.2.0\",\n  \"active\": true,\n  \"server\": {\n    \"port\": 8080,\n    \"host\": \"localhost\",\n    \"enableTls\": false,\n    \"sslConfig\": null\n  },\n  \"modules\": [\n    {\n      \"id\": \"bpmn\",\n      \"name\": \"BPMN 2.0 Designer\",\n      \"tags\": [\"workflow\", \"editor\", \"xml\"]\n    },\n    {\n      \"id\": \"k8s\",\n      \"name\": \"Kubernetes Generator\",\n      \"tags\": [\"yaml\", \"k8s\", \"deploy\"]\n    }\n  ],\n  \"systemMetrics\": {\n    \"cpu\": {\n      \"cores\": 8,\n      \"loadPercent\": 24.5\n    },\n    \"memory\": {\n      \"totalGb\": 16,\n      \"usedGb\": 6.2\n    }\n  }\n}";
+    }
+
+    @Override
+    protected void addExtraActions(ActionBar bar) {
         JButton genJavaBtn = Buttons.secondary("转 Java POJO");
         genJavaBtn.addActionListener(e -> generateCode("JAVA"));
         JButton genTsBtn = Buttons.secondary("转 TypeScript");
         genTsBtn.addActionListener(e -> generateCode("TS"));
-        JButton copy = Buttons.ghost("复制结果");
-        JButton clear = Buttons.ghost("清空");
-        returnBtn = Buttons.ghost("⬅ 返回 Kafka 工具");
-        returnBtn.setVisible(false);
-
-        returnBtn.addActionListener(e -> {
-            if (returnToolId != null) {
-                com.aqishi.toolbox.ui.MainFrame mainFrame = com.aqishi.toolbox.ui.MainFrame.getMainFrame(root);
-                if (mainFrame != null) {
-                    mainFrame.selectTool(returnToolId);
-                }
-                returnBtn.setVisible(false);
-                returnToolId = null;
-            }
-        });
-
-        ActionBar bar = new ActionBar();
-        bar.left(Fields.caption("美化输出为可折叠的代码树，压缩输出为单行文本"));
-        bar.right(returnBtn);
-        bar.right(clear);
-        bar.right(copy);
         bar.right(genTsBtn);
         bar.right(genJavaBtn);
-        bar.right(compact);
-        bar.right(prettyBtn);
-        Card config = Card.titled("JSON 格式化与代码生成");
-        config.setContent(bar);
-
-        // 输入区域
-        inputArea = Fields.area(6, 40);
-        inputArea.setText("{\n  \"projectName\": \"JavaToolbox\",\n  \"version\": \"1.2.0\",\n  \"active\": true,\n  \"server\": {\n    \"port\": 8080,\n    \"host\": \"localhost\",\n    \"enableTls\": false,\n    \"sslConfig\": null\n  },\n  \"modules\": [\n    {\n      \"id\": \"bpmn\",\n      \"name\": \"BPMN 2.0 Designer\",\n      \"tags\": [\"workflow\", \"editor\", \"xml\"]\n    },\n    {\n      \"id\": \"k8s\",\n      \"name\": \"Kubernetes Generator\",\n      \"tags\": [\"yaml\", \"k8s\", \"deploy\"]\n    }\n  ],\n  \"systemMetrics\": {\n    \"cpu\": {\n      \"cores\": 8,\n      \"loadPercent\": 24.5\n    },\n    \"memory\": {\n      \"totalGb\": 16,\n      \"usedGb\": 6.2\n    }\n  }\n}");
-
-        // 输出区域：使用 CardLayout 来切换折叠树和普通单行文本。
-        // 两个视图各自套一张 flush 卡片，切换 card 时标题也跟着换，
-        // 因此事件代码不需要额外维护标题文案。
-        cardLayout = new CardLayout();
-        outputCardPanel = new JPanel(cardLayout);
-        outputCardPanel.setOpaque(false);
-
-        // 1. 美化可折叠代码树卡片
-        prettyTree = new JTree(new DefaultMutableTreeNode("JSON"));
-        prettyTree.setFont(UIUtils.monoFont());
-        prettyTree.putClientProperty("JTree.lineStyle", "None");
-        prettyTree.setRootVisible(true);
-        prettyTree.setShowsRootHandles(true);
-        prettyTree.setRowHeight(20);
-        prettyTree.setCellRenderer(new CodeTreeCellRenderer(prettyTree));
-        
-        // 隐藏树节点的默认边框和图标，与编辑器界面融为一体
-        DefaultTreeCellRenderer renderer = (DefaultTreeCellRenderer) prettyTree.getCellRenderer();
-        renderer.setOpenIcon(null);
-        renderer.setClosedIcon(null);
-        renderer.setLeafIcon(null);
-
-        Card treeCard = Card.flush("结果 (点击左侧三角箭头折叠/展开)");
-        treeCard.setContent(Fields.scroll(prettyTree));
-        outputCardPanel.add(treeCard, "PRETTY");
-
-        // 2. 压缩视图卡片
-        compactPane = new JTextPane();
-        compactPane.setEditable(false);
-        compactPane.setFont(UIUtils.monoFont());
-        Card compactCard = Card.flush("结果 (压缩)");
-        compactCard.setContent(Fields.scroll(compactPane));
-        outputCardPanel.add(compactCard, "COMPACT");
-
-        Card inputCard = Card.flush("输入 JSON");
-        inputCard.setContent(Fields.scroll(inputArea));
-
-        // 左输入 / 右结果：横向分栏后拖窗口时两侧同时变宽，
-        // 长的 JSON 行与深层嵌套的树节点都少一次横向滚动。
-        root.add(config, BorderLayout.NORTH);
-        root.add(Layouts.splitHorizontal(inputCard, outputCardPanel, 0.5), BorderLayout.CENTER);
-
-        prettyBtn.addActionListener(e -> {
-            String jsonText = inputArea.getText().trim();
-            if (jsonText.isEmpty()) return;
-            try {
-                // 校验并构建树
-                buildJsonTree(jsonText);
-                lastJson = JsonFormatter.pretty(jsonText);
-                cardLayout.show(outputCardPanel, "PRETTY");
-            } catch (Exception ex) {
-                UIUtils.error(root, "JSON 解析出错：" + ex.getMessage());
-            }
-        });
-
-        compact.addActionListener(e -> {
-            String jsonText = inputArea.getText().trim();
-            if (jsonText.isEmpty()) return;
-            try {
-                lastJson = JsonFormatter.compact(jsonText);
-                compactPane.setText(lastJson);
-                cardLayout.show(outputCardPanel, "COMPACT");
-            } catch (Exception ex) {
-                UIUtils.error(root, "JSON 解析出错：" + ex.getMessage());
-            }
-        });
-
-        copy.addActionListener(e -> {
-            if (!lastJson.isEmpty()) {
-                UIUtils.copyToClipboard(lastJson);
-            }
-        });
-
-        clear.addActionListener(e -> {
-            inputArea.setText("");
-            compactPane.setText("");
-            lastJson = "";
-            prettyTree.setModel(new DefaultTreeModel(new DefaultMutableTreeNode("JSON")));
-        });
-
-        prettyBtn.doClick();
-
-        return root;
     }
 
-    public void formatTextWithReturn(String jsonText, String sourceToolId, String sourceToolName) {
-        getView();
-        if (inputArea != null) {
-            inputArea.setText(jsonText != null ? jsonText : "");
-            if (prettyBtn != null) {
-                prettyBtn.doClick();
-            }
-        }
-        if (sourceToolId != null && sourceToolName != null) {
-            this.returnToolId = sourceToolId;
-            if (returnBtn != null) {
-                returnBtn.setText("⬅ 返回 " + sourceToolName);
-                returnBtn.setVisible(true);
-            }
-        }
-    }
+    @Override
+    protected void buildTree(String json) throws java.io.IOException {
+        JsonNode rootNode = Json.mapper().readTree(json);
 
-    private void buildJsonTree(String json) throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
-        JsonNode rootNode = mapper.readTree(json);
-        
         DefaultMutableTreeNode rootTreeNode = convertJsonNodeToTreeNode(rootNode, "", 0, true);
         prettyTree.setModel(new DefaultTreeModel(rootTreeNode));
-        
+
         // 默认全部展开
         for (int i = 0; i < prettyTree.getRowCount(); i++) {
             prettyTree.expandRow(i);
         }
+    }
+
+    @Override
+    protected String prettyText(String json) throws java.io.IOException {
+        return JsonFormatter.pretty(json);
+    }
+
+    @Override
+    protected String compactText(String json) throws java.io.IOException {
+        return JsonFormatter.compact(json);
     }
 
     private DefaultMutableTreeNode convertJsonNodeToTreeNode(JsonNode node, String keyName, int depth, boolean isLast) {
@@ -213,40 +103,40 @@ public class JsonPanel extends ToolPanel {
         if (node.isObject()) {
             String open = "<html>" + keyHtml + "<span style='color:" + color + "'><b>{</b></span></html>";
             String close = "<html>" + keyHtml + "<span style='color:" + color + "'><b>{ ... }</b></span>" + comma + "</html>";
-            
-            DefaultMutableTreeNode container = new DefaultMutableTreeNode(new JsonFolderNode(open, close));
-            
-            java.util.Iterator<java.util.Map.Entry<String, JsonNode>> fields = node.fields();
-            java.util.List<java.util.Map.Entry<String, JsonNode>> list = new java.util.ArrayList<>();
+
+            DefaultMutableTreeNode container = new DefaultMutableTreeNode(new CodeFolderNode(open, close));
+
+            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            List<Map.Entry<String, JsonNode>> list = new ArrayList<>();
             while (fields.hasNext()) {
                 list.add(fields.next());
             }
-            
+
             for (int i = 0; i < list.size(); i++) {
-                java.util.Map.Entry<String, JsonNode> field = list.get(i);
+                Map.Entry<String, JsonNode> field = list.get(i);
                 boolean lastField = (i == list.size() - 1);
                 container.add(convertJsonNodeToTreeNode(field.getValue(), field.getKey(), depth + 1, lastField));
             }
-            
+
             // 添加右花括号作为代码的结束标记
             String endText = "<html><span style='color:" + color + "'><b>}</b></span>" + comma + "</html>";
-            container.add(new DefaultMutableTreeNode(new JsonFolderNode(endText, endText)));
+            container.add(new DefaultMutableTreeNode(new CodeFolderNode(endText, endText)));
             return container;
-            
+
         } else if (node.isArray()) {
             String open = "<html>" + keyHtml + "<span style='color:" + color + "'><b>[</b></span></html>";
             String close = "<html>" + keyHtml + "<span style='color:" + color + "'><b>[ ... ]</b></span>" + comma + "</html>";
-            
-            DefaultMutableTreeNode container = new DefaultMutableTreeNode(new JsonFolderNode(open, close));
-            
+
+            DefaultMutableTreeNode container = new DefaultMutableTreeNode(new CodeFolderNode(open, close));
+
             for (int i = 0; i < node.size(); i++) {
                 boolean lastField = (i == node.size() - 1);
                 container.add(convertJsonNodeToTreeNode(node.get(i), "", depth + 1, lastField));
             }
-            
+
             // 结束中括号
             String endText = "<html><span style='color:" + color + "'><b>]</b></span>" + comma + "</html>";
-            container.add(new DefaultMutableTreeNode(new JsonFolderNode(endText, endText)));
+            container.add(new DefaultMutableTreeNode(new CodeFolderNode(endText, endText)));
             return container;
         } else {
             // 叶子节点：普通值着色
@@ -260,80 +150,9 @@ public class JsonPanel extends ToolPanel {
             } else {
                 valHtml = "<span style='color:#abb2bf'>null</span>";
             }
-            
+
             String text = "<html>" + keyHtml + valHtml + comma + "</html>";
-            return new DefaultMutableTreeNode(new JsonFolderNode(text, text));
-        }
-    }
-
-    private String escapeHtml(String text) {
-        if (text == null) return "";
-        return text.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&apos;");
-    }
-
-    /**
-     * 自定义折叠节点载体
-     */
-    static class JsonFolderNode {
-        String openText;
-        String closeText;
-
-        JsonFolderNode(String openText, String closeText) {
-            this.openText = openText;
-            this.closeText = closeText;
-        }
-
-        @Override
-        public String toString() {
-            return openText;
-        }
-    }
-
-    /**
-     * 树行内渲染，切换展开折叠样式
-     */
-    static class CodeTreeCellRenderer extends DefaultTreeCellRenderer {
-        private final JTree tree;
-
-        CodeTreeCellRenderer(JTree tree) {
-            this.tree = tree;
-            setOpenIcon(null);
-            setClosedIcon(null);
-            setLeafIcon(null);
-            setBackgroundNonSelectionColor(new Color(0, 0, 0, 0));
-            setBorderSelectionColor(new Color(0, 0, 0, 0));
-        }
-
-        @Override
-        public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel,
-                                                      boolean expanded, boolean leaf, int row, boolean hasFocus) {
-            super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
-
-            if (value instanceof DefaultMutableTreeNode) {
-                Object userObj = ((DefaultMutableTreeNode) value).getUserObject();
-                if (userObj instanceof JsonFolderNode) {
-                    JsonFolderNode node = (JsonFolderNode) userObj;
-                    if (expanded) {
-                        setText(node.openText);
-                    } else {
-                        setText(node.closeText);
-                    }
-                }
-            }
-            
-            // 选中行高亮着色，保持温和的前背景色
-            if (sel) {
-                setBackground(UIManager.getColor("List.selectionBackground"));
-                setForeground(UIManager.getColor("List.selectionForeground"));
-            } else {
-                setBackground(null);
-                setForeground(null);
-            }
-            return this;
+            return new DefaultMutableTreeNode(new CodeFolderNode(text, text));
         }
     }
 
@@ -345,8 +164,7 @@ public class JsonPanel extends ToolPanel {
         }
 
         try {
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode rootNode = mapper.readTree(jsonText);
+            JsonNode rootNode = Json.mapper().readTree(jsonText);
 
             StringBuilder codeSb = new StringBuilder();
             if ("JAVA".equalsIgnoreCase(lang)) {
@@ -366,11 +184,11 @@ public class JsonPanel extends ToolPanel {
             JButton copyBtn = new JButton("一键复制生成的代码");
             copyBtn.addActionListener(e -> {
                 UIUtils.copyToClipboard(area.getText());
-                JOptionPane.showMessageDialog(getView(), "生成代码已复制到剪贴板！", "成功", JOptionPane.INFORMATION_MESSAGE);
+                UIUtils.info(getView(), "生成代码已复制到剪贴板！");
             });
             dialogPanel.add(copyBtn, BorderLayout.SOUTH);
 
-            JOptionPane.showMessageDialog(getView(), dialogPanel, "代码生成器 (" + lang + ")", JOptionPane.PLAIN_MESSAGE);
+            UIUtils.dialog(getView(), dialogPanel, "代码生成器 (" + lang + ")");
 
         } catch (Exception ex) {
             UIUtils.error(getView(), "解析失败: " + ex.getMessage());
@@ -381,11 +199,11 @@ public class JsonPanel extends ToolPanel {
         if (!node.isObject()) return;
 
         sb.append("public class ").append(className).append(" {\n");
-        java.util.Iterator<java.util.Map.Entry<String, JsonNode>> fields = node.fields();
-        java.util.List<String> gettersAndSetters = new java.util.ArrayList<>();
+        Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+        List<String> gettersAndSetters = new ArrayList<>();
 
         while (fields.hasNext()) {
-            java.util.Map.Entry<String, JsonNode> field = fields.next();
+            Map.Entry<String, JsonNode> field = fields.next();
             String name = field.getKey();
             JsonNode val = field.getValue();
 
@@ -423,14 +241,13 @@ public class JsonPanel extends ToolPanel {
         if (!node.isObject()) return;
 
         sb.append("export interface ").append(interfaceName).append(" {\n");
-        java.util.Iterator<java.util.Map.Entry<String, JsonNode>> fields = node.fields();
+        Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
 
         while (fields.hasNext()) {
-            java.util.Map.Entry<String, JsonNode> field = fields.next();
+            Map.Entry<String, JsonNode> field = fields.next();
             String name = field.getKey();
-            JsonNode val = field.getValue();
 
-            String type = getTsType(val, capitalize(name));
+            String type = getTsType(field.getValue(), capitalize(name));
             sb.append("  ").append(name).append("?: ").append(type).append(";\n");
         }
         sb.append("}\n\n");

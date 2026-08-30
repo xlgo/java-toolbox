@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.network.ui;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.aqishi.toolbox.feature.codec.domain.JsonFormatter;
 import com.aqishi.toolbox.feature.network.application.CallbackMockService;
 import com.aqishi.toolbox.feature.network.application.MockRequestRecord;
@@ -101,7 +103,7 @@ public class CallbackTestPanel extends ToolPanel implements ManagedResourceOwner
     private static CallbackMockRuleRepository defaultRepository() {
         return new CallbackMockRuleRepository(
                 ApplicationPaths.systemDefault().getCallbackMockRulesFile(),
-                new AtomicFiles(), new ObjectMapper());
+                new AtomicFiles(), Json.mapper());
     }
 
     @Override

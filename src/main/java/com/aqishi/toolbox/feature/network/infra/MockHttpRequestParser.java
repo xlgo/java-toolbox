@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.network.infra;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,7 +28,7 @@ public final class MockHttpRequestParser {
     private final MultipartFormDataParser multipartFormDataParser;
 
     public MockHttpRequestParser() {
-        this(new ObjectMapper());
+        this(Json.mapper());
     }
 
     public MockHttpRequestParser(ObjectMapper objectMapper) {

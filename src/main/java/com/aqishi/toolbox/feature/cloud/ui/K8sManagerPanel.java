@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.cloud.ui;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.aqishi.toolbox.feature.cloud.application.KubernetesService;
 import com.aqishi.toolbox.feature.cloud.application.KubernetesServiceFactory;
 import com.aqishi.toolbox.domain.KubernetesProfile;
@@ -134,7 +136,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
     private final KubeconfigStore profileStore = new KubeconfigStore(
             java.util.prefs.Preferences.userNodeForPackage(K8sManagerPanel.class));
     private final KubeconfigParser kubeconfigParser = new KubeconfigParser();
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Json.mapper();
     private boolean ignoreProfileEvents = false;
 
     public K8sManagerPanel() {
@@ -2429,7 +2431,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
 
     private String convertJsonToYaml(String json) {
         try {
-            ObjectMapper jsonMapper = new ObjectMapper();
+            ObjectMapper jsonMapper = Json.mapper();
             Object obj = jsonMapper.readValue(json, Object.class);
             ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
             return yamlMapper.writerWithDefaultPrettyPrinter().writeValueAsString(obj);
@@ -2719,7 +2721,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                 break;
         }
 
-        ObjectMapper jsonMapper = new ObjectMapper();
+        ObjectMapper jsonMapper = Json.mapper();
         String jsonBody = jsonMapper.writeValueAsString(node);
 
         String collectionPath = isNamespaced 

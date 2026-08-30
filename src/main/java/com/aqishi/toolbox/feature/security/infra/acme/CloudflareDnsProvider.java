@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.security.infra.acme;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -21,7 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class CloudflareDnsProvider {
 
     private static final String CF_API_BASE = "https://api.cloudflare.com/client/v4";
-    private static final ObjectMapper mapper = new ObjectMapper();
+    private static final ObjectMapper mapper = Json.mapper();
     private static final Map<String, String> zoneCache = new ConcurrentHashMap<>();
 
     /**

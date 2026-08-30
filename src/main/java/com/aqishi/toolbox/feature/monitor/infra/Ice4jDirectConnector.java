@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.monitor.infra;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.ice4j.Transport;
 import org.ice4j.TransportAddress;
@@ -52,7 +54,7 @@ public final class Ice4jDirectConnector {
     private static final int CHECK_TIMEOUT_SECONDS = 25;
     private static final int DIAGNOSTIC_INTERVAL_SECONDS = 5;
     private static final int MAX_REMOTE_CANDIDATES = 128;
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = Json.mapper();
 
     private static final List<InetSocketAddress> DEFAULT_STUN_SERVERS;
 

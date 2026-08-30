@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.security.infra.acme;
 
+import com.aqishi.toolbox.util.Json;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -32,7 +34,7 @@ public class AcmeClient {
     public static final String ZEROSSL_PROD = "https://acme.zerossl.com/v2/DV90";
 
     private final String directoryUrl;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Json.mapper();
 
     private String newNonceUrl;
     private String newAccountUrl;

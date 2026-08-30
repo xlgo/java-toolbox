@@ -12,6 +12,7 @@ import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.Json;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.util.FormatUtils;
 
@@ -286,8 +287,7 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
                             (rawBody.startsWith("{") && rawBody.endsWith("}")) ||
                             (rawBody.startsWith("[") && rawBody.endsWith("]"))) {
                             try {
-                                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                                mapper.enable(com.fasterxml.jackson.databind.SerializationFeature.INDENT_OUTPUT);
+                                com.fasterxml.jackson.databind.ObjectMapper mapper = Json.prettyMapper();
                                 Object json = mapper.readValue(rawBody, Object.class);
                                 respBodyArea.setText(mapper.writeValueAsString(json));
                             } catch (Exception e) {

@@ -8,9 +8,10 @@
 
 | 批次 | 内容 | 状态 |
 |---|---|---|
-| 第 1 批 | P0-1~P0-5、P1-1、P1-3、P1-6、P1-10、P1-27、B1、B6 | ✅ 已完成（`515005c`，230 测试全绿） |
-| 第 2 批 | P2-5/P2-6 分层归位、P2-7 打破包级环 | ⏳ 待做 |
-| 第 3 批 | P2-1~P2-4 重复收敛、P2-9 UI 逻辑下沉 | ⏳ 待做 |
+| 第 1 批 | P0-1~P0-5、P1-1、P1-3、P1-6、P1-10、P1-27、B1、B6 | ✅ `515005c` |
+| 第 2 批 | P2-5 monitor 分层、P2-6 ssh 分层、P2-7 打破包级环 | ✅ `e7ad260` / `b8c1a04` / `f2d9e31` |
+| 第 3 批 | P2-1 K8s 模板收敛、P2-4 格式化与剪贴板收敛 | ✅ 部分完成（`a8edb67`、`4c3f8a1`） |
+| 第 3 批 | P2-2✅（随 P2-1 一起）、P2-3 codec 面板继承、P2-4 ObjectMapper/JOptionPane、P2-9 UI 逻辑下沉 | ⏳ 待做 |
 | 第 4 批 | T1~T4 测试补齐、B7 CI 门禁 | ⏳ 待做 |
 | 第 5 批 | D1~D7 文档校准、I1~I2 i18n 分批 | ⏳ 待做 |
 
@@ -42,6 +43,33 @@
 - JDK 统一 17（`maven.compiler.release`），与 CI 一致
 - `maven-resources-plugin` 2.6 → 3.3.1、`maven-surefire-plugin` 3.1.2 → 3.2.5（原版本在本地仓库不完整，无法构建和跑测试）
 - `target/` 已 clean，回收 261MB
+
+### 第 2 批落地要点
+
+**monitor 分层**（19 个类，原全部平铺在 `feature/monitor` 根包）
+
+- `domain`：DesktopChannel、DesktopMessage、IceProbeCodec、RemoteSessionIds
+- `infra`：DesktopSignalClient/Server、Ice4jDirectConnector、P2PConnector、SocketChannelImpl、UdpChannelImpl、TcpDirectConnector、StunClient、NatPmpPortMapper、UpnpPortMapper
+- `ui`：RemoteDesktopPanel、RemoteControlWindow、VideoMonitorPanel、FileTransferDialog、RemoteTerminalDialog、TransparentOverlayWindow
+
+拆分暴露出 `IceProbeCodec` 是包级私有、跨包后不可见，已按「领域协议编解码」的定位提升为 public（连同 `ParsedMessage` 的取值方法）。
+
+**ssh 分层**（18 个类，原自造 `model/session/sftp`）
+
+- `domain`：RemoteEndpoint、SshConnectionConfig、SshTunnelConfig、SshSecurityUtils、SshHostKeyPrompt
+- `infra`：SshSessionInstance、SshTunnelBridge、SshTtyConnector、PortUtils、SshConfigStore、KafkaTunnelSupport
+- `ui`：SshSessionTabPanel、SshTunnelPanel、SftpPanel 等 7 个
+
+`SftpPanel` 原本孤零零放在 `sftp` 包，现与其余界面类同处 `ui`。对外引用（DatabasePanel、KafkaPanel、RedisPanel、ZooKeeperPanel、HttpTestPanel、SshClientPanel、MainFrame 及 4 个测试）的 import 一并修正。
+
+**打破包级环**
+
+新增顶层 `com.aqishi.toolbox.domain`，移入 4 个被跨层共享的 Profile（Database、Redis、Kafka、Kubernetes，均为零依赖 POJO）。依赖方向由原来的环变为 `feature → infra → domain` 单向，`infra` 对 `feature` 的 import 已清零。
+
+### 第 3 批已落地
+
+- **P2-1 + P2-2**：K8s 九类资源加载模板收敛为 `loadResourceTable(model, path, label, rowMapper)`，抽出 `listPath`/`namespaceOf`/`nameOf`/`ageOf`/`readyCount`，427 行 → 222 行；表格回填改为批量写入数据向量后只广播一次 `fireTableDataChanged`（原逐个 `addRow` 会触发上千次事件）
+- **P2-4（部分）**：新增 `util/FormatUtils`（`bytes()` 统一四份不一致的字节格式化、`duration()`）；7 处手写剪贴板改用 `UIUtils.copyToClipboard()`（`vault/SecureClipboard` 是独立的安全实现，保持不变）
 
 ## 0. 一句话结论
 

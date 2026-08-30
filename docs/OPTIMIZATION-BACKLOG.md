@@ -16,7 +16,7 @@
 | 第 3 批 | P2-9 UI 逻辑下沉 | ⏳ 待做 |
 | 第 4 批 | B7 CI 门禁、T1 data/cloud/compute 领域层测试（SimpleEval/QueryResult/SqlExecutionService/K8sResourceRef 共 20 例） | ✅ 部分完成 |
 | 第 4 批 | T2 security 加密 round-trip（SymmetricUtils/RSAUtils/OtpUtils/SM3Utils 共 30 例）、T3 codec 格式化 round-trip（JsonFormatter 7 例） | ✅ 本轮完成 |
-| 第 4 批 | T4 SSH 核心测试 | ⏳ 待做（基础已具备：P1-3 hostKeyPrompt 可注入） |
+| 第 4 批 | T4 SSH 核心测试（SshSecurityUtils 凭据加密 round-trip 8 例，无需真服务端） | ✅ 本轮完成 |
 | 第 5 批 | D1~D7 文档校准、I1~I2 i18n 分批 | ⏳ 待做 |
 
 已完成项保留原文，作为问题背景与证据。

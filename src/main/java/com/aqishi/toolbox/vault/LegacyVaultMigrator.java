@@ -114,6 +114,33 @@ public final class LegacyVaultMigrator {
         }
     }
 
+    public List<String> discardLegacy() {
+        List<String> warnings = new ArrayList<>();
+        Path legacyPassword = paths.getLegacyPasswordFile();
+        if (Files.isRegularFile(legacyPassword)) {
+            try {
+                Files.deleteIfExists(legacyPassword);
+            } catch (IOException e) {
+                warnings.add("Failed to delete legacy password file: " + legacyPassword);
+            }
+        }
+        Path legacyConfig = paths.getLegacyConfigFile();
+        if (Files.isRegularFile(legacyConfig)) {
+            try {
+                byte[] sanitized = new LegacyTotpReader(legacyConfig).sanitizedBytes();
+                atomicFiles.write(paths.getConfigFile(), sanitized);
+                try {
+                    Files.deleteIfExists(legacyConfig);
+                } catch (IOException e) {
+                    warnings.add("Failed to delete legacy config file: " + legacyConfig);
+                }
+            } catch (Exception e) {
+                warnings.add("Failed to sanitize legacy config: " + e.getMessage());
+            }
+        }
+        return Collections.unmodifiableList(warnings);
+    }
+
     private void backup(String prefix, byte[] source, char[] password)
             throws VaultException {
         byte[] salt = crypto.randomBytes(VaultEnvelope.SALT_BYTES);

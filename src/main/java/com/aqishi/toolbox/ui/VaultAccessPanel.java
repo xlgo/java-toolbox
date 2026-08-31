@@ -101,19 +101,27 @@ public final class VaultAccessPanel extends JPanel {
         addField(fields, I18n.get("vault.masterPassword"), migrationPassword);
         addField(fields, I18n.get("vault.confirmPassword"), migrationConfirmation);
         JButton migrate = Buttons.primary(I18n.get("vault.migrate"));
+        JButton discard = Buttons.ghost(I18n.get("vault.discardLegacy"));
         migrate.addActionListener(event -> migrate());
         migrationPassword.addActionListener(event -> migrate());
+        discard.addActionListener(event -> confirmReset(
+                I18n.get("vault.reset.confirm.title"),
+                I18n.get("vault.discardLegacy.confirm.message")));
         return centered(I18n.get("vault.migrate.title"),
-                I18n.get("vault.migrate.help"), fields, migrate);
+                I18n.get("vault.migrate.help"), fields, migrate, discard);
     }
 
     private JComponent buildUnlock() {
         FormGrid fields = new FormGrid();
         addField(fields, I18n.get("vault.masterPassword"), unlockPassword);
         JButton unlock = Buttons.primary(I18n.get("vault.unlock"));
+        JButton forgot = Buttons.ghost(I18n.get("vault.forgotPassword"));
         unlock.addActionListener(event -> unlock());
         unlockPassword.addActionListener(event -> unlock());
-        return centered(I18n.get("vault.unlock.title"), null, fields, unlock);
+        forgot.addActionListener(event -> confirmReset(
+                I18n.get("vault.reset.confirm.title"),
+                I18n.get("vault.reset.confirm.message")));
+        return centered(I18n.get("vault.unlock.title"), null, fields, unlock, forgot);
     }
 
     private JComponent buildBusy() {
@@ -150,11 +158,17 @@ public final class VaultAccessPanel extends JPanel {
     private JComponent buildError() {
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setOpaque(false);
+        JPanel box = Layouts.box(0, Tokens.SPACE_MD);
         JLabel label = new JLabel(I18n.get("vault.readOnly"));
         label.setFont(Tokens.fontBody());
-        // 只读故障是错误态：仅着色，文案与原来完全一致
         label.setForeground(Tokens.danger());
-        panel.add(label);
+        JButton reset = Buttons.secondary(I18n.get("vault.reset"));
+        reset.addActionListener(event -> confirmReset(
+                I18n.get("vault.reset.confirm.title"),
+                I18n.get("vault.reset.confirm.message")));
+        box.add(label, BorderLayout.NORTH);
+        box.add(reset, BorderLayout.CENTER);
+        panel.add(box);
         return panel;
     }
 
@@ -162,10 +176,15 @@ public final class VaultAccessPanel extends JPanel {
      * 解锁 / 首次设置 / 迁移三种状态共用的居中表单。
      *
      * <p>这三张卡都只有一两个输入框，铺满整页会显得空旷；放进一张按首选尺寸居中的卡片里，
-     * 视觉重心落在主密码输入上，主操作固定在卡片右下角。</p>
+     * 视觉重心落在主密码输入上，主操作固定在卡片右下角，辅助操作位于左下角。</p>
      */
     private JComponent centered(String title, String help,
                                 JComponent fields, JButton action) {
+        return centered(title, help, fields, action, null);
+    }
+
+    private JComponent centered(String title, String help,
+                                JComponent fields, JButton action, JButton auxiliary) {
         Card card = Card.titled(title);
         JPanel body = Layouts.box(0, Tokens.SPACE_MD);
         if (help != null) {
@@ -177,6 +196,9 @@ public final class VaultAccessPanel extends JPanel {
         }
         body.add(fields, BorderLayout.CENTER);
         ActionBar actions = new ActionBar();
+        if (auxiliary != null) {
+            actions.left(auxiliary);
+        }
         actions.right(action);
         body.add(actions, BorderLayout.SOUTH);
         card.setContent(body);
@@ -187,6 +209,32 @@ public final class VaultAccessPanel extends JPanel {
         outer.setBorder(KitBorders.padding(Tokens.SPACE_LG));
         outer.add(card, new GridBagConstraints());
         return outer;
+    }
+
+    private void confirmReset(String title, String message) {
+        int choice = javax.swing.JOptionPane.showConfirmDialog(
+                this,
+                message,
+                title,
+                javax.swing.JOptionPane.YES_NO_OPTION,
+                javax.swing.JOptionPane.WARNING_MESSAGE);
+        if (choice == javax.swing.JOptionPane.YES_OPTION) {
+            showCard(BUSY);
+            service.reset().whenComplete((ignored, error) -> SwingUtilities.invokeLater(() -> {
+                unlockPassword.setText("");
+                migrationPassword.setText("");
+                migrationConfirmation.setText("");
+                setupPassword.setText("");
+                setupConfirm.setText("");
+                if (error != null) {
+                    UIUtils.error(this, safeMessage(error));
+                    showState(service.getState());
+                } else {
+                    UIUtils.info(this, I18n.get("vault.reset.success"));
+                    showState(service.getState());
+                }
+            }));
+        }
     }
 
     private static void addField(FormGrid form, String label, JPasswordField field) {

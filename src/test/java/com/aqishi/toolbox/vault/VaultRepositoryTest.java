@@ -49,6 +49,24 @@ class VaultRepositoryTest {
     }
 
     @Test
+    void resetRemovesVaultFileAndArchivesBackup() throws Exception {
+        try (VaultTestSupport support = new VaultTestSupport(temp)) {
+            VaultRepository repository = support.repository();
+            char[] password = "masterPassword".toCharArray();
+            repository.create(support.sampleData(), password).close();
+            assertTrue(repository.exists());
+
+            repository.reset();
+            assertFalse(repository.exists());
+            assertFalse(Files.exists(support.paths().getVaultFile()));
+
+            VaultRepository.OpenedVault recreated = repository.create(new VaultData(), "newPassword".toCharArray());
+            assertTrue(repository.exists());
+            recreated.close();
+        }
+    }
+
+    @Test
     void jacksonRoundTripPreservesStableEnvelopeAndNestedDataContract() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         VaultData data;

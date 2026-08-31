@@ -86,6 +86,24 @@ public final class VaultService implements AutoCloseable {
         });
     }
 
+    public CompletableFuture<Void> reset() {
+        return runOperation(VaultState.UNLOCKING, (char[]) null, () -> {
+            synchronized (mutex) {
+                if (opened != null) {
+                    opened.close();
+                    opened = null;
+                }
+                snapshot = null;
+            }
+            repository.reset();
+            List<String> warnings = migrator.discardLegacy();
+            synchronized (mutex) {
+                cleanupWarnings = warnings;
+                migrationMode = LegacyVaultMigrator.MigrationMode.NONE;
+            }
+        });
+    }
+
     public List<String> getCleanupWarnings() {
         synchronized (mutex) {
             return Collections.unmodifiableList(new ArrayList<>(cleanupWarnings));

@@ -40,6 +40,10 @@ class VaultAccessPanelTest {
             components.service.lock();
             SwingUtilities.invokeAndWait(() -> { });
             assertEquals("UNLOCK", panel[0].getVisibleCardName());
+
+            components.service.reset().get();
+            SwingUtilities.invokeAndWait(() -> { });
+            assertEquals("SETUP", panel[0].getVisibleCardName());
             panel[0].dispose();
         } finally {
             components.service.close();

@@ -153,6 +153,27 @@ class VaultServiceTest {
         }
     }
 
+    @Test
+    void resetClearsOpenedSessionAndAllowsNewCreation() throws Exception {
+        try (VaultTestSupport support = new VaultTestSupport(temp)) {
+            support.repository().create(support.sampleData(), "master".toCharArray()).close();
+            VaultService service = service(support, new TestClock(), new TestScheduler());
+            service.unlock("master".toCharArray()).get();
+            assertEquals(VaultState.UNLOCKED, service.getState());
+            assertTrue(service.isInitialized());
+
+            service.reset().get();
+            assertEquals(VaultState.LOCKED, service.getState());
+            assertFalse(service.isInitialized());
+            assertEquals(0, service.getPasswordAccounts().size());
+
+            service.create("brandNewPassword".toCharArray()).get();
+            assertEquals(VaultState.UNLOCKED, service.getState());
+            assertTrue(service.isInitialized());
+            service.close();
+        }
+    }
+
     private static VaultService service(VaultTestSupport support,
                                         TestClock clock,
                                         TestScheduler scheduler) throws Exception {

@@ -124,6 +124,29 @@ public final class VaultRepository implements AutoCloseable {
         }
     }
 
+    public synchronized void reset() throws VaultException {
+        requireWritable();
+        Path target = paths.getVaultFile();
+        Path candidate = target.resolveSibling(target.getFileName() + ".candidate");
+        try {
+            Files.deleteIfExists(candidate);
+            if (Files.exists(target)) {
+                Path backupDir = paths.getBackupDirectory();
+                if (backupDir != null) {
+                    Files.createDirectories(backupDir);
+                    Path backup = backupDir.resolve("vault-reset-" + System.currentTimeMillis() + "-" + UUID.randomUUID() + ".json.enc");
+                    try {
+                        Files.copy(target, backup);
+                    } catch (IOException ignored) {
+                    }
+                }
+                Files.deleteIfExists(target);
+            }
+        } catch (IOException error) {
+            throw writeFailure("Unable to reset vault file", error);
+        }
+    }
+
     @Override
     public synchronized void close() {
         closed = true;

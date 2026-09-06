@@ -60,6 +60,8 @@ public final class ToolCatalog {
             "Regex", "正则表达式", "匹配", "正则", "正则匹配", "正则测试", "Pattern");
     public static final ToolDescriptor TEXT_DIFF = tool("text.diff", "codec",
             "Diff", "差异", "对比", "文本差异", "差异比较", "LCS", "比较");
+    public static final ToolDescriptor JSONPATH_TESTER = tool("jsonpath.tester", "codec",
+            "JSONPath", "JsonPath", "JSON", "Path", "提取", "查询", "过滤器", "Query", "过滤", "JMESPath");
 
     public static final ToolDescriptor HTTP_CLIENT = tool("http.client", "network",
             "HTTP", "接口测试", "API", "Request", "Postman", "Curl");
@@ -137,6 +139,7 @@ public final class ToolCatalog {
             HASH_CODEC, SYMMETRIC_CRYPTO, ASYMMETRIC_CRYPTO, CERT_MANAGEMENT, ACCOUNT_MANAGER,
             TOTP_AUTHENTICATOR, JWT_CODEC, RADIX_ENCODING, TIMESTAMP, BASE64_IMAGE, URL_TOOL,
             FORMAT_CONVERT, JSON_FORMAT, XML_FORMAT, SQL_FORMAT, STRING_TOOL, REGEX_TESTER, TEXT_DIFF,
+            JSONPATH_TESTER,
             HTTP_CLIENT, CALLBACK_MOCK, WEBSOCKET_CLIENT, MQTT_CLIENT, SUBNET_CALC, PORT_SCANNER, SSH,
             DATABASE_CONNECTOR, REDIS_MANAGEMENT, KAFKA_CONNECTOR, ZOOKEEPER_MANAGEMENT,
             DOCKER_CONVERT, K8S_DEPLOYMENT, K8S_MANAGER, CHMOD_CALC, CRON_PARSER, HOSTS_MANAGER,

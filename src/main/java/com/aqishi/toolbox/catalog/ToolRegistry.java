@@ -27,6 +27,7 @@ import com.aqishi.toolbox.feature.diagram.ui.FlowchartPanel;
 import com.aqishi.toolbox.feature.system.ui.HostsManagerPanel;
 import com.aqishi.toolbox.feature.network.ui.HttpTestPanel;
 import com.aqishi.toolbox.feature.codec.ui.JsonPanel;
+import com.aqishi.toolbox.feature.codec.ui.JsonPathPanel;
 import com.aqishi.toolbox.feature.security.ui.JwtPanel;
 import com.aqishi.toolbox.feature.cloud.ui.K8sManagerPanel;
 import com.aqishi.toolbox.feature.cloud.ui.K8sPanel;
@@ -105,6 +106,7 @@ public final class ToolRegistry {
         factories.put("string.tool", context -> new StringToolPanel());
         factories.put("regex.tester", context -> new RegexPanel());
         factories.put("text.diff", context -> new TextDiffPanel());
+        factories.put("jsonpath.tester", context -> new JsonPathPanel());
         factories.put("http.client", context -> new HttpTestPanel());
         factories.put("callback.mock", context -> new CallbackTestPanel());
         factories.put("websocket.client", context -> new WebSocketClientPanel());

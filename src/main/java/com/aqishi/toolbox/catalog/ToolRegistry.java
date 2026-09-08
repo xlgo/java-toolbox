@@ -18,6 +18,9 @@ import com.aqishi.toolbox.feature.security.ui.SymmetricPanel;
 import com.aqishi.toolbox.feature.security.ui.AccountManagerPanel;
 import com.aqishi.toolbox.feature.diagram.ui.BpmnPanel;
 import com.aqishi.toolbox.feature.network.ui.CallbackTestPanel;
+import com.aqishi.toolbox.feature.network.ui.OpenApiPanel;
+import com.aqishi.toolbox.feature.security.ui.BatchDigestPanel;
+import com.aqishi.toolbox.feature.security.ui.CertInspectorPanel;
 import com.aqishi.toolbox.feature.security.ui.CertPanel;
 import com.aqishi.toolbox.feature.generation.ui.ColorPanel;
 import com.aqishi.toolbox.feature.system.ui.CronPanel;
@@ -95,6 +98,8 @@ public final class ToolRegistry {
         factories.put("account.manager", context -> new AccountManagerPanel(context.getVaultService(), context.getSecureClipboard()));
         factories.put("totp.authenticator", context -> new TotpPanel(context.getVaultService(), context.getSecureClipboard()));
         factories.put("jwt.codec", context -> new JwtPanel());
+        factories.put("file.batch.digest", context -> new BatchDigestPanel());
+        factories.put("cert.inspector", context -> new CertInspectorPanel());
         factories.put("radix.encoding", context -> new ConvertPanel());
         factories.put("timestamp", context -> new TimePanel());
         factories.put("base64.image", context -> new Base64ImagePanel());
@@ -108,6 +113,7 @@ public final class ToolRegistry {
         factories.put("text.diff", context -> new TextDiffPanel());
         factories.put("jsonpath.tester", context -> new JsonPathPanel());
         factories.put("http.client", context -> new HttpTestPanel());
+        factories.put("openapi.workbench", context -> new OpenApiPanel());
         factories.put("callback.mock", context -> new CallbackTestPanel());
         factories.put("websocket.client", context -> new WebSocketClientPanel());
         factories.put("mqtt.client", context -> new MqttClientPanel());

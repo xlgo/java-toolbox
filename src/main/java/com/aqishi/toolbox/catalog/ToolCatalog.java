@@ -36,6 +36,10 @@ public final class ToolCatalog {
             "谷歌验证器", "Google Authenticator", "2FA", "OTP", "MFA", "双因素认证", "身份验证", "totp", "authenticator");
     public static final ToolDescriptor JWT_CODEC = tool("jwt.codec", "security",
             "JWT", "Token", "HS256", "签名", "JWT解码", "JWT编码", "Json Web Token", "JWT验证", "令牌");
+    public static final ToolDescriptor FILE_BATCH_DIGEST = tool("file.batch.digest", "security",
+            "哈希", "摘要", "批量摘要", "Checksum", "sha256sum", "md5sum", "文件签名", "验签", "数字签名", "SM3", "SHA-256");
+    public static final ToolDescriptor CERT_INSPECTOR = tool("cert.inspector", "security",
+            "CSR", "PKCS12", "P12", "PFX", "证书链", "Chain", "证书检查", "Keystore", "密钥库", "证书诊断");
 
     public static final ToolDescriptor RADIX_ENCODING = tool("radix.encoding", "codec",
             "二进制", "八进制", "十进制", "十六进制", "Hex", "UTF-8", "UTF8", "GBK", "ISO-8859-1",
@@ -65,6 +69,8 @@ public final class ToolCatalog {
 
     public static final ToolDescriptor HTTP_CLIENT = tool("http.client", "network",
             "HTTP", "接口测试", "API", "Request", "Postman", "Curl");
+    public static final ToolDescriptor OPENAPI_WORKBENCH = tool("openapi.workbench", "network",
+            "OpenAPI", "Swagger", "接口文档", "API", "工作台", "调试", "cURL", "Postman", "Schema", "REST");
     public static final ToolDescriptor CALLBACK_MOCK = tool("callback.mock", "network",
             "回调", "接口测试", "Mock", "Webhook", "Server", "服务器", "HTTP Mock");
     public static final ToolDescriptor WEBSOCKET_CLIENT = tool("websocket.client", "network",
@@ -137,10 +143,11 @@ public final class ToolCatalog {
             SECURITY, CODEC, NETWORK, DATA, CLOUD, SYSTEM, GENERATION, COMPUTE, DIAGRAM, MONITOR));
     private static final List<ToolDescriptor> DESCRIPTORS = Collections.unmodifiableList(Arrays.asList(
             HASH_CODEC, SYMMETRIC_CRYPTO, ASYMMETRIC_CRYPTO, CERT_MANAGEMENT, ACCOUNT_MANAGER,
-            TOTP_AUTHENTICATOR, JWT_CODEC, RADIX_ENCODING, TIMESTAMP, BASE64_IMAGE, URL_TOOL,
+            TOTP_AUTHENTICATOR, JWT_CODEC, FILE_BATCH_DIGEST, CERT_INSPECTOR,
+            RADIX_ENCODING, TIMESTAMP, BASE64_IMAGE, URL_TOOL,
             FORMAT_CONVERT, JSON_FORMAT, XML_FORMAT, SQL_FORMAT, STRING_TOOL, REGEX_TESTER, TEXT_DIFF,
             JSONPATH_TESTER,
-            HTTP_CLIENT, CALLBACK_MOCK, WEBSOCKET_CLIENT, MQTT_CLIENT, SUBNET_CALC, PORT_SCANNER, SSH,
+            HTTP_CLIENT, OPENAPI_WORKBENCH, CALLBACK_MOCK, WEBSOCKET_CLIENT, MQTT_CLIENT, SUBNET_CALC, PORT_SCANNER, SSH,
             DATABASE_CONNECTOR, REDIS_MANAGEMENT, KAFKA_CONNECTOR, ZOOKEEPER_MANAGEMENT,
             DOCKER_CONVERT, K8S_DEPLOYMENT, K8S_MANAGER, CHMOD_CALC, CRON_PARSER, HOSTS_MANAGER,
             WECHAT_SENDER, DATA_GENERATOR, QRCODE, COLOR_CONVERT, CALCULATOR, STATISTICS,

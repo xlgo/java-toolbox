@@ -2,8 +2,15 @@ package com.aqishi.toolbox.feature.network.domain;
 
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -97,5 +104,148 @@ class OpenApiServiceTest {
     void throwsOnEmptyContent() {
         assertThrows(IllegalArgumentException.class, () -> service.parse(""));
         assertThrows(IllegalArgumentException.class, () -> service.parse("   "));
+    }
+
+    @Test
+    void encodesPathAndQueryInputsBeforeBuildingRequestUrl() {
+        OpenApiSpec.ApiEndpoint ep = new OpenApiSpec.ApiEndpoint();
+        ep.setPath("/orders/{id}");
+
+        Map<String, String> pathParams = Collections.singletonMap("id", "summer sale/2026");
+        Map<String, String> queryParams = new LinkedHashMap<>();
+        queryParams.put("filter name", "books & magazines");
+        queryParams.put("tag", "a+b/c?");
+
+        String requestUrl = service.buildRequestUrl(
+                "https://api.test.com/v1?tenant=team-a", ep.getPath(), pathParams, queryParams);
+
+        assertEquals("https://api.test.com/v1/orders/summer%20sale%2F2026"
+                        + "?tenant=team-a&filter%20name=books%20%26%20magazines&tag=a%2Bb%2Fc%3F",
+                requestUrl);
+    }
+
+    @Test
+    void escapesShellMetacharactersInCurlArguments() {
+        OpenApiSpec.ApiEndpoint ep = new OpenApiSpec.ApiEndpoint();
+        ep.setMethod("POST");
+        ep.setPath("/orders");
+
+        Map<String, String> headers = Collections.singletonMap("X-Note", "O'Reilly $HOME");
+        String curl = service.buildCurl("https://api.test.com", ep,
+                Collections.<String, String>emptyMap(), Collections.<String, String>emptyMap(),
+                headers, "{\"note\":\"it's $safe\"}");
+
+        assertTrue(curl.contains("-H \"X-Note: O'Reilly \\$HOME\""));
+        assertTrue(curl.contains("-d \"{\\\"note\\\":\\\"it's \\$safe\\\"}\""));
+    }
+
+    @Test
+    void preservesNewlinesInCurlRequestBodies() {
+        OpenApiSpec.ApiEndpoint ep = new OpenApiSpec.ApiEndpoint();
+        ep.setMethod("POST");
+        ep.setPath("/orders");
+
+        String curl = service.buildCurl("https://api.test.com", ep,
+                Collections.<String, String>emptyMap(), Collections.<String, String>emptyMap(),
+                Collections.<String, String>emptyMap(), "{\n  \"status\": \"paid\"\n}");
+
+        assertTrue(curl.contains("{\n  \\\"status\\\": \\\"paid\\\"\n}"));
+    }
+
+    @Test
+    void rejectsNonHttpSpecUrlsBeforeOpeningConnection() {
+        assertAll(
+                () -> assertThrows(IllegalArgumentException.class, () -> service.fetchRemoteSpec(null)),
+                () -> assertThrows(IllegalArgumentException.class, () -> service.fetchRemoteSpec("")),
+                () -> assertThrows(IllegalArgumentException.class, () -> service.fetchRemoteSpec("file:///tmp/api.yaml")),
+                () -> assertThrows(IllegalArgumentException.class, () -> service.fetchRemoteSpec("ftp://example.com/api.yaml")),
+                () -> assertThrows(IllegalArgumentException.class, () -> service.fetchRemoteSpec("httpx://example.com/api.yaml")),
+                () -> assertThrows(IllegalArgumentException.class, () -> service.fetchRemoteSpec("https:///api.yaml")),
+                () -> assertThrows(IllegalArgumentException.class, () -> service.fetchRemoteSpec("https://example.com:65536/api.yaml")),
+                () -> assertThrows(IllegalArgumentException.class, () -> service.fetchRemoteSpec("https://example.com/api.yaml#part"))
+        );
+    }
+
+    @Test
+    void rejectsHeaderLineBreaksInGeneratedCurl() {
+        OpenApiSpec.ApiEndpoint ep = new OpenApiSpec.ApiEndpoint();
+        ep.setMethod("GET");
+        ep.setPath("/orders");
+
+        assertThrows(IllegalArgumentException.class, () -> service.buildCurl("https://api.test.com", ep,
+                Collections.<String, String>emptyMap(), Collections.<String, String>emptyMap(),
+                Collections.singletonMap("X-Test", "one\r\ntwo"), null));
+    }
+
+    @Test
+    void disconnectsSpecConnectionsAfterSuccessfulAndFailedReads() throws Exception {
+        TrackingOpenApiService successService = new TrackingOpenApiService(200, "openapi: 3.0.0");
+
+        assertEquals("openapi: 3.0.0\n", successService.fetchRemoteSpec("https://example.test/openapi.yaml"));
+        assertTrue(successService.wasDisconnected());
+
+        TrackingOpenApiService failureService = new TrackingOpenApiService(500, null);
+        assertThrows(IllegalStateException.class,
+                () -> failureService.fetchRemoteSpec("https://example.test/openapi.yaml"));
+        assertTrue(failureService.wasDisconnected());
+    }
+
+    private static final class TrackingOpenApiService extends OpenApiService {
+        private final TrackingHttpURLConnection connection;
+
+        private TrackingOpenApiService(int statusCode, String body) throws Exception {
+            this.connection = new TrackingHttpURLConnection(statusCode, body);
+        }
+
+        @Override
+        protected HttpURLConnection openConnection(URI uri) {
+            return connection;
+        }
+
+        private boolean wasDisconnected() {
+            return connection.disconnected;
+        }
+    }
+
+    private static final class TrackingHttpURLConnection extends HttpURLConnection {
+        private final int statusCode;
+        private final byte[] body;
+        private boolean disconnected;
+
+        private TrackingHttpURLConnection(int statusCode, String body) throws Exception {
+            super(new URL("http://example.test/openapi.yaml"));
+            this.statusCode = statusCode;
+            this.body = body == null ? null : body.getBytes(StandardCharsets.UTF_8);
+        }
+
+        @Override
+        public void disconnect() {
+            disconnected = true;
+        }
+
+        @Override
+        public boolean usingProxy() {
+            return false;
+        }
+
+        @Override
+        public void connect() {
+            // The test connection does not perform I/O.
+        }
+
+        @Override
+        public int getResponseCode() {
+            return statusCode;
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return body == null ? null : new ByteArrayInputStream(body);
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return body == null ? null : new ByteArrayInputStream(body);
+        }
     }
 }

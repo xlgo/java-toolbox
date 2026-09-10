@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.monitor.infra;
 
+import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -8,11 +10,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -29,6 +33,8 @@ public class TcpDirectConnector {
     private static final int CONNECT_TIMEOUT_MS = 700;
     private static final int RETRY_INTERVAL_MS = 800;
     private static final int SESSION_TIMEOUT_SECONDS = 15;
+    private static final int CONNECT_WORKER_COUNT = 4;
+    private static final int CONNECT_QUEUE_CAPACITY = 128;
 
     private final boolean enableUpnp;
     private final Set<InetSocketAddress> candidates = ConcurrentHashMap.newKeySet();
@@ -38,6 +44,7 @@ public class TcpDirectConnector {
     private final AtomicBoolean active = new AtomicBoolean(false);
     private final AtomicLong connectAttempts = new AtomicLong();
     private final AtomicLong connectErrors = new AtomicLong();
+    private final AtomicLong lifecycleGeneration = new AtomicLong();
 
     private volatile ServerSocket serverSocket;
     private volatile ExecutorService workerExecutor;
@@ -100,7 +107,7 @@ public class TcpDirectConnector {
                 }
             }
 
-            workerExecutor = Executors.newSingleThreadExecutor();
+            workerExecutor = DaemonThreads.single("tcp-direct-listener");
             workerExecutor.submit(() -> {
                 try {
                     Socket socket = listener.accept();
@@ -131,8 +138,15 @@ public class TcpDirectConnector {
         successCallback = onSuccess;
         failCallback = onFail;
         logCallback = log;
-        workerExecutor = Executors.newCachedThreadPool();
-        scheduler = Executors.newSingleThreadScheduledExecutor();
+        workerExecutor = new ThreadPoolExecutor(
+                CONNECT_WORKER_COUNT,
+                CONNECT_WORKER_COUNT,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(CONNECT_QUEUE_CAPACITY),
+                DaemonThreads.factory("tcp-direct-connect"),
+                new ThreadPoolExecutor.AbortPolicy());
+        scheduler = DaemonThreads.scheduled("tcp-direct-scheduler");
         scheduler.scheduleAtFixedRate(this::connectRound, 0, RETRY_INTERVAL_MS, TimeUnit.MILLISECONDS);
         scheduler.schedule(this::timeout, SESSION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         log.accept("开始 TCP 直连候选检查，等待被控端 TCP 候选...");
@@ -176,26 +190,35 @@ public class TcpDirectConnector {
         }
     }
 
-    private void submitConnect(InetSocketAddress candidate) {
+    private synchronized void submitConnect(InetSocketAddress candidate) {
         ExecutorService workers = workerExecutor;
         if (workers == null || workers.isShutdown() || !inFlight.add(candidate)) return;
-        workers.submit(() -> {
-            Socket socket = new Socket();
-            openSockets.add(socket);
-            connectAttempts.incrementAndGet();
-            try {
-                socket.connect(candidate, CONNECT_TIMEOUT_MS);
-                configure(socket);
-                complete(socket, "主动连接 " + candidate);
-            } catch (IOException e) {
-                connectErrors.incrementAndGet();
-                lastError = candidate + " -> " + e.getClass().getSimpleName() + ": " + e.getMessage();
-                closeQuietly(socket);
-            } finally {
-                openSockets.remove(socket);
-                inFlight.remove(candidate);
-            }
-        });
+        long generation = lifecycleGeneration.get();
+        try {
+            workers.submit(() -> {
+                Socket socket = new Socket();
+                openSockets.add(socket);
+                connectAttempts.incrementAndGet();
+                try {
+                    socket.connect(candidate, CONNECT_TIMEOUT_MS);
+                    configure(socket);
+                    complete(socket, "主动连接 " + candidate);
+                } catch (IOException e) {
+                    connectErrors.incrementAndGet();
+                    lastError = candidate + " -> " + e.getClass().getSimpleName() + ": " + e.getMessage();
+                    closeQuietly(socket);
+                } finally {
+                    openSockets.remove(socket);
+                    if (generation == lifecycleGeneration.get()) {
+                        inFlight.remove(candidate);
+                    }
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            // A stopped/full bounded pool must not leave this candidate stuck in
+            // inFlight, otherwise a later connector session cannot retry it.
+            inFlight.remove(candidate);
+        }
     }
 
     private void complete(Socket selected, String mode) {
@@ -236,7 +259,7 @@ public class TcpDirectConnector {
     }
 
     private synchronized void startTimeout() {
-        scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler = DaemonThreads.scheduled("tcp-direct-scheduler");
         scheduler.schedule(this::timeout, SESSION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
 
@@ -253,11 +276,13 @@ public class TcpDirectConnector {
     }
 
     private synchronized void stopInternal(Socket selected) {
+        lifecycleGeneration.incrementAndGet();
         active.set(false);
         closeServer();
         closePortMapping();
         closeOtherSockets(selected);
         shutdownExecutors();
+        inFlight.clear();
         clearCallbacks();
     }
 

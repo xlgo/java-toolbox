@@ -21,7 +21,8 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAPublicKey;
-import java.text.SimpleDateFormat;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
@@ -29,7 +30,9 @@ import java.util.*;
  */
 public class CertInspectorService {
 
-    private static final SimpleDateFormat DATE_FMT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss z");
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter
+            .ofPattern("yyyy-MM-dd HH:mm:ss z")
+            .withZone(ZoneId.systemDefault());
 
     /**
      * CSR 解析结果模型。
@@ -230,8 +233,8 @@ public class CertInspectorService {
                 entry.setCertificate(head);
                 entry.setSubject(head.getSubjectX500Principal().getName());
                 entry.setIssuer(head.getIssuerX500Principal().getName());
-                entry.setNotBefore(DATE_FMT.format(head.getNotBefore()));
-                entry.setNotAfter(DATE_FMT.format(head.getNotAfter()));
+                entry.setNotBefore(formatDate(head.getNotBefore()));
+                entry.setNotAfter(formatDate(head.getNotAfter()));
                 entry.setKeyAlg(head.getPublicKey().getAlgorithm());
             }
 
@@ -289,7 +292,8 @@ public class CertInspectorService {
             X509Certificate c = sorted.get(i);
             res.getLogs().add(String.format("  Level %d: Subject: %s", i, c.getSubjectX500Principal().getName()));
             res.getLogs().add(String.format("           Issuer:  %s", c.getIssuerX500Principal().getName()));
-            res.getLogs().add(String.format("           有效期: %s 至 %s", DATE_FMT.format(c.getNotBefore()), DATE_FMT.format(c.getNotAfter())));
+            res.getLogs().add(String.format("           有效期: %s 至 %s",
+                    formatDate(c.getNotBefore()), formatDate(c.getNotAfter())));
         }
 
         boolean allValid = true;
@@ -387,5 +391,9 @@ public class CertInspectorService {
             if (!sorted.contains(c)) sorted.add(c);
         }
         return sorted;
+    }
+
+    private static String formatDate(Date value) {
+        return DATE_FMT.format(value.toInstant());
     }
 }

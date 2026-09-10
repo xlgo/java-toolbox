@@ -51,7 +51,7 @@ public final class ToolCatalog {
     public static final ToolDescriptor URL_TOOL = tool("url.tool", "codec",
             "url", "uri", "encode", "decode", "query", "parameter", "params", "http", "编码", "解码");
     public static final ToolDescriptor FORMAT_CONVERT = tool("format.convert", "codec",
-            "JSON", "XML", "YAML", "CSV", "Properties", "格式互转", "数据转换", "序列化");
+            "JSON", "XML", "YAML", "TOML", "INI", "CSV", "Properties", "格式互转", "数据转换", "序列化");
     public static final ToolDescriptor JSON_FORMAT = tool("json.format", "codec",
             "JSON", "美化", "压缩", "格式化", "Json美化", "Json压缩", "格式化JSON");
     public static final ToolDescriptor XML_FORMAT = tool("xml.format", "codec",

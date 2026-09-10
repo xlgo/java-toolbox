@@ -5,7 +5,9 @@ import org.junit.jupiter.api.Test;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.Properties;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -43,6 +45,15 @@ class I18nResourceTest {
         assertKeys("messages.properties");
         assertKeys("messages_zh_CN.properties");
         assertKeys("messages_en_US.properties");
+    }
+
+    @Test
+    void keepsAllSupportedResourceKeySetsInSync() throws Exception {
+        Set<Object> baseline = readProperties("messages.properties").keySet();
+        for (String resource : new String[]{"messages_zh_CN.properties", "messages_en_US.properties"}) {
+            assertEquals(new HashSet<>(baseline),
+                    new HashSet<>(readProperties(resource).keySet()), resource);
+        }
     }
 
     private static void assertPinGameLabel(String resourceName, String expected) throws Exception {

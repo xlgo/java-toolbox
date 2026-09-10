@@ -10,6 +10,7 @@ import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.util.I18n;
 
 import javax.swing.*;
 import java.awt.*;
@@ -20,6 +21,8 @@ import java.util.Base64;
  * 对称加密面板（支持 AES / DES / 3DES / SM4）。
  */
 public class SymmetricPanel extends ToolPanel {
+
+    private static final int UTF8_ENCODING_INDEX = 2;
 
     private JComboBox<String> algoCombo;
     private JComboBox<String> modeCombo;
@@ -49,34 +52,34 @@ public class SymmetricPanel extends ToolPanel {
         modeCombo = Fields.combo(SymmetricUtils.MODES);
         paddingCombo = Fields.combo(SymmetricUtils.PADDINGS);
         keySizeCombo = Fields.combo(new Integer[0]);
-        encodingCombo = Fields.combo(new String[]{"Base64", "Hex", "UTF-8 文本"});
+        encodingCombo = Fields.combo(new String[]{"Base64", "Hex", I18n.get("tool.symmetric.encoding.utf8")});
 
         // 五个参数下拉各占一行会把配置卡片撑到半屏高，
         // 拆成左右两列后卡片只有两行，明密文区才有空间展开。
         FormGrid cipherParams = new FormGrid();
-        cipherParams.row("算法：", algoCombo);
-        cipherParams.row("填充：", paddingCombo);
+        cipherParams.row(I18n.get("tool.symmetric.label.algorithm"), algoCombo);
+        cipherParams.row(I18n.get("tool.symmetric.label.padding"), paddingCombo);
 
         FormGrid modeParams = new FormGrid();
-        modeParams.row("模式：", modeCombo);
-        modeParams.row("密钥长度：", keySizeCombo);
+        modeParams.row(I18n.get("tool.symmetric.label.mode"), modeCombo);
+        modeParams.row(I18n.get("tool.symmetric.label.keySize"), keySizeCombo);
 
         keyArea = Fields.area(2, 40);
         ivField = Fields.mono("");
         ivField.setEnabled(false);
-        customIvCheckbox = Fields.check("自定义 IV（留空为自动随机 IV）", false);
+        customIvCheckbox = Fields.check(I18n.get("tool.symmetric.label.customIv"), false);
 
         // 密钥格式 / 密钥 / IV 是同一组「密钥材料」，用整宽表单让输入列一起拉伸；
         // IV 的开关放行尾，勾选状态与输入框保持在同一视线上。
         FormGrid keyForm = new FormGrid();
-        keyForm.row("密钥格式：", encodingCombo);
-        keyForm.row("密钥：", boxedScroll(keyArea));
-        keyForm.row("IV 向量：", ivField, customIvCheckbox);
+        keyForm.row(I18n.get("tool.symmetric.label.keyFormat"), encodingCombo);
+        keyForm.row(I18n.get("tool.symmetric.label.key"), boxedScroll(keyArea));
+        keyForm.row(I18n.get("tool.symmetric.label.iv"), ivField, customIvCheckbox);
 
-        JButton genKeyBtn = Buttons.secondary("生成密钥");
-        JButton copyKeyBtn = Buttons.ghost("复制密钥");
+        JButton genKeyBtn = Buttons.secondary(I18n.get("tool.symmetric.button.generateKey"));
+        JButton copyKeyBtn = Buttons.ghost(I18n.get("tool.symmetric.button.copyKey"));
 
-        Card configCard = Card.titled("参数与密钥配置");
+        Card configCard = Card.titled(I18n.get("tool.symmetric.card.config"));
         JPanel configBody = Layouts.box(0, Tokens.SPACE_MD);
         configBody.add(Layouts.columns(Tokens.SPACE_XL, cipherParams, modeParams), BorderLayout.NORTH);
         configBody.add(keyForm, BorderLayout.CENTER);
@@ -89,17 +92,17 @@ public class SymmetricPanel extends ToolPanel {
         inputArea = Fields.area(4, 40);
         outputArea = Fields.output(6, 40);
 
-        JButton encryptBtn = Buttons.primary("加密");
-        JButton decryptBtn = Buttons.secondary("解密");
-        JButton clearBtn = Buttons.ghost("清空");
+        JButton encryptBtn = Buttons.primary(I18n.get("tool.symmetric.button.encrypt"));
+        JButton decryptBtn = Buttons.secondary(I18n.get("tool.symmetric.button.decrypt"));
+        JButton clearBtn = Buttons.ghost(I18n.get("tool.symmetric.button.clear"));
 
-        Card inputCard = Card.flush("输入文本（加密输明文，解密输密文）");
+        Card inputCard = Card.flush(I18n.get("tool.symmetric.card.input"));
         inputCard.setContent(Fields.scroll(inputArea));
         inputCard.addHeaderAction(encryptBtn);
         inputCard.addHeaderAction(decryptBtn);
         inputCard.addHeaderAction(clearBtn);
 
-        Card outputCard = Card.flush("输出结果");
+        Card outputCard = Card.flush(I18n.get("tool.symmetric.card.output"));
         outputCard.setContent(Fields.scroll(outputArea));
 
         root.add(configCard, BorderLayout.NORTH);
@@ -129,7 +132,7 @@ public class SymmetricPanel extends ToolPanel {
                 int size = (int) keySizeCombo.getSelectedItem();
                 String encoding = (String) encodingCombo.getSelectedItem();
 
-                if ("UTF-8 文本".equals(encoding)) {
+                if (encodingCombo.getSelectedIndex() == UTF8_ENCODING_INDEX) {
                     // 生成纯 ASCII 字符的文本密钥，避免乱码
                     String charSource = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
                     java.security.SecureRandom random = new java.security.SecureRandom();
@@ -148,32 +151,32 @@ public class SymmetricPanel extends ToolPanel {
                         keyArea.setText(keyStr);
                     }
                 }
-                outputArea.setText("[信息] 已随机生成密钥 (" + algo + ", " + size + " 位)。");
+                outputArea.setText(I18n.get("tool.symmetric.status.keyGenerated", algo, size));
             } catch (Exception ex) {
-                UIUtils.error(root, "生成密钥失败：" + ex.getMessage());
+                UIUtils.error(root, I18n.get("tool.symmetric.error.keyGenerate", ex.getMessage()));
             }
         });
 
         copyKeyBtn.addActionListener(e -> {
             String key = keyArea.getText().trim();
             if (key.isEmpty()) {
-                UIUtils.error(root, "当前密钥为空，无法复制");
+                UIUtils.error(root, I18n.get("tool.symmetric.error.keyEmpty"));
                 return;
             }
             UIUtils.copyToClipboard(key);
-            outputArea.setText("[信息] 密钥已成功复制到剪贴板。");
+            outputArea.setText(I18n.get("tool.symmetric.status.keyCopied"));
         });
 
         encryptBtn.addActionListener(e -> {
             try {
                 String text = inputArea.getText();
                 if (text.isEmpty()) {
-                    UIUtils.error(root, "请输入需要加密的文本");
+                    UIUtils.error(root, I18n.get("tool.symmetric.error.encryptInput"));
                     return;
                 }
                 byte[] keyBytes = getKeyBytes();
                 if (keyBytes == null) {
-                    UIUtils.error(root, "密钥不合法，请检查密钥与密钥格式");
+                    UIUtils.error(root, I18n.get("tool.symmetric.error.invalidKey"));
                     return;
                 }
 
@@ -183,15 +186,14 @@ public class SymmetricPanel extends ToolPanel {
                 byte[] ivBytes = getIvBytes();
 
                 String cipher = SymmetricUtils.encrypt(algo, mode, padding, text, keyBytes, ivBytes, false);
-                String header = "[加密成功]\n算法：" + algo + "-" + mode + "-"
-                        + (SymmetricUtils.isAuthenticated(mode) ? "NoPadding" : padding);
+                String header = I18n.get("tool.symmetric.status.encryptSuccess", algo, mode,
+                        SymmetricUtils.isAuthenticated(mode) ? "NoPadding" : padding);
                 if ("ECB".equalsIgnoreCase(mode)) {
-                    header += "\n⚠ ECB 不提供语义安全：相同明文块会产生相同密文块，"
-                            + "会泄露数据模式。仅在兼容历史数据时使用，新数据请改用 GCM。";
+                    header += "\n" + I18n.get("tool.symmetric.warning.ecb");
                 }
-                outputArea.setText(header + "\n密文 (Base64)：\n" + cipher);
+                outputArea.setText(header + "\n" + I18n.get("tool.symmetric.status.ciphertext") + "\n" + cipher);
             } catch (Exception ex) {
-                UIUtils.error(root, "加密失败：" + ex.getMessage());
+                UIUtils.error(root, I18n.get("tool.symmetric.error.encrypt", ex.getMessage()));
             }
         });
 
@@ -199,12 +201,12 @@ public class SymmetricPanel extends ToolPanel {
             try {
                 String text = inputArea.getText().trim();
                 if (text.isEmpty()) {
-                    UIUtils.error(root, "请输入需要解密的密文");
+                    UIUtils.error(root, I18n.get("tool.symmetric.error.decryptInput"));
                     return;
                 }
                 byte[] keyBytes = getKeyBytes();
                 if (keyBytes == null) {
-                    UIUtils.error(root, "密钥不合法，请检查密钥与密钥格式");
+                    UIUtils.error(root, I18n.get("tool.symmetric.error.invalidKey"));
                     return;
                 }
 
@@ -214,9 +216,10 @@ public class SymmetricPanel extends ToolPanel {
                 byte[] ivBytes = getIvBytes();
 
                 String plain = SymmetricUtils.decrypt(algo, mode, padding, text, keyBytes, ivBytes, false);
-                outputArea.setText("[解密成功]\n原文：\n" + plain);
+                outputArea.setText(I18n.get("tool.symmetric.status.decryptSuccess") + "\n"
+                        + I18n.get("tool.symmetric.status.plaintext") + "\n" + plain);
             } catch (Exception ex) {
-                UIUtils.error(root, "解密失败：" + ex.getMessage());
+                UIUtils.error(root, I18n.get("tool.symmetric.error.decrypt", ex.getMessage()));
             }
         });
 
@@ -275,7 +278,7 @@ public class SymmetricPanel extends ToolPanel {
 
         paddingCombo.setEnabled(!authenticated);
         paddingCombo.setToolTipText(authenticated
-                ? "GCM 自带认证标签，不接受填充设置"
+                ? I18n.get("tool.symmetric.tooltip.gcmPadding")
                 : null);
 
         customIvCheckbox.setEnabled(needsIv);
@@ -293,7 +296,7 @@ public class SymmetricPanel extends ToolPanel {
         try {
             if ("Hex".equals(format)) {
                 return SymmetricUtils.hexToBytes(keyText);
-            } else if ("UTF-8 文本".equals(format)) {
+            } else if (encodingCombo.getSelectedIndex() == UTF8_ENCODING_INDEX) {
                 return keyText.getBytes(StandardCharsets.UTF_8);
             } else {
                 // Base64
@@ -317,4 +320,5 @@ public class SymmetricPanel extends ToolPanel {
             return ivText.getBytes(StandardCharsets.UTF_8);
         }
     }
+
 }

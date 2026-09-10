@@ -13,9 +13,14 @@ import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -110,5 +115,41 @@ class CertInspectorServiceTest {
 
         // 签名无法匹配，应为 false
         assertFalse(res.isValid());
+    }
+
+    @Test
+    void safelyFormatsDatesDuringConcurrentInspectionAndChainValidation() throws Exception {
+        CertUtils.CertResult root = CertUtils.createRootCA(
+                0, "Concurrent Root", "Org", "IT", "Beijing", "Beijing", "CN", 5);
+        X509Certificate rootCert = root.getCertificate();
+
+        KeyStore keyStore = KeyStore.getInstance("PKCS12");
+        keyStore.load(null, null);
+        keyStore.setCertificateEntry("root-ca", rootCert);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        keyStore.store(output, "password123".toCharArray());
+        byte[] pkcs12 = output.toByteArray();
+
+        ExecutorService workers = Executors.newFixedThreadPool(8);
+        try {
+            List<Future<Boolean>> results = new ArrayList<>();
+            for (int i = 0; i < 16; i++) {
+                results.add(workers.submit(() -> {
+                    List<CertInspectorService.Pkcs12EntryInfo> entries = service.inspectPkcs12(
+                            pkcs12, "password123".toCharArray());
+                    return entries.size() == 1
+                            && !entries.get(0).getNotBefore().isEmpty()
+                            && !entries.get(0).getNotAfter().isEmpty();
+                }));
+                results.add(workers.submit(() -> service.validateCertificateChain(
+                        Collections.singletonList(rootCert)).isValid()));
+            }
+
+            for (Future<Boolean> result : results) {
+                assertTrue(result.get(5, TimeUnit.SECONDS));
+            }
+        } finally {
+            workers.shutdownNow();
+        }
     }
 }

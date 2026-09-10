@@ -1,6 +1,6 @@
 # java-toolbox 优化清单
 
-> 审查时间：2026-08-30 ｜ 基线：`main` @ `cdd89cd`
+> 审查时间：2026-09-10 ｜ 基线：`main` @ `8a0c650`（v1.9.0）
 > 规模：260 个 Java 文件 / 64,681 行 ｜ 53 个测试类 ｜ 10 个 feature 模块
 > 路径前缀简写：`src/main/java/com/aqishi/toolbox/` → `…/`
 
@@ -13,11 +13,11 @@
 | 第 3 批 | P2-1 K8s 模板收敛、P2-4 格式化与剪贴板收敛 | ✅ 部分完成（`a8edb67`、`4c3f8a1`） |
 | 补漏 | P1-5 Pattern 缓存、P1-8 SQL 标识符校验、P1-9 HttpURLConnection disconnect | ✅ 2026-08-30 |
 | 第 3 批 | P2-3 codec 面板继承（TreeFormat 骨架）、P2-4 ObjectMapper（util/Json）、P2-4 JOptionPane 收敛 | ✅ `747182b` / 本批 |
-| 第 3 批 | P2-9 UI 逻辑下沉 | ⏳ 待做 |
+| 第 3 批 | P2-9 UI 逻辑下沉 | ⏳ 进行中（K8s manifest apply 已下沉，Kafka/K8s 其余流程待拆） |
 | 第 4 批 | B7 CI 门禁、T1 data/cloud/compute 领域层测试（SimpleEval/QueryResult/SqlExecutionService/K8sResourceRef 共 20 例） | ✅ 部分完成 |
 | 第 4 批 | T2 security 加密 round-trip（SymmetricUtils/RSAUtils/OtpUtils/SM3Utils 共 30 例）、T3 codec 格式化 round-trip（JsonFormatter 7 例） | ✅ 本轮完成 |
 | 第 4 批 | T4 SSH 核心测试（SshSecurityUtils 凭据加密 round-trip 8 例，无需真服务端） | ✅ 本轮完成 |
-| 第 5 批 | D1~D7 文档校准、I1~I2 i18n 分批 | ⏳ 待做 |
+| 第 5 批 | D1~D7 文档校准、I1~I2 i18n 分批 | ⏳ 进行中（README/设计说明/索引已校准，monitor/security 第一批 i18n 已落地） |
 
 已完成项保留原文，作为问题背景与证据。
 
@@ -86,6 +86,15 @@
 - **P2-3**：新增 `codec/ui/AbstractTreeFormatPanel`（美化树 + 压缩文本双视图、清空/复制/返回源工具样板），`JsonPanel`/`XmlPanel` 改为继承，抽出共享 `CodeFolderNode`/`CodeTreeCellRenderer`/`escapeHtml`。`ConvertPanel`（页签容器）与 `FormatConvertPanel`（横向分栏 + 卡片头按钮）与基类形状不契合，明确不强行继承
 - **P2-4 ObjectMapper**：新增 `util/Json`（共享 `mapper()` / `prettyMapper()`，配置后线程安全），替换 25 处 `new ObjectMapper()`（vault 构造注入默认值、`YAMLFactory`/`XmlMapper` 特例保留）；直调从 30 → 5
 - **P2-4 JOptionPane**：`UIUtils` 补齐 `warn/error(parent,msg,title)`、`dialog`、`input(parent,msg,title,def)` 重载（消息参数放宽为 Object）；脚本化替换 102 处直调（83 message + 12 confirm 改 boolean + 7 input），直调从 155 → 20，剩余为自定义选择对话框、OK_CANCEL 语义与常量引用（合理保留）
+
+### 当前迭代进行中（v1.9.0 后续）
+
+- **P1-4**：`TcpDirectConnector` 已改为 4 线程、128 队列的具名守护线程池；拒绝提交和停止时会清理 `inFlight`，并补充线程上限/生命周期测试。
+- **新功能质量**：批量摘要从逐文件串行改为最多 4 文件并发；任务先快照文件和算法，保持展示顺序，并在停止、清空或窗口关闭时取消任务和回收守护线程池。
+- **P2-9**：新增 `KubernetesResourceApplyService`，负责 YAML 解析、资源类型到 API 路径映射、namespace 推导、JSON 请求体和 `resourceVersion` 合并；`K8sManagerPanel` 保留选择、确认和传输编排。Kafka 与其余 K8s 业务仍在 UI 层，故整项保持进行中。
+- **P2-9 / 网络质量**：OpenAPI 规范抓取与调试请求补齐 URL 协议校验、RFC 3986 路径/查询编码、cURL shell 转义和连接释放，并以本地 fake connection 测试覆盖错误路径。
+- **第 5 批 i18n**：Remote Desktop 与 Symmetric Crypto 第一批文案已接入 `I18n`；三份资源文件新增键集合一致性测试，后续按模块继续迁移。
+- **新增能力**：格式转换已扩展 YAML/TOML/INI，并将解析和语法诊断从 Swing 面板下沉到 codec domain 层。
 
 ## 0. 一句话结论
 

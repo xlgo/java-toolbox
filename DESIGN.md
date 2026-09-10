@@ -6,7 +6,7 @@
 
 ## Component library
 
-共享组件位于 `com.aqishi.toolbox.ui.kit`，所有工具面板都基于它装配，不再各自手写布局。
+共享组件位于 `com.aqishi.toolbox.ui.kit`。新面板必须基于这些组件装配；历史面板正在按功能批次迁移，迁移期间仍可能看到局部手写 Swing 布局。
 
 | 组件 | 职责 |
 |---|---|

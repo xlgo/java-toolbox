@@ -4,6 +4,7 @@ import com.aqishi.toolbox.util.Json;
 
 import com.aqishi.toolbox.feature.cloud.application.KubernetesService;
 import com.aqishi.toolbox.feature.cloud.application.KubernetesServiceFactory;
+import com.aqishi.toolbox.feature.cloud.application.KubernetesResourceApplyService;
 import com.aqishi.toolbox.domain.KubernetesProfile;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.infra.kubernetes.KubeconfigParser;
@@ -126,6 +127,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
     private javax.net.ssl.HostnameVerifier activeHostnameVerifier = null;
     private KubernetesService kubernetesService;
     private final KubernetesServiceFactory kubernetesServiceFactory;
+    private final KubernetesResourceApplyService resourceApplyService = new KubernetesResourceApplyService();
     /** Transfer sockets and workers are tracked so application shutdown can cancel them. */
     private final Set<org.java_websocket.client.WebSocketClient> activeTransferClients =
             Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<
@@ -2671,64 +2673,10 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void applyResourceYaml(String yamlText) throws Exception {
-        ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
-        JsonNode node = yamlMapper.readTree(yamlText);
-        String kind = node.path("kind").asText();
-        String name = node.path("metadata").path("name").asText();
-        if (name.isEmpty() || kind.isEmpty()) {
-            throw new Exception("YAML 格式错误：未找到 kind 或 metadata.name");
-        }
-        
-        String namespace = node.path("metadata").path("namespace").asText();
-        if (namespace.isEmpty()) {
-            String selNs = getSelectedNamespace();
-            namespace = selNs.equals("all") ? "default" : selNs;
-        }
-
-        String plural = "";
-        String groupPrefix = "";
-        boolean isNamespaced = true;
-
-        switch (kind) {
-            case "Pod":
-                plural = "pods"; groupPrefix = "/api/v1"; break;
-            case "Service":
-                plural = "services"; groupPrefix = "/api/v1"; break;
-            case "ConfigMap":
-                plural = "configmaps"; groupPrefix = "/api/v1"; break;
-            case "Secret":
-                plural = "secrets"; groupPrefix = "/api/v1"; break;
-            case "Namespace":
-                plural = "namespaces"; groupPrefix = "/api/v1"; isNamespaced = false; break;
-            case "Node":
-                plural = "nodes"; groupPrefix = "/api/v1"; isNamespaced = false; break;
-            case "Deployment":
-                plural = "deployments"; groupPrefix = "/apis/apps/v1"; break;
-            case "StatefulSet":
-                plural = "statefulsets"; groupPrefix = "/apis/apps/v1"; break;
-            case "DaemonSet":
-                plural = "daemonsets"; groupPrefix = "/apis/apps/v1"; break;
-            case "Ingress":
-                plural = "ingresses"; groupPrefix = "/apis/networking.k8s.io/v1"; break;
-            default:
-                String apiVersion = node.path("apiVersion").asText();
-                if (apiVersion.contains("/")) {
-                    groupPrefix = "/apis/" + apiVersion;
-                } else {
-                    groupPrefix = "/api/" + apiVersion;
-                }
-                plural = kind.toLowerCase() + "s";
-                break;
-        }
-
-        ObjectMapper jsonMapper = Json.mapper();
-        String jsonBody = jsonMapper.writeValueAsString(node);
-
-        String collectionPath = isNamespaced 
-            ? groupPrefix + "/namespaces/" + namespace + "/" + plural
-            : groupPrefix + "/" + plural;
-            
-        String resourcePath = collectionPath + "/" + name;
+        KubernetesResourceApplyService.ApplyPlan plan = resourceApplyService.prepare(
+                yamlText, getSelectedNamespace());
+        String resourcePath = plan.resourcePath();
+        String collectionPath = plan.collectionPath();
 
         boolean exists = false;
         try {
@@ -2744,15 +2692,11 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
 
         if (exists) {
             String existingJson = executeRequest("GET", resourcePath, null, activeSkipTls);
-            JsonNode existingNode = mapper.readTree(existingJson);
-            String resourceVersion = existingNode.path("metadata").path("resourceVersion").asText();
-            
-            ((com.fasterxml.jackson.databind.node.ObjectNode) node.path("metadata")).put("resourceVersion", resourceVersion);
-            String putBody = jsonMapper.writeValueAsString(node);
+            String putBody = resourceApplyService.updateResourceVersion(plan, existingJson);
             
             executeRequest("PUT", resourcePath, putBody, activeSkipTls);
         } else {
-            executeRequest("POST", collectionPath, jsonBody, activeSkipTls);
+            executeRequest("POST", collectionPath, plan.jsonBody(), activeSkipTls);
         }
     }
 }

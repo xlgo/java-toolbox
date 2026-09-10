@@ -427,44 +427,51 @@ public class OpenApiPanel extends ToolPanel {
         new SwingWorker<String[], Void>() {
             @Override
             protected String[] doInBackground() throws Exception {
-                String fullUrl = buildFullUrl(baseUrl, ep.getPath(), pathParams, queryParams);
-                URL url = URI.create(fullUrl).toURL();
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod(ep.getMethod());
-                conn.setConnectTimeout(10000);
-                conn.setReadTimeout(15000);
+                String fullUrl = service.buildRequestUrl(baseUrl, ep.getPath(), pathParams, queryParams);
+                HttpURLConnection conn = null;
+                try {
+                    URL url = URI.create(fullUrl).toURL();
+                    conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod(ep.getMethod());
+                    conn.setConnectTimeout(10000);
+                    conn.setReadTimeout(15000);
 
-                for (Map.Entry<String, String> h : headers.entrySet()) {
-                    conn.setRequestProperty(h.getKey(), h.getValue());
-                }
-
-                if (!"GET".equalsIgnoreCase(ep.getMethod()) && body != null && !body.trim().isEmpty()) {
-                    conn.setDoOutput(true);
-                    try (OutputStream os = conn.getOutputStream()) {
-                        os.write(body.getBytes(StandardCharsets.UTF_8));
-                        os.flush();
+                    for (Map.Entry<String, String> h : headers.entrySet()) {
+                        conn.setRequestProperty(h.getKey(), h.getValue());
                     }
-                }
 
-                int code = conn.getResponseCode();
-                InputStream is = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
-                StringBuilder respSb = new StringBuilder();
-                if (is != null) {
-                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            respSb.append(line).append("\n");
+                    if (!"GET".equalsIgnoreCase(ep.getMethod()) && body != null && !body.trim().isEmpty()) {
+                        conn.setDoOutput(true);
+                        try (OutputStream os = conn.getOutputStream()) {
+                            os.write(body.getBytes(StandardCharsets.UTF_8));
+                            os.flush();
                         }
                     }
-                }
 
-                StringBuilder headSb = new StringBuilder();
-                for (Map.Entry<String, List<String>> header : conn.getHeaderFields().entrySet()) {
-                    if (header.getKey() != null) {
-                        headSb.append(header.getKey()).append(": ").append(String.join(", ", header.getValue())).append("\n");
+                    int code = conn.getResponseCode();
+                    InputStream is = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
+                    StringBuilder respSb = new StringBuilder();
+                    if (is != null) {
+                        try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                respSb.append(line).append("\n");
+                            }
+                        }
+                    }
+
+                    StringBuilder headSb = new StringBuilder();
+                    for (Map.Entry<String, List<String>> header : conn.getHeaderFields().entrySet()) {
+                        if (header.getKey() != null) {
+                            headSb.append(header.getKey()).append(": ").append(String.join(", ", header.getValue())).append("\n");
+                        }
+                    }
+                    return new String[]{String.valueOf(code), respSb.toString(), headSb.toString()};
+                } finally {
+                    if (conn != null) {
+                        conn.disconnect();
                     }
                 }
-                return new String[]{String.valueOf(code), respSb.toString(), headSb.toString()};
             }
 
             @Override
@@ -526,26 +533,6 @@ public class OpenApiPanel extends ToolPanel {
         String curl = service.buildCurl(baseUrl, ep, pathParams, queryParams, headers, body);
         UIUtils.copyToClipboard(curl);
         UIUtils.info(getView(), "cURL 命令已复制到剪贴板！");
-    }
-
-    private String buildFullUrl(String baseUrl, String path, Map<String, String> pathParams, Map<String, String> queryParams) {
-        String base = (baseUrl != null && !baseUrl.isEmpty()) ? baseUrl.trim() : "https://httpbin.org";
-        if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
-        for (Map.Entry<String, String> entry : pathParams.entrySet()) {
-            path = path.replace("{" + entry.getKey() + "}", entry.getValue());
-        }
-        if (!path.startsWith("/")) path = "/" + path;
-        StringBuilder sb = new StringBuilder(base).append(path);
-        if (queryParams != null && !queryParams.isEmpty()) {
-            sb.append("?");
-            boolean first = true;
-            for (Map.Entry<String, String> entry : queryParams.entrySet()) {
-                if (!first) sb.append("&");
-                sb.append(entry.getKey()).append("=").append(entry.getValue());
-                first = false;
-            }
-        }
-        return sb.toString();
     }
 
     /**

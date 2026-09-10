@@ -9,7 +9,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
@@ -17,6 +16,9 @@ import java.util.*;
  * OpenAPI 3.x / Swagger 2.0 规范解析与请求构建服务。
  */
 public class OpenApiService {
+
+    private static final String DEFAULT_SERVER_URL = "https://httpbin.org";
+    private static final char[] HEX = "0123456789ABCDEF".toCharArray();
 
     private final ObjectMapper jsonMapper = new ObjectMapper();
     private final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
@@ -166,7 +168,7 @@ public class OpenApiService {
             }
         }
         if (servers.isEmpty()) {
-            servers.add("https://httpbin.org");
+            servers.add(DEFAULT_SERVER_URL);
         }
         spec.setServers(servers);
 
@@ -255,72 +257,261 @@ public class OpenApiService {
      * 从远程 URL 获取规范文本。
      */
     public String fetchRemoteSpec(String urlStr) throws Exception {
-        if (urlStr == null || !urlStr.startsWith("http")) {
-            throw new IllegalArgumentException("请输入合法的 HTTP/HTTPS 规范地址");
-        }
-        URL url = URI.create(urlStr).toURL();
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("GET");
-        conn.setConnectTimeout(8000);
-        conn.setReadTimeout(10000);
-        conn.setRequestProperty("Accept", "application/json, application/yaml, text/yaml, */*");
-        conn.setRequestProperty("User-Agent", "JavaToolbox-OpenAPI-Workbench");
+        URI uri = parseHttpUrl(urlStr);
+        HttpURLConnection conn = null;
+        try {
+            conn = openConnection(uri);
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(10000);
+            conn.setRequestProperty("Accept", "application/json, application/yaml, text/yaml, */*");
+            conn.setRequestProperty("User-Agent", "JavaToolbox-OpenAPI-Workbench");
 
-        int code = conn.getResponseCode();
-        InputStream is = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
-        if (is == null) throw new IllegalStateException("HTTP 状态码: " + code + ", 无法获取响应体");
+            int code = conn.getResponseCode();
+            InputStream is = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
+            if (is == null) {
+                throw new IllegalStateException("HTTP 状态码: " + code + ", 无法获取响应体");
+            }
 
-        StringBuilder sb = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                sb.append(line).append("\n");
+            StringBuilder sb = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line).append("\n");
+                }
+            }
+            return sb.toString();
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
             }
         }
-        return sb.toString();
+    }
+
+    /**
+     * Opens the validated remote specification connection. Kept protected so
+     * callers can provide a controlled connection in integration tests.
+     */
+    protected HttpURLConnection openConnection(URI uri) throws java.io.IOException {
+        return (HttpURLConnection) uri.toURL().openConnection();
+    }
+
+    /**
+     * Builds a request URL using encoded path and query parameter values.
+     *
+     * <p>The server URL is validated before it is used, so this method cannot
+     * accidentally turn a malformed or non-HTTP server value into a request.</p>
+     */
+    public String buildRequestUrl(String baseUrl, String endpointPath,
+                                  Map<String, String> pathParams,
+                                  Map<String, String> queryParams) {
+        String effectiveBaseUrl = baseUrl == null || baseUrl.trim().isEmpty()
+                ? DEFAULT_SERVER_URL
+                : baseUrl.trim();
+        URI baseUri = parseHttpUrl(effectiveBaseUrl);
+
+        String endpoint = endpointPath == null ? "" : endpointPath;
+        if (pathParams != null) {
+            for (Map.Entry<String, String> entry : pathParams.entrySet()) {
+                String name = entry.getKey();
+                if (name != null && !name.isEmpty()) {
+                    endpoint = endpoint.replace("{" + name + "}", percentEncode(entry.getValue()));
+                }
+            }
+        }
+
+        String path = joinPaths(baseUri.getRawPath(), endpoint);
+        String query = buildQuery(baseUri.getRawQuery(), queryParams);
+        StringBuilder url = new StringBuilder();
+        url.append(baseUri.getScheme()).append("://").append(baseUri.getRawAuthority()).append(path);
+        if (query != null) {
+            url.append('?').append(query);
+        }
+        return url.toString();
     }
 
     /**
      * 生成 cURL 调用命令。
      */
     public String buildCurl(String baseUrl, OpenApiSpec.ApiEndpoint endpoint,
-                            Map<String, String> pathParams,
-                            Map<String, String> queryParams,
-                            Map<String, String> headers,
-                            String body) {
-        String base = (baseUrl != null && !baseUrl.isEmpty()) ? baseUrl.trim() : "https://httpbin.org";
-        if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
-
-        String path = endpoint.getPath();
-        if (pathParams != null) {
-            for (Map.Entry<String, String> entry : pathParams.entrySet()) {
-                path = path.replace("{" + entry.getKey() + "}", entry.getValue());
-            }
+                             Map<String, String> pathParams,
+                             Map<String, String> queryParams,
+                             Map<String, String> headers,
+                             String body) {
+        Objects.requireNonNull(endpoint, "endpoint");
+        String method = endpoint.getMethod();
+        if (method == null || method.trim().isEmpty() || !method.trim().matches("[A-Za-z]+")) {
+            throw new IllegalArgumentException("HTTP 方法不能为空或包含非法字符");
         }
-        if (!path.startsWith("/")) path = "/" + path;
+        method = method.trim();
 
-        StringBuilder urlBuilder = new StringBuilder(base).append(path);
-        if (queryParams != null && !queryParams.isEmpty()) {
-            urlBuilder.append("?");
-            boolean first = true;
-            for (Map.Entry<String, String> entry : queryParams.entrySet()) {
-                if (!first) urlBuilder.append("&");
-                urlBuilder.append(entry.getKey()).append("=").append(entry.getValue());
-                first = false;
-            }
-        }
-
-        StringBuilder curl = new StringBuilder("curl -X ").append(endpoint.getMethod()).append(" \"").append(urlBuilder).append("\"");
+        String requestUrl = buildRequestUrl(baseUrl, endpoint.getPath(), pathParams, queryParams);
+        StringBuilder curl = new StringBuilder("curl -X ").append(method)
+                .append(' ').append(shellDoubleQuote(requestUrl));
         if (headers != null) {
             for (Map.Entry<String, String> entry : headers.entrySet()) {
-                curl.append(" \\\n  -H \"").append(entry.getKey()).append(": ").append(entry.getValue()).append("\"");
+                String headerName = entry.getKey() == null ? "" : entry.getKey();
+                String headerValue = entry.getValue() == null ? "" : entry.getValue();
+                if (headerName.isEmpty()) {
+                    throw new IllegalArgumentException("HTTP 请求头名称不能为空");
+                }
+                if (containsLineBreak(headerName) || containsLineBreak(headerValue)) {
+                    throw new IllegalArgumentException("HTTP 请求头不能包含换行符");
+                }
+                curl.append(" \\\n  -H ").append(shellDoubleQuote(headerName + ": " + headerValue));
             }
         }
-        if (body != null && !body.trim().isEmpty() && !"GET".equalsIgnoreCase(endpoint.getMethod())) {
-            String sanitizedBody = body.replace("\"", "\\\"");
-            curl.append(" \\\n  -d \"").append(sanitizedBody).append("\"");
+        if (body != null && !body.trim().isEmpty() && !"GET".equalsIgnoreCase(method)) {
+            curl.append(" \\\n  -d ").append(shellDoubleQuote(body));
         }
         return curl.toString();
+    }
+
+    private URI parseHttpUrl(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalArgumentException("请输入合法的 HTTP/HTTPS 地址");
+        }
+
+        final URI uri;
+        try {
+            uri = URI.create(value.trim());
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("请输入合法的 HTTP/HTTPS 地址", ex);
+        }
+
+        String scheme = uri.getScheme();
+        if (scheme == null || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))
+                || uri.getHost() == null || uri.getRawAuthority() == null
+                || uri.getRawUserInfo() != null || uri.getRawFragment() != null
+                || uri.getPort() > 65535) {
+            throw new IllegalArgumentException("请输入合法的 HTTP/HTTPS 地址");
+        }
+        return uri;
+    }
+
+    private String joinPaths(String basePath, String endpointPath) {
+        String base = basePath == null ? "" : basePath;
+        String endpoint = endpointPath == null ? "" : endpointPath;
+        if (endpoint.isEmpty()) {
+            return base.isEmpty() ? "/" : encodePath(base);
+        }
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        if (!endpoint.startsWith("/")) {
+            endpoint = "/" + endpoint;
+        }
+        return encodePath(base + endpoint);
+    }
+
+    private String buildQuery(String existingQuery, Map<String, String> queryParams) {
+        StringBuilder query = new StringBuilder();
+        if (existingQuery != null && !existingQuery.isEmpty()) {
+            query.append(existingQuery);
+        }
+        if (queryParams != null) {
+            for (Map.Entry<String, String> entry : queryParams.entrySet()) {
+                if (query.length() > 0) {
+                    query.append('&');
+                }
+                query.append(percentEncode(entry.getKey())).append('=').append(percentEncode(entry.getValue()));
+            }
+        }
+        return query.length() == 0 ? null : query.toString();
+    }
+
+    private String encodePath(String path) {
+        StringBuilder encoded = new StringBuilder();
+        for (int index = 0; index < path.length();) {
+            char character = path.charAt(index);
+            if (character == '%' && index + 2 < path.length()
+                    && isHexDigit(path.charAt(index + 1)) && isHexDigit(path.charAt(index + 2))) {
+                encoded.append(character).append(path.charAt(index + 1)).append(path.charAt(index + 2));
+                index += 3;
+                continue;
+            }
+
+            int codePoint = path.codePointAt(index);
+            if (isPathCharacter(codePoint)) {
+                encoded.appendCodePoint(codePoint);
+            } else {
+                encoded.append(percentEncode(new String(Character.toChars(codePoint))));
+            }
+            index += Character.charCount(codePoint);
+        }
+        return encoded.toString();
+    }
+
+    private String percentEncode(String value) {
+        byte[] bytes = (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+        StringBuilder encoded = new StringBuilder(bytes.length);
+        for (byte valueByte : bytes) {
+            int unsigned = valueByte & 0xff;
+            if (isUnreserved(unsigned)) {
+                encoded.append((char) unsigned);
+            } else {
+                encoded.append('%').append(HEX[unsigned >>> 4]).append(HEX[unsigned & 0x0f]);
+            }
+        }
+        return encoded.toString();
+    }
+
+    private boolean isPathCharacter(int codePoint) {
+        return isUnreserved(codePoint) || codePoint == '/' || codePoint == ':' || codePoint == '@'
+                || codePoint == '!' || codePoint == '$' || codePoint == '&' || codePoint == '\''
+                || codePoint == '(' || codePoint == ')' || codePoint == '*' || codePoint == '+'
+                || codePoint == ',' || codePoint == ';' || codePoint == '=';
+    }
+
+    private boolean isUnreserved(int value) {
+        return value >= 'a' && value <= 'z'
+                || value >= 'A' && value <= 'Z'
+                || value >= '0' && value <= '9'
+                || value == '-' || value == '.' || value == '_' || value == '~';
+    }
+
+    private boolean isHexDigit(char value) {
+        return value >= '0' && value <= '9'
+                || value >= 'a' && value <= 'f'
+                || value >= 'A' && value <= 'F';
+    }
+
+    private boolean containsLineBreak(String value) {
+        return value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0;
+    }
+
+    private String shellDoubleQuote(String value) {
+        String safeValue = value == null ? "" : value;
+        StringBuilder quoted = new StringBuilder(safeValue.length() + 2).append('"');
+        for (int index = 0; index < safeValue.length(); index++) {
+            char character = safeValue.charAt(index);
+            switch (character) {
+                case '\\':
+                    quoted.append("\\\\");
+                    break;
+                case '"':
+                    quoted.append("\\\"");
+                    break;
+                case '$':
+                    quoted.append("\\$");
+                    break;
+                case '`':
+                    quoted.append("\\`");
+                    break;
+                case '!':
+                    quoted.append("\\!");
+                    break;
+                case '\r':
+                    quoted.append(character);
+                    break;
+                case '\n':
+                    quoted.append(character);
+                    break;
+                default:
+                    quoted.append(character);
+            }
+        }
+        return quoted.append('"').toString();
     }
 
     private List<OpenApiSpec.Parameter> extractParameters(JsonNode paramsNode, JsonNode root) {

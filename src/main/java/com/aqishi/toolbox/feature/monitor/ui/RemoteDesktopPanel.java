@@ -315,7 +315,8 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                     joinTimer.start();
 
                 } catch (Exception ex) {
-                    appendLog(controlLogArea, "Connection failed: " + ex.getMessage());
+                    appendLog(controlLogArea,
+                            I18n.get("remote_desktop.control_log_connection_failed", ex.getMessage()));
                 }
             }
         });
@@ -364,7 +365,9 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         startControlBtn.addActionListener(e -> {
             String targetId = targetIdField.getText().trim();
             if (targetId.isEmpty()) {
-                UIUtils.warn(panel, "Please select target ID", "Prompt");
+                UIUtils.warn(panel,
+                        I18n.get("remote_desktop.target_id_required"),
+                        I18n.get("remote_desktop.prompt_title"));
                 return;
             }
             controlTcpConnector.reset();
@@ -530,7 +533,8 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                 if (hostSignalClient.isOpen()) {
                     String myHostId = RemoteSessionIds.generate();
                     String group = groupField.getText().trim();
-                    String name = nameField.getText().trim() + "(Be Controlled)";
+                    String name = nameField.getText().trim()
+                            + I18n.get("remote_desktop.host_name_suffix");
 
                     hostSignalClient.join(myHostId, group, name);
                     hostStatusLabel.setText(I18n.get("remote_desktop.host_status_waiting", group, myHostId));
@@ -542,7 +546,8 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
             hostJoinTimer.start();
 
         } catch (Exception ex) {
-            appendLog(hostLogArea, "Failed to connect host: " + ex.getMessage());
+            appendLog(hostLogArea,
+                    I18n.get("remote_desktop.host_log_connection_failed", ex.getMessage()));
             stopHostService();
         }
     }
@@ -551,7 +556,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         activeHostChannel = channel;
         activeHostChannel.setMessageListener(this::handleHostReceivedMessage);
         activeHostChannel.setCloseListener(() -> {
-            appendLog(hostLogArea, "Data channel closed.");
+            appendLog(hostLogArea, I18n.get("remote_desktop.host_log_channel_closed"));
             stopHostSession();
         });
 
@@ -885,7 +890,8 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                 pi.writer.write(command + "\n");
                 pi.writer.flush();
             } catch (IOException e) {
-                sendCmdResponse(sessionId, "Write command failed: " + e.getMessage() + "\n");
+                sendCmdResponse(sessionId,
+                        I18n.get("remote_desktop.term_send_failed", e.getMessage()) + "\n");
             }
         }
     }
@@ -911,7 +917,8 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                 pi.writer.close();
             } catch (Exception ignored) {}
             pi.process.destroyForcibly();
-            appendLog(hostLogArea, "Session terminated: " + sessionId);
+            appendLog(hostLogArea,
+                    I18n.get("remote_desktop.term_session_terminated", sessionId));
         }
     }
 
@@ -1015,7 +1022,8 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
             localPortField.setEnabled(false);
             appendLog(serverLogArea, I18n.get("remote_desktop.server_log_started", String.valueOf(port)));
         } catch (Exception ex) {
-            appendLog(serverLogArea, "Relay service error: " + ex.getMessage());
+            appendLog(serverLogArea,
+                    I18n.get("remote_desktop.server_start_failed", ex.getMessage()));
             localSignalServer = null;
         }
     }
@@ -1035,7 +1043,8 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
             localSignalServer.stop();
             appendLog(serverLogArea, I18n.get("remote_desktop.server_log_stopped"));
         } catch (Exception ex) {
-            appendLog(serverLogArea, "Relay stop error: " + ex.getMessage());
+            appendLog(serverLogArea,
+                    I18n.get("remote_desktop.server_stop_failed", ex.getMessage()));
         }
         localSignalServer = null;
     }
@@ -1064,7 +1073,9 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
     private static byte[] compressImageToJpeg(BufferedImage img, float quality) throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpg");
-        if (!writers.hasNext()) throw new IllegalStateException("No JPG ImageWriters found");
+        if (!writers.hasNext()) {
+            throw new IllegalStateException(I18n.get("remote_desktop.error.no_jpeg_writer"));
+        }
         ImageWriter writer = writers.next();
         try (ImageOutputStream ios = ImageIO.createImageOutputStream(baos)) {
             writer.setOutput(ios);

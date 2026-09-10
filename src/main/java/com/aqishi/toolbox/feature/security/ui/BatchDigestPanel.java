@@ -4,6 +4,8 @@ import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.catalog.ToolDescriptor;
 import com.aqishi.toolbox.feature.security.domain.BatchDigestService;
 import com.aqishi.toolbox.feature.security.domain.CertUtils;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -25,11 +27,20 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 文件批量摘要与签名校验面板。
  */
-public class BatchDigestPanel extends ToolPanel {
+public class BatchDigestPanel extends ToolPanel implements ManagedResourceOwner {
+
+    private static final int MAX_DIGEST_WORKERS = 4;
 
     private final BatchDigestService service;
 
@@ -41,8 +52,10 @@ public class BatchDigestPanel extends ToolPanel {
     private JCheckBox md5Check, sha1Check, sha256Check, sha512Check, sm3Check;
     private JProgressBar progressBar;
     private JLabel progressLabel;
-    private JButton startBtn, stopBtn;
-    private volatile boolean cancelRequested = false;
+    private JButton addFilesBtn, addDirBtn, clearBtn, startBtn, stopBtn;
+    private final AtomicReference<SwingWorker<?, ?>> batchWorker = new AtomicReference<>();
+    private final AtomicReference<ExecutorService> batchExecutor = new AtomicReference<>();
+    private final AtomicReference<AtomicBoolean> batchCancellation = new AtomicReference<>();
 
     // 结果表格
     private DefaultTableModel tableModel;
@@ -74,9 +87,9 @@ public class BatchDigestPanel extends ToolPanel {
         // ================= 1. 顶部控制栏 =================
         Card controlCard = Card.titled(I18n.get("tool.batchdigest.control.title", "批量摘要任务配置"));
 
-        JButton addFilesBtn = Buttons.primary(I18n.get("tool.batchdigest.btn.addFiles", "添加文件..."));
-        JButton addDirBtn = Buttons.secondary(I18n.get("tool.batchdigest.btn.addDir", "添加文件夹..."));
-        JButton clearBtn = Buttons.ghost(I18n.get("tool.batchdigest.btn.clear", "清空列表"));
+        addFilesBtn = Buttons.primary(I18n.get("tool.batchdigest.btn.addFiles", "添加文件..."));
+        addDirBtn = Buttons.secondary(I18n.get("tool.batchdigest.btn.addDir", "添加文件夹..."));
+        clearBtn = Buttons.ghost(I18n.get("tool.batchdigest.btn.clear", "清空列表"));
 
         addFilesBtn.addActionListener(e -> chooseFiles());
         addDirBtn.addActionListener(e -> chooseDirectory());
@@ -109,7 +122,7 @@ public class BatchDigestPanel extends ToolPanel {
         stopBtn.setEnabled(false);
 
         startBtn.addActionListener(e -> startBatchCalculation());
-        stopBtn.addActionListener(e -> cancelRequested = true);
+        stopBtn.addActionListener(e -> cancelBatch());
 
         progressBar = new JProgressBar(0, 100);
         progressBar.setStringPainted(true);
@@ -276,6 +289,7 @@ public class BatchDigestPanel extends ToolPanel {
     }
 
     private void clearFiles() {
+        cancelBatch();
         selectedFiles.clear();
         results.clear();
         tableModel.setRowCount(0);
@@ -309,58 +323,170 @@ public class BatchDigestPanel extends ToolPanel {
             return;
         }
 
+        List<File> files = List.copyOf(selectedFiles);
+        List<String> algorithms = List.copyOf(selectedAlgs);
+        cancelBatch(false);
         startBtn.setEnabled(false);
         stopBtn.setEnabled(true);
-        cancelRequested = false;
+        setConfigurationEnabled(false);
         results.clear();
         progressBar.setValue(0);
-        progressBar.setMaximum(selectedFiles.size());
+        progressBar.setMaximum(files.size());
 
-        new SwingWorker<Void, BatchDigestService.DigestResult>() {
+        AtomicBoolean cancellation = new AtomicBoolean(false);
+        int workerCount = Math.min(MAX_DIGEST_WORKERS, files.size());
+        ExecutorService executor = DaemonThreads.fixed("batch-digest", workerCount);
+        batchCancellation.set(cancellation);
+        batchExecutor.set(executor);
+        CompletionService<IndexedDigestResult> completion = new ExecutorCompletionService<>(executor);
+        List<Future<IndexedDigestResult>> futures = new ArrayList<>(files.size());
+        BatchDigestService.DigestResult[] orderedResults =
+                new BatchDigestService.DigestResult[files.size()];
+
+        SwingWorker<Void, IndexedDigestResult> worker = new SwingWorker<Void, IndexedDigestResult>() {
             @Override
             protected Void doInBackground() {
                 int count = 0;
-                for (File f : selectedFiles) {
-                    if (cancelRequested) break;
-                    BatchDigestService.DigestResult res = service.computeFileDigest(f, selectedAlgs);
-                    publish(res);
-                    count++;
-                    setProgress((int) ((count / (double) selectedFiles.size()) * 100));
+                int nextIndex = 0;
+                try {
+                    while (nextIndex < workerCount) {
+                        int fileIndex = nextIndex++;
+                        File file = files.get(fileIndex);
+                        futures.add(completion.submit(() -> new IndexedDigestResult(fileIndex,
+                                service.computeFileDigest(file, algorithms))));
+                    }
+                    while (count < files.size() && !cancellation.get() && !isCancelled()) {
+                        IndexedDigestResult result = completion.take().get();
+                        publish(result);
+                        count++;
+                        setProgress((int) ((count / (double) files.size()) * 100));
+                        if (nextIndex < files.size()) {
+                            int fileIndex = nextIndex++;
+                            File file = files.get(fileIndex);
+                            futures.add(completion.submit(() -> new IndexedDigestResult(fileIndex,
+                                    service.computeFileDigest(file, algorithms))));
+                        }
+                    }
+                } catch (InterruptedException interrupted) {
+                    cancellation.set(true);
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException failedTask) {
+                    cancellation.set(true);
+                } finally {
+                    if (cancellation.get() || isCancelled()) {
+                        for (Future<IndexedDigestResult> future : futures) {
+                            future.cancel(true);
+                        }
+                    }
+                    executor.shutdownNow();
                 }
                 return null;
             }
 
             @Override
-            protected void process(List<BatchDigestService.DigestResult> chunks) {
-                for (BatchDigestService.DigestResult r : chunks) {
+            protected void process(List<IndexedDigestResult> chunks) {
+                if (batchWorker.get() != this) {
+                    return;
+                }
+                for (IndexedDigestResult indexed : chunks) {
+                    BatchDigestService.DigestResult r = indexed.result();
+                    orderedResults[indexed.index()] = r;
                     results.add(r);
-                    updateRow(r);
+                    updateRow(indexed.index(), r);
                     progressBar.setValue(results.size());
-                    progressLabel.setText(String.format("进度: %d / %d", results.size(), selectedFiles.size()));
+                    progressLabel.setText(String.format("进度: %d / %d", results.size(), files.size()));
                 }
             }
 
             @Override
             protected void done() {
+                if (!batchWorker.compareAndSet(this, null)) {
+                    return;
+                }
+                batchCancellation.compareAndSet(cancellation, null);
+                batchExecutor.compareAndSet(executor, null);
+                executor.shutdownNow();
+                results.clear();
+                for (BatchDigestService.DigestResult result : orderedResults) {
+                    if (result != null) {
+                        results.add(result);
+                    }
+                }
                 startBtn.setEnabled(true);
                 stopBtn.setEnabled(false);
-                progressLabel.setText(cancelRequested ? "已中断" : "计算完成！");
+                setConfigurationEnabled(true);
+                progressLabel.setText(cancellation.get() || isCancelled() ? "已中断" : "计算完成！");
             }
-        }.execute();
+        };
+        batchWorker.set(worker);
+        worker.execute();
+    }
+
+    private void cancelBatch() {
+        cancelBatch(true);
+    }
+
+    private void cancelBatch(boolean showCancelled) {
+        boolean onEdt = SwingUtilities.isEventDispatchThread();
+        AtomicBoolean cancellation = batchCancellation.getAndSet(null);
+        boolean wasRunning = cancellation != null;
+        if (cancellation != null) {
+            cancellation.set(true);
+        }
+        SwingWorker<?, ?> worker = batchWorker.getAndSet(null);
+        if (worker != null && !worker.isDone()) {
+            wasRunning = true;
+            worker.cancel(true);
+        }
+        ExecutorService executor = batchExecutor.getAndSet(null);
+        DaemonThreads.shutdownQuietly(executor);
+        if (onEdt) {
+            if (startBtn != null) {
+                startBtn.setEnabled(true);
+            }
+            if (stopBtn != null) {
+                stopBtn.setEnabled(false);
+            }
+            setConfigurationEnabled(true);
+            if (wasRunning && showCancelled && progressLabel != null) {
+                progressLabel.setText("已中断");
+            }
+        }
+    }
+
+    private void setConfigurationEnabled(boolean enabled) {
+        if (addFilesBtn != null) {
+            addFilesBtn.setEnabled(enabled);
+        }
+        if (addDirBtn != null) {
+            addDirBtn.setEnabled(enabled);
+        }
+        for (JCheckBox algorithm : new JCheckBox[]{md5Check, sha1Check, sha256Check, sha512Check, sm3Check}) {
+            if (algorithm != null) {
+                algorithm.setEnabled(enabled);
+            }
+        }
     }
 
     private void updateRow(BatchDigestService.DigestResult r) {
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             if (tableModel.getValueAt(i, 1).equals(r.getFileName())) {
-                tableModel.setValueAt(r.getMatchStatus(), i, 0);
-                tableModel.setValueAt(formatSize(r.getFileSize()), i, 2);
-                tableModel.setValueAt(r.getHashes().getOrDefault("SHA-256", "-"), i, 3);
-                tableModel.setValueAt(r.getHashes().getOrDefault("MD5", "-"), i, 4);
-                tableModel.setValueAt(r.getHashes().getOrDefault("SM3", "-"), i, 5);
-                tableModel.setValueAt(r.getDurationMillis() + " ms", i, 6);
+                updateRow(i, r);
                 break;
             }
         }
+    }
+
+    private void updateRow(int row, BatchDigestService.DigestResult r) {
+        if (row < 0 || row >= tableModel.getRowCount()) {
+            return;
+        }
+        tableModel.setValueAt(r.getMatchStatus(), row, 0);
+        tableModel.setValueAt(formatSize(r.getFileSize()), row, 2);
+        tableModel.setValueAt(r.getHashes().getOrDefault("SHA-256", "-"), row, 3);
+        tableModel.setValueAt(r.getHashes().getOrDefault("MD5", "-"), row, 4);
+        tableModel.setValueAt(r.getHashes().getOrDefault("SM3", "-"), row, 5);
+        tableModel.setValueAt(r.getDurationMillis() + " ms", row, 6);
     }
 
     private void runChecksumMatch() {
@@ -466,5 +592,13 @@ public class BatchDigestPanel extends ToolPanel {
         if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
         if (bytes < 1024 * 1024 * 1024) return String.format("%.2f MB", bytes / (1024.0 * 1024.0));
         return String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0));
+    }
+
+    @Override
+    public void closeResources() {
+        cancelBatch();
+    }
+
+    private record IndexedDigestResult(int index, BatchDigestService.DigestResult result) {
     }
 }

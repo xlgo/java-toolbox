@@ -1,6 +1,6 @@
 # Java 工具箱
 
-> 桌面端多功能工具箱，基于 Java Swing + FlatLaf 外观包。基础工具使用 JDK 8+；远程桌面的完整 ICE 直连功能要求 JDK 11+。双击 `run.bat` 或 `java -jar target/java-toolbox.jar` 启动。
+> 桌面端多功能工具箱，基于 Java Swing + FlatLaf 外观包，运行要求 JDK 17+。双击 `run.bat` 或 `java -jar target/java-toolbox.jar` 启动。
 
 架构重写说明见 [全量架构重写设计](docs/superpowers/specs/2026-08-16-full-architecture-rewrite-design.md)，新增能力规划见 [功能路线图](docs/feature-roadmap.md)。
 
@@ -13,13 +13,16 @@
 | 分组 | 工具 | 说明 |
 |------|------|------|
 | 加密 | 摘要与编解码 | MD5 / SHA-1 / SHA-256 / SM3 摘要与 Base64 编解码 |
-| 加密 | 对称加密 | AES / DES / 3DES / SM4（支持 ECB/CBC 模式、PKCS5 填充、防乱码文本密钥生成） |
+| 加密 | 对称加密 | AES / DES / 3DES / SM4（推荐 AES-GCM；支持 CBC，ECB 仅用于历史兼容，含 PKCS5 填充与文本密钥生成） |
 | 加密 | 非对称加密 | RSA / SM2（支持密钥对生成、公钥加密/私钥解密、私钥签名/公钥验签） |
+| 加密 | 文件批量摘要与签名 | 最多 4 文件受限并发的流式摘要、校验清单核对，以及文件数字签名与验签 |
+| 加密 | CSR / PKCS#12 / 证书链检查 | 解析 CSR 并自验签、检查 PKCS#12 密钥库、诊断多级 X.509 证书链 |
 | 转换 | 进制与编码 | 二/八/十/十六进制互转（二进制 4 位自动分组美化），UTF-8/GBK/URL 编码 |
 | 转换 | 时间戳转换 | 秒/毫秒、自定义格式、时区 |
 | 转换 | Base64 图片转换 | 图片文件与 Base64 字符串互转，支持比例自适应预览与本地保存 |
 | 转换 | URL 编解码与参数解析 | 支持 URL 编解码，结构化拆解 Scheme/Host/Port/Path 及 Query 参数 Key-Value 表格解析与重组 |
-| 转换 | 格式转换 | JSON / XML / YAML / CSV / Properties 之间任意双向互相转换，完美支持嵌套与点分扁平化还原 |
+| 转换 | 格式转换 | JSON / XML / YAML / TOML / INI / CSV / Properties 之间双向转换，支持嵌套结构与语法诊断 |
+| 转换 | JSONPath 查询 | 基于 JSONPath 的字段提取、切片/过滤查询、路径列表模式与错误定位 |
 | 算法 | 排序可视化 | 冒泡/选择/插入/快排/归并，逐帧动画 + 统计 |
 | 算法 | 查找算法 | 二分查找（区间收缩过程）+ 线性查找 |
 | 算法 | 汉诺塔 | 汉诺塔交互演示，支持手动拖盘与自动动画播放 |
@@ -32,11 +35,12 @@
 | 格式化 | SQL 格式化 | 对常见 SQL 关键字大写美化、换行与缩进优化 |
 | 开发工具 | 正则测试 | 实时匹配高亮、分组捕获、匹配计数 |
 | 开发工具 | JWT 编解码 | 支持 Header/Payload 实时解析与过期状态提示，支持 HS256 签名生成与 Token 构造 |
-| 开发工具 | Cron 表达式解析 | 校验 Cron 表达式，并计算未来 5 次的预计执行时间 |
+| 开发工具 | Cron 表达式解析 | 校验 Cron 表达式，并计算未来 15 次的预计执行时间 |
 | 开发工具 | 文本对比 | 纯 Java 计算两端文本差异，并以彩色高亮显示结果（标记新增与删除行） |
 | 开发工具 | Docker 转换 | 将 `docker run` 运行命令解析并一键转换为 `docker-compose` YAML 声明配置 |
 | 开发工具 | 子网计算器 | 输入 IP/CIDR（如 `192.168.1.1/24`）计算网络地址、广播地址、掩码并展示二进制 |
 | 开发工具 | HTTP 接口测试 | 轻量 HTTP 客户端，支持 GET / POST / PUT / DELETE，自定义请求头、Body 与 Content-Type |
+| 开发工具 | OpenAPI 工作台 | 导入 OpenAPI 3 / Swagger 2.0 规范，浏览端点、编辑参数、在线调试与导出 cURL |
 | 开发工具 | 回调 Mock | 启动临时 HTTP 服务器接收回调请求，自定义响应状态码与内容，实时回显请求详情 |
 | 开发工具 | 颜色转换 | HEX / RGB / HSL 互转，集成 **JColorChooser 调色板** 与 **一键复制** |
 | 开发工具 | 证书管理 | X.509 证书管理：支持根证书创建、子证书签发、证书解析，以及 **ACME v2 免费证书自动申请**（支持 Let's Encrypt / ZeroSSL，集成 Cloudflare API 自动挂载/清理 TXT 记录、DNS-01/HTTP-01 验证、倒计时保护及一键打包 Zip 导出） |
@@ -64,7 +68,7 @@
 
 ## 主题与体验优化
 
-- **主题系统**：基于 FlatLaf 外观包，内置 54 套现代主题实时切换（带平滑过渡动画），如 Material、GitHub Dark、Solarized、One Dark 等。
+- **主题系统**：基于 FlatLaf 外观包动态发现并实时切换 IntelliJ 主题（主题数量随 FlatLaf 版本提供，带平滑过渡动画），如 Material、GitHub Dark、Solarized、One Dark 等。
 - **排版与渲染**：输入输出区域字体统一采用 **微软雅黑 (Microsoft YaHei)**，不仅在英文字符下完美避免了连字现象（如等号正常分立），同时解决了中文字符显示为问号或乱码的渲染痛点。
 - **主题高度自适应**：全局优化所有主题下的组件高度表现，按钮、输入框、下拉选择框等高度均自适应且全局最低保持 32 像素，防止元素在某些精简主题下显得局促或被裁剪。
 - **流程图与时序图高阶画布交互**：
@@ -137,9 +141,10 @@ git push
 - Java Swing（GUI）
 - FlatLaf 3.5.4（外观包 + IntelliJ 主题包）
 - BouncyCastle 1.70（国密 SM2/SM3/SM4 算法支持，提供与经典加解密的统一调用）
+- Jackson 2.15.2 + Tomlj 1.0.0（JSON/XML/YAML/TOML 数据模型与语法解析）
 - ice4j 3.2（远程桌面完整 ICE/STUN UDP 直连；未启用 TURN）
 - Maven Shade（打 fat jar）
-- 纯 JDK 实现：JSON 美化、中缀表达式求值、标准 AES/DES/3DES/RSA 加解密
+- 本地实现与库协作：JSON 树视图/格式化、中缀表达式求值，以及标准 AES/DES/3DES/RSA 加解密
 
 ## 项目结构
 
@@ -169,7 +174,9 @@ src/main/java/com/aqishi/toolbox/
 │   ├── compute/                      # 计算器、统计、算法和游戏
 │   ├── diagram/                      # BPMN、Mermaid、流程图与 DTO
 │   └── monitor/                      # 视频监控、远程桌面与传输实现
+├── domain/                            # 跨 feature/infra 共享的无依赖模型
 ├── infra/                            # 外部连接、配置持久化和生命周期适配器
+│   ├── config/                        # JSON 偏好设置与配置存储
 │   ├── database/                     # JDBC 连接与数据库配置存储
 │   ├── kubernetes/                   # Kubernetes REST 与 kubeconfig
 │   ├── kafka/                        # Kafka 管理客户端工厂
@@ -184,10 +191,12 @@ tools/wechat_export.py                # 唯一维护的微信 UIAutomation 脚�
 ```
 ## Roadmap
 
-当前版本不新增路线图功能。P0 优先评估 OpenAPI、JSONPath/JMESPath、格式转换、摘要校验、证书链检查、网络诊断、日志过滤和工作区导入导出；完整范围、依赖和分类见 [功能路线图](docs/feature-roadmap.md)。
+`v1.9.0` 已交付 OpenAPI 工作台、JSONPath 查询、批量摘要与签名校验，以及 CSR/PKCS#12/证书链检查；当前迭代已扩展 YAML/TOML/INI 格式转换。下一阶段优先补齐 DNS/TLS/HTTP 诊断、日志查看过滤器和工作区导入导出；完整范围、依赖和分类见 [功能路线图](docs/feature-roadmap.md)。
 
 ## 详细功能文档
 针对涉及复杂打洞、容器交互及UI自动化的工具，提供了专门的技术与使用指南文档：
+
+- [文档索引](docs/INDEX.md)：路线图、优化清单、专题指南和设计/实施记录的入口。
 
 - 📡 [远程桌面 (Remote Desktop) 技术与使用指南](docs/remote_desktop_guide.md)：包含 ICE/STUN 打洞机制、TCP 回退原理及自建信令服务器指导。
 - ☸️ [K8s 集群管理 (K8s Manager) 指南](docs/k8s_manager_guide.md)：涵盖多集群配置导入、Web Terminal、日志流追踪与容器文件传输说明。
@@ -197,7 +206,7 @@ tools/wechat_export.py                # 唯一维护的微信 UIAutomation 脚�
 
 项目配置了 GitHub Actions 跨平台自动打包工作流（`.github/workflows/release.yml`）。
 
-当为仓库推送版本标签（例如 `v1.5.3`）时，GitHub Actions 会在 **Windows**、**macOS** 与 **Linux** 三端虚拟机上并行触发原生构建：
+当为仓库推送版本标签（例如 `v1.9.0` 或 `vX.Y.Z`）时，GitHub Actions 会在 **Windows**、**macOS** 与 **Linux** 三端虚拟机上并行触发原生构建：
 1. **自动原生打包 (jpackage)**：使用 JDK 17 与 `jpackage` 工具，裁剪出各平台专属的精简 Java 运行时（JRE），将应用与 JRE 打包为免安装原生可执行程序。
 2. **多平台 Release 资产发布**：构建完成后将自动在 GitHub Releases 页面发布以下安装包与应用程序：
    - 🪟 **Windows 免安装原生包**：`java-toolbox-v*-windows.zip`（解压即可双击 `java-toolbox.exe` 运行，无需电脑安装 Java）

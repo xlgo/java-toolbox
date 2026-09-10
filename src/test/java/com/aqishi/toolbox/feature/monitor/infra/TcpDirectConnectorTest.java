@@ -2,17 +2,65 @@ package com.aqishi.toolbox.feature.monitor.infra;
 
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
 
 class TcpDirectConnectorTest {
+
+    @Test
+    void usesBoundedNamedDaemonWorkersAndStopsThePool() throws Exception {
+        TcpDirectConnector connector = new TcpDirectConnector(false);
+        ThreadPoolExecutor workers = null;
+        try {
+            connector.startConnector(ignored -> { }, () -> { }, ignored -> { });
+            Field workerField = TcpDirectConnector.class.getDeclaredField("workerExecutor");
+            workerField.setAccessible(true);
+            workers = (ThreadPoolExecutor) workerField.get(connector);
+
+            assertEquals(4, workers.getCorePoolSize());
+            assertEquals(4, workers.getMaximumPoolSize());
+            assertEquals(128, workers.getQueue().size() + workers.getQueue().remainingCapacity());
+
+            CountDownLatch ran = new CountDownLatch(1);
+            AtomicReference<Thread> observedThread = new AtomicReference<>();
+            workers.submit(() -> {
+                observedThread.set(Thread.currentThread());
+                ran.countDown();
+            });
+            assertTrue(ran.await(1, TimeUnit.SECONDS));
+            assertNotNull(observedThread.get());
+            assertTrue(observedThread.get().isDaemon());
+            assertTrue(observedThread.get().getName().startsWith("tcp-direct-connect-"));
+
+            Field inFlightField = TcpDirectConnector.class.getDeclaredField("inFlight");
+            inFlightField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Set<InetSocketAddress> inFlight = (Set<InetSocketAddress>) inFlightField.get(connector);
+            inFlight.add(new InetSocketAddress("127.0.0.1", 12345));
+        } finally {
+            connector.stop();
+        }
+
+        assertNotNull(workers);
+        assertTrue(workers.isShutdown());
+        Field inFlightField = TcpDirectConnector.class.getDeclaredField("inFlight");
+        inFlightField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Set<InetSocketAddress> inFlight = (Set<InetSocketAddress>) inFlightField.get(connector);
+        assertTrue(inFlight.isEmpty());
+    }
 
     @Test
     void establishesDirectTcpChannelFromCandidateReceivedBeforeConnectorStarts() throws Exception {

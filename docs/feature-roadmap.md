@@ -15,7 +15,7 @@
 |---|---|---|
 | OpenAPI / Swagger 工作台 | 网络与接口 | [已完成] 复用 HTTP 客户端和请求模型；支持导入 OpenAPI 3、参数编辑、cURL 导出和在线调试 |
 | JSONPath / JMESPath 查询 | 编码、转换与文本 | [已完成] 引入 Jayway JsonPath；支持表达式提取、切片过滤、路径列表模式与错误定位 |
-| YAML / TOML / INI 转换与校验 | 编码、转换与文本 | 扩展格式转换器；先实现 YAML 与 Properties/JSON 的双向转换及语法诊断 |
+| YAML / TOML / INI 转换与校验 | 编码、转换与文本 | [已完成（当前迭代）] 已将解析、序列化和语法诊断下沉到 codec domain；覆盖 YAML/TOML/INI 与现有 JSON/XML/CSV/Properties 互转 |
 | 文件批量摘要与签名校验 | 安全与身份 | [已完成] 多文件/目录并发流式计算 MD5/SHA-256/SM3、校验清单核对与数字签名验签 |
 | CSR / PKCS#12 / 证书链检查 | 安全与身份 | [已完成] CSR 签名请求解析与自验签、PKCS#12 密钥库导入导出及证书链拓扑诊断 |
 | DNS / TLS / HTTP 诊断 | 网络与接口 | 依赖共享网络资源层；先输出 DNS、TLS 证书和 HTTP 时延的分阶段结果 |

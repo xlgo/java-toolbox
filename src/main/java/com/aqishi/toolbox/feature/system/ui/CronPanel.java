@@ -686,7 +686,7 @@ public class CronPanel extends ToolPanel {
                                 if (val >= min && val <= max && specCheckBoxes != null) {
                                     specCheckBoxes[val - min].setSelected(true);
                                 }
-                            } catch (NumberFormatException ignored) {}
+                            } catch (NumberFormatException ignored) { /* 非数字的 cron 片段直接跳过 */ }
                         }
                         updateSelectButtonText();
                     }

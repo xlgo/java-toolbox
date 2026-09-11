@@ -3,6 +3,7 @@ package com.aqishi.toolbox.vault;
 import javax.crypto.Cipher;
 import javax.crypto.AEADBadTagException;
 import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.GCMParameterSpec;
@@ -27,7 +28,7 @@ public final class VaultCrypto {
     private final CipherFactory cipherFactory;
 
     public VaultCrypto() {
-        this(() -> Cipher.getInstance("AES/GCM/NoPadding"));
+        this(() -> new JcaAeadCipher(Cipher.getInstance("AES/GCM/NoPadding")));
     }
 
     VaultCrypto(CipherFactory cipherFactory) {
@@ -65,7 +66,7 @@ public final class VaultCrypto {
             throws VaultException {
         validateCipherParameters(plaintext, key, nonce, aad, "plaintext");
         try {
-            Cipher cipher = cipherFactory.create();
+            AeadCipher cipher = cipherFactory.create();
             cipher.init(
                     Cipher.ENCRYPT_MODE,
                     new SecretKeySpec(key, "AES"),
@@ -95,7 +96,7 @@ public final class VaultCrypto {
             throw authenticationFailed();
         }
         try {
-            Cipher cipher = cipherFactory.create();
+            AeadCipher cipher = cipherFactory.create();
             cipher.init(
                     Cipher.DECRYPT_MODE,
                     new SecretKeySpec(key, "AES"),
@@ -172,7 +173,44 @@ public final class VaultCrypto {
                 cause);
     }
 
+    private static final class JcaAeadCipher implements AeadCipher {
+        private final Cipher delegate;
+
+        private JcaAeadCipher(Cipher delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void init(
+                int operationMode,
+                SecretKeySpec key,
+                GCMParameterSpec parameters)
+                throws InvalidKeyException, InvalidAlgorithmParameterException {
+            delegate.init(operationMode, key, parameters);
+        }
+
+        @Override
+        public void updateAAD(byte[] aad) {
+            delegate.updateAAD(aad);
+        }
+
+        @Override
+        public byte[] doFinal(byte[] input)
+                throws IllegalBlockSizeException, BadPaddingException {
+            return delegate.doFinal(input);
+        }
+    }
+
     interface CipherFactory {
-        Cipher create() throws GeneralSecurityException;
+        AeadCipher create() throws GeneralSecurityException;
+    }
+
+    interface AeadCipher {
+        void init(int operationMode, SecretKeySpec key, GCMParameterSpec parameters)
+                throws InvalidKeyException, InvalidAlgorithmParameterException;
+
+        void updateAAD(byte[] aad);
+
+        byte[] doFinal(byte[] input) throws IllegalBlockSizeException, BadPaddingException;
     }
 }

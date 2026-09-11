@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.monitor.ui;
 
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.Json;
 
 import com.aqishi.toolbox.util.I18n;
@@ -209,7 +210,7 @@ public class FileTransferDialog extends JDialog {
                 new Thread(() -> sendChunksLoop(task)).start();
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("处理文件传输控制消息失败", e);
         }
     }
 
@@ -376,7 +377,9 @@ public class FileTransferDialog extends JDialog {
             if (raf != null) {
                 try {
                     raf.close();
-                } catch (IOException ignored) {}
+                } catch (IOException ignored) {
+                    Errors.ignored("关闭传输文件句柄失败", ignored);
+                }
                 raf = null;
             }
         }

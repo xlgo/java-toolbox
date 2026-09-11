@@ -5,6 +5,7 @@ import java.net.Socket;
 import java.util.function.Consumer;
 import com.aqishi.toolbox.feature.monitor.domain.DesktopChannel;
 import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
+import com.aqishi.toolbox.util.Errors;
 
 /**
  * 远程桌面的 P2P TCP 直连通道实现。
@@ -47,7 +48,9 @@ public class SocketChannelImpl implements DesktopChannel {
         running = false;
         try {
             socket.close();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            Errors.ignored("关闭套接字失败，连接已标记为停止", ignored);
+        }
 
         if (closeListener != null) {
             closeListener.run();

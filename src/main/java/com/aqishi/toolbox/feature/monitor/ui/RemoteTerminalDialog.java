@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.monitor.ui;
 
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.Json;
 
 import com.aqishi.toolbox.util.I18n;
@@ -137,6 +138,8 @@ public class RemoteTerminalDialog extends JDialog {
 
             byte[] payload = mapper.writeValueAsString(req).getBytes(StandardCharsets.UTF_8);
             channel.send(new DesktopMessage(DesktopMessage.TYPE_CMD_REQUEST, payload));
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            Errors.ignored("发送终端关闭指令失败，对端会因连接断开自行回收", ignored);
+        }
     }
 }

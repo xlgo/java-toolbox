@@ -104,7 +104,7 @@ public class StatisticsPanel extends ToolPanel {
             p = p.trim();
             if (p.isEmpty()) continue;
             try { list.add(Double.parseDouble(p)); }
-            catch (NumberFormatException ignore) { }
+            catch (NumberFormatException ignore) { /* 非数字的片段直接跳过 */ }
         }
         double[] r = new double[list.size()];
         for (int i = 0; i < list.size(); i++) r[i] = list.get(i);

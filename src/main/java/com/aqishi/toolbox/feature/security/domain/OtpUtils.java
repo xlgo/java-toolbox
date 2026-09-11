@@ -138,7 +138,7 @@ public final class OtpUtils {
                     if (d == 6 || d == 8) {
                         config.digits = d;
                     }
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException ignored) { /* digits 非法时保留默认位数 */ }
             }
 
             String period = queryParams.get("period");
@@ -148,7 +148,7 @@ public final class OtpUtils {
                     if (p > 0) {
                         config.period = p;
                     }
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException ignored) { /* period 非法时保留默认周期 */ }
             }
         } else {
             throw new IllegalArgumentException("链接未携带任何配置参数");

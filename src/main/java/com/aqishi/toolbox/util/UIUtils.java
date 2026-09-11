@@ -1,7 +1,5 @@
 package com.aqishi.toolbox.util;
 
-import com.aqishi.toolbox.util.UIUtils;
-
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Tokens;
@@ -114,34 +112,82 @@ public final class UIUtils {
                 .setContents(new StringSelection(text == null ? "" : text), null);
     }
 
+    /**
+     * 对话框的实际呈现出口。
+     *
+     * <p>全应用 360 余处提示都经由这里，所以它必须是 {@link UIUtils} 中唯一直接触碰
+     * {@link JOptionPane} 的地方。抽成接口是为了让测试能在不弹窗的前提下断言
+     * 「调用了一次、级别与标题正确」——历史上曾因脚本化替换把下面几个方法改成自调用，
+     * 造成全部提示框 {@code StackOverflowError} 而无人察觉。</p>
+     */
+    interface DialogSink {
+        void message(Component parent, Object msg, String title, int messageType);
+
+        String input(Component parent, Object msg, String title, String initialValue);
+
+        boolean confirm(Component parent, Object msg, String title);
+    }
+
+    /** 默认出口：真正弹 Swing 对话框 */
+    private static final DialogSink SWING_SINK = new DialogSink() {
+        @Override
+        public void message(Component parent, Object msg, String title, int messageType) {
+            JOptionPane.showMessageDialog(parent, msg, title, messageType);
+        }
+
+        @Override
+        public String input(Component parent, Object msg, String title, String initialValue) {
+            return (String) JOptionPane.showInputDialog(parent, msg, title,
+                    JOptionPane.PLAIN_MESSAGE, null, null, initialValue);
+        }
+
+        @Override
+        public boolean confirm(Component parent, Object msg, String title) {
+            int choice = JOptionPane.showConfirmDialog(parent, msg, title,
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            return choice == JOptionPane.YES_OPTION;
+        }
+    };
+
+    private static volatile DialogSink dialogSink = SWING_SINK;
+
+    /** 仅供测试替换出口；传 null 恢复默认的 Swing 实现 */
+    static void setDialogSink(DialogSink sink) {
+        dialogSink = sink == null ? SWING_SINK : sink;
+    }
+
     /** 弹出信息提示 */
     public static void info(Component parent, Object msg) {
-        UIUtils.info(parent, msg, text("dialog.info", "提示"));
+        info(parent, msg, text("dialog.info", "提示"));
     }
 
     /** 弹出带标题的信息提示（自定义消息内容，如嵌套面板） */
     public static void info(Component parent, Object msg, String title) {
-        UIUtils.info(parent, msg, title);
+        dialogSink.message(parent, msg, title == null ? text("dialog.info", "提示") : title,
+                JOptionPane.INFORMATION_MESSAGE);
     }
 
     /** 弹出普通消息对话框（PLAIN 级别，适合承载自定义组件内容） */
     public static void dialog(Component parent, Object msg, String title) {
-        UIUtils.dialog(parent, msg, title);
+        dialogSink.message(parent, msg, title == null ? text("dialog.info", "提示") : title,
+                JOptionPane.PLAIN_MESSAGE);
     }
 
     /** 弹出警告提示 */
     public static void warn(Component parent, Object msg, String title) {
-        UIUtils.warn(parent, msg, title);
+        dialogSink.message(parent, msg, title == null ? text("dialog.warn", "警告") : title,
+                JOptionPane.WARNING_MESSAGE);
     }
 
     /** 弹出错误提示 */
     public static void error(Component parent, Object msg) {
-        UIUtils.error(parent, msg, text("dialog.error", "错误"));
+        error(parent, msg, text("dialog.error", "错误"));
     }
 
     /** 弹出带自定义标题的错误提示 */
     public static void error(Component parent, Object msg, String title) {
-        UIUtils.error(parent, msg, title);
+        dialogSink.message(parent, msg, title == null ? text("dialog.error", "错误") : title,
+                JOptionPane.ERROR_MESSAGE);
     }
 
     /** 弹出输入框，返回 null 表示取消 */
@@ -151,9 +197,8 @@ public final class UIUtils {
 
     /** 弹出带标题的输入框，返回 null 表示取消 */
     public static String input(Component parent, String msg, String title, String def) {
-        return (String) JOptionPane.showInputDialog(parent, msg,
-                title == null ? text("dialog.input", "输入") : title,
-                JOptionPane.PLAIN_MESSAGE, null, null, def);
+        return dialogSink.input(parent, msg,
+                title == null ? text("dialog.input", "输入") : title, def);
     }
 
     /**
@@ -163,10 +208,8 @@ public final class UIUtils {
      * 便于后续集中接入审计日志与「不再提示」策略。</p>
      */
     public static boolean confirm(Component parent, String msg, String title) {
-        int choice = JOptionPane.showConfirmDialog(parent, msg,
-                title == null ? text("dialog.confirm", "确认") : title,
-                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-        return choice == JOptionPane.YES_OPTION;
+        return dialogSink.confirm(parent, msg,
+                title == null ? text("dialog.confirm", "确认") : title);
     }
 
     /** 取本地化文案，缺失时回退到内置默认值 */

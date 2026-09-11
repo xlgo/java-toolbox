@@ -16,7 +16,76 @@
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <flatlaf.version>3.5.4</flatlaf.version>
+        <bouncycastle.version>1.70</bouncycastle.version>
+        <jackson.version>2.15.2</jackson.version>
+        <zxing.version>3.5.2</zxing.version>
+        <jediterm.version>3.72</jediterm.version>
+        <poi.version>5.2.3</poi.version>
+        <zookeeper.version>3.8.1</zookeeper.version>
+        <commons-codec.version>1.15</commons-codec.version>
+        <junit.version>5.10.0</junit.version>
+        <!--
+          slf4j 2.x 通过 ServiceLoader 查找 SLF4JServiceProvider，而 logback 1.2.x 只实现
+          slf4j 1.7 的 StaticLoggerBinder。json-path 带入 slf4j-api 2.0.11、ZooKeeper 带入
+          logback 1.2.10，两者相遇时找不到 provider，全部日志静默丢弃。故在此统一锁定为
+          slf4j 2.x + logback 1.5.x 这一对。
+        -->
+        <slf4j.version>2.0.17</slf4j.version>
+        <logback.version>1.5.18</logback.version>
+        <!-- log4j-to-slf4j 桥接包必须与传递进来的 log4j-api 同版本 -->
+        <log4j.version>2.18.0</log4j.version>
     </properties>
+
+    <!--
+      统一收敛传递依赖的版本，避免同一构件在不同依赖链上解析出互不兼容的版本。
+      这里只声明版本，不引入依赖；是否引入仍由下方 <dependencies> 决定。
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-core</artifactId>
+                <version>${logback.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-classic</artifactId>
+                <version>${logback.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-api</artifactId>
+                <version>${log4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-to-slf4j</artifactId>
+                <version>${log4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk15on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcpkix-jdk15on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <repositories>
         <repository>
@@ -59,37 +128,51 @@
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk15on</artifactId>
-            <version>1.70</version>
+            <version>${bouncycastle.version}</version>
         </dependency>
         <!-- BouncyCastle PKIX/CMS：X.509 证书生成、解析、PEM 编解码 -->
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcpkix-jdk15on</artifactId>
-            <version>1.70</version>
+            <version>${bouncycastle.version}</version>
         </dependency>
         <!-- JUnit 5 测试框架 -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>5.10.0</version>
+            <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
         <!-- Zxing for QR Code -->
         <dependency>
             <groupId>com.google.zxing</groupId>
             <artifactId>core</artifactId>
-            <version>3.5.2</version>
+            <version>${zxing.version}</version>
         </dependency>
         <dependency>
             <groupId>com.google.zxing</groupId>
             <artifactId>javase</artifactId>
-            <version>3.5.2</version>
+            <version>${zxing.version}</version>
         </dependency>
-        <!-- Jackson core and databind for JSON processing -->
+        <!-- Jackson core and databind for JSON processing（core/annotations 源码里直接用到，显式声明） -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.15.2</version>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+        </dependency>
+        <!-- Base32 编解码，OtpUtils 直接使用；此前仅靠传递依赖带入 -->
+        <dependency>
+            <groupId>commons-codec</groupId>
+            <artifactId>commons-codec</artifactId>
+            <version>${commons-codec.version}</version>
         </dependency>
         <!-- Jayway JsonPath for JSONPath evaluation -->
         <dependency>
@@ -101,13 +184,13 @@
         <dependency>
             <groupId>com.fasterxml.jackson.dataformat</groupId>
             <artifactId>jackson-dataformat-yaml</artifactId>
-            <version>2.15.2</version>
+            <version>${jackson.version}</version>
         </dependency>
         <!-- Jackson extension for XML -->
         <dependency>
             <groupId>com.fasterxml.jackson.dataformat</groupId>
             <artifactId>jackson-dataformat-xml</artifactId>
-            <version>2.15.2</version>
+            <version>${jackson.version}</version>
         </dependency>
         <!-- Tomlj：TOML 语法解析与行列错误诊断 -->
         <dependency>
@@ -137,12 +220,12 @@
         <dependency>
             <groupId>org.jetbrains.jediterm</groupId>
             <artifactId>jediterm-core</artifactId>
-            <version>3.72</version>
+            <version>${jediterm.version}</version>
         </dependency>
         <dependency>
             <groupId>org.jetbrains.jediterm</groupId>
             <artifactId>jediterm-ui</artifactId>
-            <version>3.72</version>
+            <version>${jediterm.version}</version>
         </dependency>
         <!-- JSch SSH/SFTP Client (mwiede fork for modern algorithms) -->
         <dependency>
@@ -155,22 +238,30 @@
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <version>8.0.33</version>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <version>42.6.0</version>
+            <scope>runtime</scope>
         </dependency>
+        <!--
+          Oracle 驱动只在运行期被 DatabaseConnectionFactory 反射加载，源码零 import，
+          因此不应进入编译期 classpath。
+        -->
         <dependency>
             <groupId>com.oracle.database.jdbc</groupId>
             <artifactId>ojdbc8</artifactId>
             <version>19.18.0.0</version>
+            <scope>runtime</scope>
         </dependency>
         <!-- SQLite JDBC Driver for WeChat Address Book -->
         <dependency>
             <groupId>org.xerial</groupId>
             <artifactId>sqlite-jdbc</artifactId>
             <version>3.42.0.0</version>
+            <scope>runtime</scope>
         </dependency>
         <!-- Kafka Client for Kafka Manager -->
         <dependency>
@@ -182,7 +273,7 @@
         <dependency>
             <groupId>org.apache.zookeeper</groupId>
             <artifactId>zookeeper</artifactId>
-            <version>3.8.1</version>
+            <version>${zookeeper.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.slf4j</groupId>
@@ -194,21 +285,39 @@
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- ZooKeeperPanel 直接 import org.apache.zookeeper.data.Stat，该类打在 jute 包里 -->
+        <dependency>
+            <groupId>org.apache.zookeeper</groupId>
+            <artifactId>zookeeper-jute</artifactId>
+            <version>${zookeeper.version}</version>
+        </dependency>
         <!-- Apache POI for Excel Import -->
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi</artifactId>
-            <version>5.2.3</version>
+            <version>${poi.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
-            <version>5.2.3</version>
+            <version>${poi.version}</version>
         </dependency>
+        <!-- 日志门面：应用自身统一使用 slf4j -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <!-- 日志实现：显式声明，避免依赖 ZooKeeper 传递进来的不兼容旧版 -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- 把 Kafka 等库的 log4j2 调用桥接到 slf4j -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-to-slf4j</artifactId>
-            <version>2.17.1</version>
+            <scope>runtime</scope>
         </dependency>
         <!-- Eclipse Paho MQTT v3 Client -->
         <dependency>
@@ -289,6 +398,34 @@
                     <release>17</release>
                     <encoding>UTF-8</encoding>
                 </configuration>
+            </plugin>
+
+            <!--
+              依赖卫生检查：源码直接用到的构件必须自己声明，不能靠传递依赖捡漏，
+              否则上游某次版本升级移除传递依赖就会突然编译不过。
+              运行期才需要的构件（JDBC 驱动、日志实现）由 ignoreNonCompile 排除。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.6.1</version>
+                <executions>
+                    <execution>
+                        <id>analyze-dependencies</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>analyze-only</goal>
+                        </goals>
+                        <configuration>
+                            <failOnWarning>true</failOnWarning>
+                            <ignoreNonCompile>true</ignoreNonCompile>
+                            <ignoredDependencies>
+                                <!-- junit-jupiter 是聚合包，真正被引用的是它带的 api 模块 -->
+                                <ignoredDependency>org.junit.jupiter:junit-jupiter*</ignoredDependency>
+                            </ignoredDependencies>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- Maven Surefire Plugin -->

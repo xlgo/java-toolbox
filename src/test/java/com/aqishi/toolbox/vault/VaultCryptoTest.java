@@ -5,21 +5,16 @@ import org.junit.jupiter.api.Test;
 import javax.crypto.AEADBadTagException;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
-import javax.crypto.CipherSpi;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
-import javax.crypto.ShortBufferException;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
-import java.security.AlgorithmParameters;
 import java.security.GeneralSecurityException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
-import java.security.Key;
 import java.security.NoSuchAlgorithmException;
-import java.security.Provider;
 import java.security.ProviderException;
-import java.security.SecureRandom;
-import java.security.spec.AlgorithmParameterSpec;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -35,11 +30,11 @@ class VaultCryptoTest {
     private final VaultCrypto crypto = new VaultCrypto();
 
     @Test
-    void createsAesGcmThroughThePackagePrivateJcaBoundary() throws Exception {
+    void createsCipherThroughThePackagePrivateBoundary() throws Exception {
         AtomicInteger creations = new AtomicInteger();
         VaultCrypto boundaryCrypto = new VaultCrypto(() -> {
             creations.incrementAndGet();
-            return Cipher.getInstance("AES/GCM/NoPadding");
+            return new SuccessfulCipher();
         });
         byte[] key = boundaryCrypto.randomBytes(16);
         byte[] nonce = boundaryCrypto.randomBytes(12);
@@ -329,7 +324,7 @@ class VaultCryptoTest {
     }
 
     private static VaultCrypto cipherFailure(Failure failure) {
-        return new VaultCrypto(() -> new TestCipher(new FailingCipherSpi(failure)));
+        return new VaultCrypto(() -> new FailingCipher(failure));
     }
 
     private static void encryptWith(VaultCrypto target) throws VaultException {
@@ -349,133 +344,62 @@ class VaultCryptoTest {
         ILLEGAL_BLOCK_SIZE
     }
 
-    @SuppressWarnings("deprecation")
-    private static final class TestCipher extends Cipher {
-        private static final Provider PROVIDER = new Provider(
-                "VaultCryptoTest", 1.0, "Test-only cipher provider") {
-            private static final long serialVersionUID = 1L;
-        };
+    private static final class SuccessfulCipher implements VaultCrypto.AeadCipher {
+        private int operationMode;
 
-        private TestCipher(CipherSpi cipherSpi) {
-            super(cipherSpi, PROVIDER, "AES/GCM/NoPadding");
+        @Override
+        public void init(
+                int operationMode,
+                SecretKeySpec key,
+                GCMParameterSpec parameters) {
+            this.operationMode = operationMode;
+        }
+
+        @Override
+        public void updateAAD(byte[] aad) {
+        }
+
+        @Override
+        public byte[] doFinal(byte[] input) {
+            return operationMode == Cipher.ENCRYPT_MODE ? new byte[16] : new byte[0];
         }
     }
 
-    private static final class FailingCipherSpi extends CipherSpi {
+    private static final class FailingCipher implements VaultCrypto.AeadCipher {
         private final Failure failure;
 
-        private FailingCipherSpi(Failure failure) {
+        private FailingCipher(Failure failure) {
             this.failure = failure;
         }
 
         @Override
-        protected void engineSetMode(String mode) {
-        }
-
-        @Override
-        protected void engineSetPadding(String padding) {
-        }
-
-        @Override
-        protected int engineGetBlockSize() {
-            return 16;
-        }
-
-        @Override
-        protected int engineGetOutputSize(int inputLen) {
-            return inputLen;
-        }
-
-        @Override
-        protected byte[] engineGetIV() {
-            return new byte[12];
-        }
-
-        @Override
-        protected AlgorithmParameters engineGetParameters() {
-            return null;
-        }
-
-        @Override
-        protected void engineInit(int opmode, Key key, SecureRandom random)
-                throws InvalidKeyException {
-            failForKeyOrProvider();
-        }
-
-        @Override
-        protected void engineInit(
-                int opmode,
-                Key key,
-                AlgorithmParameterSpec params,
-                SecureRandom random)
+        public void init(
+                int operationMode,
+                SecretKeySpec key,
+                GCMParameterSpec parameters)
                 throws InvalidKeyException, InvalidAlgorithmParameterException {
             failForInitialization();
         }
 
         @Override
-        protected void engineInit(
-                int opmode,
-                Key key,
-                AlgorithmParameters params,
-                SecureRandom random)
-                throws InvalidKeyException, InvalidAlgorithmParameterException {
-            failForInitialization();
+        public void updateAAD(byte[] aad) {
         }
 
         @Override
-        protected byte[] engineUpdate(byte[] input, int inputOffset, int inputLen) {
-            return Arrays.copyOfRange(input, inputOffset, inputOffset + inputLen);
-        }
-
-        @Override
-        protected int engineUpdate(
-                byte[] input,
-                int inputOffset,
-                int inputLen,
-                byte[] output,
-                int outputOffset) throws ShortBufferException {
-            if (output.length - outputOffset < inputLen) {
-                throw new ShortBufferException();
-            }
-            System.arraycopy(input, inputOffset, output, outputOffset, inputLen);
-            return inputLen;
-        }
-
-        @Override
-        protected byte[] engineDoFinal(byte[] input, int inputOffset, int inputLen)
+        public byte[] doFinal(byte[] input)
                 throws IllegalBlockSizeException, BadPaddingException {
             failForProcessing();
-            return Arrays.copyOfRange(input, inputOffset, inputOffset + inputLen);
+            return Arrays.copyOf(input, input.length);
         }
 
-        @Override
-        protected int engineDoFinal(
-                byte[] input,
-                int inputOffset,
-                int inputLen,
-                byte[] output,
-                int outputOffset)
-                throws ShortBufferException, IllegalBlockSizeException, BadPaddingException {
-            failForProcessing();
-            return engineUpdate(input, inputOffset, inputLen, output, outputOffset);
-        }
-
-        @Override
-        protected void engineUpdateAAD(byte[] src, int offset, int len) {
-        }
-
-        private void failForKeyOrProvider() throws InvalidKeyException {
+        private void failForInitialization()
+                throws InvalidKeyException, InvalidAlgorithmParameterException {
             if (failure == Failure.INVALID_KEY) {
                 throw new InvalidKeyException("provider rejected key");
             }
             if (failure == Failure.PROVIDER_REJECTION) {
                 throw new ProviderException("provider unavailable");
             }
-        }
-
-        private void failForInitialization()
-                throws InvalidKeyException, InvalidAlgorithmParameterException {
-            failForKeyOrProvider();
             if (failure == Failure.INVALID_PARAMETER) {
                 throw new InvalidAlgorithmParameterException("provider rejected parameters");
             }

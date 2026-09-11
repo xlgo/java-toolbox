@@ -1,10 +1,15 @@
 package com.aqishi.toolbox.feature.data.ui;
 
-import com.aqishi.toolbox.util.Json;
+import com.aqishi.toolbox.util.Errors;
 
 import com.aqishi.toolbox.feature.codec.ui.JsonPanel;
 import com.aqishi.toolbox.feature.codec.ui.XmlPanel;
+import com.aqishi.toolbox.feature.data.application.KafkaBrowserService;
 import com.aqishi.toolbox.feature.data.application.KafkaProfileStore;
+import com.aqishi.toolbox.feature.data.domain.KafkaClientProperties;
+import com.aqishi.toolbox.feature.data.domain.KafkaConsumerLag;
+import com.aqishi.toolbox.feature.data.domain.KafkaMessageFormat;
+import com.aqishi.toolbox.feature.data.domain.KafkaSubscriberAnalysis;
 import com.aqishi.toolbox.domain.KafkaProfile;
 import com.aqishi.toolbox.feature.network.ssh.domain.RemoteEndpoint;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
@@ -24,7 +29,6 @@ import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.apache.kafka.clients.admin.*;
 import org.apache.kafka.clients.consumer.*;
@@ -32,11 +36,9 @@ import org.apache.kafka.clients.producer.*;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
-import org.apache.kafka.common.serialization.StringSerializer;
 
 import javax.swing.*;
 import javax.swing.text.*;
@@ -44,7 +46,6 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import javax.swing.RowFilter;
 import java.awt.*;
-import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -54,7 +55,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
-import java.util.stream.Collectors;
 
 /**
  * Kafka 管理工具面板：支持连接到 Kafka 集群，浏览主题和消费组，查看消费 Lag，拉取并检索消息，以及发送测试消息。
@@ -69,7 +69,6 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     private final Map<String, KafkaProfile> profiles = new LinkedHashMap<>();
     private final KafkaProfileStore profileStore = new KafkaProfileStore(
             java.util.prefs.Preferences.userNodeForPackage(KafkaPanel.class));
-    private final ObjectMapper mapper = Json.mapper();
     private boolean ignoreProfileEvents = false;
 
     // Collapsible Connection Config
@@ -90,6 +89,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     private boolean isConnected = false;
     private AdminClient adminClient = null;
     private KafkaResource adminResource;
+    private KafkaBrowserService browserService;
     private final KafkaClient kafkaClient = new KafkaClient();
     private String activeBootstrapServers = "";
     private Properties activeCustomProperties = new Properties();
@@ -897,22 +897,31 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
             return;
         }
 
-        String trimmed = rawText.trim();
         String selText = messageDetailArea.getSelectedText();
         boolean hasSelection = (selText != null && !selText.trim().isEmpty());
+        String selectionHint = hasSelection ? "【已选中 " + selText.length() + " 字符】" : null;
 
-        if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
-            floatJsonBtn.setText("★ { } JSON");
-            floatXmlBtn.setText("< > XML");
-            formatDetectStatusLabel.setText(hasSelection ? "【已选中 " + selText.length() + " 字符】" : "智能检测: JSON 结构");
-        } else if (trimmed.startsWith("<") && trimmed.endsWith(">")) {
-            floatXmlBtn.setText("★ < > XML");
-            floatJsonBtn.setText("{ } JSON");
-            formatDetectStatusLabel.setText(hasSelection ? "【已选中 " + selText.length() + " 字符】" : "智能检测: XML 结构");
-        } else {
-            floatJsonBtn.setText("{ } JSON");
-            floatXmlBtn.setText("< > XML");
-            formatDetectStatusLabel.setText(hasSelection ? "【已选中 " + selText.length() + " 字符】" : "");
+        switch (KafkaMessageFormat.detect(rawText)) {
+            case EMPTY -> {
+                floatJsonBtn.setText("{ } JSON");
+                floatXmlBtn.setText("< > XML");
+                formatDetectStatusLabel.setText("");
+            }
+            case JSON -> {
+                floatJsonBtn.setText("★ { } JSON");
+                floatXmlBtn.setText("< > XML");
+                formatDetectStatusLabel.setText(selectionHint != null ? selectionHint : "智能检测: JSON 结构");
+            }
+            case XML -> {
+                floatXmlBtn.setText("★ < > XML");
+                floatJsonBtn.setText("{ } JSON");
+                formatDetectStatusLabel.setText(selectionHint != null ? selectionHint : "智能检测: XML 结构");
+            }
+            default -> {
+                floatJsonBtn.setText("{ } JSON");
+                floatXmlBtn.setText("< > XML");
+                formatDetectStatusLabel.setText(selectionHint != null ? selectionHint : "");
+            }
         }
     }
 
@@ -1136,15 +1145,12 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private Properties parseCustomProperties() {
-        Properties p = new Properties();
-        String txt = customPropsArea.getText().trim();
-        if (txt.isEmpty()) return p;
         try {
-            p.load(new StringReader(txt));
+            return KafkaClientProperties.parseText(customPropsArea.getText());
         } catch (Exception ex) {
             consoleLog("解析自定义属性出错: " + ex.getMessage());
+            return new Properties();
         }
-        return p;
     }
 
     private String resolveBootstrapServers(String rawServers) throws Exception {
@@ -1181,24 +1187,12 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private static Properties kafkaProperties(String bootstrapServers, Properties custom) {
-        Properties props = new Properties();
-        setDefault(props, AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, "15000");
-        setDefault(props, AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, "30000");
-        setDefault(props, "socket.connection.setup.timeout.ms", "10000");
-        setDefault(props, "socket.connection.setup.timeout.max.ms", "30000");
-        if (custom != null) {
-            for (String key : custom.stringPropertyNames()) {
-                props.setProperty(key, custom.getProperty(key));
-            }
-        }
-        // The UI owns the bootstrap endpoint so a custom-properties paste
-        // cannot accidentally bypass the selected SSH tunnel.
-        props.setProperty(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        return props;
+        return KafkaClientProperties.withDefaults(bootstrapServers, custom);
     }
 
-    private static void setDefault(Properties properties, String key, String value) {
-        if (!properties.containsKey(key)) properties.setProperty(key, value);
+    /** 当前连接启用 SSH 隧道时返回 broker 主机集合，否则返回 null。 */
+    private Set<String> tunnelBrokerHosts() {
+        return (useSshCheck != null && useSshCheck.isSelected()) ? activeSshBrokerHosts : null;
     }
 
     /**
@@ -1461,6 +1455,8 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                     isConnected = true;
                     activeBootstrapServers = resolvedServers == null ? servers : resolvedServers;
                     activeCustomProperties = custom;
+                    browserService = new KafkaBrowserService(adminClient,
+                            activeBootstrapServers, activeCustomProperties);
 
                     connBtn.setText("断开");
                     connBtn.setEnabled(true);
@@ -1495,6 +1491,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         KafkaResource resource = adminResource;
         adminResource = null;
         adminClient = null;
+        browserService = null;
         if (resource != null) {
             resource.close();
             consoleLog("Kafka 管理端连接已关闭。");
@@ -1552,7 +1549,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         new SwingWorker<Set<String>, Void>() {
             @Override
             protected Set<String> doInBackground() throws Exception {
-                return adminClient.listTopics().names().get();
+                return browserService.listTopics();
             }
 
             @Override
@@ -1586,21 +1583,18 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     private void loadGroupsList() {
         if (!isConnected || adminClient == null) return;
         consoleLog("正在加载消费组列表...");
-        new SwingWorker<Collection<ConsumerGroupListing>, Void>() {
+        new SwingWorker<List<String>, Void>() {
             @Override
-            protected Collection<ConsumerGroupListing> doInBackground() throws Exception {
-                return adminClient.listConsumerGroups().all().get();
+            protected List<String> doInBackground() throws Exception {
+                return browserService.listGroupIds();
             }
 
             @Override
             protected void done() {
                 try {
-                    Collection<ConsumerGroupListing> groups = get();
+                    List<String> groups = get();
                     allGroupsList.clear();
-                    for (ConsumerGroupListing g : groups) {
-                        allGroupsList.add(g.groupId());
-                    }
-                    Collections.sort(allGroupsList);
+                    allGroupsList.addAll(groups);
 
                     filterGroups();
                     consoleLog("消费组列表加载成功，共 " + allGroupsList.size() + " 个消费组。");
@@ -1625,9 +1619,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         new SwingWorker<List<Integer>, Void>() {
             @Override
             protected List<Integer> doInBackground() throws Exception {
-                DescribeTopicsResult desc = adminClient.describeTopics(Collections.singletonList(topicName));
-                TopicDescription details = desc.allTopicNames().get().get(topicName);
-                return details.partitions().stream().map(TopicPartitionInfo::partition).collect(Collectors.toList());
+                return browserService.partitionsOf(topicName);
             }
 
             @Override
@@ -1653,47 +1645,21 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         lagStatusLabel.setText("正在查询消费组消费情况: " + groupId);
         lagTableModel.setRowCount(0);
 
-        new SwingWorker<List<LagInfo>, Void>() {
+        new SwingWorker<List<KafkaConsumerLag>, Void>() {
             @Override
-            protected List<LagInfo> doInBackground() throws Exception {
-                List<LagInfo> list = new ArrayList<>();
-                // 1. Get committed offsets
-                Map<TopicPartition, OffsetAndMetadata> committed = 
-                        adminClient.listConsumerGroupOffsets(groupId).partitionsToOffsetAndMetadata().get();
-
-                if (committed.isEmpty()) return list;
-
-                // 2. Query log end offsets for these partitions
-                Map<TopicPartition, OffsetSpec> offsetSpecs = new HashMap<>();
-                for (TopicPartition tp : committed.keySet()) {
-                    offsetSpecs.put(tp, OffsetSpec.latest());
-                }
-                Map<TopicPartition, ListOffsetsResult.ListOffsetsResultInfo> endOffsets = 
-                        adminClient.listOffsets(offsetSpecs).all().get();
-
-                // 3. Assemble
-                for (Map.Entry<TopicPartition, OffsetAndMetadata> entry : committed.entrySet()) {
-                    TopicPartition tp = entry.getKey();
-                    long committedOffset = entry.getValue() != null ? entry.getValue().offset() : 0;
-                    long latestOffset = 0;
-                    if (endOffsets.containsKey(tp)) {
-                        latestOffset = endOffsets.get(tp).offset();
-                    }
-                    long lag = Math.max(0, latestOffset - committedOffset);
-                    list.add(new LagInfo(tp.topic(), tp.partition(), committedOffset, latestOffset, lag));
-                }
-                list.sort(Comparator.comparing(LagInfo::getTopic).thenComparing(LagInfo::getPartition));
-                return list;
+            protected List<KafkaConsumerLag> doInBackground() throws Exception {
+                return browserService.lagOf(groupId);
             }
 
             @Override
             protected void done() {
                 try {
-                    List<LagInfo> data = get();
+                    List<KafkaConsumerLag> data = get();
                     lagTableModel.setRowCount(0);
-                    for (LagInfo info : data) {
+                    for (KafkaConsumerLag info : data) {
                         lagTableModel.addRow(new Object[]{
-                                info.topic, info.partition, info.committedOffset, info.latestOffset, info.lag
+                                info.topic(), info.partition(), info.committedOffset(),
+                                info.latestOffset(), info.lag()
                         });
                     }
                     lagStatusLabel.setText("消费组 '" + groupId + "' 消费状态已更新，共计监测 " + data.size() + " 个分区。");
@@ -1714,6 +1680,9 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
 
         String partStr = (String) partitionCombo.getSelectedItem();
         String strategy = (String) offsetStrategyCombo.getSelectedItem();
+        final Integer partition = (partStr == null || partStr.startsWith("所有"))
+                ? null : Integer.parseInt(partStr);
+        final boolean fromBeginning = strategy != null && strategy.startsWith("从头开始");
 
         int parsedLimit = 100;
         try {
@@ -1737,78 +1706,8 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         new SwingWorker<List<ConsumerRecord<byte[], byte[]>>, Void>() {
             @Override
             protected List<ConsumerRecord<byte[], byte[]>> doInBackground() throws Exception {
-                List<ConsumerRecord<byte[], byte[]>> list = new ArrayList<>();
-                
-                // Configure consumer
-                Properties props = new Properties();
-                props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, activeBootstrapServers);
-                props.put(ConsumerConfig.GROUP_ID_CONFIG, "java-toolbox-temp-group-" + UUID.randomUUID());
-                props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-                props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-                props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
-                props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
-                // Merge custom props
-                for (String k : activeCustomProperties.stringPropertyNames()) {
-                    props.put(k, activeCustomProperties.getProperty(k));
-                }
-
-                try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(props)) {
-                    if (useSshCheck != null && useSshCheck.isSelected()) {
-                        KafkaTunnelSupport.configure(consumer, activeSshBrokerHosts);
-                    }
-                    // Determine which partitions to query
-                    List<TopicPartition> tps = new ArrayList<>();
-                    if (partStr == null || partStr.startsWith("所有")) {
-                        List<PartitionInfo> infos = consumer.partitionsFor(topic);
-                        if (infos != null) {
-                            for (PartitionInfo info : infos) {
-                                tps.add(new TopicPartition(topic, info.partition()));
-                            }
-                        }
-                    } else {
-                        tps.add(new TopicPartition(topic, Integer.parseInt(partStr)));
-                    }
-
-                    if (tps.isEmpty()) return list;
-
-                    consumer.assign(tps);
-
-                    if (strategy != null && strategy.startsWith("从头开始")) {
-                        consumer.seekToBeginning(tps);
-                    } else {
-                        // "Latest N": Seek to end, then backoff per partition
-                        Map<TopicPartition, Long> endOffsets = consumer.endOffsets(tps);
-                        Map<TopicPartition, Long> beginningOffsets = consumer.beginningOffsets(tps);
-                        
-                        for (TopicPartition tp : tps) {
-                            long end = endOffsets.getOrDefault(tp, 0L);
-                            long beg = beginningOffsets.getOrDefault(tp, 0L);
-                            long start = Math.max(beg, end - limit);
-                            consumer.seek(tp, start);
-                        }
-                    }
-
-                    // Poll loop
-                    long deadline = System.currentTimeMillis() + 6000; // max 6 seconds wait
-                    int emptyPollCount = 0;
-                    while (System.currentTimeMillis() < deadline && list.size() < limit) {
-                        ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(300));
-                        if (records.isEmpty()) {
-                            emptyPollCount++;
-                            if (emptyPollCount >= 2 && !list.isEmpty()) break;
-                        } else {
-                            emptyPollCount = 0;
-                            for (ConsumerRecord<byte[], byte[]> rec : records) {
-                                list.add(rec);
-                                if (list.size() >= limit) break;
-                            }
-                        }
-                    }
-                }
-                
-                // Sort records by timestamp (or offset)
-                list.sort((r1, r2) -> Long.compare(r2.timestamp(), r1.timestamp())); // Latest first
-                return list;
+                return browserService.fetchMessages(topic, partition, fromBeginning, limit,
+                        tunnelBrokerHosts());
             }
 
             @Override
@@ -1825,7 +1724,9 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                         try {
                             LocalDateTime ldt = LocalDateTime.ofInstant(Instant.ofEpochMilli(rec.timestamp()), ZoneId.systemDefault());
                             timeStr = formatter.format(ldt);
-                        } catch (Exception ignored) {}
+                        } catch (Exception ignored) {
+                            Errors.ignored("格式化消息时间戳失败，时间列留空", ignored);
+                        }
 
                         byte[] kBytes = rec.key();
                         int kLen = kBytes != null ? kBytes.length : 0;
@@ -1874,39 +1775,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         new SwingWorker<RecordMetadata, Void>() {
             @Override
             protected RecordMetadata doInBackground() throws Exception {
-                Properties props = new Properties();
-                props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, activeBootstrapServers);
-                props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-                props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-                // Merge custom
-                for (String k : activeCustomProperties.stringPropertyNames()) {
-                    props.put(k, activeCustomProperties.getProperty(k));
-                }
-
-                try (KafkaProducer<String, String> producer = new KafkaProducer<>(props)) {
-                    if (useSshCheck != null && useSshCheck.isSelected()) {
-                        KafkaTunnelSupport.configure(producer, activeSshBrokerHosts);
-                    }
-                    String k = key.isEmpty() ? null : key;
-                    ProducerRecord<String, String> record = new ProducerRecord<>(topic, k, val);
-
-                    if (!headersTxt.isEmpty()) {
-                        String[] lines = headersTxt.split("\n");
-                        for (String line : lines) {
-                            line = line.trim();
-                            if (line.isEmpty() || line.startsWith("#")) continue;
-                            int eqIdx = line.indexOf('=');
-                            if (eqIdx == -1) eqIdx = line.indexOf(':');
-                            if (eqIdx > 0) {
-                                String hKey = line.substring(0, eqIdx).trim();
-                                String hVal = line.substring(eqIdx + 1).trim();
-                                record.headers().add(hKey, hVal.getBytes(StandardCharsets.UTF_8));
-                            }
-                        }
-                    }
-
-                    return producer.send(record).get();
-                }
+                return browserService.produce(topic, key, headersTxt, val, tunnelBrokerHosts());
             }
 
             @Override
@@ -1930,15 +1799,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private String tryFormatJson(String raw) {
-        if (raw == null || raw.trim().isEmpty()) return "";
-        String trimmed = raw.trim();
-        if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
-            try {
-                Object json = mapper.readValue(trimmed, Object.class);
-                return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(json);
-            } catch (Exception ignored) {}
-        }
-        return raw;
+        return KafkaMessageFormat.tryFormatJson(raw);
     }
 
     // --- Saved Profiles Management ---
@@ -1976,7 +1837,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
             profiles.putAll(profileStore.load());
             refreshProfilesCombo(null);
         } catch (Exception ex) {
-            ex.printStackTrace();
+            Errors.log("加载 Kafka 连接配置失败", ex);
         }
     }
 
@@ -1984,7 +1845,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         try {
             profileStore.save(profiles);
         } catch (Exception ex) {
-            ex.printStackTrace();
+            Errors.log("保存 Kafka 连接配置失败", ex);
         }
     }
 
@@ -2016,131 +1877,32 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         ignoreProfileEvents = false;
     }
 
-    // Consumer Group Lag DTO
-    private static class LagInfo {
-        public String topic;
-        public int partition;
-        public long committedOffset;
-        public long latestOffset;
-        public long lag;
-
-        public LagInfo(String topic, int partition, long committedOffset, long latestOffset, long lag) {
-            this.topic = topic;
-            this.partition = partition;
-            this.committedOffset = committedOffset;
-            this.latestOffset = latestOffset;
-            this.lag = lag;
-        }
-
-        public String getTopic() { return topic; }
-        public int getPartition() { return partition; }
-    }
-
     private void loadTopicSubscribers(String topicName) {
         if (!isConnected || adminClient == null) return;
 
-        new SwingWorker<java.util.List<SubscriberGroupInfo>, Void>() {
+        new SwingWorker<KafkaSubscriberAnalysis.Result, Void>() {
             @Override
-            protected java.util.List<SubscriberGroupInfo> doInBackground() throws Exception {
-                java.util.List<SubscriberGroupInfo> subscribers = new java.util.ArrayList<>();
-
-                // 1. List all consumer groups
-                Collection<ConsumerGroupListing> groups = adminClient.listConsumerGroups().all().get();
-                java.util.List<String> groupIds = groups.stream().map(ConsumerGroupListing::groupId).collect(Collectors.toList());
-                if (groupIds.isEmpty()) return subscribers;
-
-                // 2. Describe consumer groups in batch
-                Map<String, ConsumerGroupDescription> descriptions = adminClient.describeConsumerGroups(groupIds).all().get();
-
-                // 3. Find active subscribers
-                Set<String> activeGroups = new HashSet<>();
-                for (Map.Entry<String, ConsumerGroupDescription> entry : descriptions.entrySet()) {
-                    String groupId = entry.getKey();
-                    ConsumerGroupDescription desc = entry.getValue();
-                    java.util.List<MemberDescription> activeMembers = new java.util.ArrayList<>();
-
-                    for (MemberDescription member : desc.members()) {
-                        boolean assignedToTopic = false;
-                        for (TopicPartition tp : member.assignment().topicPartitions()) {
-                            if (tp.topic().equals(topicName)) {
-                                assignedToTopic = true;
-                                break;
-                            }
-                        }
-                        if (assignedToTopic) {
-                            activeMembers.add(member);
-                        }
-                    }
-
-                    if (!activeMembers.isEmpty()) {
-                        activeGroups.add(groupId);
-                        groupTopicActiveMembers.put(groupId, activeMembers);
-                    }
-                }
-
-                // 4. Find historical/offset subscribers concurrently to avoid single group failure
-                Set<String> offsetGroups = new HashSet<>();
-                try {
-                    Map<String, org.apache.kafka.common.KafkaFuture<Map<TopicPartition, OffsetAndMetadata>>> futures = new HashMap<>();
-                    ListConsumerGroupOffsetsOptions options = new ListConsumerGroupOffsetsOptions().timeoutMs(5000);
-                    for (String gid : groupIds) {
-                        futures.put(gid, adminClient.listConsumerGroupOffsets(gid, options).partitionsToOffsetAndMetadata());
-                    }
-                    for (Map.Entry<String, org.apache.kafka.common.KafkaFuture<Map<TopicPartition, OffsetAndMetadata>>> entry : futures.entrySet()) {
-                        String gid = entry.getKey();
-                        try {
-                            Map<TopicPartition, OffsetAndMetadata> offsets = entry.getValue().get(3, java.util.concurrent.TimeUnit.SECONDS);
-                            if (offsets != null) {
-                                for (TopicPartition tp : offsets.keySet()) {
-                                    if (tp.topic().equals(topicName)) {
-                                        offsetGroups.add(gid);
-                                        break;
-                                    }
-                                }
-                            }
-                        } catch (java.util.concurrent.TimeoutException ex) {
-                            // Ignore timeout for individual group
-                            consoleLog("查询消费组 " + gid + " Offset 超时");
-                        } catch (Exception ex) {
-                            // Ignore other individual errors
-                        }
-                    }
-                } catch (Exception ex) {
-                    consoleLog("查询消费组 Offset 失败: " + ex.getMessage());
-                }
-
-                // Combine active and offset-only subscribers
-                Set<String> allSubs = new HashSet<>();
-                allSubs.addAll(activeGroups);
-                allSubs.addAll(offsetGroups);
-
-                for (String gid : allSubs) {
-                    boolean active = activeGroups.contains(gid);
-                    ConsumerGroupDescription desc = descriptions.get(gid);
-                    String state = desc != null ? desc.state().toString() : "UNKNOWN";
-                    int totalMembers = desc != null ? desc.members().size() : 0;
-                    String typeStr = active ? "活动中 (Active)" : "历史/仅含Offset (Inactive)";
-                    subscribers.add(new SubscriberGroupInfo(gid, state, typeStr, totalMembers));
-                }
-
-                subscribers.sort(Comparator.comparing(SubscriberGroupInfo::getGroupId));
-                return subscribers;
+            protected KafkaSubscriberAnalysis.Result doInBackground() throws Exception {
+                return browserService.subscribersOf(topicName, KafkaPanel.this::consoleLog);
             }
 
             @Override
             protected void done() {
                 try {
-                    java.util.List<SubscriberGroupInfo> list = get();
+                    KafkaSubscriberAnalysis.Result result = get();
+                    groupTopicActiveMembers.putAll(result.activeMembers());
                     subscriberGroupTableModel.setRowCount(0);
                     subscriberMemberTableModel.setRowCount(0);
 
-                    for (SubscriberGroupInfo s : list) {
+                    for (KafkaSubscriberAnalysis.Subscriber s : result.subscribers()) {
+                        String typeStr = s.active() ? "活动中 (Active)" : "历史/仅含Offset (Inactive)";
                         subscriberGroupTableModel.addRow(new Object[]{
-                                s.groupId, s.state, s.subType, s.totalMembers
+                                s.groupId(), s.state(), typeStr, s.totalMembers()
                         });
                     }
 
-                    subscribersStatusLabel.setText("主题 '" + topicName + "' 订阅者查询成功，找到 " + list.size() + " 个订阅消费组。");
+                    subscribersStatusLabel.setText("主题 '" + topicName + "' 订阅者查询成功，找到 "
+                            + result.subscribers().size() + " 个订阅消费组。");
                 } catch (Exception ex) {
                     Throwable c = ex.getCause() != null ? ex.getCause() : ex;
                     subscribersStatusLabel.setText("查询订阅者失败: " + c.getMessage());
@@ -2148,23 +1910,6 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                 }
             }
         }.execute();
-    }
-
-    // SubscriberGroupInfo DTO
-    private static class SubscriberGroupInfo {
-        public String groupId;
-        public String state;
-        public String subType;
-        public int totalMembers;
-
-        public SubscriberGroupInfo(String groupId, String state, String subType, int totalMembers) {
-            this.groupId = groupId;
-            this.state = state;
-            this.subType = subType;
-            this.totalMembers = totalMembers;
-        }
-
-        public String getGroupId() { return groupId; }
     }
 
     private void displayMessageValue(ConsumerRecord<byte[], byte[]> rec) {
@@ -2202,47 +1947,11 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private static boolean isBinaryData(byte[] bytes) {
-        if (bytes == null || bytes.length == 0) return false;
-        int nonPrintableCount = 0;
-        for (byte b : bytes) {
-            int u = b & 0xFF;
-            if ((u < 32 && u != 9 && u != 10 && u != 13) || u == 127) {
-                nonPrintableCount++;
-            }
-        }
-        return (double) nonPrintableCount / bytes.length > 0.05;
+        return KafkaMessageFormat.isBinaryData(bytes);
     }
 
     private static String formatHexDump(byte[] bytes) {
-        if (bytes == null || bytes.length == 0) return "[空数据]";
-        StringBuilder sb = new StringBuilder();
-        int len = bytes.length;
-        for (int i = 0; i < len; i += 16) {
-            sb.append(String.format("%08X  ", i));
-            for (int j = 0; j < 16; j++) {
-                if (i + j < len) {
-                    sb.append(String.format("%02X ", bytes[i + j] & 0xFF));
-                } else {
-                    sb.append("   ");
-                }
-                if (j == 7) sb.append(" ");
-            }
-            sb.append(" |");
-            for (int j = 0; j < 16; j++) {
-                if (i + j < len) {
-                    int b = bytes[i + j] & 0xFF;
-                    if (b >= 32 && b <= 126) {
-                        sb.append((char) b);
-                    } else {
-                        sb.append('.');
-                    }
-                } else {
-                    sb.append(' ');
-                }
-            }
-            sb.append("|\n");
-        }
-        return sb.toString();
+        return KafkaMessageFormat.formatHexDump(bytes);
     }
 
     private final Highlighter.HighlightPainter hexHighlightPainter = 

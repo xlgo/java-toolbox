@@ -12,6 +12,7 @@ import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.FormGrid;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 
@@ -224,7 +225,9 @@ public class OpenApiPanel extends ToolPanel {
         formatJsonBtn.addActionListener(e -> {
             try {
                 requestBodyArea.setText(JsonFormatter.pretty(requestBodyArea.getText()));
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                Errors.ignored("请求体不是合法 JSON，保持原文不格式化", ignored);
+            }
         });
         JPanel reqBodyPanel = new JPanel(new BorderLayout(0, Tokens.SPACE_XS));
         reqBodyPanel.setOpaque(false);

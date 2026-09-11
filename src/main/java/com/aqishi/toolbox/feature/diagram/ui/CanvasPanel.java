@@ -2,6 +2,7 @@ package com.aqishi.toolbox.feature.diagram.ui;
 
 import com.aqishi.toolbox.feature.diagram.domain.FlowEdge;
 import com.aqishi.toolbox.feature.diagram.domain.FlowNode;
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -52,7 +53,7 @@ class CanvasPanel extends JPanel {
                         dtde.rejectDrop();
                     }
                 } catch (Exception ex) {
-                    ex.printStackTrace();
+                    Errors.log("处理画布拖放失败", ex);
                     dtde.rejectDrop();
                 }
             }
@@ -89,7 +90,7 @@ class CanvasPanel extends JPanel {
                     try {
                         CanvasPanel.this.parent.dragStartState = CanvasPanel.this.parent.serializeToJson();
                     } catch (Exception ex) {
-                        ex.printStackTrace();
+                        Errors.log("记录拖拽前的画布状态失败，本次拖拽将无法撤销", ex);
                     }
                 }
 
@@ -314,7 +315,7 @@ class CanvasPanel extends JPanel {
                             CanvasPanel.this.parent.updateUndoRedoButtons();
                         }
                     } catch (Exception ex) {
-                        ex.printStackTrace();
+                        Errors.log("保存画布撤销状态失败", ex);
                     }
                     CanvasPanel.this.parent.dragStartState = null;
                 }

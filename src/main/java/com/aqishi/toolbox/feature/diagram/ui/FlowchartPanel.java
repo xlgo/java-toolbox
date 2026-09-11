@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.diagram.ui;
 
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.Json;
 
 import com.aqishi.toolbox.feature.diagram.domain.DiagramData;
@@ -1091,7 +1092,7 @@ public class FlowchartPanel extends ToolPanel {
                 updateUndoRedoButtons();
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("保存流程图撤销状态失败", e);
         }
     }
 
@@ -1104,7 +1105,7 @@ public class FlowchartPanel extends ToolPanel {
             deserializeFromJson(prevState);
             updateUndoRedoButtons();
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("撤销流程图操作失败", e);
         }
     }
 
@@ -1117,7 +1118,7 @@ public class FlowchartPanel extends ToolPanel {
             deserializeFromJson(nextState);
             updateUndoRedoButtons();
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("重做流程图操作失败", e);
         }
     }
 

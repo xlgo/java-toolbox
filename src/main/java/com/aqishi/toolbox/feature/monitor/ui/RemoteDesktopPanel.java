@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.monitor.ui;
 
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.UIUtils;
 
 import com.aqishi.toolbox.util.Json;
@@ -127,7 +128,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         try {
             this.robot = new Robot();
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("初始化 Robot 失败，本机将无法被远程控制", e);
         }
         this.controlIceConnector = new Ice4jDirectConnector();
         this.hostIceConnector = new Ice4jDirectConnector();
@@ -740,7 +741,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                         simulateKeyboard(event);
                     }
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    Errors.log("模拟远程输入事件失败", e);
                 }
                 break;
             case DesktopMessage.TYPE_DRAWING:
@@ -765,7 +766,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                         }
                     }
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    Errors.log("处理远程批注消息失败", e);
                 }
                 break;
             case DesktopMessage.TYPE_CMD_REQUEST:
@@ -806,7 +807,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                 robot.mouseWheel(button);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("模拟远程鼠标操作失败", e);
         }
     }
 
@@ -823,7 +824,9 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
             } else if ("release".equals(action)) {
                 robot.keyRelease(keyCode);
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            Errors.ignored("模拟远程键盘事件失败，跳过该次按键", ignored);
+        }
     }
 
     private void handleHostCmdRequest(byte[] payload) {
@@ -839,7 +842,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                 closeHostTerminalSession(sessionId);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("处理远程终端会话指令失败", e);
         }
     }
 
@@ -906,7 +909,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
             byte[] jsonBytes = mapper.writeValueAsString(resp).getBytes(StandardCharsets.UTF_8);
             activeHostChannel.send(new DesktopMessage(DesktopMessage.TYPE_CMD_RESPONSE, jsonBytes));
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("回送远程终端命令响应失败", e);
         }
     }
 
@@ -915,7 +918,9 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         if (pi != null) {
             try {
                 pi.writer.close();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                Errors.ignored("关闭远程终端会话输入流失败，会话已移除", ignored);
+            }
             pi.process.destroyForcibly();
             appendLog(hostLogArea,
                     I18n.get("remote_desktop.term_session_terminated", sessionId));

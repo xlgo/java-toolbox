@@ -140,6 +140,11 @@ public final class ApplicationPaths {
         return dataDirectory.resolve("backups");
     }
 
+    /** 日志落盘目录，与配置、备份同属应用私有数据目录 */
+    public Path getLogDirectory() {
+        return dataDirectory.resolve("logs");
+    }
+
     public Path getVaultFile() {
         return dataDirectory.resolve(VAULT_FILE_NAME);
     }
@@ -165,6 +170,7 @@ public final class ApplicationPaths {
         directories.add(dataDirectory);
         directories.add(configDirectory);
         directories.add(getBackupDirectory());
+        directories.add(getLogDirectory());
 
         for (Path directory : directories) {
             Files.createDirectories(directory);

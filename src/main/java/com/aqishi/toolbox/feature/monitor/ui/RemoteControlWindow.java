@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.monitor.ui;
 
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.UIUtils;
 
 import com.aqishi.toolbox.util.Json;
@@ -304,7 +305,7 @@ public class RemoteControlWindow extends JFrame {
             byte[] payload = mapper.writeValueAsString(event).getBytes(StandardCharsets.UTF_8);
             channel.send(new DesktopMessage(DesktopMessage.TYPE_CONTROL_EVENT, payload));
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("发送远程控制事件失败", e);
         }
     }
 
@@ -322,7 +323,7 @@ public class RemoteControlWindow extends JFrame {
             byte[] payload = mapper.writeValueAsString(stroke).getBytes(StandardCharsets.UTF_8);
             channel.send(new DesktopMessage(DesktopMessage.TYPE_DRAWING, payload));
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("发送远程批注笔迹失败", e);
         }
     }
 
@@ -333,7 +334,7 @@ public class RemoteControlWindow extends JFrame {
             byte[] payload = mapper.writeValueAsString(stroke).getBytes(StandardCharsets.UTF_8);
             channel.send(new DesktopMessage(DesktopMessage.TYPE_DRAWING, payload));
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("发送清除批注指令失败", e);
         }
     }
 
@@ -366,7 +367,7 @@ public class RemoteControlWindow extends JFrame {
                         screenPanel.repaint();
                     }
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    Errors.log("解码远程桌面画面帧失败", e);
                 }
                 break;
             case DesktopMessage.TYPE_CMD_RESPONSE:
@@ -376,7 +377,7 @@ public class RemoteControlWindow extends JFrame {
                         Map<String, Object> resp = mapper.readValue(jsonStr, Map.class);
                         terminalDialog.handleCmdResponse(resp);
                     } catch (Exception e) {
-                        e.printStackTrace();
+                        Errors.log("处理远程终端命令响应失败", e);
                     }
                 }
                 break;

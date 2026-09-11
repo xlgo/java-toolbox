@@ -17,6 +17,7 @@ import com.aqishi.toolbox.ui.kit.FormGrid;
 import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.UIUtils;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.Tuple;
@@ -1228,7 +1229,9 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
                     String res = get();
                     consoleOutput.append(res + "\n\n");
                     consoleOutput.setCaretPosition(consoleOutput.getDocument().getLength());
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    Errors.ignored("读取 Redis 命令执行结果失败，控制台不追加输出", ignored);
+                }
             }
         }.execute();
     }
@@ -1336,7 +1339,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
         try {
             profileStore.save(profiles);
         } catch (Exception ex) {
-            ex.printStackTrace();
+            Errors.log("保存 Redis 连接配置失败", ex);
         }
     }
 
@@ -1346,7 +1349,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
             profiles.putAll(profileStore.load());
             refreshProfilesCombo(null);
         } catch (Exception ex) {
-            ex.printStackTrace();
+            Errors.log("加载 Redis 连接配置失败", ex);
         }
     }
 

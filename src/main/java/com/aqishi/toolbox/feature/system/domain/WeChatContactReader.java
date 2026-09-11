@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.system.domain;
 
+import com.aqishi.toolbox.util.Errors;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
@@ -380,7 +381,9 @@ public class WeChatContactReader {
                             else if (val.contains("微信") || val.equalsIgnoreCase("alias") || val.equalsIgnoreCase("wechat") || val.contains("账号") || val.contains("ID")) { wechatCol = c; hasHeader = true; }
                             else if (val.contains("备注") || val.equalsIgnoreCase("remark")) { remarkCol = c; hasHeader = true; }
                             else if (val.contains("性别") || val.equalsIgnoreCase("gender") || val.equalsIgnoreCase("sex")) { genderCol = c; hasHeader = true; }
-                        } catch (Exception ignored) {}
+                        } catch (Exception ignored) {
+                            Errors.ignored("表头单元格不是文本，跳过该列的表头识别", ignored);
+                        }
                     }
                 }
             }

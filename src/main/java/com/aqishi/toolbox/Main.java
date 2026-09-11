@@ -2,7 +2,12 @@ package com.aqishi.toolbox;
 
 import com.aqishi.toolbox.ui.MainFrame;
 import com.aqishi.toolbox.ui.ThemeManager;
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.I18n;
+import com.aqishi.toolbox.util.Logging;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.awt.*;
@@ -17,6 +22,14 @@ public final class Main {
     public static java.util.function.BiConsumer<Integer, String> startupProgressUpdater;
 
     public static void main(String[] args) {
+        // 0. 必须先于任何 Logger 创建：logback 只在首次取 Logger 时读配置，
+        //    此刻之后再设置日志目录属性就不生效了
+        java.nio.file.Path logDirectory = Logging.bootstrap();
+        Logger log = LoggerFactory.getLogger(Main.class);
+        log.info("Java Toolbox 启动，日志目录 {}", logDirectory);
+        Thread.setDefaultUncaughtExceptionHandler((thread, error) ->
+                log.error("线程 {} 未捕获异常", thread.getName(), error));
+
         // 1. 瞬间呈现启动闪屏进度窗（直接使用系统默认外观渲染，确保极速弹出）
         SplashWindow splash = new SplashWindow();
         splash.setVisible(true);
@@ -46,7 +59,7 @@ public final class Main {
             });
 
         } catch (Exception ex) {
-            ex.printStackTrace();
+            Errors.log("启动流程异常，跳过闪屏直接拉起主界面", ex);
             // 异常兜底：若闪屏出现异常，确保直接正常拉起主界面
             EventQueue.invokeLater(() -> {
                 splash.dispose();

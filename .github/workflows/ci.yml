@@ -33,9 +33,11 @@ jobs:
           cache: 'maven'
 
       # 部分测试会实例化 Swing 组件（MainFrame/面板结构测试），
-      # Linux 无头环境需要 xvfb 提供虚拟显示器
+      # Linux 无头环境需要 xvfb 提供虚拟显示器。
+      # 跑到 verify 阶段：让绑定在 verify 的 dependency:analyze 依赖体检
+      # （failOnWarning）在 CI 真正生效，同时验证 shade 打包不回归。
       - name: Run tests (Linux with xvfb)
-        run: xvfb-run --auto-servernum mvn -B test
+        run: xvfb-run --auto-servernum mvn -B verify
 
       - name: Upload test reports on failure
         if: failure()

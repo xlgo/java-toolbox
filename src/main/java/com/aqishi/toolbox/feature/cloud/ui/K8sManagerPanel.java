@@ -1,10 +1,13 @@
 package com.aqishi.toolbox.feature.cloud.ui;
 
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.Json;
 
 import com.aqishi.toolbox.feature.cloud.application.KubernetesService;
 import com.aqishi.toolbox.feature.cloud.application.KubernetesServiceFactory;
 import com.aqishi.toolbox.feature.cloud.application.KubernetesResourceApplyService;
+import com.aqishi.toolbox.feature.cloud.domain.KubernetesManifestText;
+import com.aqishi.toolbox.feature.cloud.domain.KubernetesResourceRows;
 import com.aqishi.toolbox.domain.KubernetesProfile;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.infra.kubernetes.KubeconfigParser;
@@ -22,7 +25,6 @@ import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import javax.net.ssl.HttpsURLConnection;
 import javax.swing.*;
@@ -36,7 +38,6 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.time.Duration;
 import java.util.*;
 import java.util.function.Function;
 import java.util.List;
@@ -775,7 +776,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                         nsCombo.setSelectedIndex(0);
                     }
                 } catch (Exception ex) {
-                    ex.printStackTrace();
+                    Errors.log("加载 K8s 命名空间列表失败", ex);
                 }
             }
         }.execute();
@@ -791,22 +792,6 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         return s;
     }
 
-    private String formatAge(String creationTimestamp) {
-        try {
-            Instant created = Instant.parse(creationTimestamp);
-            Duration d = Duration.between(created, Instant.now());
-            long days = d.toDays();
-            if (days > 0) return days + "d";
-            long hours = d.toHours();
-            if (hours > 0) return hours + "h";
-            long mins = d.toMinutes();
-            if (mins > 0) return mins + "m";
-            return d.getSeconds() + "s";
-        } catch (Exception e) {
-            return "-";
-        }
-    }
-
     // ===== 资源列表加载 =====
     /**
      * 九类资源的加载流程完全一致：后台拉取 items、逐条映射成表格行、回写表格。
@@ -814,144 +799,48 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
      * 各资源只保留自己的映射逻辑。
      */
     private void loadPods() {
-        loadResourceTable(podModel, listPath("/api/v1", "pods"), "Pods", item -> {
-            int restarts = 0;
-            for (JsonNode status : item.path("status").path("containerStatuses")) {
-                restarts += status.path("restartCount").asInt();
-            }
-            return new Object[]{
-                    namespaceOf(item), nameOf(item),
-                    item.path("status").path("phase").asText(),
-                    restarts,
-                    item.path("status").path("podIP").asText("-"),
-                    item.path("spec").path("nodeName").asText("-"),
-                    ageOf(item)
-            };
-        });
+        loadResourceTable(podModel, listPath("/api/v1", "pods"), "Pods",
+                item -> KubernetesResourceRows.podRow(item, Instant.now()));
     }
 
     private void loadDeployments() {
-        loadResourceTable(deployModel, listPath("/apis/apps/v1", "deployments"), "Deployments", item ->
-                new Object[]{
-                        namespaceOf(item), nameOf(item),
-                        readyCount(item),
-                        item.path("status").path("updatedReplicas").asInt(0),
-                        item.path("status").path("availableReplicas").asInt(0),
-                        ageOf(item)
-                });
+        loadResourceTable(deployModel, listPath("/apis/apps/v1", "deployments"), "Deployments",
+                item -> KubernetesResourceRows.deploymentRow(item, Instant.now()));
     }
 
     private void loadStatefulSets() {
-        loadResourceTable(statefulSetModel, listPath("/apis/apps/v1", "statefulsets"), "StatefulSets", item ->
-                new Object[]{
-                        namespaceOf(item), nameOf(item),
-                        readyCount(item),
-                        item.path("status").path("currentReplicas").asInt(0),
-                        ageOf(item)
-                });
+        loadResourceTable(statefulSetModel, listPath("/apis/apps/v1", "statefulsets"), "StatefulSets",
+                item -> KubernetesResourceRows.statefulSetRow(item, Instant.now()));
     }
 
     private void loadDaemonSets() {
-        loadResourceTable(daemonSetModel, listPath("/apis/apps/v1", "daemonsets"), "DaemonSets", item ->
-                new Object[]{
-                        namespaceOf(item), nameOf(item),
-                        item.path("status").path("desiredNumberScheduled").asInt(0),
-                        item.path("status").path("currentNumberScheduled").asInt(0),
-                        item.path("status").path("numberReady").asInt(0),
-                        item.path("status").path("updatedNumberScheduled").asInt(0),
-                        ageOf(item)
-                });
+        loadResourceTable(daemonSetModel, listPath("/apis/apps/v1", "daemonsets"), "DaemonSets",
+                item -> KubernetesResourceRows.daemonSetRow(item, Instant.now()));
     }
 
     private void loadCronJobs() {
-        loadResourceTable(cronJobModel, listPath("/apis/batch/v1", "cronjobs"), "CronJobs", item ->
-                new Object[]{
-                        namespaceOf(item), nameOf(item),
-                        item.path("spec").path("schedule").asText("-"),
-                        item.path("spec").path("suspend").asBoolean(false),
-                        item.path("status").path("active").size(),
-                        item.path("status").path("lastScheduleTime").asText("-"),
-                        ageOf(item)
-                });
+        loadResourceTable(cronJobModel, listPath("/apis/batch/v1", "cronjobs"), "CronJobs",
+                item -> KubernetesResourceRows.cronJobRow(item, Instant.now()));
     }
 
     private void loadServices() {
-        loadResourceTable(svcModel, listPath("/api/v1", "services"), "Services", item -> {
-            StringBuilder external = new StringBuilder();
-            for (JsonNode ingress : item.path("status").path("loadBalancer").path("ingress")) {
-                if (external.length() > 0) external.append(",");
-                if (ingress.has("ip")) {
-                    external.append(ingress.path("ip").asText());
-                } else if (ingress.has("hostname")) {
-                    external.append(ingress.path("hostname").asText());
-                }
-            }
-            if (external.length() == 0) {
-                external.append("<none>");
-            }
-
-            StringBuilder ports = new StringBuilder();
-            for (JsonNode port : item.path("spec").path("ports")) {
-                if (ports.length() > 0) ports.append(",");
-                ports.append(port.path("port").asInt()).append("/").append(port.path("protocol").asText());
-            }
-
-            return new Object[]{
-                    namespaceOf(item), nameOf(item),
-                    item.path("spec").path("type").asText(),
-                    item.path("spec").path("clusterIP").asText(),
-                    external.toString(), ports.toString(), ageOf(item)
-            };
-        });
+        loadResourceTable(svcModel, listPath("/api/v1", "services"), "Services",
+                item -> KubernetesResourceRows.serviceRow(item, Instant.now()));
     }
 
     private void loadConfigMaps() {
-        loadResourceTable(cmModel, listPath("/api/v1", "configmaps"), "ConfigMaps", item ->
-                new Object[]{namespaceOf(item), nameOf(item), item.path("data").size(), ageOf(item)});
+        loadResourceTable(cmModel, listPath("/api/v1", "configmaps"), "ConfigMaps",
+                item -> KubernetesResourceRows.configMapRow(item, Instant.now()));
     }
 
     private void loadSecrets() {
-        loadResourceTable(secretModel, listPath("/api/v1", "secrets"), "Secrets", item ->
-                new Object[]{
-                        namespaceOf(item), nameOf(item),
-                        item.path("type").asText(),
-                        item.path("data").size(),
-                        ageOf(item)
-                });
+        loadResourceTable(secretModel, listPath("/api/v1", "secrets"), "Secrets",
+                item -> KubernetesResourceRows.secretRow(item, Instant.now()));
     }
 
     private void loadNodes() {
-        loadResourceTable(nodeModel, "/api/v1/nodes", "Nodes", item -> {
-            String status = "NotReady";
-            for (JsonNode condition : item.path("status").path("conditions")) {
-                if ("Ready".equals(condition.path("type").asText())) {
-                    if ("True".equals(condition.path("status").asText())) {
-                        status = "Ready";
-                    }
-                    break;
-                }
-            }
-
-            StringBuilder roles = new StringBuilder();
-            Iterator<Map.Entry<String, JsonNode>> labels = item.path("metadata").path("labels").fields();
-            while (labels.hasNext()) {
-                Map.Entry<String, JsonNode> label = labels.next();
-                if (label.getKey().startsWith("node-role.kubernetes.io/")) {
-                    if (roles.length() > 0) roles.append(",");
-                    roles.append(label.getKey().substring("node-role.kubernetes.io/".length()));
-                }
-            }
-            if (roles.length() == 0) {
-                roles.append("<none>");
-            }
-
-            return new Object[]{
-                    nameOf(item), status, roles.toString(),
-                    item.path("status").path("nodeInfo").path("kubeletVersion").asText(),
-                    item.path("status").path("nodeInfo").path("osImage").asText(),
-                    ageOf(item)
-            };
-        });
+        loadResourceTable(nodeModel, "/api/v1/nodes", "Nodes",
+                item -> KubernetesResourceRows.nodeRow(item, Instant.now()));
     }
 
     /**
@@ -967,14 +856,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
             @Override
             protected List<Object[]> doInBackground() throws Exception {
                 String response = executeRequest("GET", path, null, activeSkipTls);
-                List<Object[]> rows = new ArrayList<>();
-                for (JsonNode item : mapper.readTree(response).path("items")) {
-                    Object[] row = rowMapper.apply(item);
-                    if (row != null) {
-                        rows.add(row);
-                    }
-                }
-                return rows;
+                return KubernetesResourceRows.rowsOf(response, rowMapper);
             }
 
             @Override
@@ -1005,28 +887,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
 
     /** 按当前命名空间拼资源列表路径；"all" 表示跨命名空间查询。 */
     private String listPath(String apiGroup, String resource) {
-        String ns = getSelectedNamespace();
-        return ns.equals("all")
-                ? apiGroup + "/" + resource
-                : apiGroup + "/namespaces/" + ns + "/" + resource;
-    }
-
-    private static String namespaceOf(JsonNode item) {
-        return item.path("metadata").path("namespace").asText();
-    }
-
-    private static String nameOf(JsonNode item) {
-        return item.path("metadata").path("name").asText();
-    }
-
-    private String ageOf(JsonNode item) {
-        return formatAge(item.path("metadata").path("creationTimestamp").asText());
-    }
-
-    /** 就绪/期望副本数，如 "2/3"。 */
-    private static String readyCount(JsonNode item) {
-        return item.path("status").path("readyReplicas").asInt(0)
-                + "/" + item.path("spec").path("replicas").asInt(0);
+        return KubernetesResourceRows.listPath(apiGroup, resource, getSelectedNamespace());
     }
 
     private void viewResourceYaml(String resourceType, JTable table) {
@@ -1441,10 +1302,10 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                 errorMsg = ex.getMessage();
             } finally {
                 if (fos != null) {
-                    try { fos.close(); } catch (Exception e) {}
+                    try { fos.close(); } catch (Exception e) { Errors.ignored("关闭下载输出流失败，文件已写完", e); }
                 }
                 if (client != null) {
-                    try { client.close(); } catch (Exception e) {}
+                    try { client.close(); } catch (Exception e) { Errors.ignored("关闭 K8s 客户端失败", e); }
                     unregisterTransferClient(client);
                 }
             }
@@ -1456,7 +1317,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                 if (finalSuccess) {
                     UIUtils.info(null, "文件下载成功！");
                 } else {
-                    try { localFile.delete(); } catch (Exception e) {}
+                    try { localFile.delete(); } catch (Exception e) { Errors.ignored("删除下载失败的残留文件失败", e); }
                     UIUtils.error(null, "文件下载失败: " + finalError);
                 }
             });
@@ -1580,7 +1441,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                 errorMsg = ex.getMessage();
             } finally {
                 if (client != null) {
-                    try { client.close(); } catch (Exception ignored) {}
+                    try { client.close(); } catch (Exception ignored) { Errors.ignored("关闭 K8s 客户端失败", ignored); }
                     unregisterTransferClient(client);
                 }
             }
@@ -1700,7 +1561,9 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                     if (clientHolder[0] != null) {
                         clientHolder[0].close();
                     }
-                } catch (Exception e) {}
+                } catch (Exception e) {
+                    Errors.ignored("关闭 K8s Exec 客户端失败", e);
+                }
                 readQueue.offer(""); // Unblock read thread if any
             }
 
@@ -1964,7 +1827,9 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                     if (conn != null) {
                         try {
                             conn.disconnect();
-                        } catch (Exception ex) {}
+                        } catch (Exception ex) {
+                            Errors.ignored("断开 K8s Exec WebSocket 失败，连接已废弃", ex);
+                        }
                     }
                 }).start();
             }
@@ -2093,7 +1958,9 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
                             try {
                                 int offset = area.getLineStartOffset(addedLines);
                                 area.setCaretPosition(offset);
-                            } catch (Exception ignored) {}
+                            } catch (Exception ignored) {
+                                Errors.ignored("滚动日志视图到新增行失败，不影响日志内容", ignored);
+                            }
                         }
                     } catch (Exception ex) {
                         UIUtils.error(dialog, "加载更多日志失败: " + ex.getMessage());
@@ -2380,7 +2247,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         try {
             profileStore.save(profiles);
         } catch (Exception ex) {
-            ex.printStackTrace();
+            Errors.log("保存 K8s 连接配置失败", ex);
         }
     }
 
@@ -2390,7 +2257,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
             profiles.putAll(profileStore.load());
             refreshProfilesCombo(null);
         } catch (Exception ex) {
-            ex.printStackTrace();
+            Errors.log("加载 K8s 连接配置失败", ex);
         }
     }
 
@@ -2432,14 +2299,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private String convertJsonToYaml(String json) {
-        try {
-            ObjectMapper jsonMapper = Json.mapper();
-            Object obj = jsonMapper.readValue(json, Object.class);
-            ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
-            return yamlMapper.writerWithDefaultPrettyPrinter().writeValueAsString(obj);
-        } catch (Exception e) {
-            return json;
-        }
+        return KubernetesManifestText.jsonToYaml(json);
     }
 
     /**

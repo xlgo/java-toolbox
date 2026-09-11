@@ -8,6 +8,7 @@ import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.imageio.ImageIO;
@@ -317,7 +318,7 @@ public class Base64ImagePanel extends ToolPanel implements ManagedResourceOwner 
             return null;
         } finally {
             if (reader != null) reader.dispose();
-            if (iis != null) try { iis.close(); } catch (Exception ignored) {}
+            if (iis != null) try { iis.close(); } catch (Exception ignored) { Errors.ignored("关闭图片输入流失败", ignored); }
         }
     }
 

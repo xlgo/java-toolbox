@@ -466,7 +466,7 @@ public class VideoMonitorPanel extends ToolPanel {
             }
         }
         int idx = 0;
-        try { idx = Integer.parseInt(saved); } catch (NumberFormatException ignore) {}
+        try { idx = Integer.parseInt(saved); } catch (NumberFormatException ignore) { /* 配置值损坏时退回默认布局 0 */ }
         idx = Math.max(0, Math.min(idx, PRESET_LABELS.length - 1));
         applyPreset(idx);
         if (layoutCombo != null) layoutCombo.setSelectedIndex(idx);

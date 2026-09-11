@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.monitor.infra;
 
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.Json;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -186,7 +187,7 @@ public class DesktopSignalServer extends WebSocketServer {
                 }
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            Errors.log("向组内成员广播成员列表失败", e);
         }
     }
 

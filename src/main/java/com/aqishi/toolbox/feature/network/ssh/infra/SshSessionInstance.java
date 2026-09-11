@@ -27,6 +27,7 @@ import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshHostKeyPrompt;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
+import com.aqishi.toolbox.util.Errors;
 
 /**
  * 代表一个活动的 SSH 连接会话，包含终端、SFTP、端口转发及自动恢复能力。
@@ -444,19 +445,19 @@ public class SshSessionInstance implements AutoCloseable {
         }
         SshTunnelBridge.unregister(this);
         if (channelShell != null) {
-            try { channelShell.disconnect(); } catch (Exception ignored) { }
+            try { channelShell.disconnect(); } catch (Exception ignored) { Errors.ignored("断开 SSH shell 通道失败，会话正在关闭", ignored); }
             channelShell = null;
         }
         if (channelSftp != null) {
-            try { channelSftp.disconnect(); } catch (Exception ignored) { }
+            try { channelSftp.disconnect(); } catch (Exception ignored) { Errors.ignored("断开 SFTP 通道失败，会话正在关闭", ignored); }
             channelSftp = null;
         }
         if (session != null) {
-            try { session.disconnect(); } catch (Exception ignored) { }
+            try { session.disconnect(); } catch (Exception ignored) { Errors.ignored("断开 SSH 会话失败，会话正在关闭", ignored); }
             session = null;
         }
         if (ttyConnector != null) {
-            try { ttyConnector.close(); } catch (Exception ignored) { }
+            try { ttyConnector.close(); } catch (Exception ignored) { Errors.ignored("关闭终端连接器失败，会话正在关闭", ignored); }
             ttyConnector = null;
         }
     }

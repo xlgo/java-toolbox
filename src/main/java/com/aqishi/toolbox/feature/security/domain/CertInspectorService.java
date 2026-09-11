@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.security.domain;
 
+import com.aqishi.toolbox.util.Errors;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.pkcs.Attribute;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
@@ -244,7 +245,9 @@ public class CertInspectorService {
                     if (key instanceof PrivateKey) {
                         entry.setPrivateKey((PrivateKey) key);
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    Errors.ignored("该别名的私钥不可读（口令不符或非私钥条目），仅记录证书部分", ignored);
+                }
             }
             list.add(entry);
         }

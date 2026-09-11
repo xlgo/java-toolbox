@@ -8,6 +8,7 @@ import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -178,7 +179,9 @@ public class StringToolPanel extends ToolPanel {
         try {
             String charsetName = (String) encodingCombo.getSelectedItem();
             byteCount = text.getBytes(Charset.forName(charsetName)).length;
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            Errors.ignored("按所选字符集统计字节数失败，字节数按 0 显示", ignored);
+        }
 
         // 行数计算
         int lineCount = text.isEmpty() ? 0 : text.split("\\r?\\n", -1).length;

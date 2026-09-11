@@ -7,6 +7,7 @@ import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.ConfigManager;
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.util.FormatUtils;
@@ -88,7 +89,7 @@ public class MainFrame extends JFrame {
                 setIconImage(new ImageIcon(iconUrl).getImage());
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.ignored("窗口图标加载失败，回退到默认图标", e);
         }
 
         setDefaultCloseOperation(EXIT_ON_CLOSE);

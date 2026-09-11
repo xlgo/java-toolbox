@@ -13,6 +13,7 @@ import com.aqishi.toolbox.ui.kit.FormGrid;
 import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.UIUtils;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -642,8 +643,7 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
                             get();
                             UIUtils.info(getView(), "通讯录导出成功！");
                         } catch (Exception ex) {
-                            UIUtils.error(getView(), "导出失败:\n" + ex.getMessage());
-                            ex.printStackTrace();
+                            Errors.report(getView(), "通讯录导出失败", ex);
                         }
                     }
                 }.execute();
@@ -1354,7 +1354,9 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
             try {
                 File file = new File(text.trim());
                 return file.exists() && file.isFile();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                Errors.ignored("校验图片路径失败，按非图片路径处理", ignored);
+            }
         }
         return false;
     }
@@ -1612,7 +1614,9 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
                 if (tempScriptFile != null && tempScriptFile.exists()) {
                     try {
                         tempScriptFile.delete();
-                    } catch (Exception ignored) {}
+                    } catch (Exception ignored) {
+                        Errors.ignored("删除临时脚本文件失败，交由系统临时目录回收", ignored);
+                    }
                 }
                 SwingUtilities.invokeLater(() -> {
                     stopAutoCollect();

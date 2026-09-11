@@ -9,6 +9,7 @@ import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import com.aqishi.toolbox.feature.monitor.domain.IceProbeCodec;
+import com.aqishi.toolbox.util.Errors;
 
 /**
  * P2P 直连通道协商器 (完全基于 UDP 双向打洞)。
@@ -67,7 +68,7 @@ public class P2PConnector {
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("枚举本机网络接口地址失败", e);
         }
         if (ips.isEmpty()) {
             ips.add("127.0.0.1");
@@ -321,7 +322,9 @@ public class P2PConnector {
         if (socket != null) {
             try {
                 socket.close();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                Errors.ignored("关闭 UDP 套接字失败，连接已废弃", ignored);
+            }
         }
         localPort = -1;
         publicAddresses = Collections.emptyList();

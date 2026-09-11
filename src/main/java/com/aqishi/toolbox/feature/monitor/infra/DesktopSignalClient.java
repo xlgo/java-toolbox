@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.monitor.infra;
 
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.Json;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -185,7 +186,7 @@ public class DesktopSignalClient extends WebSocketClient {
             send(jsonStr);
             log("已向服务发送 Join 请求: ID=" + id + ", Group=" + group + ", Name=" + name);
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("发送 join 信令失败", e);
         }
     }
 
@@ -202,7 +203,7 @@ public class DesktopSignalClient extends WebSocketClient {
 
             send(mapper.writeValueAsString(msg));
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("向对端转发数据包失败", e);
         }
     }
 
@@ -214,7 +215,7 @@ public class DesktopSignalClient extends WebSocketClient {
             msg.put("sdp", sdp);
             send(mapper.writeValueAsString(msg));
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("发送 offer 信令失败", e);
         }
     }
 
@@ -226,7 +227,7 @@ public class DesktopSignalClient extends WebSocketClient {
             msg.put("sdp", sdp);
             send(mapper.writeValueAsString(msg));
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("发送 answer 信令失败", e);
         }
     }
 
@@ -242,7 +243,7 @@ public class DesktopSignalClient extends WebSocketClient {
             msg.put("candidate", cand);
             send(mapper.writeValueAsString(msg));
         } catch (Exception e) {
-            e.printStackTrace();
+            Errors.log("发送 ICE candidate 信令失败", e);
         }
     }
 

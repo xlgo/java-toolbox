@@ -11,6 +11,7 @@ import com.formdev.flatlaf.themes.FlatMacDarkLaf;
 import com.formdev.flatlaf.themes.FlatMacLightLaf;
 
 import com.aqishi.toolbox.util.ConfigManager;
+import com.aqishi.toolbox.util.Errors;
 
 import javax.swing.*;
 import java.util.ArrayList;
@@ -100,8 +101,12 @@ public final class ThemeManager {
             applyCustomDefaults();
             current = t;
         } catch (Throwable e) {
-            try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
-            catch (Exception ignored) { }
+            Errors.log("加载已保存的主题失败，回退系统外观", e);
+            try {
+                UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+            } catch (Exception fallbackError) {
+                Errors.log("回退系统外观也失败，界面将使用 Swing 默认外观", fallbackError);
+            }
             applyCustomDefaults();
         }
     }
@@ -133,8 +138,12 @@ public final class ThemeManager {
             ConfigManager.save();
         } catch (Throwable e) {
             // 失败回退系统 LAF
-            try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
-            catch (Exception ignored) { }
+            Errors.log("切换主题到 " + t.name + " 失败，回退系统外观", e);
+            try {
+                UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+            } catch (Exception fallbackError) {
+                Errors.log("回退系统外观也失败，界面将使用 Swing 默认外观", fallbackError);
+            }
         } finally {
             FlatAnimatedLafChange.hideSnapshotWithAnimation();
         }

@@ -17,6 +17,8 @@ import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 
+import com.aqishi.toolbox.util.Hex;
+
 import javax.security.auth.x500.X500Principal;
 import java.io.*;
 import java.math.BigInteger;
@@ -443,10 +445,10 @@ public class CertUtils {
     private static String fingerprint(byte[] data, String algorithm) throws Exception {
         MessageDigest md = MessageDigest.getInstance(algorithm);
         byte[] digest = md.digest(data);
-        StringBuilder sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder(digest.length * 3);
         for (int i = 0; i < digest.length; i++) {
             if (i > 0) sb.append(':');
-            sb.append(String.format("%02X", digest[i]));
+            sb.append(Hex.toHexUpper(digest, i, 1));
         }
         return sb.toString();
     }

@@ -13,11 +13,13 @@
 | 第 3 批 | P2-1 K8s 模板收敛、P2-4 格式化与剪贴板收敛 | ✅ 部分完成（`a8edb67`、`4c3f8a1`） |
 | 补漏 | P1-5 Pattern 缓存、P1-8 SQL 标识符校验、P1-9 HttpURLConnection disconnect | ✅ 2026-08-30 |
 | 第 3 批 | P2-3 codec 面板继承（TreeFormat 骨架）、P2-4 ObjectMapper（util/Json）、P2-4 JOptionPane 收敛 | ✅ `747182b` / 本批 |
-| 第 3 批 | P2-9 UI 逻辑下沉 | ⏳ 进行中（K8s manifest apply 已下沉，Kafka/K8s 其余流程待拆） |
+| 第 3 批 | P2-9 UI 逻辑下沉 | 🟢 主体完成（K8s 业务由 `KubernetesService`/`KubernetesResourceApplyService` 承接，Kafka 由 `KafkaBrowserService`/`KafkaClient` 承接；UI 仅保留装配与 SwingWorker 编排） |
 | 第 4 批 | B7 CI 门禁、T1 data/cloud/compute 领域层测试（SimpleEval/QueryResult/SqlExecutionService/K8sResourceRef 共 20 例） | ✅ 部分完成 |
 | 第 4 批 | T2 security 加密 round-trip（SymmetricUtils/RSAUtils/OtpUtils/SM3Utils 共 30 例）、T3 codec 格式化 round-trip（JsonFormatter 7 例） | ✅ 本轮完成 |
 | 第 4 批 | T4 SSH 核心测试（SshSecurityUtils 凭据加密 round-trip 8 例，无需真服务端） | ✅ 本轮完成 |
-| 第 5 批 | D1~D7 文档校准、I1~I2 i18n 分批 | ⏳ 进行中（README/设计说明/索引已校准，monitor/security 第一批 i18n 已落地） |
+| 第 5 批 | D1~D7 文档校准、I1~I2 i18n 分批 | ✅ D1~D7 校准完成（2026-09-12）；I1~I2 按模块分批进行中 |
+| 第 6 批 | P1-7 十六进制改查表（新增 `util/Hex`，收敛 6 处 `String.format` 字节循环）、P1-13 P2P 打洞 socket 偶发失效、加固 2 个 flaky 测试（ToolSidebar 去抖改轮询、UdpChannel 交接加重试） | ✅ 2026-09-12（全量 491 测试全绿） |
+| 第 7 批 | 新功能「日志查看器」（`log.viewer`）：大文件分页读取 + 实时跟随（tail）+ 正则过滤/高亮；新增 `feature/system/domain/LogFileService`（纯逻辑）与 `feature/system/ui/LogViewerPanel`（`ManagedResourceOwner`，关闭即停跟随定时器）；注册进 `ToolCatalog`/`ToolRegistry`，补 i18n 三份资源 | ✅ 2026-09-12（全量 502 测试全绿） |
 
 已完成项保留原文，作为问题背景与证据。
 
@@ -95,6 +97,8 @@
 - **P2-9 / 网络质量**：OpenAPI 规范抓取与调试请求补齐 URL 协议校验、RFC 3986 路径/查询编码、cURL shell 转义和连接释放，并以本地 fake connection 测试覆盖错误路径。
 - **第 5 批 i18n**：Remote Desktop 与 Symmetric Crypto 第一批文案已接入 `I18n`；三份资源文件新增键集合一致性测试，后续按模块继续迁移。
 - **新增能力**：格式转换已扩展 YAML/TOML/INI，并将解析和语法诊断从 Swing 面板下沉到 codec domain 层。
+- **大文件拆分（2026-09-12）**：`K8sManagerPanel` 2,941 → 1,451 行。按职责拆出 `K8sYamlViewer`（YAML 折叠树查看）、`K8sLogViewer`（日志分页/追踪）、`K8sExecTerminal`（JediTerm 容器控制台）、`K8sPodFileTransfer`（exec WebSocket 上传/下载）、`K8sPodOperations`（容器选择公共步骤）；连接参数经新增的 `K8sClusterContext` 接口读取，传输资源交由 `TransferRegistry` 登记，面板不再反向暴露内部状态。i18n 硬编码基线同步收紧。
+- **新功能：日志查看器（2026-09-12，`log.viewer`）**：面向「几百 MB 追加型日志」的浏览工具。`LogFileService` 以「字节偏移 + 行数上限 + 字节上限」窗口读取（逐字节扫描 `\n`/`\r\n`/孤立 `\r`，逐行 UTF-8 解码，避免 `RandomAccessFile.readLine()` 的 ISO-8859-1 破坏中文；超长行按 `MAX_LINE_CHARS` 截断并追加省略标记），提供 `readLines`/`previousPageStart`（向后窗口回溯，不全文件扫描）/`matchRanges`。`LogViewerPanel` 只持有当前页文本：首页/上一页/下一页/跳末尾、每页行数调节、`Timer` 轮询文件长度增量实现 Follow（截断/轮转自动重读）、正则过滤当前页并对命中处加高亮，实现 `ManagedResourceOwner.closeResources()` 停表。对应测试 `LogFileServiceTest`（11 例）。
 
 ## 0. 一句话结论
 
@@ -112,7 +116,7 @@
 | `JOptionPane.*` 直接调用 | 159 处 / 20 文件 | 已有 `UIUtils` 封装却未推广 |
 | 源码含中文的行 | 5,002 行 | i18n 仅 16/207 文件接入，形同虚设 |
 | `target/` 体积 | 261 MB（3 份同内容 85MB jar） | 176 MB 纯冗余 |
-| 最大单文件 | `K8sManagerPanel.java` 2,941 行 | 需拆分 |
+| 最大单文件 | `KafkaPanel.java` 2,029 行 | `K8sManagerPanel` 已由 2,941 行拆至 1,451 行（2026-09-12） |
 | UI 层占比 | 37,673 行 / 58% | 业务逻辑下沉空间大 |
 
 ---
@@ -137,12 +141,13 @@
 | P1-4 | **`newCachedThreadPool()` 无上界** | `…/feature/monitor/TcpDirectConnector.java:134`（重连路径可反复创建） | 固定大小 + 有界队列 |
 | P1-5 | **正则热路径每次重编译** | `…/feature/network/domain/callbackmock/MockRuleResolver.java:63`、`:106`（每条请求每规则编译一次） | 提为 `static final Pattern` 或加缓存 |
 | P1-6 | **大文件一次性读入内存** | `…/feature/codec/ui/Base64ImagePanel.java:131` `Files.readAllBytes()`（历史 OOM 点，线程已修，内存上限未加） | 加文件大小上限校验；统一走 `SwingWorker` |
-| P1-7 | **`String.format("%02x")` 在字节循环内** | `…/feature/security/domain/SymmetricUtils.java:163`；同类 `ConvertPanel.java:194`、`SM3Utils.java:118`、`CryptoPanel.java:128` | 改用查表 `HEX[b & 0xff]`，快一个数量级 |
+| P1-7 | **`String.format("%02x")` 在字节循环内** | `…/feature/security/domain/SymmetricUtils.java:163`；同类 `ConvertPanel.java:194`、`SM3Utils.java:118`、`CryptoPanel.java:128` | ✅ 改用查表。新增 `util/Hex`（小写 `toHex`、大写 `toHexUpper`、带区间重载），收敛 SymmetricUtils/CryptoPanel/SM3Utils/BatchDigestService/CertUtils/ConvertPanel/KafkaMessageFormat 共 6 处字节循环；`SymmetricUtils.bytesToHex` 保留为公开 API 但委托 `Hex` |
 | P1-8 | **SQL 标识符直接拼接** | `…/feature/data/ui/DatabasePanel.java:1047` `ALTER SESSION SET CURRENT_SCHEMA = " + schemaName`；`:1051` 同理 | `DatabaseMetaData` 白名单校验或 `quoteIdentifier()` |
 | P1-9 | **HttpURLConnection 未 disconnect** | `…/feature/diagram/ui/MermaidPanel.java:243`、`…/feature/generation/ui/QrCodePanel.java:339/392` | `finally { conn.disconnect(); }` |
 | P1-10 | **Python 子进程窗口关闭后不销毁** | `…/feature/system/ui/WeChatPanel.java:1508`；仅 `:1641` 手动停止 | 实现生命周期接口，`destroyForcibly()` |
 | P1-11 | **`Runtime.exec(String)` 单字符串解析** | `…/feature/system/ui/HostsManagerPanel.java:239/241` | 改 `ProcessBuilder` 参数数组 |
 | P1-12 | **BC 注册失败被静默吞掉** | `…/feature/security/domain/SymmetricUtils.java:23` `catch (Throwable ignored) {}` → SM4 全线失效且无提示 | 注册失败必须抛异常或 UI 提示 |
+| P1-13 | **P2P 打洞交接后 UDP socket 偶发失效** | `…/feature/monitor/infra/P2PConnector.java` `startHostListener()`：socket 由 `DatagramChannel.open(INET).socket()` 派生，交接为数据通道后偶发被关闭（接收线程退出、数据包全部丢失，约 5~30% 概率，`UdpChannelImplTest` 长期 flaky） | ✅ 持有通道强引用（`udpChannel`）避免派生 socket 存活性受影响；测试侧加有界场景重试。根因疑为 NIO 派生 socket 在并发/交接下的 JDK 行为，待后续深入 |
 
 ## 4. P2 — 结构性重构（收益大，可分期）
 

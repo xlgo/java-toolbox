@@ -8,11 +8,11 @@ import com.aqishi.toolbox.ui.kit.FormGrid;
 import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.Hex;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -189,11 +189,15 @@ public class ConvertPanel extends ToolPanel {
         return p;
     }
 
-    private static String hexString(byte[] bytes) throws UnsupportedEncodingException {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02X ", b & 0xff));
+    private static String hexString(byte[] bytes) {
+        String hex = Hex.toHexUpper(bytes);
+        StringBuilder sb = new StringBuilder(hex.length() + bytes.length);
+        for (int i = 0; i < bytes.length; i++) {
+            if (i > 0) {
+                sb.append(' ');
+            }
+            sb.append(hex, i * 2, i * 2 + 2);
         }
-        return sb.toString().trim();
+        return sb.toString();
     }
 }

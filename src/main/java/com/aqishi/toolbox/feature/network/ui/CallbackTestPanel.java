@@ -2,7 +2,7 @@ package com.aqishi.toolbox.feature.network.ui;
 
 import com.aqishi.toolbox.util.Json;
 
-import com.aqishi.toolbox.feature.codec.domain.JsonFormatter;
+import com.aqishi.toolbox.util.JsonFormatter;
 import com.aqishi.toolbox.feature.network.application.CallbackMockService;
 import com.aqishi.toolbox.feature.network.application.MockRequestRecord;
 import com.aqishi.toolbox.feature.network.domain.callbackmock.MockResponse;

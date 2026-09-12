@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.data.ui;
 
 import com.aqishi.toolbox.util.Errors;
+import com.aqishi.toolbox.util.Hex;
 
 import com.aqishi.toolbox.feature.codec.ui.JsonPanel;
 import com.aqishi.toolbox.feature.codec.ui.XmlPanel;
@@ -2018,12 +2019,8 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
 
     private static String bytesToHexShort(byte[] bytes) {
         if (bytes == null) return "[null]";
-        StringBuilder sb = new StringBuilder("0x");
         int limit = Math.min(bytes.length, 20);
-        for (int i = 0; i < limit; i++) {
-            sb.append(String.format("%02X", bytes[i] & 0xFF));
-        }
-        if (bytes.length > 20) sb.append("...");
-        return sb.toString();
+        String body = Hex.toHexUpper(bytes, 0, limit);
+        return bytes.length > limit ? "0x" + body + "..." : "0x" + body;
     }
 }

@@ -1,6 +1,6 @@
 package com.aqishi.toolbox.feature.network.ui;
 
-import com.aqishi.toolbox.feature.codec.domain.JsonFormatter;
+import com.aqishi.toolbox.util.JsonFormatter;
 import com.aqishi.toolbox.feature.network.ssh.domain.RemoteEndpoint;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;

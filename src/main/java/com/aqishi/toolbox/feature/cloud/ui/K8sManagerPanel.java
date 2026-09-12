@@ -53,7 +53,7 @@ import java.io.IOException;
  * 支持多集群配置管理、Kubeconfig导入、命名空间切换，
  * 以及 Pods, Deployments, Services, ConfigMaps, Nodes 的列表展示、查看 YAML、查看日志、修改副本数、删除资源等。
  */
-public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
+public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, K8sClusterContext {
 
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
@@ -129,12 +129,8 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
     private KubernetesService kubernetesService;
     private final KubernetesServiceFactory kubernetesServiceFactory;
     private final KubernetesResourceApplyService resourceApplyService = new KubernetesResourceApplyService();
-    /** Transfer sockets and workers are tracked so application shutdown can cancel them. */
-    private final Set<org.java_websocket.client.WebSocketClient> activeTransferClients =
-            Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<
-                    org.java_websocket.client.WebSocketClient, Boolean>());
-    private final Set<Thread> activeTransferThreads = Collections.newSetFromMap(
-            new java.util.concurrent.ConcurrentHashMap<Thread, Boolean>());
+    /** Pod 文件传输的在途资源登记表：应用关闭时统一取消，见 closeResources()。 */
+    private final TransferRegistry transfers = new TransferRegistry();
     private final Map<String, KubernetesProfile> profiles = new LinkedHashMap<>();
     private final KubeconfigStore profileStore = new KubeconfigStore(
             java.util.prefs.Preferences.userNodeForPackage(K8sManagerPanel.class));
@@ -944,85 +940,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void showYamlDialog(String resourceName, String yaml, JsonNode jsonNode) {
-        JDialog dialog = new JDialog((Frame) null, "查看: " + resourceName, true);
-        dialog.setSize(750, 580);
-        dialog.setLocationRelativeTo(null);
-
-        JTabbedPane tabs = new JTabbedPane();
-
-        // Tab 1: 折叠树视图
-        JTree tree = new JTree(new javax.swing.tree.DefaultMutableTreeNode("Resource"));
-        tree.setFont(UIUtils.monoFont());
-        tree.putClientProperty("JTree.lineStyle", "None");
-        tree.setRootVisible(true);
-        tree.setShowsRootHandles(true);
-        tree.setRowHeight(20);
-
-        javax.swing.tree.DefaultTreeCellRenderer renderer = new javax.swing.tree.DefaultTreeCellRenderer() {
-            @Override
-            public Component getTreeCellRendererComponent(JTree t, Object value, boolean sel,
-                                                          boolean expanded, boolean leaf, int r, boolean hasFocus) {
-                super.getTreeCellRendererComponent(t, value, sel, expanded, leaf, r, hasFocus);
-                if (value instanceof javax.swing.tree.DefaultMutableTreeNode) {
-                    Object userObj = ((javax.swing.tree.DefaultMutableTreeNode) value).getUserObject();
-                    if (userObj instanceof YamlFolderNode) {
-                        YamlFolderNode node = (YamlFolderNode) userObj;
-                        if (expanded) {
-                            setText(node.openText);
-                        } else {
-                            setText(node.closeText);
-                        }
-                    }
-                }
-                if (sel) {
-                    setBackground(UIManager.getColor("List.selectionBackground"));
-                    setForeground(UIManager.getColor("List.selectionForeground"));
-                } else {
-                    setBackground(null);
-                    setForeground(null);
-                }
-                return this;
-            }
-        };
-        renderer.setOpenIcon(null);
-        renderer.setClosedIcon(null);
-        renderer.setLeafIcon(null);
-        tree.setCellRenderer(renderer);
-
-        if (jsonNode != null) {
-            javax.swing.tree.DefaultMutableTreeNode rootTreeNode = convertJsonNodeToTreeNode(jsonNode, resourceName, 0, true);
-            tree.setModel(new javax.swing.tree.DefaultTreeModel(rootTreeNode));
-            // 默认展开前几层
-            for (int i = 0; i < Math.min(tree.getRowCount(), 25); i++) {
-                tree.expandRow(i);
-            }
-        }
-
-        JScrollPane treeScroll = Fields.scroll(tree);
-        tabs.addTab("折叠树视图 (Collapsible Tree)", treeScroll);
-
-        // Tab 2: 原始 YAML 文本
-        JTextArea area = new JTextArea(yaml);
-        area.setEditable(false);
-        tabs.addTab("YAML 文本 (Raw YAML)", UIUtils.scrollText(area, "YAML / JSON 内容"));
-
-        JButton copyBtn = Buttons.secondary("复制 YAML");
-        copyBtn.addActionListener(e -> {
-            UIUtils.copyToClipboard(yaml);
-            UIUtils.info(dialog, "已成功复制到剪贴板！");
-        });
-        JButton closeBtn = Buttons.ghost("关闭");
-        closeBtn.addActionListener(e -> dialog.dispose());
-        ActionBar bottom = new ActionBar();
-        bottom.right(copyBtn);
-        bottom.right(closeBtn);
-
-        tabs.setBorder(null);
-        JPanel content = Layouts.page();
-        content.add(tabs, BorderLayout.CENTER);
-        content.add(bottom, BorderLayout.SOUTH);
-        dialog.setContentPane(content);
-        dialog.setVisible(true);
+        K8sYamlViewer.show(resourceName, yaml, jsonNode);
     }
 
     private void execPod() {
@@ -1033,53 +951,8 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         }
         String ns = podTable.getValueAt(row, 0).toString();
         String name = podTable.getValueAt(row, 1).toString();
-
-        new SwingWorker<List<String>, Void>() {
-            @Override
-            protected List<String> doInBackground() throws Exception {
-                String path = "/api/v1/namespaces/" + ns + "/pods/" + name;
-                String resp = executeRequest("GET", path, null, activeSkipTls);
-                JsonNode root = mapper.readTree(resp);
-                List<String> list = new ArrayList<>();
-                JsonNode specs = root.path("spec").path("containers");
-                if (specs.isArray()) {
-                    for (JsonNode c : specs) {
-                        list.add(c.path("name").asText());
-                    }
-                }
-                return list;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    List<String> containers = get();
-                    if (containers.isEmpty()) {
-                        UIUtils.error(null, "找不到容器配置！");
-                        return;
-                    }
-                    if (containers.size() == 1) {
-                        showTerminalDialog(ns, name, containers.get(0));
-                    } else {
-                        String[] arr = containers.toArray(new String[0]);
-                        String choice = (String) JOptionPane.showInputDialog(
-                                null,
-                                "Pod 中包含多个容器，请选择要进入的容器：",
-                                "选择容器",
-                                JOptionPane.QUESTION_MESSAGE,
-                                null,
-                                arr,
-                                arr[0]
-                        );
-                        if (choice != null) {
-                            showTerminalDialog(ns, name, choice);
-                        }
-                    }
-                } catch (Exception ex) {
-                    UIUtils.error(null, "获取 Pod 详情失败: " + ex.getMessage());
-                }
-            }
-        }.execute();
+        K8sPodOperations.pickContainer(getView(), this, ns, name,
+                container -> K8sExecTerminal.open(getView(), this, ns, name, container));
     }
 
     private void startFileDownload() {
@@ -1090,53 +963,8 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         }
         String ns = podTable.getValueAt(row, 0).toString();
         String name = podTable.getValueAt(row, 1).toString();
-
-        new SwingWorker<List<String>, Void>() {
-            @Override
-            protected List<String> doInBackground() throws Exception {
-                String path = "/api/v1/namespaces/" + ns + "/pods/" + name;
-                String resp = executeRequest("GET", path, null, activeSkipTls);
-                JsonNode root = mapper.readTree(resp);
-                List<String> list = new ArrayList<>();
-                JsonNode specs = root.path("spec").path("containers");
-                if (specs.isArray()) {
-                    for (JsonNode c : specs) {
-                        list.add(c.path("name").asText());
-                    }
-                }
-                return list;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    List<String> containers = get();
-                    if (containers.isEmpty()) {
-                        UIUtils.error(null, "找不到容器配置！");
-                        return;
-                    }
-                    if (containers.size() == 1) {
-                        promptAndDownloadFile(ns, name, containers.get(0));
-                    } else {
-                        String[] arr = containers.toArray(new String[0]);
-                        String choice = (String) JOptionPane.showInputDialog(
-                                null,
-                                "Pod 中包含多个容器，请选择容器：",
-                                "选择容器",
-                                JOptionPane.QUESTION_MESSAGE,
-                                null,
-                                arr,
-                                arr[0]
-                        );
-                        if (choice != null) {
-                            promptAndDownloadFile(ns, name, choice);
-                        }
-                    }
-                } catch (Exception ex) {
-                    UIUtils.error(null, "获取 Pod 详情失败: " + ex.getMessage());
-                }
-            }
-        }.execute();
+        K8sPodOperations.pickContainer(getView(), this, ns, name,
+                container -> K8sPodFileTransfer.download(getView(), this, ns, name, container));
     }
 
     private void startFileUpload() {
@@ -1147,593 +975,8 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         }
         String ns = podTable.getValueAt(row, 0).toString();
         String name = podTable.getValueAt(row, 1).toString();
-
-        new SwingWorker<List<String>, Void>() {
-            @Override
-            protected List<String> doInBackground() throws Exception {
-                String path = "/api/v1/namespaces/" + ns + "/pods/" + name;
-                String resp = executeRequest("GET", path, null, activeSkipTls);
-                JsonNode root = mapper.readTree(resp);
-                List<String> list = new ArrayList<>();
-                JsonNode specs = root.path("spec").path("containers");
-                if (specs.isArray()) {
-                    for (JsonNode c : specs) {
-                        list.add(c.path("name").asText());
-                    }
-                }
-                return list;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    List<String> containers = get();
-                    if (containers.isEmpty()) {
-                        UIUtils.error(null, "找不到容器配置！");
-                        return;
-                    }
-                    if (containers.size() == 1) {
-                        promptAndUploadFile(ns, name, containers.get(0));
-                    } else {
-                        String[] arr = containers.toArray(new String[0]);
-                        String choice = (String) JOptionPane.showInputDialog(
-                                null,
-                                "Pod 中包含多个容器，请选择容器：",
-                                "选择容器",
-                                JOptionPane.QUESTION_MESSAGE,
-                                null,
-                                arr,
-                                arr[0]
-                        );
-                        if (choice != null) {
-                            promptAndUploadFile(ns, name, choice);
-                        }
-                    }
-                } catch (Exception ex) {
-                    UIUtils.error(null, "获取 Pod 详情失败: " + ex.getMessage());
-                }
-            }
-        }.execute();
-    }
-
-    private void promptAndDownloadFile(String ns, String podName, String containerName) {
-        String containerPath = UIUtils.input(null, "请输入容器内要下载的文件路径（绝对路径）：", "/etc/hosts");
-        if (containerPath == null || containerPath.trim().isEmpty()) return;
-        final String finalContainerPath = containerPath.trim();
-
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("选择保存的本地文件路径");
-        String defaultFileName = new File(finalContainerPath).getName();
-        chooser.setSelectedFile(new File(defaultFileName));
-        int ret = chooser.showSaveDialog(this.getView());
-        if (ret != JFileChooser.APPROVE_OPTION) return;
-        File localFile = chooser.getSelectedFile();
-
-        JDialog progressDialog = new JDialog((Frame) null, "正在下载文件", true);
-        progressDialog.setSize(300, 100);
-        progressDialog.setLocationRelativeTo(this.getView());
-        progressDialog.setLayout(new BorderLayout(8, 8));
-        JLabel statusLabel = new JLabel("正在连接 API Server...", SwingConstants.CENTER);
-        progressDialog.add(statusLabel, BorderLayout.CENTER);
-
-        startTransferWorker("k8s-file-download", () -> {
-            boolean success = false;
-            String errorMsg = "";
-            java.io.FileOutputStream fos = null;
-            org.java_websocket.client.WebSocketClient client = null;
-            try {
-                fos = new java.io.FileOutputStream(localFile);
-                final java.io.FileOutputStream finalFos = fos;
-                final StringBuilder stderr = new StringBuilder();
-
-                String wsUrl = activeServerUrl;
-                if (wsUrl.startsWith("https://")) {
-                    wsUrl = "wss://" + wsUrl.substring(8);
-                } else if (wsUrl.startsWith("http://")) {
-                    wsUrl = "ws://" + wsUrl.substring(7);
-                }
-
-                String fullPath = wsUrl + "/api/v1/namespaces/" + ns + "/pods/" + podName + "/exec"
-                        + "?container=" + containerName
-                        + "&stdin=false&stdout=true&stderr=true&tty=false"
-                        + "&command=cat"
-                        + "&command=" + java.net.URLEncoder.encode(finalContainerPath, "UTF-8");
-
-                java.net.URI uri = new java.net.URI(fullPath);
-                Map<String, String> headers = new HashMap<>();
-                if (activeToken != null && !activeToken.isEmpty()) {
-                    headers.put("Authorization", "Bearer " + activeToken);
-                }
-                headers.put("Sec-WebSocket-Protocol", "v4.channel.k8s.io");
-
-                java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-
-                client = new org.java_websocket.client.WebSocketClient(uri, headers) {
-                    @Override
-                    public void onOpen(org.java_websocket.handshake.ServerHandshake handshakedata) {
-                        SwingUtilities.invokeLater(() -> statusLabel.setText("正在传输数据..."));
-                    }
-
-                    @Override
-                    public void onMessage(String message) {}
-
-                    @Override
-                    public void onMessage(java.nio.ByteBuffer bytes) {
-                        if (bytes.remaining() > 0) {
-                            byte channel = bytes.get();
-                            byte[] data = new byte[bytes.remaining()];
-                            bytes.get(data);
-                            if (channel == 1) { // stdout
-                                try {
-                                    finalFos.write(data);
-                                } catch (IOException e) {
-                                    // ignore
-                                }
-                            } else if (channel == 2 || channel == 3) { // stderr/error
-                                stderr.append(new String(data, StandardCharsets.UTF_8));
-                            }
-                        }
-                    }
-
-                    @Override
-                    public void onClose(int code, String reason, boolean remote) {
-                        latch.countDown();
-                    }
-
-                    @Override
-                    public void onError(Exception ex) {
-                        stderr.append(ex.getMessage());
-                        latch.countDown();
-                    }
-                };
-
-                applyTls(client);
-
-                registerTransferClient(client);
-                client.connect();
-                latch.await();
-
-                if (stderr.length() > 0) {
-                    errorMsg = stderr.toString();
-                } else {
-                    success = true;
-                }
-            } catch (Exception ex) {
-                errorMsg = ex.getMessage();
-            } finally {
-                if (fos != null) {
-                    try { fos.close(); } catch (Exception e) { Errors.ignored("关闭下载输出流失败，文件已写完", e); }
-                }
-                if (client != null) {
-                    try { client.close(); } catch (Exception e) { Errors.ignored("关闭 K8s 客户端失败", e); }
-                    unregisterTransferClient(client);
-                }
-            }
-
-            final boolean finalSuccess = success;
-            final String finalError = errorMsg;
-            SwingUtilities.invokeLater(() -> {
-                progressDialog.dispose();
-                if (finalSuccess) {
-                    UIUtils.info(null, "文件下载成功！");
-                } else {
-                    try { localFile.delete(); } catch (Exception e) { Errors.ignored("删除下载失败的残留文件失败", e); }
-                    UIUtils.error(null, "文件下载失败: " + finalError);
-                }
-            });
-        });
-
-        progressDialog.setVisible(true);
-    }
-
-    private void promptAndUploadFile(String ns, String podName, String containerName) {
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("选择要上传的本地文件");
-        int ret = chooser.showOpenDialog(this.getView());
-        if (ret != JFileChooser.APPROVE_OPTION) return;
-        File localFile = chooser.getSelectedFile();
-
-        String containerPath = UIUtils.input(null, "请输入要上传到容器的文件保存路径（绝对路径）：", "/tmp/" + localFile.getName());
-        if (containerPath == null || containerPath.trim().isEmpty()) return;
-        final String finalContainerPath = containerPath.trim();
-
-        JDialog progressDialog = new JDialog((Frame) null, "正在上传文件", true);
-        progressDialog.setSize(300, 100);
-        progressDialog.setLocationRelativeTo(this.getView());
-        progressDialog.setLayout(new BorderLayout(8, 8));
-        JLabel statusLabel = new JLabel("正在连接 API Server...", SwingConstants.CENTER);
-        progressDialog.add(statusLabel, BorderLayout.CENTER);
-
-        startTransferWorker("k8s-file-upload", () -> {
-            boolean success = false;
-            String errorMsg = "";
-            org.java_websocket.client.WebSocketClient client = null;
-            try {
-                final StringBuilder stderr = new StringBuilder();
-
-                String wsUrl = activeServerUrl;
-                if (wsUrl.startsWith("https://")) {
-                    wsUrl = "wss://" + wsUrl.substring(8);
-                } else if (wsUrl.startsWith("http://")) {
-                    wsUrl = "ws://" + wsUrl.substring(7);
-                }
-
-                String escapedPath = finalContainerPath.replace("'", "'\\''");
-                String commandStr = "cat > '" + escapedPath + "'";
-                String fullPath = wsUrl + "/api/v1/namespaces/" + ns + "/pods/" + podName + "/exec"
-                        + "?container=" + containerName
-                        + "&stdin=true&stdout=true&stderr=true&tty=false"
-                        + "&command=sh"
-                        + "&command=-c"
-                        + "&command=" + java.net.URLEncoder.encode(commandStr, "UTF-8");
-
-                java.net.URI uri = new java.net.URI(fullPath);
-                Map<String, String> headers = new HashMap<>();
-                if (activeToken != null && !activeToken.isEmpty()) {
-                    headers.put("Authorization", "Bearer " + activeToken);
-                }
-                headers.put("Sec-WebSocket-Protocol", "v4.channel.k8s.io");
-
-                java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-
-                client = new org.java_websocket.client.WebSocketClient(uri, headers) {
-                    @Override
-                    public void onOpen(org.java_websocket.handshake.ServerHandshake handshakedata) {
-                        SwingUtilities.invokeLater(() -> statusLabel.setText("正在上传数据..."));
-                        startTransferWorker("k8s-file-upload-stream", () -> {
-                            try (java.io.FileInputStream fis = new java.io.FileInputStream(localFile)) {
-                                byte[] buffer = new byte[8192];
-                                int read;
-                                while ((read = fis.read(buffer)) != -1) {
-                                    byte[] frame = new byte[read + 1];
-                                    frame[0] = 0; // channel 0 (stdin)
-                                    System.arraycopy(buffer, 0, frame, 1, read);
-                                    send(frame);
-                                }
-                                Thread.sleep(800);
-                            } catch (Exception e) {
-                                stderr.append(e.getMessage());
-                            } finally {
-                                close();
-                            }
-                        });
-                    }
-
-                    @Override
-                    public void onMessage(String message) {}
-
-                    @Override
-                    public void onMessage(java.nio.ByteBuffer bytes) {
-                        if (bytes.remaining() > 0) {
-                            byte channel = bytes.get();
-                            byte[] data = new byte[bytes.remaining()];
-                            bytes.get(data);
-                            if (channel == 2 || channel == 3) { // stderr/error
-                                stderr.append(new String(data, StandardCharsets.UTF_8));
-                            }
-                        }
-                    }
-
-                    @Override
-                    public void onClose(int code, String reason, boolean remote) {
-                        latch.countDown();
-                    }
-
-                    @Override
-                    public void onError(Exception ex) {
-                        stderr.append(ex.getMessage());
-                        latch.countDown();
-                    }
-                };
-
-                applyTls(client);
-
-                registerTransferClient(client);
-                client.connect();
-                latch.await();
-
-                if (stderr.length() > 0) {
-                    errorMsg = stderr.toString();
-                } else {
-                    success = true;
-                }
-            } catch (Exception ex) {
-                errorMsg = ex.getMessage();
-            } finally {
-                if (client != null) {
-                    try { client.close(); } catch (Exception ignored) { Errors.ignored("关闭 K8s 客户端失败", ignored); }
-                    unregisterTransferClient(client);
-                }
-            }
-
-            final boolean finalSuccess = success;
-            final String finalError = errorMsg;
-            SwingUtilities.invokeLater(() -> {
-                progressDialog.dispose();
-                if (finalSuccess) {
-                    UIUtils.info(null, "文件上传成功！");
-                } else {
-                    UIUtils.error(null, "文件上传失败: " + finalError);
-                }
-            });
-        });
-
-        progressDialog.setVisible(true);
-    }
-
-    private void sendStdinToContainer(org.java_websocket.client.WebSocketClient client, String text) {
-        try {
-            byte[] data = text.getBytes(StandardCharsets.UTF_8);
-            byte[] frame = new byte[data.length + 1];
-            frame[0] = 0; 
-            System.arraycopy(data, 0, frame, 1, data.length);
-            client.send(frame);
-        } catch (Exception ex) {
-            // ignore
-        }
-    }
-
-
-
-    private void showTerminalDialog(String ns, String podName, String containerName) {
-        Window ancestor = SwingUtilities.getWindowAncestor(podTable);
-        JDialog dialog = new JDialog(ancestor instanceof Frame ? (Frame) ancestor : (Frame) null, "容器控制台 (Exec) - " + podName + " / " + containerName, true);
-        dialog.setSize(850, 520);
-        dialog.setLocationRelativeTo(ancestor);
-        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-        JLabel statusLabel = new JLabel("正在连接 API Server...");
-        statusLabel.setBorder(new javax.swing.border.EmptyBorder(6, 10, 6, 10));
-
-        java.util.concurrent.LinkedBlockingQueue<String> readQueue = new java.util.concurrent.LinkedBlockingQueue<>();
-        StringBuilder readBuffer = new StringBuilder();
-
-        String wsUrl = activeServerUrl;
-        if (wsUrl.startsWith("https://")) {
-            wsUrl = "wss://" + wsUrl.substring(8);
-        } else if (wsUrl.startsWith("http://")) {
-            wsUrl = "ws://" + wsUrl.substring(7);
-        }
-
-        org.java_websocket.client.WebSocketClient[] clientHolder = new org.java_websocket.client.WebSocketClient[1];
-
-        TtyConnector connector = new TtyConnector() {
-            private boolean closed = false;
-
-            @Override
-            public String getName() {
-                return "K8s Container Terminal";
-            }
-
-            @Override
-            public boolean init(com.jediterm.terminal.Questioner q) {
-                return true;
-            }
-
-            @Override
-            public void write(byte[] bytes) throws IOException {
-                org.java_websocket.client.WebSocketClient client = clientHolder[0];
-                if (bytes != null && bytes.length > 0 && client != null && client.isOpen()) {
-                    try {
-                        byte[] frame = new byte[bytes.length + 1];
-                        frame[0] = 0; // channel 0 (stdin)
-                        System.arraycopy(bytes, 0, frame, 1, bytes.length);
-                        client.send(frame);
-                    } catch (Exception e) {
-                        // ignore
-                    }
-                }
-            }
-
-            @Override
-            public void write(String s) throws IOException {
-                if (s != null) {
-                    write(s.getBytes(StandardCharsets.UTF_8));
-                }
-            }
-
-            @Override
-            public int read(char[] buf, int offset, int len) throws IOException {
-                if (len <= 0) return 0;
-                synchronized (readBuffer) {
-                    while (readBuffer.length() == 0) {
-                        if (closed) return -1;
-                        try {
-                            String s = readQueue.take();
-                            if (closed) return -1;
-                            readBuffer.append(s);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            return -1;
-                        }
-                    }
-                    int count = Math.min(len, readBuffer.length());
-                    readBuffer.getChars(0, count, buf, offset);
-                    readBuffer.delete(0, count);
-                    return count;
-                }
-            }
-
-            @Override
-            public void close() {
-                closed = true;
-                try {
-                    if (clientHolder[0] != null) {
-                        clientHolder[0].close();
-                    }
-                } catch (Exception e) {
-                    Errors.ignored("关闭 K8s Exec 客户端失败", e);
-                }
-                readQueue.offer(""); // Unblock read thread if any
-            }
-
-            @Override
-            public void resize(Dimension winSize) {
-                org.java_websocket.client.WebSocketClient client = clientHolder[0];
-                if (client != null && client.isOpen()) {
-                    try {
-                        String resizeJson = String.format("{\"Width\":%d,\"Height\":%d}", winSize.width, winSize.height);
-                        byte[] data = resizeJson.getBytes(StandardCharsets.UTF_8);
-                        byte[] frame = new byte[data.length + 1];
-                        frame[0] = 4; // channel 4 (resize)
-                        System.arraycopy(data, 0, frame, 1, data.length);
-                        client.send(frame);
-                    } catch (Exception e) {
-                        // ignore
-                    }
-                }
-            }
-
-            @Override
-            public void resize(Dimension winSize, Dimension pixelSize) {
-                resize(winSize);
-            }
-
-            @Override
-            public void resize(com.jediterm.core.util.TermSize termSize) {
-                if (termSize != null) {
-                    resize(new Dimension(termSize.getColumns(), termSize.getRows()));
-                }
-            }
-
-            @Override
-            public int waitFor() throws InterruptedException {
-                return 0;
-            }
-
-            @Override
-            public boolean isConnected() {
-                return !closed;
-            }
-
-            @Override
-            public boolean ready() {
-                return !closed;
-            }
-        };
-
-        DefaultSettingsProvider settingsProvider = new DefaultSettingsProvider() {
-            @Override
-            public Font getTerminalFont() {
-                return new Font("Monospaced", Font.PLAIN, 14);
-            }
-
-            @Override
-            public float getTerminalFontSize() {
-                return 14.0f;
-            }
-
-            @Override
-            public com.jediterm.terminal.HyperlinkStyle.HighlightMode getHyperlinkHighlightingMode() {
-                return com.jediterm.terminal.HyperlinkStyle.HighlightMode.NEVER;
-            }
-        };
-
-        JediTermWidget terminalWidget = new JediTermWidget(settingsProvider);
-        terminalWidget.createTerminalSession(connector);
-        terminalWidget.start();
-
-        dialog.add(statusLabel, BorderLayout.NORTH);
-        dialog.add(terminalWidget, BorderLayout.CENTER);
-
-        try {
-            String fullPath = wsUrl + "/api/v1/namespaces/" + ns + "/pods/" + podName + "/exec"
-                    + "?container=" + containerName
-                    + "&stdin=true&stdout=true&stderr=true&tty=true" 
-                    + "&command=sh"
-                    + "&command=-c"
-                    + "&command=export%20LANG%3DC.UTF-8%20%7C%7C%20export%20LANG%3Den_US.UTF-8%3B%20if%20%5B%20-x%20%2Fbin%2Fbash%20%5D%20%7C%7C%20which%20bash%20%3E%2Fdev%2Fnull%202%3E%261%3B%20then%20exec%20bash%3B%20else%20exec%20sh%3B%20fi"; 
-
-            java.net.URI uri = new java.net.URI(fullPath);
-            
-            Map<String, String> headers = new HashMap<>();
-            if (activeToken != null && !activeToken.isEmpty()) {
-                headers.put("Authorization", "Bearer " + activeToken);
-            }
-            headers.put("Sec-WebSocket-Protocol", "v4.channel.k8s.io");
-
-            org.java_websocket.client.WebSocketClient client = new org.java_websocket.client.WebSocketClient(uri, headers) {
-                @Override
-                public void onOpen(org.java_websocket.handshake.ServerHandshake handshakedata) {
-                    SwingUtilities.invokeLater(() -> {
-                        statusLabel.setText("连接成功 (容器: " + containerName + ")");
-                        javax.swing.JComponent pref = terminalWidget.getPreferredFocusableComponent();
-                        if (pref != null) {
-                            pref.requestFocusInWindow();
-                            pref.requestFocus();
-                        } else {
-                            terminalWidget.requestFocusInWindow();
-                        }
-                    });
-                }
-
-                @Override
-                public void onMessage(String message) {
-                    if (message != null) {
-                        readQueue.offer(message);
-                    }
-                }
-
-                @Override
-                public void onMessage(java.nio.ByteBuffer bytes) {
-                    if (bytes.remaining() > 0) {
-                        byte channel = bytes.get(); 
-                        if (channel == 1 || channel == 2) {
-                            byte[] data = new byte[bytes.remaining()];
-                            bytes.get(data);
-                            String text = new String(data, StandardCharsets.UTF_8);
-                            readQueue.offer(text);
-                        } else if (channel == 3) {
-                            byte[] data = new byte[bytes.remaining()];
-                            bytes.get(data);
-                            String err = new String(data, StandardCharsets.UTF_8);
-                            if (err != null && !err.trim().startsWith("{")) {
-                                readQueue.offer("\n[K8s 错误]: " + err + "\n");
-                            }
-                        }
-                    }
-                }
-
-                @Override
-                public void onClose(int code, String reason, boolean remote) {
-                    SwingUtilities.invokeLater(() -> {
-                        statusLabel.setText("连接已断开 (" + reason + ")");
-                        readQueue.offer("\n=== 连接已断开 ===\n");
-                        javax.swing.Timer timer = new javax.swing.Timer(1500, e -> dialog.dispose());
-                        timer.setRepeats(false);
-                        timer.start();
-                    });
-                }
-
-                @Override
-                public void onError(Exception ex) {
-                    SwingUtilities.invokeLater(() -> {
-                        readQueue.offer("\n[连接异常]: " + ex.getMessage() + "\n");
-                    });
-                }
-            };
-
-            clientHolder[0] = client;
-
-            applyTls(client);
-
-            dialog.addWindowListener(new java.awt.event.WindowAdapter() {
-                @Override
-                public void windowClosed(java.awt.event.WindowEvent e) {
-                    connector.close();
-                    terminalWidget.stop();
-                }
-            });
-
-            client.connect();
-
-        } catch (Exception ex) {
-            UIUtils.error(null, "建立控制台连接失败: " + ex.getMessage());
-            dialog.dispose();
-            return;
-        }
-
-        dialog.setVisible(true);
+        K8sPodOperations.pickContainer(getView(), this, ns, name,
+                container -> K8sPodFileTransfer.upload(getView(), this, ns, name, container));
     }
 
     private void viewPodLogs() {
@@ -1744,280 +987,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
         }
         String ns = podTable.getValueAt(row, 0).toString();
         String name = podTable.getValueAt(row, 1).toString();
-
-        // We need to retrieve container names for this pod
-        new SwingWorker<List<String>, Void>() {
-            @Override
-            protected List<String> doInBackground() throws Exception {
-                String path = "/api/v1/namespaces/" + ns + "/pods/" + name;
-                String resp = executeRequest("GET", path, null, activeSkipTls);
-                JsonNode root = mapper.readTree(resp);
-                List<String> list = new ArrayList<>();
-                JsonNode specs = root.path("spec").path("containers");
-                if (specs.isArray()) {
-                    for (JsonNode c : specs) {
-                        list.add(c.path("name").asText());
-                    }
-                }
-                return list;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    List<String> containers = get();
-                    if (containers.isEmpty()) {
-                        UIUtils.error(null, "找不到容器配置！");
-                        return;
-                    }
-                    showLogDialog(ns, name, containers);
-                } catch (Exception ex) {
-                    UIUtils.error(null, "加载 Pod 详情失败: " + ex.getMessage());
-                }
-            }
-        }.execute();
-    }
-
-    private void showLogDialog(String ns, String podName, List<String> containers) {
-        JDialog dialog = new JDialog((Frame) null, "Pod 日志: " + podName, false);
-        dialog.setSize(800, 550);
-        dialog.setLocationRelativeTo(null);
-
-        // 容器选择、追踪开关与加载动作是同一条工具栏，窄窗口下按钮不换行、下拉不被拉宽
-        ActionBar top = new ActionBar();
-        JComboBox<String> containerCombo = Fields.combo(new String[0], 200);
-        for (String c : containers) {
-            containerCombo.addItem(c);
-        }
-        top.left(Fields.label("选择容器 (Container)"));
-        top.left(containerCombo);
-
-        JCheckBox followCheck = Fields.check("追踪更新 (Follow)", false);
-        top.left(followCheck);
-
-        JButton loadMoreBtn = Buttons.secondary("加载前500行");
-        loadMoreBtn.setEnabled(false);
-        top.left(loadMoreBtn);
-
-        JTextArea area = new JTextArea();
-        area.setEditable(false);
-        JScrollPane sp = UIUtils.scrollText(area, "日志输出");
-
-        final int[] currentTailLines = {1000};
-        final HttpURLConnection[] activeConn = new HttpURLConnection[1];
-        final Thread[] activeThread = new Thread[1];
-
-        JScrollBar verticalBar = sp.getVerticalScrollBar();
-        verticalBar.addAdjustmentListener(e -> {
-            boolean atTop = (verticalBar.getValue() == 0 && area.getDocument().getLength() > 0);
-            loadMoreBtn.setEnabled(atTop && !followCheck.isSelected());
-        });
-
-        Runnable stopFollowing = () -> {
-            final Thread t = activeThread[0];
-            final HttpURLConnection conn = activeConn[0];
-            activeThread[0] = null;
-            activeConn[0] = null;
-
-            if (t != null || conn != null) {
-                new Thread(() -> {
-                    if (t != null) {
-                        t.interrupt();
-                    }
-                    if (conn != null) {
-                        try {
-                            conn.disconnect();
-                        } catch (Exception ex) {
-                            Errors.ignored("断开 K8s Exec WebSocket 失败，连接已废弃", ex);
-                        }
-                    }
-                }).start();
-            }
-        };
-
-        Runnable startFollowing = () -> {
-            String c = (String) containerCombo.getSelectedItem();
-            if (c == null) return;
-            area.setText("正在开启追踪日志...\n");
-            Thread t = new Thread(() -> {
-                HttpURLConnection conn = null;
-                try {
-                    String path = "/api/v1/namespaces/" + ns + "/pods/" + podName + "/log?container=" + c + "&follow=true&tailLines=200";
-                    URL url = new URL(activeServerUrl.replaceAll("/+$", "") + path);
-                    conn = (HttpURLConnection) url.openConnection();
-                    conn.setConnectTimeout(6000);
-                    conn.setReadTimeout(0); // Infinite read timeout
-                    conn.setRequestMethod("GET");
-                    if (activeToken != null && !activeToken.trim().isEmpty()) {
-                        conn.setRequestProperty("Authorization", "Bearer " + activeToken);
-                    }
-                    conn.setRequestProperty("Accept", "application/json");
-
-                    if (conn instanceof HttpsURLConnection) {
-                        applyTls((HttpsURLConnection) conn);
-                    }
-
-                    activeConn[0] = conn;
-                    int code = conn.getResponseCode();
-                    if (code >= 200 && code < 300) {
-                        SwingUtilities.invokeLater(() -> area.setText(""));
-                        try (InputStream is = conn.getInputStream();
-                             java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is, StandardCharsets.UTF_8))) {
-                            String line;
-                            while (!Thread.currentThread().isInterrupted() && (line = reader.readLine()) != null) {
-                                final String finalLine = line;
-                                SwingUtilities.invokeLater(() -> {
-                                    area.append(finalLine + "\n");
-                                    area.setCaretPosition(area.getDocument().getLength());
-                                });
-                            }
-                        }
-                    } else {
-                        try (InputStream es = conn.getErrorStream();
-                             ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-                            String err = "";
-                            if (es != null) {
-                                byte[] buf = new byte[4096];
-                                int len;
-                                while ((len = es.read(buf)) != -1) {
-                                    bos.write(buf, 0, len);
-                                }
-                                err = bos.toString("UTF-8");
-                            }
-                            final String errMsg = "HTTP " + code + (err.isEmpty() ? "" : ": " + err);
-                            SwingUtilities.invokeLater(() -> area.setText("无法追踪日志: " + errMsg));
-                        }
-                    }
-                } catch (Exception ex) {
-                    if (!Thread.currentThread().isInterrupted()) {
-                        SwingUtilities.invokeLater(() -> area.append("\n[追踪日志断开]: " + ex.getMessage() + "\n"));
-                    }
-                } finally {
-                    if (conn != null) {
-                        conn.disconnect();
-                    }
-                }
-            });
-            activeThread[0] = t;
-            t.setDaemon(true);
-            t.start();
-        };
-
-        Runnable logFetcher = () -> {
-            String c = (String) containerCombo.getSelectedItem();
-            if (c == null) return;
-            
-            stopFollowing.run();
-            if (followCheck.isSelected()) {
-                startFollowing.run();
-            } else {
-                area.setText("正在加载日志，请稍候...");
-                new SwingWorker<String, Void>() {
-                    @Override
-                    protected String doInBackground() throws Exception {
-                        String path = "/api/v1/namespaces/" + ns + "/pods/" + podName + "/log?container=" + c + "&tailLines=" + currentTailLines[0];
-                        return executeRequest("GET", path, null, activeSkipTls);
-                    }
-
-                    @Override
-                    protected void done() {
-                        try {
-                            area.setText(get());
-                        } catch (Exception ex) {
-                            area.setText("加载日志失败: " + ex.getMessage());
-                        }
-                    }
-                }.execute();
-            }
-        };
-
-        loadMoreBtn.addActionListener(e -> {
-            String c = (String) containerCombo.getSelectedItem();
-            if (c == null) return;
-
-            loadMoreBtn.setEnabled(false);
-            currentTailLines[0] += 500;
-            area.insert("正在加载历史日志...\n", 0);
-
-            new SwingWorker<String, Void>() {
-                @Override
-                protected String doInBackground() throws Exception {
-                    String path = "/api/v1/namespaces/" + ns + "/pods/" + podName + "/log?container=" + c + "&tailLines=" + currentTailLines[0];
-                    return executeRequest("GET", path, null, activeSkipTls);
-                }
-
-                @Override
-                protected void done() {
-                    try {
-                        String logs = get();
-                        int oldLineCount = area.getLineCount();
-                        area.setText(logs);
-                        int newLineCount = area.getLineCount();
-                        int addedLines = newLineCount - oldLineCount;
-                        if (addedLines > 0) {
-                            try {
-                                int offset = area.getLineStartOffset(addedLines);
-                                area.setCaretPosition(offset);
-                            } catch (Exception ignored) {
-                                Errors.ignored("滚动日志视图到新增行失败，不影响日志内容", ignored);
-                            }
-                        }
-                    } catch (Exception ex) {
-                        UIUtils.error(dialog, "加载更多日志失败: " + ex.getMessage());
-                    }
-                }
-            }.execute();
-        });
-
-        containerCombo.addActionListener(e -> {
-            currentTailLines[0] = 1000;
-            logFetcher.run();
-        });
-        followCheck.addActionListener(e -> {
-            currentTailLines[0] = 1000;
-            logFetcher.run();
-        });
-
-        JButton refreshBtn = Buttons.secondary("刷新日志");
-        refreshBtn.addActionListener(e -> {
-            currentTailLines[0] = 1000;
-            logFetcher.run();
-        });
-        top.left(refreshBtn);
-
-        JButton copyBtn = Buttons.secondary("复制日志");
-        copyBtn.addActionListener(e -> {
-            UIUtils.copyToClipboard(area.getText());
-            UIUtils.info(dialog, "日志已复制！");
-        });
-        JButton closeBtn = Buttons.ghost("关闭");
-        closeBtn.addActionListener(e -> dialog.dispose());
-        ActionBar bottom = new ActionBar();
-        bottom.right(copyBtn);
-        bottom.right(closeBtn);
-
-        // 日志区放 CENTER 吃掉全部剩余高度，工具栏与动作行只占各自首选高度
-        JPanel content = Layouts.page();
-        content.add(top, BorderLayout.NORTH);
-        content.add(sp, BorderLayout.CENTER);
-        content.add(bottom, BorderLayout.SOUTH);
-        dialog.setContentPane(content);
-
-        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override
-            public void windowClosing(java.awt.event.WindowEvent e) {
-                stopFollowing.run();
-            }
-            @Override
-            public void windowClosed(java.awt.event.WindowEvent e) {
-                stopFollowing.run();
-            }
-        });
-
-        // Fetch logs initially
-        logFetcher.run();
-
-        dialog.setVisible(true);
+        K8sLogViewer.open(getView(), this, ns, name);
     }
 
     private void scaleDeployment(String resourceType, JTable table) {
@@ -2309,28 +1279,6 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
      * rebuilding it here would only happen for a console opened outside that
      * flow, and it still reflects the user's current verification choice.</p>
      */
-    private void applyTls(org.java_websocket.client.WebSocketClient client) {
-        if (!activeServerUrl.startsWith("https://")) {
-            return;
-        }
-        javax.net.ssl.SSLSocketFactory factory = activeSocketFactory;
-        if (factory == null) {
-            factory = KubernetesTls.socketFactory(
-                    activeSkipTls, activeCaCert, activeClientCert, activeClientKey);
-        }
-        client.setSocketFactory(factory);
-    }
-
-    /** Applies the active cluster's TLS material to an HTTPS connection. */
-    private void applyTls(HttpsURLConnection connection) {
-        if (activeSocketFactory != null) {
-            connection.setSSLSocketFactory(activeSocketFactory);
-        }
-        if (activeHostnameVerifier != null) {
-            connection.setHostnameVerifier(activeHostnameVerifier);
-        }
-    }
-
     private String executeRequest(String method, String apiPath, String body, boolean skipTls) throws Exception {
         KubernetesService service = kubernetesService;
         if (service == null || !service.isOpen()) {
@@ -2348,131 +1296,71 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner {
     /** Releases the HTTP transport used by all non-streaming cluster actions. */
     @Override
     public void closeResources() {
-        cancelTransferWorkers();
+        transfers.cancelAll();
         closeKubernetesService();
         activeSocketFactory = null;
     }
 
-    private void startTransferWorker(String name, Runnable action) {
-        Thread worker = new Thread(() -> {
-            try {
-                action.run();
-            } finally {
-                activeTransferThreads.remove(Thread.currentThread());
-            }
-        }, name);
-        worker.setDaemon(true);
-        activeTransferThreads.add(worker);
-        worker.start();
+    // ===== K8sClusterContext：供拆出的子对话框读取当前连接参数 =====
+
+    @Override
+    public String serverUrl() {
+        return activeServerUrl;
     }
 
-    private void registerTransferClient(org.java_websocket.client.WebSocketClient client) {
-        if (client != null) activeTransferClients.add(client);
+    @Override
+    public String token() {
+        return activeToken;
     }
 
-    private void unregisterTransferClient(org.java_websocket.client.WebSocketClient client) {
-        if (client != null) activeTransferClients.remove(client);
+    @Override
+    public boolean skipTls() {
+        return activeSkipTls;
     }
 
-    /** Cancels transfer sockets before interrupting their waits and stream workers. */
-    private void cancelTransferWorkers() {
-        for (org.java_websocket.client.WebSocketClient client : activeTransferClients.toArray(
-                new org.java_websocket.client.WebSocketClient[0])) {
-            try {
-                client.close();
-            } catch (Exception ignored) {
-            }
+    @Override
+    public String caCert() {
+        return activeCaCert;
+    }
+
+    @Override
+    public String clientCert() {
+        return activeClientCert;
+    }
+
+    @Override
+    public String clientKey() {
+        return activeClientKey;
+    }
+
+    /**
+     * 返回当前连接的 TLS 套接字工厂。
+     *
+     * <p>连接成功后由 {@link #connectCluster()} 缓存；若尚未建立（例如控制台在连接流程之外打开），
+     * 按当前 TLS 选项惰性构建，保证 https 端点总能拿到非空工厂。</p>
+     */
+    @Override
+    public javax.net.ssl.SSLSocketFactory socketFactory() {
+        if (activeSocketFactory == null && activeServerUrl.startsWith("https://")) {
+            activeSocketFactory = KubernetesTls.socketFactory(
+                    activeSkipTls, activeCaCert, activeClientCert, activeClientKey);
         }
-        activeTransferClients.clear();
-        for (Thread worker : activeTransferThreads.toArray(new Thread[0])) {
-            worker.interrupt();
-        }
+        return activeSocketFactory;
     }
 
-    static class YamlFolderNode {
-        String openText;
-        String closeText;
-
-        YamlFolderNode(String openText, String closeText) {
-            this.openText = openText;
-            this.closeText = closeText;
-        }
-
-        @Override
-        public String toString() {
-            return openText;
-        }
+    @Override
+    public javax.net.ssl.HostnameVerifier hostnameVerifier() {
+        return activeHostnameVerifier;
     }
 
-    private static final String[] BRACKET_COLORS = {
-            "#C768DB", "#2D9CDB", "#F2C94C", "#6FCF97"
-    };
-
-    private javax.swing.tree.DefaultMutableTreeNode convertJsonNodeToTreeNode(JsonNode node, String keyName, int depth, boolean isLast) {
-        String keyHtml = keyName.isEmpty() ? "" : "<span style='color:#e06c75'>\"" + keyName + "\"</span>: ";
-        String comma = isLast ? "" : "<span style='color:#abb2bf'>,</span>";
-        String color = BRACKET_COLORS[depth % BRACKET_COLORS.length];
-
-        if (node.isObject()) {
-            String open = "<html>" + keyHtml + "<span style='color:" + color + "'><b>{</b></span></html>";
-            String close = "<html>" + keyHtml + "<span style='color:" + color + "'><b>{ ... }</b></span>" + comma + "</html>";
-            
-            javax.swing.tree.DefaultMutableTreeNode container = new javax.swing.tree.DefaultMutableTreeNode(new YamlFolderNode(open, close));
-            
-            java.util.Iterator<java.util.Map.Entry<String, JsonNode>> fields = node.fields();
-            java.util.List<java.util.Map.Entry<String, JsonNode>> list = new java.util.ArrayList<>();
-            while (fields.hasNext()) {
-                list.add(fields.next());
-            }
-            
-            for (int i = 0; i < list.size(); i++) {
-                java.util.Map.Entry<String, JsonNode> field = list.get(i);
-                boolean lastField = (i == list.size() - 1);
-                container.add(convertJsonNodeToTreeNode(field.getValue(), field.getKey(), depth + 1, lastField));
-            }
-            
-            String endText = "<html><span style='color:" + color + "'><b>}</b></span>" + comma + "</html>";
-            container.add(new javax.swing.tree.DefaultMutableTreeNode(new YamlFolderNode(endText, endText)));
-            return container;
-            
-        } else if (node.isArray()) {
-            String open = "<html>" + keyHtml + "<span style='color:" + color + "'><b>[</b></span></html>";
-            String close = "<html>" + keyHtml + "<span style='color:" + color + "'><b>[ ... ]</b></span>" + comma + "</html>";
-            
-            javax.swing.tree.DefaultMutableTreeNode container = new javax.swing.tree.DefaultMutableTreeNode(new YamlFolderNode(open, close));
-            
-            for (int i = 0; i < node.size(); i++) {
-                boolean lastField = (i == node.size() - 1);
-                container.add(convertJsonNodeToTreeNode(node.get(i), "", depth + 1, lastField));
-            }
-            
-            String endText = "<html><span style='color:" + color + "'><b>]</b></span>" + comma + "</html>";
-            container.add(new javax.swing.tree.DefaultMutableTreeNode(new YamlFolderNode(endText, endText)));
-            return container;
-        } else {
-            String valHtml = "";
-            if (node.isTextual()) {
-                valHtml = "<span style='color:#98c311'>\"" + escapeHtmlForTree(node.asText()) + "\"</span>";
-            } else if (node.isNumber()) {
-                valHtml = "<span style='color:#d19a66'>" + node.toString() + "</span>";
-            } else if (node.isBoolean()) {
-                valHtml = "<span style='color:#d19a66'><b>" + node.toString() + "</b></span>";
-            } else {
-                valHtml = "<span style='color:#abb2bf'>null</span>";
-            }
-            
-            String text = "<html>" + keyHtml + valHtml + comma + "</html>";
-            return new javax.swing.tree.DefaultMutableTreeNode(new YamlFolderNode(text, text));
-        }
+    @Override
+    public String request(String method, String apiPath, String body) throws Exception {
+        return executeRequest(method, apiPath, body, activeSkipTls);
     }
 
-    private String escapeHtmlForTree(String text) {
-        if (text == null) return "";
-        return text.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&apos;");
+    @Override
+    public TransferRegistry transfers() {
+        return transfers;
     }
 
     private void showApplyYamlDialog() {

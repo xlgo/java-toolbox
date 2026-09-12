@@ -1,8 +1,9 @@
-package com.aqishi.toolbox.feature.codec.domain;
+package com.aqishi.toolbox.util;
 
 /**
  * 轻量 JSON 美化/压缩器（无第三方依赖）。
  * <p>基于字符状态机：正确处理字符串内的引号转义，避免误判。</p>
+ * <p>由 codec、security、network 多个 feature 共享，故归属 util 而非某个 feature。</p>
  */
 public final class JsonFormatter {
 

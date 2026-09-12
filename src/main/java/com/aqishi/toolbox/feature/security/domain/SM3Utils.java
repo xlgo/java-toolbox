@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.security.domain;
 
+import com.aqishi.toolbox.util.Hex;
 import org.bouncycastle.crypto.digests.SM3Digest;
 
 import java.nio.charset.StandardCharsets;
@@ -26,7 +27,7 @@ public final class SM3Utils {
         digest.update(input, 0, input.length);
         byte[] result = new byte[digest.getDigestSize()];
         digest.doFinal(result, 0);
-        return bytesToHex(result);
+        return Hex.toHex(result);
     }
 
     /**
@@ -40,7 +41,7 @@ public final class SM3Utils {
         digest.update(data, 0, data.length);
         byte[] result = new byte[digest.getDigestSize()];
         digest.doFinal(result, 0);
-        return bytesToHex(result);
+        return Hex.toHex(result);
     }
 
     /**
@@ -110,14 +111,6 @@ public final class SM3Utils {
         System.arraycopy(opad, 0, outerData, 0, blockSize);
         System.arraycopy(innerHash, 0, outerData, blockSize, innerHash.length);
 
-        return bytesToHex(hashBytes(outerData));
-    }
-
-    private static String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02x", b & 0xff));
-        }
-        return sb.toString();
+        return Hex.toHex(hashBytes(outerData));
     }
 }

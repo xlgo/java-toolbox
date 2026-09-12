@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.data.domain;
 
 import com.aqishi.toolbox.util.Errors;
+import com.aqishi.toolbox.util.Hex;
 import com.aqishi.toolbox.util.Json;
 
 import java.nio.charset.StandardCharsets;
@@ -77,11 +78,13 @@ public final class KafkaMessageFormat {
         }
         StringBuilder sb = new StringBuilder();
         int len = bytes.length;
+        String allHex = Hex.toHexUpper(bytes);
         for (int i = 0; i < len; i += 16) {
             sb.append(String.format("%08X  ", i));
             for (int j = 0; j < 16; j++) {
                 if (i + j < len) {
-                    sb.append(String.format("%02X ", bytes[i + j] & 0xFF));
+                    int h = (i + j) * 2;
+                    sb.append(allHex, h, h + 2).append(' ');
                 } else {
                     sb.append("   ");
                 }

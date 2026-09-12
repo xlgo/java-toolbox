@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.security.domain;
 
+import com.aqishi.toolbox.util.Hex;
+
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
@@ -24,8 +26,6 @@ public final class SymmetricUtils {
     private static final int GCM_IV_LENGTH = 12;
     /** 认证标签长度（位），128 位是 GCM 的标准强度。 */
     private static final int GCM_TAG_BITS = 128;
-
-    private static final char[] HEX = "0123456789abcdef".toCharArray();
 
     private static volatile String providerInitError;
 
@@ -235,13 +235,7 @@ public final class SymmetricUtils {
     }
 
     public static String bytesToHex(byte[] bytes) {
-        char[] out = new char[bytes.length * 2];
-        for (int i = 0; i < bytes.length; i++) {
-            int value = bytes[i] & 0xff;
-            out[i * 2] = HEX[value >>> 4];
-            out[i * 2 + 1] = HEX[value & 0x0f];
-        }
-        return new String(out);
+        return Hex.toHex(bytes);
     }
 
     public static byte[] hexToBytes(String hexString) {

@@ -30,8 +30,8 @@
 | 计算 | 科学计算器 | 表达式求值（Nashorn 优先，回退自实现双栈求值器） |
 | 计算 | 统计计算 | 均值/中位数/方差/标准差/极差 |
 | 计算 | Linux 权限计算器 | 提供图形化 r/w/x 与 Special 位矩阵勾选，实时双向计算八进制/符号表示与 chmod 命令 |
-| 格式化 | JSON 格式化 | 无依赖 JSON 美化/压缩/树形折叠预览，支持彩虹括号语法高亮 |
-| 格式化 | XML 格式化 | 无依赖 XML 美化/压缩/树形折叠预览，支持标签属性语法着色与语法错误校验 |
+| 格式化 | JSON 格式化 | JSON 美化 / 压缩 / 树形折叠预览，支持彩虹括号语法高亮 |
+| 格式化 | XML 格式化 | XML 美化 / 压缩 / 树形折叠预览，支持标签属性语法着色与语法错误校验 |
 | 格式化 | SQL 格式化 | 对常见 SQL 关键字大写美化、换行与缩进优化 |
 | 开发工具 | 正则测试 | 实时匹配高亮、分组捕获、匹配计数 |
 | 开发工具 | JWT 编解码 | 支持 Header/Payload 实时解析与过期状态提示，支持 HS256 签名生成与 Token 构造 |
@@ -56,13 +56,17 @@
 | 生成 | 账号密码管理 | 与 TOTP 共用安全保险库和主密码，支持检索、增删改、隐藏与安全复制 |
 | 生成 | 动态验证码 (TOTP) | 与密码管理共用锁定会话，支持密钥/链接导入、自适应账号展示与安全复制 |
 | 生成 | 随机测试数据生成 | 批量生成模拟测试数据，包含百家姓姓名、手机号、电子邮箱、地址、身份证号与银行卡号 |
+| 运维 | SSH 客户端 | 服务器连接管理与分组树展示，支持多会话交互终端与 SFTP 文件传输 |
 | 运维 | 数据库管理 | 多数据库管理客户端（支持 MySQL / PostgreSQL / Oracle / SQLite / H2 等），数据库树形浏览、SQL 执行与结果导出 |
 | 运维 | Hosts 环境管理 | 系统 Hosts 文件管理，支持多套 Dev/QA/Staging 环境规则定义、一键开关应用与 DNS 缓存刷新 |
 | 运维 | WebSocket 测试 | WebSocket / 长连接测试客户端，支持 ws/wss 握手请求头配置、消息收发与定时心跳包保活 |
+| 运维 | ZooKeeper 管理 | ZooKeeper 节点树浏览与数据编辑，支持创建 / 删除节点，可选经由 SSH 本地端口转发连接内网集群 |
+| 运维 | Kafka 管理 | 管理 Kafka 集群，浏览主题与消费组，查看 Lag 详情，消息拉取/发布，以及**实时查看主题的订阅消费组与活跃成员分区分配** |
+| 运维 | MQTT 客户端 | MQTT v3.1 / v3.1.1 客户端测试，broker 连接、主题订阅 / 发布与实时消息收发 |
+| 运维 | 端口扫描 | 端口扫描与网络连通性诊断，支持预设端口组（Web / DB / 运维）、自定义范围、并发扫描与已知服务识别 |
+| 运维 | K8s 集群管理 | 多集群管理，Kubeconfig 导入与 Namespace 切换，浏览 Pod/Deployment/Service/ConfigMap/Node，日志追踪，Exec 容器终端，以及**容器文件上传与下载** |
 | 监控 | 视频监控 | 视频监控面板，支持多路画面分屏布局、格子合并拆分与设备树管理 |
 | 监控 | 远程桌面 | 纯 P2P 远程控制桌面，优先采用 ice4j 完整 ICE 状态机进行 UDP 双向打洞（多 STUN、triggered check、peer-reflexive candidate、角色冲突处理与候选对提名），失败后尝试带 UPnP/NAT-PMP 的 TCP 直连；不配置 TURN，信令服务器不转发桌面数据 |
-| 运维 | Kafka 管理 | 管理 Kafka 集群，浏览主题与消费组，查看 Lag 详情，消息拉取/发布，以及**实时查看主题的订阅消费组与活跃成员分区分配** |
-| 运维 | K8s 集群管理 | 多集群管理，Kubeconfig 导入与 Namespace 切换，浏览 Pod/Deployment/Service/ConfigMap/Node，日志追踪，Exec 容器终端，以及**容器文件上传与下载** |
 | 其它 | 微信群发与通讯录 | 微信群发，以及自适应读取微信 SQLite 通讯录（展示昵称、备注、微信号、头像，支持 Excel 导出、一键追加群发、头像批量下载） |
 | 其它 | 微信导出工具脚本 | `tools/wechat_export.py`：基于 Windows UIAutomation 的微信 UI 自动化导出工具，附带可视化悬浮控制面板（暂停/继续/停止）、自动重试与坐标防失焦校验 |
 
@@ -153,16 +157,21 @@ src/main/java/com/aqishi/toolbox/
 ├── Main.java                         # 启动入口
 ├── catalog/                          # 稳定工具 ID、分类、描述与工厂注册表
 │   ├── ToolCatalog.java
+│   ├── ToolCategory.java
 │   ├── ToolDescriptor.java
 │   ├── ToolRegistry.java
 │   └── ToolboxContext.java
 ├── ui/                               # Swing 壳层、导航和共享组件
 │   ├── MainFrame.java
 │   ├── ToolPanel.java
+│   ├── ThemeManager.java             # FlatLaf 主题与全局外观默认值
 │   ├── ToolNavigationModel.java
 │   ├── ToolNavigationState.java
 │   ├── ToolSidebar.java
-│   └── ToolContentHost.java
+│   ├── ToolContentHost.java
+│   ├── VaultAccessPanel.java         # 保险库解锁与设置入口
+│   ├── VaultSettingsDialog.java
+│   └── kit/                          # 共享装配组件（Tokens、Layouts、Card 等）
 ├── feature/                          # 按功能领域组织的 UI、应用服务和领域模型
 │   ├── security/                     # 加密、证书、账号密码和 TOTP
 │   ├── codec/                        # 编码、格式、文本和时间转换
@@ -176,7 +185,9 @@ src/main/java/com/aqishi/toolbox/
 │   └── monitor/                      # 视频监控、远程桌面与传输实现
 ├── domain/                            # 跨 feature/infra 共享的无依赖模型
 ├── infra/                            # 外部连接、配置持久化和生命周期适配器
-│   ├── config/                        # JSON 偏好设置与配置存储
+│   ├── ManagedResource*.java         # 统一资源生命周期接口（含 InfrastructureException）
+│   ├── concurrency/                  # 具名守护线程池工具
+│   ├── config/                       # JSON 偏好设置与配置存储
 │   ├── database/                     # JDBC 连接与数据库配置存储
 │   ├── kubernetes/                   # Kubernetes REST 与 kubeconfig
 │   ├── kafka/                        # Kafka 管理客户端工厂
@@ -185,7 +196,7 @@ src/main/java/com/aqishi/toolbox/
 │   ├── network/                      # HTTP/WebSocket 资源生命周期
 │   └── ssh/                          # JSch 会话生命周期
 ├── vault/                            # 加密保险库、迁移和剪贴板策略
-└── util/                             # 国际化、配置和 UI 辅助
+└── util/                             # 国际化、日志、JSON、格式化与 UI 辅助
 
 tools/wechat_export.py                # 唯一维护的微信 UIAutomation 脚本源
 ```

@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.security.domain;
 
+import com.aqishi.toolbox.util.Hex;
 import org.bouncycastle.crypto.digests.SM3Digest;
 
 import java.io.*;
@@ -91,12 +92,12 @@ public class BatchDigestService {
 
             for (Map.Entry<String, MessageDigest> entry : mdMap.entrySet()) {
                 byte[] digestBytes = entry.getValue().digest();
-                result.getHashes().put(entry.getKey(), bytesToHex(digestBytes));
+                result.getHashes().put(entry.getKey(), Hex.toHex(digestBytes));
             }
             if (sm3 != null) {
                 byte[] sm3Bytes = new byte[sm3.getDigestSize()];
                 sm3.doFinal(sm3Bytes, 0);
-                result.getHashes().put("SM3", bytesToHex(sm3Bytes));
+                result.getHashes().put("SM3", Hex.toHex(sm3Bytes));
             }
 
             result.setSuccess(true);
@@ -234,13 +235,5 @@ public class BatchDigestService {
             }
         }
         return sig.verify(signatureBytes);
-    }
-
-    private static String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) {
-            sb.append(String.format("%02x", b & 0xff));
-        }
-        return sb.toString();
     }
 }

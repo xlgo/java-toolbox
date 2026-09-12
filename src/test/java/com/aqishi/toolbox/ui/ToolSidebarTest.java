@@ -24,13 +24,21 @@ class ToolSidebarTest {
         JTree tree = find(sidebar, JTree.class);
 
         SwingUtilities.invokeAndWait(() -> search.setText("missing"));
-        Thread.sleep(180);
-        SwingUtilities.invokeAndWait(() -> { });
 
-        assertEquals(1, tree.getRowCount());
-        assertEquals(
-                I18n.get("nav.empty"),
-                tree.getPathForRow(0).getLastPathComponent().toString());
+        // 过滤由 120ms 去抖 Timer 在 EDT 上触发；固定 sleep 在机器繁忙时会漏掉，
+        // 改为轮询等待空态出现（超时上限给足，避免慢机误判）。
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline && !showsEmptyState(tree)) {
+            Thread.sleep(20);
+            SwingUtilities.invokeAndWait(() -> { });
+        }
+        assertTrue(showsEmptyState(tree), "search filter did not settle within timeout");
+    }
+
+    private static boolean showsEmptyState(JTree tree) {
+        return tree.getRowCount() == 1
+                && I18n.get("nav.empty").equals(
+                        tree.getPathForRow(0).getLastPathComponent().toString());
     }
 
     @Test

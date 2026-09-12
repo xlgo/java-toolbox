@@ -7,6 +7,7 @@ import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.Hex;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -124,11 +125,7 @@ public class CryptoPanel extends ToolPanel {
         try {
             MessageDigest md = MessageDigest.getInstance(algo);
             byte[] d = md.digest(text.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder();
-            for (byte b : d) {
-                sb.append(String.format("%02x", b & 0xff));
-            }
-            return sb.toString();
+            return Hex.toHex(d);
         } catch (Exception e) {
             return "错误：" + e.getMessage();
         }

@@ -108,6 +108,9 @@ public final class ToolCatalog {
             "hosts", "domain", "dns", "ip", "environment", "环境", "域名", "解析");
     public static final ToolDescriptor WECHAT_SENDER = tool("wechat.sender", "system",
             "微信", "群发", "WeChat", "批量", "发送", "模拟按键", "联系人");
+    public static final ToolDescriptor LOG_VIEWER = tool("log.viewer", "system",
+            "日志", "log", "日志查看", "LogViewer", "tail", "实时日志", "跟进", "大文件",
+            "分页", "正则", "过滤", "高亮", "grep");
 
     public static final ToolDescriptor DATA_GENERATOR = tool("data.generator", "generation",
             "生成", "Generator", "数据", "密码", "UUID", "假数据", "Mock");
@@ -150,7 +153,7 @@ public final class ToolCatalog {
             HTTP_CLIENT, OPENAPI_WORKBENCH, CALLBACK_MOCK, WEBSOCKET_CLIENT, MQTT_CLIENT, SUBNET_CALC, PORT_SCANNER, SSH,
             DATABASE_CONNECTOR, REDIS_MANAGEMENT, KAFKA_CONNECTOR, ZOOKEEPER_MANAGEMENT,
             DOCKER_CONVERT, K8S_DEPLOYMENT, K8S_MANAGER, CHMOD_CALC, CRON_PARSER, HOSTS_MANAGER,
-            WECHAT_SENDER, DATA_GENERATOR, QRCODE, COLOR_CONVERT, CALCULATOR, STATISTICS,
+            WECHAT_SENDER, LOG_VIEWER, DATA_GENERATOR, QRCODE, COLOR_CONVERT, CALCULATOR, STATISTICS,
             SORT_VISUALIZER, SEARCH_ALGORITHM, HANOI, PINGAME, BPMN_DESIGNER, MERMAID, FLOWCHART,
             VIDEO_MONITOR, REMOTE_DESKTOP));
 

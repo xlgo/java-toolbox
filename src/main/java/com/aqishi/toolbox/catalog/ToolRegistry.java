@@ -28,6 +28,7 @@ import com.aqishi.toolbox.feature.data.ui.DatabasePanel;
 import com.aqishi.toolbox.feature.cloud.ui.DockerComposePanel;
 import com.aqishi.toolbox.feature.diagram.ui.FlowchartPanel;
 import com.aqishi.toolbox.feature.system.ui.HostsManagerPanel;
+import com.aqishi.toolbox.feature.system.ui.LogViewerPanel;
 import com.aqishi.toolbox.feature.network.ui.HttpTestPanel;
 import com.aqishi.toolbox.feature.codec.ui.JsonPanel;
 import com.aqishi.toolbox.feature.codec.ui.JsonPathPanel;
@@ -132,6 +133,7 @@ public final class ToolRegistry {
         factories.put("cron.parser", context -> new CronPanel());
         factories.put("hosts.manager", context -> new HostsManagerPanel());
         factories.put("wechat.sender", context -> new WeChatPanel());
+        factories.put("log.viewer", context -> new LogViewerPanel());
         factories.put("data.generator", context -> new DataGeneratorPanel());
         factories.put("qrcode", context -> new QrCodePanel());
         factories.put("color.convert", context -> new ColorPanel());

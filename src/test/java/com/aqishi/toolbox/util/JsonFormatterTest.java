@@ -1,6 +1,5 @@
-package com.aqishi.toolbox.feature.codec.domain;
+package com.aqishi.toolbox.util;
 
-import com.aqishi.toolbox.util.Json;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 

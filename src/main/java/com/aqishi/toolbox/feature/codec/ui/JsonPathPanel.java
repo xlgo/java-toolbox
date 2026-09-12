@@ -2,7 +2,7 @@ package com.aqishi.toolbox.feature.codec.ui;
 
 import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.catalog.ToolDescriptor;
-import com.aqishi.toolbox.feature.codec.domain.JsonFormatter;
+import com.aqishi.toolbox.util.JsonFormatter;
 import com.aqishi.toolbox.feature.codec.domain.JsonPathService;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;

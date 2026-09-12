@@ -93,6 +93,14 @@ public class P2PConnector {
     // ==================== UDP 直连监听逻辑 ====================
 
     private volatile DatagramSocket udpSocket;
+    /**
+     * 与 {@link #udpSocket} 配套的底层 {@link DatagramChannel} 强引用。
+     *
+     * <p>socket 由 {@code DatagramChannel.open(INET).socket()} 派生，目的是只绑定
+     * IPv4（避免落到双栈 {@code [::]} 通配地址）。派生 socket 的存活性依赖通道对象，
+     * 因此这里显式持有通道引用，避免其过早变为不可达而连带影响底层套接字。</p>
+     */
+    private volatile DatagramChannel udpChannel;
     private int localPort = -1;
     private volatile boolean isListening = false;
     private Thread hostListenThread;
@@ -127,9 +135,9 @@ public class P2PConnector {
         try {
             stopHostListener();
 
-            // Browser ICE gathers IPv4 and IPv6 on separate sockets. The
-            // public STUN mapping in this connector is IPv4, so bind an
-            // explicit IPv4 socket instead of a dual-stack [::] socket.
+            // 浏览器 ICE 会在独立的 IPv4/IPv6 socket 上分别收集候选；本连接器的
+            // 公网 STUN 映射是 IPv4，因此显式绑定 IPv4 通配地址 0.0.0.0，
+            // 而不是可能落到双栈 [::] 的通配绑定。
             final DatagramChannel listenerChannel =
                     DatagramChannel.open(StandardProtocolFamily.INET);
             final DatagramSocket listenerSocket = listenerChannel.socket();
@@ -143,6 +151,7 @@ public class P2PConnector {
             }
 
             udpSocket = listenerSocket;
+            udpChannel = listenerChannel;
             localPort = listenerSocket.getLocalPort();
             handshakeDone.set(false);
             candidateAddresses.clear();
@@ -319,6 +328,7 @@ public class P2PConnector {
         mappingLog = null;
         DatagramSocket socket = udpSocket;
         udpSocket = null;
+        udpChannel = null;
         if (socket != null) {
             try {
                 socket.close();

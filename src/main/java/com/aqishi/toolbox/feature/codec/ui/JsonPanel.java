@@ -1,6 +1,6 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
-import com.aqishi.toolbox.feature.codec.domain.JsonFormatter;
+import com.aqishi.toolbox.util.JsonFormatter;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.util.Json;

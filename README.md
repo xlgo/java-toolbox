@@ -217,7 +217,7 @@ tools/wechat_export.py                # 唯一维护的微信 UIAutomation 脚�
 
 项目配置了 GitHub Actions 跨平台原生构建工作流（`.github/workflows/release.yml`）。
 
-推送版本标签（例如 `v1.9.0`）或手动触发时，会在 **Windows**、**Linux**、**macOS（Apple Silicon / Intel）** 上并行构建，
+推送版本标签（例如 `v1.9.1`）或手动触发时，会在 **Windows**、**Linux**、**macOS（Apple Silicon）** 上并行构建，
 使用 JDK 17 + `jpackage` 裁剪各平台专属的精简运行时（JRE），产出**原生安装包**与**免安装绿色包**，
 并自动发布到 GitHub Releases：
 
@@ -226,7 +226,6 @@ tools/wechat_export.py                # 唯一维护的微信 UIAutomation 脚�
 | 🪟 Windows (x64) | `java-toolbox-<版本>.msi` | `java-toolbox-<版本>-windows-x64.zip` |
 | 🐧 Linux (x64) | `java-toolbox_<版本>-1_amd64.deb` / `.rpm` | `java-toolbox-<版本>-linux-x64.tar.gz` |
 | 🍏 macOS (arm64) | `java-toolbox-<版本>.dmg` | `java-toolbox-<版本>-macos-arm64.tar.gz` |
-| 🍏 macOS (x64) | `java-toolbox-<版本>.dmg` | `java-toolbox-<版本>-macos-x86_64.tar.gz` |
 
 此外每个平台都会附带一个跨平台 fat jar：`java-toolbox-<版本>.jar`（`java -jar` 直接运行）。
 

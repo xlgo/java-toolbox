@@ -45,9 +45,6 @@ jobs:
           - label: macos-arm64
             os: macos-14          # Apple Silicon
             experimental: false
-          - label: macos-x64
-            os: macos-13          # Intel（GitHub 正在逐步下线该镜像）
-            experimental: true
 
     env:
       # jpackage 生成的运行时所需的 JDK 模块集合：GUI(Swing/FlatLaf) + JDBC + 网络 +

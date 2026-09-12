@@ -202,7 +202,7 @@ tools/wechat_export.py                # 唯一维护的微信 UIAutomation 脚�
 ```
 ## Roadmap
 
-`v1.9.0` 已交付 OpenAPI 工作台、JSONPath 查询、批量摘要与签名校验，以及 CSR/PKCS#12/证书链检查；当前迭代已扩展 YAML/TOML/INI 格式转换。下一阶段优先补齐 DNS/TLS/HTTP 诊断、日志查看过滤器和工作区导入导出；完整范围、依赖和分类见 [功能路线图](docs/feature-roadmap.md)。
+`v1.9.1` 已交付 YAML/TOML/INI 格式转换、大文件日志查看器（Log Viewer）与 K8s 管理面板重构解耦，并升级跨平台原生安装包构建流水线（支持 Windows .msi / Linux .deb, .rpm / macOS .dmg）。下一阶段优先补齐 DNS/TLS/HTTP 诊断和工作区导入导出；完整范围、依赖和分类见 [功能路线图](docs/feature-roadmap.md)。
 
 ## 详细功能文档
 针对涉及复杂打洞、容器交互及UI自动化的工具，提供了专门的技术与使用指南文档：
@@ -215,15 +215,22 @@ tools/wechat_export.py                # 唯一维护的微信 UIAutomation 脚�
 
 ## 自动构建与发布
 
-项目配置了 GitHub Actions 跨平台自动打包工作流（`.github/workflows/release.yml`）。
+项目配置了 GitHub Actions 跨平台原生构建工作流（`.github/workflows/release.yml`）。
 
-当为仓库推送版本标签（例如 `v1.9.0` 或 `vX.Y.Z`）时，GitHub Actions 会在 **Windows**、**macOS** 与 **Linux** 三端虚拟机上并行触发原生构建：
-1. **自动原生打包 (jpackage)**：使用 JDK 17 与 `jpackage` 工具，裁剪出各平台专属的精简 Java 运行时（JRE），将应用与 JRE 打包为免安装原生可执行程序。
-2. **多平台 Release 资产发布**：构建完成后将自动在 GitHub Releases 页面发布以下安装包与应用程序：
-   - 🪟 **Windows 免安装原生包**：`java-toolbox-v*-windows.zip`（解压即可双击 `java-toolbox.exe` 运行，无需电脑安装 Java）
-   - 🍏 **macOS 免安装原生包**：`java-toolbox-v*-macos.zip`（解压即可直接运行 `java-toolbox.app`）
-   - 🐧 **Linux 免安装原生包**：`java-toolbox-v*-linux.tar.gz`（解压直接运行原生二进制程序）
-   - ☕ **跨平台 Fat JAR**：`java-toolbox-v*.jar`（原纯 JAR 包，供习惯 `java -jar` 的开发者使用）
+推送版本标签（例如 `v1.9.0`）或手动触发时，会在 **Windows**、**Linux**、**macOS（Apple Silicon / Intel）** 上并行构建，
+使用 JDK 17 + `jpackage` 裁剪各平台专属的精简运行时（JRE），产出**原生安装包**与**免安装绿色包**，
+并自动发布到 GitHub Releases：
+
+| 平台 | 原生安装包 | 免安装绿色包 |
+|---|---|---|
+| 🪟 Windows (x64) | `java-toolbox-<版本>.msi` | `java-toolbox-<版本>-windows-x64.zip` |
+| 🐧 Linux (x64) | `java-toolbox_<版本>-1_amd64.deb` / `.rpm` | `java-toolbox-<版本>-linux-x64.tar.gz` |
+| 🍏 macOS (arm64) | `java-toolbox-<版本>.dmg` | `java-toolbox-<版本>-macos-arm64.tar.gz` |
+| 🍏 macOS (x64) | `java-toolbox-<版本>.dmg` | `java-toolbox-<版本>-macos-x86_64.tar.gz` |
+
+此外每个平台都会附带一个跨平台 fat jar：`java-toolbox-<版本>.jar`（`java -jar` 直接运行）。
+
+安装包与绿色包均**自带精简 JRE**，终端用户无需预装 Java。
 
 开发者触发自动构建发布的命令：
 ```bash
@@ -231,7 +238,10 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-此外，也可以在 GitHub 仓库的 **Actions** 标签页下手动选择 `Release Application` 工作流点击 **Run workflow** 触发跨平台构建。
+此外，也可以在 GitHub 仓库的 **Actions** 标签页下手动选择 `Release` 工作流点击 **Run workflow** 触发跨平台构建。
+
+> 说明：Windows `.msi` 依赖 WiX Toolset、Linux `.deb`/`.rpm` 依赖 `fakeroot`/`rpm`，工作流会在对应
+> runner 上自动准备；若某平台打包工具缺失，安装包步骤会被跳过，仍会正常发布绿色包与 fat jar，不会阻断整体发布。
 
 ## License
 

@@ -1,27 +1,59 @@
-name: Release Application
+name: Release
+
+# 版本发布：打 v* 标签（或手动触发）时，在 Windows / Linux / macOS 上分别构建
+#   - 便携版 app-image（自带运行时，解压即用）
+#   - 原生安装包（Windows .msi、Linux .deb/.rpm、macOS .dmg）
+#   - 独立 fat jar（java -jar 即可运行）
+# 并把全部产物发布到对应的 GitHub Release。
+#
+# 说明：
+#   * 发布阶段只做“打包”，不跑测试——测试由 ci.yml 在每次 push/PR 时把关，
+#     避免 GUI/网络类测试在 Windows/macOS runner 上引入偶发失败拖垮发布。
+#   * 安装包步骤均 continue-on-error：个别 runner 缺 WiX/rpm 等打包工具时，
+#     仍能发布便携版与 jar，不会整条流水线失败。
 
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: '非标签触发的版本号（例如 1.9.0）。标签触发时忽略。'
+        required: false
+        default: '0.0.0'
 
 permissions:
   contents: write
 
 jobs:
-  build-matrix:
-    name: Build Native Package (${{ matrix.platform }})
+  build:
+    name: Build Native Package (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
+    # 允许个别平台构建失败（例如实验性的 Intel mac runner 已下线）而不阻断其余平台
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - platform: windows
+          - label: windows-x64
             os: windows-latest
-          - platform: macos
-            os: macos-latest
-          - platform: linux
+            experimental: false
+          - label: linux-x64
             os: ubuntu-latest
+            experimental: false
+          - label: macos-arm64
+            os: macos-14          # Apple Silicon
+            experimental: false
+          - label: macos-x64
+            os: macos-13          # Intel（GitHub 正在逐步下线该镜像）
+            experimental: true
+
+    env:
+      # jpackage 生成的运行时所需的 JDK 模块集合：GUI(Swing/FlatLaf) + JDBC + 网络 +
+      # 加密（TLS ECDHE / PKCS11）+ 字符集(GBK 等) + 本地化资源。
+      # 注意：必须是单行逗号分隔、不能折行——折行会被 YAML 折叠成空格混进模块名。
+      MODULES: "java.base,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.unsupported,jdk.zipfs,jdk.charsets,jdk.localedata"
 
     steps:
       - name: Checkout repository
@@ -34,81 +66,213 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Build Fat JAR with Maven (Linux with xvfb)
-        if: runner.os == 'Linux'
-        run: xvfb-run --auto-servernum mvn clean package -DskipTests=false
-
-      - name: Build Fat JAR with Maven (Windows / macOS)
-        if: runner.os != 'Linux'
-        run: mvn clean package -DskipTests=false
-
-      - name: Package Native App Image with jpackage
+      - name: Resolve version
         shell: bash
         run: |
-          VERSION=${GITHUB_REF_NAME:-latest}
+          RAW="${GITHUB_REF_NAME:-}"
+          case "$RAW" in
+            v*)                 RAW="${RAW#v}" ;;
+            */*|main|master|"") RAW="${{ inputs.version }}" ;;
+          esac
+          RAW="${RAW:-0.0.0}"
+          # 安装包要求 app-version 为纯数字点分版本（如 1.9.0）。
+          # GitHub Actions 的 bash 带 -e -o pipefail，grep 无匹配 / head 触发 SIGPIPE 都会让
+          # 整个管道非零退出并中止步骤，故用 `|| true` 兜住。
+          NUM="$(printf '%s' "$RAW" | grep -oE '[0-9]+(\.[0-9]+)*' | head -1 || true)"
+          NUM="${NUM:-0.0.0}"
+          IFS='.' read -r MA MI PA <<< "$NUM"
+          PKG="${MA:-0}.${MI:-0}.${PA:-0}"
+          echo "VERSION=$RAW"     >> "$GITHUB_ENV"
+          echo "PKG_VERSION=$PKG" >> "$GITHUB_ENV"
+          echo "Resolved version=$RAW  packageVersion=$PKG"
+
+      - name: Build fat jar (Linux with xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum mvn -B -Dmaven.test.skip=true clean package
+
+      - name: Build fat jar (Windows / macOS)
+        if: runner.os != 'Linux'
+        run: mvn -B -Dmaven.test.skip=true clean package
+
+      - name: Stage fat jar
+        shell: bash
+        run: |
+          mkdir -p staging dist dist-installer release-assets
+          cp target/java-toolbox.jar staging/
+
+      # ---------------- 打包工具准备 ----------------
+      - name: Ensure WiX Toolset (Windows, 生成 .msi 需要)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $bin = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*\bin" -Directory -ErrorAction SilentlyContinue |
+                 Select-Object -First 1
+          if (-not $bin) {
+            choco install wixtoolset -y --no-progress
+            $bin = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*\bin" -Directory -ErrorAction SilentlyContinue |
+                   Select-Object -First 1
+          }
+          if ($bin) { Add-Content $env:GITHUB_PATH $bin.FullName }
+
+      - name: Install packaging tools (Linux, .deb/.rpm 需要)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: sudo apt-get update && sudo apt-get install -y fakeroot rpm
+
+      # ---------------- 便携版 app-image ----------------
+      - name: jpackage app-image (portable)
+        shell: bash
+        run: |
           jpackage \
-            --name java-toolbox \
             --type app-image \
-            --input target \
+            --name java-toolbox \
+            --app-version "$PKG_VERSION" \
+            --input staging \
             --main-jar java-toolbox.jar \
             --main-class com.aqishi.toolbox.Main \
+            --add-modules "$MODULES" \
             --dest dist
 
-      - name: Prepare Standalone JAR Artifact
+      # ---------------- 原生安装包 ----------------
+      - name: jpackage installer (.msi)
+        if: runner.os == 'Windows'
+        continue-on-error: true
         shell: bash
         run: |
-          VERSION=${GITHUB_REF_NAME:-latest}
-          cp target/java-toolbox.jar "target/java-toolbox-${VERSION}.jar"
+          jpackage \
+            --type msi \
+            --name java-toolbox \
+            --app-version "$PKG_VERSION" \
+            --input staging \
+            --main-jar java-toolbox.jar \
+            --main-class com.aqishi.toolbox.Main \
+            --add-modules "$MODULES" \
+            --dest dist-installer \
+            --vendor "Aqishi" \
+            --description "Java Toolbox - developer and ops toolbox" \
+            --copyright "Aqishi" \
+            --win-dir-chooser --win-shortcut --win-menu --win-menu-group "Java Toolbox"
 
-      - name: Archive Native Package (Windows)
+      - name: jpackage installer (.deb)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        shell: bash
+        run: |
+          jpackage \
+            --type deb \
+            --name java-toolbox \
+            --app-version "$PKG_VERSION" \
+            --input staging \
+            --main-jar java-toolbox.jar \
+            --main-class com.aqishi.toolbox.Main \
+            --add-modules "$MODULES" \
+            --dest dist-installer \
+            --vendor "Aqishi" \
+            --description "Java Toolbox - developer and ops toolbox" \
+            --linux-shortcut --linux-menu-group "Development" \
+            --linux-deb-maintainer "aqishi"
+
+      - name: jpackage installer (.rpm)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        shell: bash
+        run: |
+          jpackage \
+            --type rpm \
+            --name java-toolbox \
+            --app-version "$PKG_VERSION" \
+            --input staging \
+            --main-jar java-toolbox.jar \
+            --main-class com.aqishi.toolbox.Main \
+            --add-modules "$MODULES" \
+            --dest dist-installer \
+            --vendor "Aqishi" \
+            --description "Java Toolbox - developer and ops toolbox" \
+            --linux-shortcut --linux-menu-group "Development" \
+            --linux-rpm-license-type "MIT"
+
+      - name: jpackage installer (.dmg)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        shell: bash
+        run: |
+          jpackage \
+            --type dmg \
+            --name java-toolbox \
+            --app-version "$PKG_VERSION" \
+            --input staging \
+            --main-jar java-toolbox.jar \
+            --main-class com.aqishi.toolbox.Main \
+            --add-modules "$MODULES" \
+            --dest dist-installer \
+            --vendor "Aqishi" \
+            --description "Java Toolbox - developer and ops toolbox"
+
+      # ---------------- 归档与收集产物 ----------------
+      - name: Archive portable image (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $VERSION = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "latest" }
-          Compress-Archive -Path "dist/java-toolbox/*" -DestinationPath "target/java-toolbox-${VERSION}-windows.zip"
+          Compress-Archive -Path "dist/java-toolbox" `
+            -DestinationPath "release-assets/java-toolbox-$env:VERSION-windows-x64.zip"
 
-      - name: Archive Native Package (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          VERSION=${GITHUB_REF_NAME:-latest}
-          cd dist
-          zip -r "../target/java-toolbox-${VERSION}-macos.zip" java-toolbox.app
-
-      - name: Archive Native Package (Linux)
+      - name: Archive portable image (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          VERSION=${GITHUB_REF_NAME:-latest}
-          cd dist
-          tar -czvf "../target/java-toolbox-${VERSION}-linux.tar.gz" java-toolbox
+          tar -czf "release-assets/java-toolbox-${VERSION}-linux-x64.tar.gz" -C dist java-toolbox
 
-      - name: Upload Platform Package Artifact
+      - name: Archive portable image (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ARCH="$(uname -m)"
+          tar -czf "release-assets/java-toolbox-${VERSION}-macos-${ARCH}.tar.gz" -C dist java-toolbox.app
+
+      - name: Collect standalone jar and installers
+        shell: bash
+        run: |
+          cp target/java-toolbox.jar "release-assets/java-toolbox-${VERSION}.jar"
+          if [ -d dist-installer ]; then
+            find dist-installer -maxdepth 1 -type f \
+              \( -name '*.msi' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' -o -name '*.exe' -o -name '*.pkg' \) \
+              -exec cp {} release-assets/ \;
+          fi
+          echo "=== release-assets ==="
+          ls -la release-assets/
+
+      - name: Upload platform artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: native-package-${{ matrix.platform }}
-          path: |
-            target/java-toolbox-*.zip
-            target/java-toolbox-*.tar.gz
-            target/java-toolbox-*.jar
-          if-no-files-found: ignore
+          name: native-package-${{ matrix.label }}
+          path: release-assets/*
+          if-no-files-found: error
 
   publish-release:
     name: Publish GitHub Release
-    needs: build-matrix
+    needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
 
     steps:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
+          merge-multiple: true
 
-      - name: Consolidate Release Assets
+      - name: Consolidate release assets
         run: |
           mkdir -p final-assets
-          find release-assets -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.jar" \) -exec cp {} final-assets/ \;
+          find release-assets -type f \
+            \( -name '*.zip' -o -name '*.tar.gz' -o -name '*.jar' \
+               -o -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \
+               -o -name '*.dmg' -o -name '*.exe' -o -name '*.pkg' \) \
+            -exec cp {} final-assets/ \;
+          echo "=== final-assets ==="
           ls -la final-assets/
 
       - name: Create GitHub Release

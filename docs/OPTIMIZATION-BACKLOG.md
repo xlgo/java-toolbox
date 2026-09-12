@@ -89,7 +89,7 @@
 - **P2-4 ObjectMapper**：新增 `util/Json`（共享 `mapper()` / `prettyMapper()`，配置后线程安全），替换 25 处 `new ObjectMapper()`（vault 构造注入默认值、`YAMLFactory`/`XmlMapper` 特例保留）；直调从 30 → 5
 - **P2-4 JOptionPane**：`UIUtils` 补齐 `warn/error(parent,msg,title)`、`dialog`、`input(parent,msg,title,def)` 重载（消息参数放宽为 Object）；脚本化替换 102 处直调（83 message + 12 confirm 改 boolean + 7 input），直调从 155 → 20，剩余为自定义选择对话框、OK_CANCEL 语义与常量引用（合理保留）
 
-### 当前迭代进行中（v1.9.0 后续）
+### v1.9.1 迭代落地（2026-09-12）
 
 - **P1-4**：`TcpDirectConnector` 已改为 4 线程、128 队列的具名守护线程池；拒绝提交和停止时会清理 `inFlight`，并补充线程上限/生命周期测试。
 - **新功能质量**：批量摘要从逐文件串行改为最多 4 文件并发；任务先快照文件和算法，保持展示顺序，并在停止、清空或窗口关闭时取消任务和回收守护线程池。
@@ -99,6 +99,7 @@
 - **新增能力**：格式转换已扩展 YAML/TOML/INI，并将解析和语法诊断从 Swing 面板下沉到 codec domain 层。
 - **大文件拆分（2026-09-12）**：`K8sManagerPanel` 2,941 → 1,451 行。按职责拆出 `K8sYamlViewer`（YAML 折叠树查看）、`K8sLogViewer`（日志分页/追踪）、`K8sExecTerminal`（JediTerm 容器控制台）、`K8sPodFileTransfer`（exec WebSocket 上传/下载）、`K8sPodOperations`（容器选择公共步骤）；连接参数经新增的 `K8sClusterContext` 接口读取，传输资源交由 `TransferRegistry` 登记，面板不再反向暴露内部状态。i18n 硬编码基线同步收紧。
 - **新功能：日志查看器（2026-09-12，`log.viewer`）**：面向「几百 MB 追加型日志」的浏览工具。`LogFileService` 以「字节偏移 + 行数上限 + 字节上限」窗口读取（逐字节扫描 `\n`/`\r\n`/孤立 `\r`，逐行 UTF-8 解码，避免 `RandomAccessFile.readLine()` 的 ISO-8859-1 破坏中文；超长行按 `MAX_LINE_CHARS` 截断并追加省略标记），提供 `readLines`/`previousPageStart`（向后窗口回溯，不全文件扫描）/`matchRanges`。`LogViewerPanel` 只持有当前页文本：首页/上一页/下一页/跳末尾、每页行数调节、`Timer` 轮询文件长度增量实现 Follow（截断/轮转自动重读）、正则过滤当前页并对命中处加高亮，实现 `ManagedResourceOwner.closeResources()` 停表。对应测试 `LogFileServiceTest`（11 例）。
+- **发布流水线：原生安装包（2026-09-12，`.github/workflows/release.yml`）**：由原来只产 app-image 绿色包，扩展为「绿色包 + 原生安装包」。Windows 产 `.msi`、Linux 产 `.deb`/`.rpm`、macOS 产 `.dmg`（并覆盖 arm64 与 x64 两种 mac runner），各平台另附 `app-image` 绿色包与跨平台 fat jar。要点：打包前把 fat jar 单独 stage（避免把整个 `target/` 塞进镜像）；`--add-modules` 显式给出运行时模块集（GUI/JDBC/网络/加密/字符集/本地化，**必须单行**，YAML 折行会混入空格）；`--app-version` 用从 tag 提取的纯数字 `x.y.z`；安装包步骤全部 `continue-on-error`，某平台缺 WiX/`rpm` 时自动降级为只发绿色包而不阻断发布；Intel mac runner 标为 experimental。发布阶段只打包不跑测试（测试由 `ci.yml` 把关）。
 
 ## 0. 一句话结论
 

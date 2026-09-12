@@ -86,13 +86,9 @@ jobs:
           echo "PKG_VERSION=$PKG" >> "$GITHUB_ENV"
           echo "Resolved version=$RAW  packageVersion=$PKG"
 
-      - name: Build fat jar (Linux with xvfb)
-        if: runner.os == 'Linux'
-        run: xvfb-run --auto-servernum mvn -B -Dmaven.test.skip=true clean package
-
-      - name: Build fat jar (Windows / macOS)
-        if: runner.os != 'Linux'
-        run: mvn -B -Dmaven.test.skip=true clean package
+      - name: Build fat jar
+        shell: bash
+        run: mvn -B "-Dmaven.test.skip=true" clean package
 
       - name: Stage fat jar
         shell: bash
@@ -215,7 +211,7 @@ jobs:
         shell: pwsh
         run: |
           Compress-Archive -Path "dist/java-toolbox" `
-            -DestinationPath "release-assets/java-toolbox-$env:VERSION-windows-x64.zip"
+            -DestinationPath "release-assets/java-toolbox-${env:VERSION}-windows-x64.zip"
 
       - name: Archive portable image (Linux)
         if: runner.os == 'Linux'

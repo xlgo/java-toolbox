@@ -47,10 +47,10 @@ jobs:
             experimental: false
 
     env:
-      # jpackage 生成的运行时所需的 JDK 模块集合：GUI(Swing/FlatLaf) + JDBC + 网络 +
-      # 加密（TLS ECDHE / PKCS11）+ 字符集(GBK 等) + 本地化资源。
+      # jpackage 生成的运行时所需的 JDK 模块集合：GUI(Swing/FlatLaf) + 内置 HTTP 服务器(CallbackTest) +
+      # JDBC + 网络 + 脚本 + 管理 + 加密（TLS ECDHE / PKCS11）+ 字符集(GBK 等) + 本地化资源。
       # 注意：必须是单行逗号分隔、不能折行——折行会被 YAML 折叠成空格混进模块名。
-      MODULES: "java.base,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.unsupported,jdk.zipfs,jdk.charsets,jdk.localedata"
+      MODULES: "java.base,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,java.xml.crypto,jdk.httpserver,jdk.management,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.unsupported,jdk.zipfs,jdk.charsets,jdk.localedata"
 
     steps:
       - name: Checkout repository

@@ -31,7 +31,7 @@ public final class Tokens {
     // ---------------------------------------------------------------- 圆角
 
     /** 卡片圆角 */
-    public static final int RADIUS_CARD = 10;
+    public static final int RADIUS_CARD = 12;
     /** 控件圆角 */
     public static final int RADIUS_CONTROL = 8;
 
@@ -144,6 +144,18 @@ public final class Tokens {
         return color == null ? new Color(0xF2F2F2) : color;
     }
 
+    /** 侧边导航的底色，第三方主题下由当前工作区与卡片底色推导。 */
+    public static Color navigationBackground() {
+        Color color = first("Toolbox.navigationBackground");
+        return color == null ? blend(surface(), cardBackground(), 0.5f) : color;
+    }
+
+    /** 顶栏、状态栏等应用外壳区域的底色。 */
+    public static Color chromeBackground() {
+        Color color = first("Toolbox.chromeBackground");
+        return color == null ? cardBackground() : color;
+    }
+
     /**
      * 卡片背景：使用内容类控件的背景（浅色主题下接近白色，深色主题下接近编辑器底色），
      * 叠在 {@link #surface()} 之上自然形成一层轻微的高低差。
@@ -163,7 +175,7 @@ public final class Tokens {
 
     /** 卡片头部底色：比卡片本体略微收敛，用于强化标题带 */
     public static Color cardHeaderBackground() {
-        return shift(cardBackground(), isDark() ? 0.05f : -0.025f);
+        return blend(cardBackground(), surface(), 0.32f);
     }
 
     /** 描边色 */
@@ -187,7 +199,7 @@ public final class Tokens {
 
     /** 次要 / 说明文字色 */
     public static Color mutedForeground() {
-        Color color = first("Label.disabledForeground", "textInactiveText");
+        Color color = first("Toolbox.mutedForeground", "Label.disabledForeground", "textInactiveText");
         if (color == null) {
             color = blend(foreground(), cardBackground(), 0.45f);
         }
@@ -196,7 +208,7 @@ public final class Tokens {
 
     /** 强调色，用于主操作、选中态与关键数值 */
     public static Color accent() {
-        Color color = first("Component.accentColor", "Component.focusColor",
+        Color color = first("Toolbox.accentColor", "Component.accentColor", "Component.focusColor",
                 "ProgressBar.foreground", "textHighlight");
         return color == null ? new Color(0x2F6FEB) : color;
     }
@@ -221,7 +233,19 @@ public final class Tokens {
 
     /** 强调色的浅底，用于标签、徽章 */
     public static Color accentSoft() {
-        return blend(accent(), cardBackground(), isDark() ? 0.78f : 0.86f);
+        Color color = first("Toolbox.selectionBackground");
+        return color == null ? blend(accent(), cardBackground(), isDark() ? 0.78f : 0.91f) : color;
+    }
+
+    /** 轻量悬停底色，不与明确的选中状态混淆。 */
+    public static Color hoverBackground() {
+        return blend(navigationBackground(), accent(), isDark() ? 0.09f : 0.045f);
+    }
+
+    /** 柔和选中底色上的高对比文字色。 */
+    public static Color selectionForeground() {
+        Color color = first("Toolbox.selectionForeground");
+        return color == null ? foreground() : color;
     }
 
     // ---------------------------------------------------------------- 颜色工具

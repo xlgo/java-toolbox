@@ -85,7 +85,7 @@ public final class Fields {
     public static JCheckBox check(String text, boolean selected) {
         JCheckBox box = new JCheckBox(text, selected);
         box.setFont(Tokens.fontBody());
-        box.setFocusPainted(false);
+        box.setFocusPainted(true);
         box.setOpaque(false);
         return box;
     }
@@ -94,7 +94,7 @@ public final class Fields {
     public static JRadioButton radio(String text, boolean selected) {
         JRadioButton button = new JRadioButton(text, selected);
         button.setFont(Tokens.fontBody());
-        button.setFocusPainted(false);
+        button.setFocusPainted(true);
         button.setOpaque(false);
         return button;
     }
@@ -109,10 +109,22 @@ public final class Fields {
 
     /** 说明文字（单行） */
     public static JLabel caption(String text) {
-        JLabel label = new JLabel(text);
-        label.setFont(Tokens.fontCaption());
-        label.setForeground(Tokens.mutedForeground());
-        return label;
+        return new CaptionLabel(text);
+    }
+
+    /** Caption colors must be reacquired when switching between light and dark. */
+    private static class CaptionLabel extends JLabel {
+
+        CaptionLabel(String text) {
+            super(text);
+        }
+
+        @Override
+        public void updateUI() {
+            super.updateUI();
+            setFont(Tokens.fontCaption());
+            setForeground(Tokens.mutedForeground());
+        }
     }
 
     /**
@@ -129,11 +141,12 @@ public final class Fields {
     }
 
     /** 高度随宽度变化的说明标签 */
-    private static final class WrappingNote extends JLabel {
+    private static final class WrappingNote extends CaptionLabel {
 
         private final String plainText;
 
         WrappingNote(String text) {
+            super(null);
             this.plainText = text == null ? "" : text;
             setVerticalAlignment(javax.swing.SwingConstants.TOP);
             setText(html(Integer.MAX_VALUE));

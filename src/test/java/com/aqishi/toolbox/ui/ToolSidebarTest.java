@@ -1,11 +1,13 @@
 package com.aqishi.toolbox.ui;
 
 import com.aqishi.toolbox.util.I18n;
+import com.aqishi.toolbox.ui.kit.Tokens;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.*;
 import javax.swing.tree.TreePath;
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -89,11 +91,56 @@ class ToolSidebarTest {
         SwingUtilities.invokeAndWait(() -> sidebar[0] = sidebar());
 
         JButton collapse = find(sidebar[0], JButton.class);
-        assertEquals("‹", collapse.getText());
+        assertTrue(collapse.getText() == null || collapse.getText().isEmpty());
+        assertNotNull(collapse.getIcon());
+        assertTrue(collapse.isFocusPainted());
         assertEquals(I18n.get("nav.collapse"), collapse.getToolTipText());
         assertEquals(
                 I18n.get("nav.collapse"),
                 collapse.getAccessibleContext().getAccessibleName());
+    }
+
+    @Test
+    void narrowSidebarKeepsSearchShortcutOutsideTheInput() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ToolSidebar sidebar = sidebar();
+            sidebar.setSize(200, 520);
+            layoutAll(sidebar);
+            JTextField search = find(sidebar, JTextField.class);
+            assertNotNull(search.getClientProperty("JTextField.leadingIcon"));
+            assertNull(search.getClientProperty("JTextField.trailingComponent"));
+            assertTrue(search.getWidth() >= 170, "search uses the full narrow sidebar width");
+            assertNotNull(findLabel(sidebar, "Ctrl K"));
+            JTree tree = find(sidebar, JTree.class);
+            assertTrue(tree.getScrollableTracksViewportWidth());
+            assertEquals(Tokens.NAV_ROW_HEIGHT, tree.getRowHeight());
+        });
+    }
+
+    @Test
+    void selectionPaintsAcrossTheRowAndKeepsCategoryCountSeparate() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ToolSidebar sidebar = sidebar();
+            sidebar.setSize(240, 520);
+            layoutAll(sidebar);
+            JTree tree = find(sidebar, JTree.class);
+            sidebar.setSelectedTool("hash.codec");
+            Rectangle selected = tree.getPathBounds(findPath(tree, "Hash"));
+            BufferedImage snapshot = new BufferedImage(tree.getWidth(), tree.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            Graphics2D graphics = snapshot.createGraphics();
+            tree.paint(graphics);
+            graphics.dispose();
+            assertEquals(Tokens.accentSoft().getRGB(), snapshot.getRGB(
+                    tree.getWidth() - 10, selected.y + selected.height / 2));
+            TreePath group = findPath(tree, "Security");
+            Component row = tree.getCellRenderer().getTreeCellRendererComponent(
+                    tree, group.getLastPathComponent(), false, true, false, 0, false);
+            assertInstanceOf(Container.class, row);
+            assertNotNull(findLabel((Container) row, "Security"));
+            assertNotNull(findLabel((Container) row, "1"));
+            sidebar.restyle();
+            assertEquals("hash.codec", sidebar.getSelectedToolId());
+        });
     }
 
     @Test
@@ -169,5 +216,23 @@ class ToolSidebarTest {
             }
         }
         return null;
+    }
+
+    private static JLabel findLabel(Container root, String text) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JLabel && text.equals(((JLabel) child).getText())) return (JLabel) child;
+            if (child instanceof Container) {
+                JLabel nested = findLabel((Container) child, text);
+                if (nested != null) return nested;
+            }
+        }
+        return null;
+    }
+
+    private static void layoutAll(Container root) {
+        root.doLayout();
+        for (Component child : root.getComponents()) {
+            if (child instanceof Container) layoutAll((Container) child);
+        }
     }
 }

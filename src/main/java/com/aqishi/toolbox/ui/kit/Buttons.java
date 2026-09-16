@@ -8,8 +8,8 @@ import java.awt.Dimension;
 /**
  * 按钮语义工厂：主操作、次操作、文字操作、危险操作。
  *
- * <p>层级通过 FlatLaf 的 client property 表达（{@code JButton.buttonType}、
- * {@code JButton.borderless}），其它 LAF 会忽略这些属性并退回普通按钮，
+ * <p>层级通过 FlatLaf 的 client property 与主题样式类表达，
+ * 其它 LAF 会忽略这些属性并退回普通按钮，
  * 因此不需要硬编码颜色，也不会在非 FlatLaf 环境下画错。</p>
  */
 public final class Buttons {
@@ -19,8 +19,11 @@ public final class Buttons {
 
     /** 主操作：每个区域最多一个，用强调色填充 */
     public static JButton primary(String text) {
-        JButton button = base(new JButton(text));
-        button.putClientProperty("JButton.buttonType", "default");
+        JButton button = new JButton(text);
+        button.putClientProperty("FlatLaf.styleClass", "primary");
+        button.setFont(Tokens.fontBodyStrong());
+        button.setFocusPainted(true);
+        applyHeight(button);
         return button;
     }
 
@@ -32,14 +35,14 @@ public final class Buttons {
     /** 文字按钮：低优先级操作，无边框 */
     public static JButton ghost(String text) {
         JButton button = base(new JButton(text));
-        button.putClientProperty("JButton.borderless", Boolean.TRUE);
+        button.putClientProperty("JButton.buttonType", "borderless");
         return button;
     }
 
     /** 危险操作：删除、清空等不可逆动作 */
     public static JButton danger(String text) {
         JButton button = base(new JButton(text));
-        button.setForeground(Tokens.danger());
+        button.putClientProperty("FlatLaf.styleClass", "danger");
         return button;
     }
 
@@ -52,7 +55,7 @@ public final class Buttons {
     public static JButton snug(String text) {
         JButton button = new JButton(text);
         button.setFont(Tokens.fontBody());
-        button.setFocusPainted(false);
+        button.setFocusPainted(true);
         button.setMargin(new java.awt.Insets(2, Tokens.SPACE_SM, 2, Tokens.SPACE_SM));
         Dimension preferred = button.getPreferredSize();
         Dimension size = new Dimension(preferred.width, Tokens.CONTROL_HEIGHT);
@@ -65,7 +68,7 @@ public final class Buttons {
     public static JButton compact(String text) {
         JButton button = new JButton(text);
         button.setFont(Tokens.fontBody());
-        button.setFocusPainted(false);
+        button.setFocusPainted(true);
         button.putClientProperty("JButton.buttonType", "toolBarButton");
         // 收窄内边距：默认边距会让 32×32 里的字形被省略成「...」
         button.setMargin(new java.awt.Insets(2, 4, 2, 4));
@@ -79,14 +82,14 @@ public final class Buttons {
     public static JToggleButton toggle(String text, boolean selected) {
         JToggleButton button = new JToggleButton(text, selected);
         button.setFont(Tokens.fontBody());
-        button.setFocusPainted(false);
+        button.setFocusPainted(true);
         applyHeight(button);
         return button;
     }
 
     private static JButton base(JButton button) {
         button.setFont(Tokens.fontBody());
-        button.setFocusPainted(false);
+        button.setFocusPainted(true);
         applyHeight(button);
         return button;
     }

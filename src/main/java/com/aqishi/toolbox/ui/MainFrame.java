@@ -4,6 +4,7 @@ import com.aqishi.toolbox.catalog.ToolboxContext;
 import com.aqishi.toolbox.catalog.ToolRegistry;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshTunnelBridge;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.ConfigManager;
@@ -17,14 +18,13 @@ import com.aqishi.toolbox.vault.VaultService;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.border.MatteBorder;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 
 /**
  * 主窗口：统一分组侧边导航、当前工具栏、CardLayout 内容区与状态栏。
- * 所有颜色由 FlatLaf 外观包提供，切换主题即整窗刷新。
+ * 颜色统一由主题令牌提供，切换主题即整窗刷新。
  */
 public class MainFrame extends JFrame {
 
@@ -33,7 +33,6 @@ public class MainFrame extends JFrame {
 
     private JLabel currentToolLabel;
     private JLabel breadcrumbGroupLabel;
-    private JLabel breadcrumbSeparatorLabel;
     private JLabel topThemeLabel;
     private JLabel topLangLabel;
     private JLabel statusReadyLabel;
@@ -247,72 +246,77 @@ public class MainFrame extends JFrame {
     }
 
     /**
-     * 当前工具栏：左侧「分组 / 工具」面包屑，右侧主题与语言。
+     * 当前工具栏：左侧分类说明与工具标题，右侧主题与语言。
      *
-     * <p>面包屑用字重和颜色区分层级（分组弱、工具强），比原来的纯文本拼接更容易定位当前位置。</p>
+     * <p>分类与标题分行建立层级；标题在有限宽度内省略并保留完整 tooltip。</p>
      */
     private JComponent buildToolBar() {
-        JPanel bar = new JPanel(new BorderLayout(UIUtils.SPACE_MD, 0));
-        bar.setOpaque(false);
+        JPanel bar = chromePanel();
+        bar.setLayout(new BorderLayout(UIUtils.SPACE_LG, 0));
         bar.setBorder(new EmptyBorder(
                 UIUtils.SPACE_MD, UIUtils.SPACE_LG,
                 UIUtils.SPACE_MD, UIUtils.SPACE_LG));
 
         JPanel location = new JPanel(new BorderLayout(UIUtils.SPACE_SM, 0));
         location.setOpaque(false);
-        expandSidebarButton = new JButton("☰");
+        location.setMinimumSize(new Dimension(0, 0));
+        expandSidebarButton = Buttons.compact("");
+        expandSidebarButton.setName("workbench.expandNavigation");
+        expandSidebarButton.setIcon(WorkbenchIcons.sidebar(true));
         expandSidebarButton.setToolTipText(I18n.get("nav.expand"));
         expandSidebarButton.getAccessibleContext().setAccessibleName(I18n.get("nav.expand"));
         expandSidebarButton.addActionListener(event -> setSidebarCollapsed(false));
-        expandSidebarButton.setFocusPainted(false);
-        expandSidebarButton.putClientProperty("JButton.buttonType", "toolBarButton");
-        expandSidebarButton.setPreferredSize(
-                new Dimension(Tokens.CONTROL_HEIGHT, Tokens.CONTROL_HEIGHT));
         expandSidebarButton.setVisible(false);
 
         breadcrumbGroupLabel = new JLabel();
-        breadcrumbGroupLabel.setFont(Tokens.fontBody());
+        breadcrumbGroupLabel.setFont(Tokens.fontCaption());
         breadcrumbGroupLabel.setForeground(Tokens.mutedForeground());
-        breadcrumbSeparatorLabel = new JLabel("/");
-        breadcrumbSeparatorLabel.setFont(Tokens.fontBody());
-        breadcrumbSeparatorLabel.setForeground(Tokens.borderSubtle());
+        breadcrumbGroupLabel.setIconTextGap(Tokens.SPACE_SM);
         currentToolLabel = new JLabel();
-        currentToolLabel.setFont(Tokens.fontTitle());
+        currentToolLabel.setName("workbench.title");
+        currentToolLabel.setFont(Tokens.fontTitle().deriveFont(20f));
         currentToolLabel.setForeground(Tokens.foreground());
+        currentToolLabel.setMinimumSize(new Dimension(0, 0));
 
-        JPanel breadcrumb = new JPanel(new FlowLayout(FlowLayout.LEFT, UIUtils.SPACE_SM, 0));
+        // BorderLayout gives the title the actual remaining width: long names
+        // ellipsize, instead of FlowLayout wrapping them behind the tool page.
+        JPanel breadcrumb = new JPanel(new BorderLayout(0, Tokens.SPACE_XS));
         breadcrumb.setOpaque(false);
-        breadcrumb.add(breadcrumbGroupLabel);
-        breadcrumb.add(breadcrumbSeparatorLabel);
-        breadcrumb.add(currentToolLabel);
+        breadcrumb.add(breadcrumbGroupLabel, BorderLayout.NORTH);
+        breadcrumb.add(currentToolLabel, BorderLayout.CENTER);
 
-        location.add(expandSidebarButton, BorderLayout.WEST);
+        JPanel expandSlot = new JPanel(new GridBagLayout());
+        expandSlot.setOpaque(false);
+        expandSlot.add(expandSidebarButton);
+        location.add(expandSlot, BorderLayout.WEST);
         location.add(breadcrumb, BorderLayout.CENTER);
         bar.add(location, BorderLayout.CENTER);
 
-        JPanel settings = new JPanel(new FlowLayout(FlowLayout.RIGHT, UIUtils.SPACE_SM, 0));
+        JPanel settings = new JPanel(new BorderLayout(UIUtils.SPACE_MD, 0));
         settings.setOpaque(false);
         topThemeLabel = new JLabel(I18n.get("top.theme"));
-        topThemeLabel.setFont(Tokens.fontCaption());
-        topThemeLabel.setForeground(Tokens.mutedForeground());
+        topThemeLabel.setIcon(WorkbenchIcons.appearance());
         JComboBox<String> themeBox = new JComboBox<>(ThemeManager.names());
+        themeBox.setName("workbench.theme");
         themeBox.setSelectedItem(ThemeManager.current().name);
         themeBox.setFont(Tokens.fontBody());
-        themeBox.setPreferredSize(new Dimension(172, Tokens.CONTROL_HEIGHT));
+        themeBox.setPreferredSize(new Dimension(156, Tokens.CONTROL_HEIGHT));
+        themeBox.setMaximumRowCount(16);
+        themeBox.setToolTipText(ThemeManager.current().name);
         themeBox.addActionListener(event -> {
             ThemeManager.apply((String) themeBox.getSelectedItem());
+            themeBox.setToolTipText(ThemeManager.current().name);
             restyleAfterThemeChange();
             SwingUtilities.invokeLater(() -> {
                 if (!sidebarCollapsed) workspaceSplit.setDividerLocation(expandedSidebarWidth);
             });
         });
-        settings.add(topThemeLabel);
-        settings.add(themeBox);
+        settings.add(settingField(topThemeLabel, themeBox), BorderLayout.CENTER);
 
         topLangLabel = new JLabel(I18n.get("top.lang"));
-        topLangLabel.setFont(Tokens.fontCaption());
-        topLangLabel.setForeground(Tokens.mutedForeground());
+        topLangLabel.setIcon(WorkbenchIcons.globe());
         JComboBox<String> langBox = new JComboBox<>(new String[]{"简体中文", "English"});
+        langBox.setName("workbench.language");
         langBox.setSelectedIndex(
                 "en_US".equals(ConfigManager.get("locale", "zh_CN")) ? 1 : 0);
         langBox.setFont(Tokens.fontBody());
@@ -326,8 +330,7 @@ public class MainFrame extends JFrame {
                 reloadInPlace();
             }
         });
-        settings.add(topLangLabel);
-        settings.add(langBox);
+        settings.add(settingField(topLangLabel, langBox), BorderLayout.EAST);
         bar.add(settings, BorderLayout.EAST);
 
         JPanel wrapper = new JPanel(new BorderLayout(0, 0));
@@ -337,15 +340,40 @@ public class MainFrame extends JFrame {
         return wrapper;
     }
 
+    private JPanel settingField(JLabel label, JComboBox<String> field) {
+        label.setFont(Tokens.fontCaption());
+        label.setForeground(Tokens.mutedForeground());
+        label.setIconTextGap(Tokens.SPACE_XS);
+        label.setLabelFor(field);
+        field.getAccessibleContext().setAccessibleName(label.getText());
+        JPanel panel = new JPanel(new BorderLayout(0, Tokens.SPACE_XS));
+        panel.setOpaque(false);
+        panel.add(label, BorderLayout.NORTH);
+        panel.add(field, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    /** Read the surface at paint time so every theme, including gallery themes, follows. */
+    private static JPanel chromePanel() {
+        JPanel panel = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                g.setColor(Tokens.chromeBackground());
+                g.fillRect(0, 0, getWidth(), getHeight());
+                super.paintComponent(g);
+            }
+        };
+        panel.setOpaque(false);
+        return panel;
+    }
+
     /** 主题切换后重新取色：这些标签的前景色是手动设置的，不会随 LAF 自动更新 */
     private void restyleAfterThemeChange() {
         if (breadcrumbGroupLabel != null) {
             breadcrumbGroupLabel.setForeground(Tokens.mutedForeground());
         }
-        if (breadcrumbSeparatorLabel != null) {
-            breadcrumbSeparatorLabel.setForeground(Tokens.borderSubtle());
-        }
         if (currentToolLabel != null) {
+            currentToolLabel.setFont(Tokens.fontTitle().deriveFont(20f));
             currentToolLabel.setForeground(Tokens.foreground());
         }
         if (topThemeLabel != null) {
@@ -395,7 +423,7 @@ public class MainFrame extends JFrame {
         String group = tool == null ? "" : tool.getGroupLabel();
         String name = tool == null ? "" : tool.getLabel();
         breadcrumbGroupLabel.setText(group);
-        breadcrumbSeparatorLabel.setVisible(!group.isEmpty() && !name.isEmpty());
+        breadcrumbGroupLabel.setIcon(tool == null ? null : WorkbenchIcons.category(tool.getGroup()));
         currentToolLabel.setText(name);
         String full = group.isEmpty() ? name : group + " / " + name;
         currentToolLabel.setToolTipText(full);
@@ -447,11 +475,14 @@ public class MainFrame extends JFrame {
         setTitle(I18n.get("app.title"));
         topThemeLabel.setText(I18n.get("top.theme"));
         topLangLabel.setText(I18n.get("top.lang"));
+        topThemeLabel.getLabelFor().getAccessibleContext().setAccessibleName(topThemeLabel.getText());
+        topLangLabel.getLabelFor().getAccessibleContext().setAccessibleName(topLangLabel.getText());
         expandSidebarButton.setToolTipText(I18n.get("nav.expand"));
         expandSidebarButton.getAccessibleContext().setAccessibleName(I18n.get("nav.expand"));
         sidebar.refreshLabels();
         sidebar.setSelectedTool(currentToolId);
         updateCurrentToolLabel();
+        updateStatusBar();
         revalidate();
         repaint();
     }
@@ -463,6 +494,8 @@ public class MainFrame extends JFrame {
      */
     private JComponent buildStatusBar() {
         statusReadyLabel = statusSegment();
+        statusReadyLabel.setIcon(WorkbenchIcons.status());
+        statusReadyLabel.setIconTextGap(Tokens.SPACE_XS);
         statusJdkLabel = statusSegment();
         statusCpuLabel = statusSegment();
         statusMemoryLabel = statusSegment();
@@ -481,8 +514,8 @@ public class MainFrame extends JFrame {
         right.add(statusDivider());
         right.add(statusMemoryLabel);
 
-        JPanel bar = new JPanel(new BorderLayout(UIUtils.SPACE_MD, 0));
-        bar.setOpaque(false);
+        JPanel bar = chromePanel();
+        bar.setLayout(new BorderLayout(UIUtils.SPACE_MD, 0));
         bar.setBorder(new EmptyBorder(
                 UIUtils.SPACE_XS + 1, UIUtils.SPACE_LG, UIUtils.SPACE_XS + 1, UIUtils.SPACE_LG));
         bar.add(left, BorderLayout.WEST);

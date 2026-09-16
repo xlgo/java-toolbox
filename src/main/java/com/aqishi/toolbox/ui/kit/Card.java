@@ -8,7 +8,6 @@ import javax.swing.border.EmptyBorder;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
-import java.awt.FlowLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -110,10 +109,17 @@ public class Card extends JPanel {
         JPanel headerWrapper = new JPanel(new BorderLayout());
         headerWrapper.setOpaque(false);
         headerWrapper.setBorder(new EmptyBorder(
-                Tokens.SPACE_MD - 2, Tokens.CARD_PADDING, Tokens.SPACE_SM, Tokens.CARD_PADDING));
+                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.SPACE_SM + 2, Tokens.CARD_PADDING));
         headerWrapper.add(header, BorderLayout.CENTER);
 
-        JPanel headerBlock = new JPanel(new BorderLayout());
+        JPanel headerBlock = new JPanel(new BorderLayout()) {
+            @Override
+            protected void paintComponent(Graphics graphics) {
+                graphics.setColor(Tokens.cardHeaderBackground());
+                graphics.fillRect(0, 0, getWidth(), getHeight());
+                super.paintComponent(graphics);
+            }
+        };
         headerBlock.setOpaque(false);
         headerBlock.add(headerWrapper, BorderLayout.CENTER);
         headerBlock.add(new Hairline(), BorderLayout.SOUTH);

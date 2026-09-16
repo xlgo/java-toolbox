@@ -12,8 +12,11 @@ import com.formdev.flatlaf.themes.FlatMacLightLaf;
 
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.Errors;
+import com.aqishi.toolbox.ui.kit.Tokens;
 
 import javax.swing.*;
+import javax.swing.plaf.ColorUIResource;
+import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -155,7 +158,8 @@ public final class ThemeManager {
      * <p>这些键都是 FlatLaf 专有键，其它 LAF 会直接忽略，因此不会破坏兜底外观。
      * 在这里统一设置，可以让尚未逐个重构的工具面板也获得一致的控件观感。</p>
      */
-    private static void applyCustomDefaults() {
+    static void applyCustomDefaults() {
+        applyWorkbenchPalette();
         applyCjkFontDefaults();
 
         int control = com.aqishi.toolbox.ui.kit.Tokens.CONTROL_HEIGHT;
@@ -171,6 +175,7 @@ public final class ThemeManager {
 
         // 圆角
         UIManager.put("Button.arc", arc);
+        UIManager.put("ToggleButton.arc", arc);
         UIManager.put("Component.arc", arc);
         UIManager.put("TextComponent.arc", arc);
         UIManager.put("CheckBox.arc", 4);
@@ -180,6 +185,13 @@ public final class ThemeManager {
         // 焦点描边收细一点，减少高密度表单里的视觉噪音
         UIManager.put("Component.focusWidth", 1);
         UIManager.put("Component.innerFocusWidth", 1);
+        UIManager.put("Button.paintShadow", Boolean.FALSE);
+        UIManager.put("Button.default.boldText", Boolean.FALSE);
+        UIManager.put("Button.margin", new javax.swing.plaf.InsetsUIResource(3, 12, 3, 12));
+        UIManager.put("ToggleButton.margin", new javax.swing.plaf.InsetsUIResource(3, 10, 3, 10));
+        UIManager.put("ComboBox.padding", new javax.swing.plaf.InsetsUIResource(3, 9, 3, 9));
+        UIManager.put("TextField.margin", new javax.swing.plaf.InsetsUIResource(3, 8, 3, 8));
+        UIManager.put("PasswordField.margin", new javax.swing.plaf.InsetsUIResource(3, 8, 3, 8));
 
         // 滚动条：细、圆角、悬停才显轨道
         UIManager.put("ScrollBar.width", 11);
@@ -194,18 +206,22 @@ public final class ThemeManager {
         UIManager.put("Tree.selectionArc", arc);
         UIManager.put("Tree.paintSelectionBackground", Boolean.TRUE);
         UIManager.put("List.selectionArc", arc);
+        UIManager.put("List.selectionInsets", new javax.swing.plaf.InsetsUIResource(1, 4, 1, 4));
+        UIManager.put("Tree.selectionInsets", new javax.swing.plaf.InsetsUIResource(1, 4, 1, 4));
 
         // 表格：去掉纵向网格线，改用行高与细横线表达结构
         UIManager.put("Table.rowHeight", com.aqishi.toolbox.ui.kit.Tokens.TABLE_ROW_HEIGHT);
         UIManager.put("Table.showHorizontalLines", Boolean.TRUE);
         UIManager.put("Table.showVerticalLines", Boolean.FALSE);
         UIManager.put("Table.intercellSpacing", new java.awt.Dimension(0, 1));
-        UIManager.put("TableHeader.height", 28);
+        UIManager.put("TableHeader.height", 32);
         UIManager.put("TableHeader.separatorColor", com.aqishi.toolbox.ui.kit.Tokens.borderSubtle());
 
         // 标签页：下划线样式比方框样式更贴近现代桌面产品
         UIManager.put("TabbedPane.tabHeight", 34);
         UIManager.put("TabbedPane.tabType", "underlined");
+        UIManager.put("TabbedPane.tabSelectionHeight", 2);
+        UIManager.put("TabbedPane.tabInsets", new javax.swing.plaf.InsetsUIResource(7, 14, 7, 14));
         UIManager.put("TabbedPane.showTabSeparators", Boolean.FALSE);
         UIManager.put("TabbedPane.tabsPopupPolicy", "asNeeded");
         UIManager.put("TabbedPane.scrollButtonsPolicy", "asNeeded");
@@ -217,8 +233,121 @@ public final class ThemeManager {
 
         // 弹出与工具提示
         UIManager.put("PopupMenu.borderInsets", new javax.swing.plaf.InsetsUIResource(4, 2, 4, 2));
+        UIManager.put("PopupMenu.borderCornerRadius", 10);
         UIManager.put("ToolTip.border", new javax.swing.plaf.BorderUIResource(
                 javax.swing.BorderFactory.createEmptyBorder(6, 8, 6, 8)));
+
+        // Style classes express button intent without assigning a root-pane
+        // default button (which would also change Enter-key behavior).
+        UIManager.getLookAndFeelDefaults().put("[style]Button.primary",
+                "background: $Button.default.background; foreground: $Button.default.foreground; "
+                        + "borderColor: $Button.default.borderColor; "
+                        + "hoverBackground: $Button.default.hoverBackground; "
+                        + "pressedBackground: $Button.default.pressedBackground; "
+                        + "focusedBackground: $Button.default.focusedBackground; "
+                        + "focusedBorderColor: $Component.focusColor");
+        UIManager.getLookAndFeelDefaults().put("[style]Button.danger",
+                "foreground: $Actions.Red; hoverForeground: $Actions.Red; "
+                        + "pressedForeground: $Actions.Red");
+    }
+
+    /**
+     * A quiet, slate-and-blue workbench for the built-in themes. Gallery themes
+     * retain their own palette. Store colors in the LAF table, not persistent
+     * UIManager overrides, so changing from a core theme to a gallery theme
+     * cannot leak the previous palette into the new one.
+     */
+    private static void applyWorkbenchPalette() {
+        LookAndFeel laf = UIManager.getLookAndFeel();
+        if (laf == null) return;
+        Class<?> type = laf.getClass();
+        if (type != FlatLightLaf.class && type != FlatDarkLaf.class
+                && type != FlatIntelliJLaf.class && type != FlatDarculaLaf.class
+                && type != FlatMacLightLaf.class && type != FlatMacDarkLaf.class) {
+            return;
+        }
+
+        boolean dark = ((FlatLaf) laf).isDark();
+        Color workspace = color(dark, 0xF3F5F9, 0x151C27);
+        Color card = color(dark, 0xFFFFFF, 0x1E2837);
+        Color navigation = color(dark, 0xF8FAFD, 0x192230);
+        Color foreground = color(dark, 0x263449, 0xE4EAF4);
+        Color muted = color(dark, 0x65748B, 0xA0AEC2);
+        Color disabled = color(dark, 0x98A4B7, 0x687A94);
+        Color border = color(dark, 0xD6DEEA, 0x344258);
+        Color separator = color(dark, 0xE4E9F2, 0x2D394D);
+        Color accent = color(dark, 0x386AE8, 0x7DA2FF);
+        Color primary = color(dark, 0x386AE8, 0x416FDC);
+        Color selection = color(dark, 0xE8EFFD, 0x2B3D5E);
+        Color selectionText = color(dark, 0x2857C5, 0xB9CEFF);
+        UIDefaults defaults = UIManager.getLookAndFeelDefaults();
+
+        putColors(defaults, workspace, "Panel.background", "control", "Window.background",
+                "TabbedPane.background", "SplitPane.background", "ScrollBar.background");
+        putColors(defaults, card, "TextField.background", "PasswordField.background",
+                "FormattedTextField.background", "TextArea.background", "TextPane.background",
+                "EditorPane.background", "Table.background", "List.background", "Tree.background",
+                "ComboBox.background", "Spinner.background", "Viewport.background",
+                "Button.background", "Button.startBackground", "Button.endBackground",
+                "ToggleButton.background", "MenuBar.background", "PopupMenu.background",
+                "ToolTip.background", "Toolbox.chromeBackground");
+        putColors(defaults, navigation, "Toolbox.navigationBackground", "TableHeader.background");
+        putColors(defaults, foreground, "Label.foreground", "Button.foreground", "ToggleButton.foreground",
+                "CheckBox.foreground", "RadioButton.foreground", "ComboBox.foreground",
+                "TextField.foreground", "PasswordField.foreground", "FormattedTextField.foreground",
+                "TextArea.foreground", "TextPane.foreground", "EditorPane.foreground", "Table.foreground",
+                "TableHeader.foreground", "List.foreground", "Tree.foreground", "Spinner.foreground",
+                "TabbedPane.foreground", "ToolTip.foreground", "Menu.foreground", "MenuItem.foreground",
+                "textText");
+        putColors(defaults, muted, "Toolbox.mutedForeground", "TextField.placeholderForeground",
+                "PasswordField.placeholderForeground");
+        putColors(defaults, disabled, "Label.disabledForeground", "Button.disabledText",
+                "CheckBox.disabledText", "RadioButton.disabledText", "ComboBox.disabledForeground",
+                "TextField.inactiveForeground", "textInactiveText");
+        putColors(defaults, border, "Component.borderColor", "Button.borderColor",
+                "ToggleButton.borderColor", "TextField.borderColor", "Separator.foreground");
+        putColors(defaults, separator, "Table.gridColor", "TableHeader.bottomSeparatorColor");
+        putColors(defaults, accent, "Toolbox.accentColor", "Component.accentColor", "Component.focusColor",
+                "Component.focusedBorderColor", "Button.focusedBorderColor", "TabbedPane.underlineColor",
+                "ProgressBar.foreground", "CheckBox.icon.selectedBackground",
+                "CheckBox.icon.selectedBorderColor", "RadioButton.icon.selectedBackground",
+                "RadioButton.icon.selectedBorderColor");
+        putColors(defaults, selection, "Toolbox.selectionBackground", "List.selectionBackground",
+                "Tree.selectionBackground", "Table.selectionBackground", "ComboBox.selectionBackground",
+                "TabbedPane.hoverColor", "Button.hoverBackground", "ToggleButton.selectedBackground",
+                "MenuItem.selectionBackground", "TextField.selectionBackground",
+                "PasswordField.selectionBackground", "FormattedTextField.selectionBackground",
+                "TextArea.selectionBackground", "TextPane.selectionBackground",
+                "EditorPane.selectionBackground");
+        putColors(defaults, selectionText, "Toolbox.selectionForeground", "List.selectionForeground",
+                "Tree.selectionForeground", "Table.selectionForeground", "ComboBox.selectionForeground",
+                "ToggleButton.selectedForeground", "MenuItem.selectionForeground",
+                "TextField.selectionForeground", "PasswordField.selectionForeground",
+                "FormattedTextField.selectionForeground", "TextArea.selectionForeground",
+                "TextPane.selectionForeground", "EditorPane.selectionForeground");
+        putColors(defaults, primary, "Button.default.background", "Button.default.startBackground",
+                "Button.default.endBackground", "Button.default.borderColor",
+                "Button.default.focusedBackground", "textHighlight");
+        putColors(defaults, Color.WHITE, "Button.default.foreground", "textHighlightText",
+                "CheckBox.icon.checkmarkColor", "RadioButton.icon.centerColor");
+        putColors(defaults, Tokens.shift(primary, -0.08f), "Button.default.hoverBackground");
+        putColors(defaults, Tokens.shift(primary, -0.17f), "Button.default.pressedBackground");
+        putColors(defaults, Tokens.blend(border, card, 0.35f), "ScrollBar.thumb");
+        putColors(defaults, border, "ScrollBar.hoverThumbColor");
+        putColors(defaults, color(dark, 0x1D8A68, 0x63CCAC), "Actions.Green");
+        putColors(defaults, color(dark, 0xB97A16, 0xE7BA6A), "Actions.Yellow");
+        putColors(defaults, color(dark, 0xCA4A58, 0xF08591), "Actions.Red", "Component.error.borderColor");
+    }
+
+    private static Color color(boolean dark, int lightRgb, int darkRgb) {
+        return new Color(dark ? darkRgb : lightRgb);
+    }
+
+    private static void putColors(UIDefaults defaults, Color color, String... keys) {
+        ColorUIResource resource = new ColorUIResource(color);
+        for (String key : keys) {
+            defaults.put(key, resource);
+        }
     }
 
     /** Ensure legacy panels using UI defaults get the same CJK fallback. */

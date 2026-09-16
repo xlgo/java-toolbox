@@ -4,21 +4,26 @@ import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
+import com.formdev.flatlaf.ui.FlatTreeUI;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.event.MouseInputAdapter;
 import javax.swing.event.TreeExpansionEvent;
 import javax.swing.event.TreeExpansionListener;
+import javax.swing.plaf.basic.BasicTreeUI;
 import javax.swing.tree.DefaultMutableTreeNode;
-import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
+import javax.swing.tree.TreeCellRenderer;
 import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.InputMethodEvent;
 import java.awt.event.InputMethodListener;
 import java.awt.event.KeyEvent;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.util.Collection;
 import java.util.Enumeration;
 import java.util.LinkedHashSet;
@@ -63,10 +68,14 @@ public final class ToolSidebar extends JPanel {
 
     private final ToolNavigationModel model;
     private final Consumer<String> selectionListener;
+    private final JLabel brandIconLabel = new JLabel();
     private final JLabel titleLabel = new JLabel();
+    private final JLabel subtitleLabel = new JLabel();
+    private final JLabel searchCaption = new JLabel();
+    private final JLabel searchShortcut = new JLabel("Ctrl K");
     private final JButton collapseButton = new JButton();
     private final JTextField searchField = new JTextField();
-    private final JTree tree = new JTree();
+    private final JTree tree = new NavigationTree();
     private JScrollPane treeScrollPane;
     private final Timer filterTimer;
     private final LinkedHashSet<String> expandedGroupIds = new LinkedHashSet<>();
@@ -74,6 +83,7 @@ public final class ToolSidebar extends JPanel {
     private boolean rebuilding;
     private boolean settingSelection;
     private String selectedToolId;
+    private int hoverRow = -1;
 
     public ToolSidebar(
             ToolNavigationModel model,
@@ -93,18 +103,49 @@ public final class ToolSidebar extends JPanel {
 
         JPanel header = new JPanel(new BorderLayout(UIUtils.SPACE_SM, 0));
         header.setOpaque(false);
-        titleLabel.setFont(Tokens.fontTitle().deriveFont(16f));
+        brandIconLabel.setIcon(WorkbenchIcons.brand(24));
+        brandIconLabel.setPreferredSize(new Dimension(24, 24));
+        brandIconLabel.setVerticalAlignment(SwingConstants.CENTER);
+        JPanel brandCopy = new JPanel();
+        brandCopy.setOpaque(false);
+        brandCopy.setLayout(new BoxLayout(brandCopy, BoxLayout.Y_AXIS));
+        titleLabel.setFont(Tokens.fontTitle());
         titleLabel.setForeground(Tokens.foreground());
+        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        titleLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        subtitleLabel.setFont(Tokens.fontCaption());
+        subtitleLabel.setForeground(Tokens.mutedForeground());
+        subtitleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        subtitleLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        brandCopy.add(titleLabel);
+        brandCopy.add(subtitleLabel);
         collapseButton.setPreferredSize(
-                new Dimension(Tokens.CONTROL_HEIGHT, Tokens.CONTROL_HEIGHT));
+                new Dimension(Tokens.CONTROL_HEIGHT_SM, Tokens.CONTROL_HEIGHT_SM));
+        collapseButton.setMargin(new Insets(2, 4, 2, 4));
+        collapseButton.setMinimumSize(new Dimension(Tokens.CONTROL_HEIGHT_SM, Tokens.CONTROL_HEIGHT_SM));
+        collapseButton.putClientProperty("JComponent.minimumWidth", 0);
         collapseButton.addActionListener(event -> collapseListener.run());
-        collapseButton.setFocusPainted(false);
+        collapseButton.setFocusPainted(true);
+        collapseButton.setIcon(WorkbenchIcons.sidebar(false));
         collapseButton.putClientProperty("JButton.buttonType", "toolBarButton");
-        header.add(titleLabel, BorderLayout.CENTER);
+        header.add(brandIconLabel, BorderLayout.WEST);
+        header.add(brandCopy, BorderLayout.CENTER);
         header.add(collapseButton, BorderLayout.EAST);
 
+        searchCaption.setFont(Tokens.fontCaption());
+        searchCaption.setForeground(Tokens.mutedForeground());
+        searchShortcut.setFont(Tokens.fontCaption());
+        searchShortcut.setForeground(Tokens.mutedForeground());
+        searchShortcut.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Tokens.borderSubtle()),
+                BorderFactory.createEmptyBorder(1, 5, 1, 5)));
+        JPanel searchMeta = new JPanel(new BorderLayout());
+        searchMeta.setOpaque(false);
+        searchMeta.add(searchCaption, BorderLayout.WEST);
+        searchMeta.add(searchShortcut, BorderLayout.EAST);
+
         searchField.putClientProperty("JTextField.showClearButton", true);
-        searchField.putClientProperty("JTextField.leadingIcon", null);
+        searchField.putClientProperty("JTextField.leadingIcon", WorkbenchIcons.search());
         searchField.setFont(Tokens.fontBody());
         searchField.setPreferredSize(new Dimension(0, Tokens.CONTROL_HEIGHT));
         searchField.addInputMethodListener(new InputMethodListener() {
@@ -127,10 +168,15 @@ public final class ToolSidebar extends JPanel {
             @Override public void changedUpdate(DocumentEvent event) { scheduleFilter(); }
         });
 
+        JPanel searchBox = new JPanel(new BorderLayout(0, UIUtils.SPACE_XS));
+        searchBox.setOpaque(false);
+        searchBox.add(searchMeta, BorderLayout.NORTH);
+        searchBox.add(searchField, BorderLayout.SOUTH);
+
         JPanel top = new JPanel(new BorderLayout(0, UIUtils.SPACE_MD));
         top.setOpaque(false);
         top.add(header, BorderLayout.NORTH);
-        top.add(searchField, BorderLayout.SOUTH);
+        top.add(searchBox, BorderLayout.SOUTH);
         add(top, BorderLayout.NORTH);
 
         tree.setRootVisible(false);
@@ -138,6 +184,8 @@ public final class ToolSidebar extends JPanel {
         tree.setRowHeight(UIUtils.NAV_ROW_HEIGHT);
         tree.setToggleClickCount(1);
         tree.setBorder(javax.swing.BorderFactory.createEmptyBorder());
+        tree.putClientProperty("JTree.wideSelection", true);
+        tree.putClientProperty("JTree.paintSelection", false);
         tree.setCellRenderer(new NavigationRenderer());
         tree.getSelectionModel().setSelectionMode(
                 javax.swing.tree.TreeSelectionModel.SINGLE_TREE_SELECTION);
@@ -153,6 +201,12 @@ public final class ToolSidebar extends JPanel {
             } else if (node != null && node.kind == Kind.EMPTY) {
                 tree.clearSelection();
             }
+            // A row background extends beyond the path label's normal repaint bounds.
+            tree.repaint();
+        });
+        tree.addFocusListener(new FocusAdapter() {
+            @Override public void focusGained(FocusEvent event) { tree.repaint(); }
+            @Override public void focusLost(FocusEvent event) { tree.repaint(); }
         });
         tree.addTreeExpansionListener(new TreeExpansionListener() {
             @Override
@@ -163,6 +217,17 @@ public final class ToolSidebar extends JPanel {
             @Override
             public void treeCollapsed(TreeExpansionEvent event) {
                 rememberExpansion(event.getPath(), false);
+            }
+        });
+        tree.addMouseMotionListener(new MouseInputAdapter() {
+            @Override public void mouseMoved(java.awt.event.MouseEvent event) {
+                int row = rowAt(event.getY());
+                if (hoverRow != row) { hoverRow = row; tree.repaint(); }
+            }
+        });
+        tree.addMouseListener(new MouseInputAdapter() {
+            @Override public void mouseExited(java.awt.event.MouseEvent event) {
+                if (hoverRow != -1) { hoverRow = -1; tree.repaint(); }
             }
         });
         treeScrollPane = new JScrollPane(tree);
@@ -180,25 +245,16 @@ public final class ToolSidebar extends JPanel {
         refreshLabels();
     }
 
-    /** 侧栏底色 */
-    private static java.awt.Color navigationBackground() {
-        return Tokens.shift(Tokens.surface(), Tokens.isDark() ? 0.03f : -0.018f);
-    }
-
     /**
      * 让树、视口与未选中行共用侧栏底色。
      *
      * <p>否则未选中的导航行会带着 LAF 默认的白色矩形背景，在侧栏底色上形成一格格色块。</p>
      */
     private void applyNavigationColors() {
-        java.awt.Color background = navigationBackground();
+        Color background = Tokens.navigationBackground();
         tree.setBackground(background);
         treeScrollPane.getViewport().setBackground(background);
         treeScrollPane.setBackground(background);
-        javax.swing.tree.TreeCellRenderer renderer = tree.getCellRenderer();
-        if (renderer instanceof DefaultTreeCellRenderer) {
-            ((DefaultTreeCellRenderer) renderer).setBackgroundNonSelectionColor(background);
-        }
     }
 
     public void setSelectedTool(String toolId) {
@@ -240,16 +296,27 @@ public final class ToolSidebar extends JPanel {
      */
     @Override
     protected void paintComponent(java.awt.Graphics g) {
-        g.setColor(navigationBackground());
+        g.setColor(Tokens.navigationBackground());
         g.fillRect(0, 0, getWidth(), getHeight());
         super.paintComponent(g);
     }
 
-    /** 主题切换后重新取色并重建导航行（分组计数使用了内联颜色） */
+    /** 主题切换后重新取色并保留当前工具、过滤与分组状态。 */
     public void restyle() {
-        titleLabel.setFont(Tokens.fontTitle().deriveFont(16f));
+        titleLabel.setFont(Tokens.fontTitle());
         titleLabel.setForeground(Tokens.foreground());
+        subtitleLabel.setFont(Tokens.fontCaption());
+        subtitleLabel.setForeground(Tokens.mutedForeground());
+        searchCaption.setFont(Tokens.fontCaption());
+        searchCaption.setForeground(Tokens.mutedForeground());
+        searchShortcut.setFont(Tokens.fontCaption());
+        searchShortcut.setForeground(Tokens.mutedForeground());
+        brandIconLabel.setIcon(WorkbenchIcons.brand(24));
         searchField.setFont(Tokens.fontBody());
+        searchField.putClientProperty("JTextField.leadingIcon", WorkbenchIcons.search());
+        searchShortcut.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Tokens.borderSubtle()),
+                BorderFactory.createEmptyBorder(1, 5, 1, 5)));
         tree.setRowHeight(UIUtils.NAV_ROW_HEIGHT);
         applyNavigationColors();
         rebuildTree();
@@ -259,9 +326,13 @@ public final class ToolSidebar extends JPanel {
     public void refreshLabels() {
         titleLabel.setText(I18n.get("top.title"));
         titleLabel.setToolTipText(I18n.get("top.title"));
-        collapseButton.setText("‹");
+        subtitleLabel.setText(localized("nav.brand.subtitle", "Developer workspace"));
+        subtitleLabel.setToolTipText(subtitleLabel.getText());
+        collapseButton.setText(null);
+        collapseButton.setIcon(WorkbenchIcons.sidebar(false));
         collapseButton.setToolTipText(I18n.get("nav.collapse"));
         collapseButton.getAccessibleContext().setAccessibleName(I18n.get("nav.collapse"));
+        searchCaption.setText(localized("nav.search.label", "Quick search"));
         searchField.putClientProperty(
                 "JTextField.placeholderText", I18n.get("top.search.placeholder"));
         searchField.getAccessibleContext().setAccessibleName(
@@ -283,6 +354,7 @@ public final class ToolSidebar extends JPanel {
 
     private void rebuildTree() {
         rebuilding = true;
+        hoverRow = -1;
         try {
             String query = searchField.getText();
             List<ToolNavigationModel.Group> groups = model.filter(query);
@@ -420,53 +492,169 @@ public final class ToolSidebar extends JPanel {
         return (NavNode) path.getLastPathComponent();
     }
 
-    /**
-     * 导航行渲染：分组用粗体并在右侧附带工具数量，工具用常规字重。
-     *
-     * <p>数量用内联 HTML 着色，颜色取自 {@link Tokens#mutedForeground()}，
-     * 因此不会在深色主题下变成不可读的浅灰。</p>
-     */
-    private final class NavigationRenderer extends DefaultTreeCellRenderer {
+    private static String localized(String key, String fallback) {
+        String value = I18n.get(key);
+        return value == null || value.equals(key) ? fallback : value;
+    }
+
+    private int rowAt(int y) {
+        int row = tree.getClosestRowForLocation(0, y);
+        Rectangle bounds = tree.getRowBounds(row);
+        return bounds != null && y >= bounds.y && y < bounds.y + bounds.height ? row : -1;
+    }
+
+    /** Keep the standard tree keyboard/model behavior; only row painting is specialized. */
+    private final class NavigationTree extends JTree {
+        @Override public void updateUI() {
+            // Avoid relying on FlatLaf-specific defaults in the system-LAF fallback.
+            if (UIManager.getLookAndFeel() != null
+                    && UIManager.getLookAndFeel().getClass().getName().startsWith("com.formdev.flatlaf")) {
+                setUI(new NavigationTreeUI());
+            } else {
+                setUI(new BasicNavigationTreeUI());
+            }
+        }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public String getToolTipText(java.awt.event.MouseEvent event) {
+            int row = rowAt(event.getY());
+            NavNode item = row < 0 ? null : node(getPathForRow(row));
+            return item == null ? null : item.label;
+        }
+    }
+
+    /** FlatLaf still owns hit testing, expansion and navigation; rows share a full-width surface. */
+    private final class NavigationTreeUI extends FlatTreeUI {
+        @Override protected void installDefaults() {
+            super.installDefaults();
+            setLeftChildIndent(UIUtils.SPACE_SM);
+            setRightChildIndent(UIUtils.SPACE_SM);
+        }
+
+        @Override protected void paintRow(
+                Graphics graphics, Rectangle clipBounds, Insets insets, Rectangle bounds,
+                TreePath path, int row, boolean expanded, boolean hasBeenExpanded, boolean leaf) {
+            paintNavigationRow(graphics, bounds, path, row, expanded, leaf, rendererPane);
+            // FlatTreeUI paints expansion controls after paintRow, keeping them above the fill.
+        }
+    }
+
+    private final class BasicNavigationTreeUI extends BasicTreeUI {
+        @Override protected void installDefaults() {
+            super.installDefaults();
+            setLeftChildIndent(UIUtils.SPACE_SM);
+            setRightChildIndent(UIUtils.SPACE_SM);
+        }
+
+        @Override protected void paintRow(
+                Graphics graphics, Rectangle clipBounds, Insets insets, Rectangle bounds,
+                TreePath path, int row, boolean expanded, boolean hasBeenExpanded, boolean leaf) {
+            paintNavigationRow(graphics, bounds, path, row, expanded, leaf, rendererPane);
+            // BasicTreeUI paints controls first, so repaint this control above our background.
+            if (shouldPaintExpandControl(path, row, expanded, hasBeenExpanded, leaf)) {
+                paintExpandControl(graphics, clipBounds, insets, bounds, path,
+                        row, expanded, hasBeenExpanded, leaf);
+            }
+        }
+
+        @Override protected void paintHorizontalLine(Graphics g, JComponent c, int y, int left, int right) { }
+        @Override protected void paintVerticalLine(Graphics g, JComponent c, int x, int top, int bottom) { }
+    }
+
+    private void paintNavigationRow(
+            Graphics graphics, Rectangle bounds, TreePath path, int row,
+            boolean expanded, boolean leaf, CellRendererPane pane) {
+        NavNode item = node(path);
+        boolean selected = tree.isRowSelected(row);
+        boolean focused = tree.hasFocus() && row == tree.getLeadSelectionRow();
+        boolean selectable = item != null && item.kind != Kind.EMPTY;
+        Graphics2D g = (Graphics2D) graphics.create();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int x = UIUtils.SPACE_XS;
+            int width = Math.max(0, tree.getWidth() - x * 2);
+            int height = Math.max(0, bounds.height - UIUtils.SPACE_XS);
+            int y = bounds.y + UIUtils.SPACE_XS / 2;
+            if (selected || (selectable && row == hoverRow)) {
+                g.setColor(selected ? Tokens.accentSoft() : Tokens.hoverBackground());
+                g.fillRoundRect(x, y, width, height,
+                        Tokens.RADIUS_CONTROL, Tokens.RADIUS_CONTROL);
+            }
+            if (selected && item != null && item.kind == Kind.TOOL) {
+                // The persistent edge marker makes selection discernible without color alone.
+                g.setColor(Tokens.accent());
+                g.fillRoundRect(x, y + 7, 3, Math.max(4, height - 14), 3, 3);
+            }
+            if (focused) {
+                g.setColor(Tokens.accent());
+                g.drawRoundRect(x, y, Math.max(0, width - 1), Math.max(0, height - 1),
+                        Tokens.RADIUS_CONTROL, Tokens.RADIUS_CONTROL);
+            }
+        } finally { g.dispose(); }
+
+        Component component = tree.getCellRenderer().getTreeCellRendererComponent(
+                tree, path.getLastPathComponent(), selected, expanded, leaf, row, focused);
+        int x = Math.min(bounds.x, tree.getWidth());
+        int width = Math.max(0, tree.getWidth() - x - UIUtils.SPACE_SM);
+        pane.paintComponent(graphics, component, tree, x, bounds.y, width, bounds.height, true);
+    }
+
+    /** Rounded, full-width rows with vector category icons and count badges. */
+    private final class NavigationRenderer extends JPanel implements TreeCellRenderer {
+        private final JLabel icon = new JLabel();
+        private final JLabel text = new JLabel();
+        private final JLabel count = new JLabel() {
+            @Override protected void paintComponent(Graphics graphics) {
+                if (!getText().isEmpty()) {
+                    Graphics2D g = (Graphics2D) graphics.create();
+                    try {
+                        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        g.setColor(Tokens.blend(Tokens.mutedForeground(), Tokens.navigationBackground(), 0.92f));
+                        g.fillRoundRect(0, 7, getWidth(), Math.max(0, getHeight() - 14),
+                                Tokens.RADIUS_CONTROL, Tokens.RADIUS_CONTROL);
+                    } finally { g.dispose(); }
+                }
+                super.paintComponent(graphics);
+            }
+        };
+
+        NavigationRenderer() {
+            setOpaque(false);
+            setLayout(new BorderLayout(UIUtils.SPACE_SM, 0));
+            setBorder(BorderFactory.createEmptyBorder(0, UIUtils.SPACE_XS, 0, UIUtils.SPACE_XS));
+            icon.setPreferredSize(new Dimension(18, 18));
+            icon.setHorizontalAlignment(SwingConstants.CENTER);
+            text.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, UIUtils.SPACE_XS));
+            count.setFont(Tokens.fontCaption());
+            count.setHorizontalAlignment(SwingConstants.RIGHT);
+            count.setBorder(BorderFactory.createEmptyBorder(0, UIUtils.SPACE_XS, 0, UIUtils.SPACE_XS));
+            add(icon, BorderLayout.WEST);
+            add(text, BorderLayout.CENTER);
+            add(count, BorderLayout.EAST);
+        }
+
         @Override
         public Component getTreeCellRendererComponent(
                 JTree source, Object value, boolean selected, boolean expanded,
                 boolean leaf, int row, boolean focused) {
-            JLabel label = (JLabel) super.getTreeCellRendererComponent(
-                    source, value, selected, expanded, leaf, row, focused);
-            setLeafIcon(null);
-            setOpenIcon(null);
-            setClosedIcon(null);
             NavNode node = value instanceof NavNode ? (NavNode) value : null;
-            if (node != null && node.kind == Kind.GROUP) {
-                label.setFont(Tokens.fontBody());
-                label.setText(groupMarkup(node, selected));
-            } else {
-                label.setFont(Tokens.fontBody());
-            }
-            label.setEnabled(node == null || node.kind != Kind.EMPTY);
-            label.setToolTipText(node == null ? null : node.label);
-            return label;
-        }
-
-        private String groupMarkup(NavNode node, boolean selected) {
-            String name = escape(node.label);
-            if (node.toolCount <= 0) {
-                return "<html><b>" + name + "</b></html>";
-            }
-            String countColor = toHex(selected
-                    ? Tokens.foreground()
-                    : Tokens.mutedForeground());
-            return "<html><b>" + name + "</b>&#160;&#160;<font color='" + countColor + "'>"
-                    + node.toolCount + "</font></html>";
-        }
-
-        private String escape(String text) {
-            return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-        }
-
-        private String toHex(java.awt.Color color) {
-            return String.format("#%02X%02X%02X",
-                    color.getRed(), color.getGreen(), color.getBlue());
+            boolean group = node != null && node.kind == Kind.GROUP;
+            boolean empty = node != null && node.kind == Kind.EMPTY;
+            Color fg = selected ? Tokens.selectionForeground()
+                    : empty ? Tokens.mutedForeground() : Tokens.foreground();
+            Color muted = selected ? Tokens.selectionForeground() : Tokens.mutedForeground();
+            text.setForeground(fg);
+            count.setForeground(muted);
+            text.setFont(group ? Tokens.fontBodyStrong() : Tokens.fontBody());
+            count.setFont(Tokens.fontCaption());
+            icon.setVisible(group);
+            icon.setIcon(group ? WorkbenchIcons.category(node.id) : null);
+            icon.setForeground(selected ? Tokens.selectionForeground() : Tokens.mutedForeground());
+            text.setText(node == null ? "" : node.label);
+            count.setText(group && node.toolCount > 0 ? Integer.toString(node.toolCount) : "");
+            count.setVisible(group);
+            setToolTipText(node == null ? null : node.label);
+            setEnabled(!empty);
+            return this;
         }
     }
 }

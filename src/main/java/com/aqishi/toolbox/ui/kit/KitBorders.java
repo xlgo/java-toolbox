@@ -66,7 +66,7 @@ public final class KitBorders {
             }
             Font font = Tokens.fontSectionTitle();
             FontMetrics metrics = component.getFontMetrics(font);
-            return metrics.getHeight() + Tokens.SPACE_MD + Tokens.SPACE_SM - 2;
+            return metrics.getHeight() + Tokens.SPACE_MD + Tokens.SPACE_SM + 2;
         }
 
         @Override
@@ -97,7 +97,7 @@ public final class KitBorders {
                                     x + 0.5f, y + 0.5f, width - 1f, band * 2f, arc, arc);
                     java.awt.Shape oldClip = g2.getClip();
                     g2.clipRect(x, y, width, band);
-                    g2.setColor(Tokens.cardBackground());
+                    g2.setColor(Tokens.cardHeaderBackground());
                     g2.fill(top);
                     g2.setClip(oldClip);
 
@@ -105,7 +105,7 @@ public final class KitBorders {
                     FontMetrics metrics = component.getFontMetrics(font);
                     g2.setFont(font);
                     g2.setColor(Tokens.foreground());
-                    int baseline = y + Tokens.SPACE_MD - 2 + metrics.getAscent();
+                    int baseline = y + Tokens.SPACE_MD + metrics.getAscent();
                     g2.drawString(title, x + Tokens.CARD_PADDING, baseline);
 
                     g2.setColor(Tokens.borderSubtle());

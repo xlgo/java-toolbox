@@ -40,6 +40,9 @@ public final class ToolCatalog {
             "哈希", "摘要", "批量摘要", "Checksum", "sha256sum", "md5sum", "文件签名", "验签", "数字签名", "SM3", "SHA-256");
     public static final ToolDescriptor CERT_INSPECTOR = tool("cert.inspector", "security",
             "CSR", "PKCS12", "P12", "PFX", "证书链", "Chain", "证书检查", "Keystore", "密钥库", "证书诊断");
+    public static final ToolDescriptor WEBHOOK_SIGNATURE = tool("webhook.signature", "security",
+            "Webhook", "回调", "签名", "验签", "HMAC", "Signature", "GitHub", "Stripe", "Slack",
+            "飞书", "Lark", "钉钉", "企业微信", "微信支付", "重放", "Replay");
 
     public static final ToolDescriptor RADIX_ENCODING = tool("radix.encoding", "codec",
             "二进制", "八进制", "十进制", "十六进制", "Hex", "UTF-8", "UTF8", "GBK", "ISO-8859-1",
@@ -66,6 +69,8 @@ public final class ToolCatalog {
             "Diff", "差异", "对比", "文本差异", "差异比较", "LCS", "比较");
     public static final ToolDescriptor JSONPATH_TESTER = tool("jsonpath.tester", "codec",
             "JSONPath", "JsonPath", "JSON", "Path", "提取", "查询", "过滤器", "Query", "过滤", "JMESPath");
+    public static final ToolDescriptor XPATH_TOOL = tool("xpath.tool", "codec",
+            "XPath", "XSLT", "XML", "查询", "提取", "转换", "样式表", "Stylesheet", "命名空间", "Namespace");
 
     public static final ToolDescriptor HTTP_CLIENT = tool("http.client", "network",
             "HTTP", "接口测试", "API", "Request", "Postman", "Curl");
@@ -83,6 +88,9 @@ public final class ToolCatalog {
             "port", "scanner", "network", "ping", "nmap", "tcp", "端口扫描", "网络诊断");
     public static final ToolDescriptor SSH = tool("ssh", "network",
             "ssh", "terminal", "sftp", "shell", "服务器", "远程连接");
+    public static final ToolDescriptor NET_DIAGNOSTICS = tool("net.diagnostics", "network",
+            "DNS", "TLS", "SSL", "HTTP", "诊断", "解析", "证书", "握手", "耗时", "延迟",
+            "nslookup", "dig", "curl", "重定向", "Latency", "Diagnostics");
 
     public static final ToolDescriptor DATABASE_CONNECTOR = tool("database.connector", "data",
             "Database", "SQL", "MySQL", "Postgres", "Oracle", "JDBC", "连接器", "客户端");
@@ -146,11 +154,12 @@ public final class ToolCatalog {
             SECURITY, CODEC, NETWORK, DATA, CLOUD, SYSTEM, GENERATION, COMPUTE, DIAGRAM, MONITOR));
     private static final List<ToolDescriptor> DESCRIPTORS = Collections.unmodifiableList(Arrays.asList(
             HASH_CODEC, SYMMETRIC_CRYPTO, ASYMMETRIC_CRYPTO, CERT_MANAGEMENT, ACCOUNT_MANAGER,
-            TOTP_AUTHENTICATOR, JWT_CODEC, FILE_BATCH_DIGEST, CERT_INSPECTOR,
+            TOTP_AUTHENTICATOR, JWT_CODEC, FILE_BATCH_DIGEST, CERT_INSPECTOR, WEBHOOK_SIGNATURE,
             RADIX_ENCODING, TIMESTAMP, BASE64_IMAGE, URL_TOOL,
             FORMAT_CONVERT, JSON_FORMAT, XML_FORMAT, SQL_FORMAT, STRING_TOOL, REGEX_TESTER, TEXT_DIFF,
-            JSONPATH_TESTER,
-            HTTP_CLIENT, OPENAPI_WORKBENCH, CALLBACK_MOCK, WEBSOCKET_CLIENT, MQTT_CLIENT, SUBNET_CALC, PORT_SCANNER, SSH,
+            JSONPATH_TESTER, XPATH_TOOL,
+            HTTP_CLIENT, OPENAPI_WORKBENCH, CALLBACK_MOCK, WEBSOCKET_CLIENT, MQTT_CLIENT, SUBNET_CALC,
+            PORT_SCANNER, NET_DIAGNOSTICS, SSH,
             DATABASE_CONNECTOR, REDIS_MANAGEMENT, KAFKA_CONNECTOR, ZOOKEEPER_MANAGEMENT,
             DOCKER_CONVERT, K8S_DEPLOYMENT, K8S_MANAGER, CHMOD_CALC, CRON_PARSER, HOSTS_MANAGER,
             WECHAT_SENDER, LOG_VIEWER, DATA_GENERATOR, QRCODE, COLOR_CONVERT, CALCULATOR, STATISTICS,

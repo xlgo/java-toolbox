@@ -49,8 +49,10 @@ jobs:
     env:
       # jpackage 生成的运行时所需的 JDK 模块集合：GUI(Swing/FlatLaf) + 内置 HTTP 服务器(CallbackTest) +
       # JDBC + 网络 + 脚本 + 管理 + 加密（TLS ECDHE / PKCS11）+ 字符集(GBK 等) + 本地化资源。
+      # jdk.naming.dns 是 JNDI 的 DNS 提供方，DNS 诊断要查 MX/TXT/SRV 这些记录必须带上它；
+      # 缺了它只有 java.naming 的话，运行时会退化成只能做 A/AAAA 解析。
       # 注意：必须是单行逗号分隔、不能折行——折行会被 YAML 折叠成空格混进模块名。
-      MODULES: "java.base,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,java.xml.crypto,jdk.httpserver,jdk.management,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.unsupported,jdk.zipfs,jdk.charsets,jdk.localedata"
+      MODULES: "java.base,java.desktop,java.logging,java.management,java.naming,java.net.http,java.prefs,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,java.xml.crypto,jdk.httpserver,jdk.management,jdk.naming.dns,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.unsupported,jdk.zipfs,jdk.charsets,jdk.localedata"
 
     steps:
       - name: Checkout repository

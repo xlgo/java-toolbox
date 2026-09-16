@@ -32,6 +32,9 @@ import com.aqishi.toolbox.feature.system.ui.LogViewerPanel;
 import com.aqishi.toolbox.feature.network.ui.HttpTestPanel;
 import com.aqishi.toolbox.feature.codec.ui.JsonPanel;
 import com.aqishi.toolbox.feature.codec.ui.JsonPathPanel;
+import com.aqishi.toolbox.feature.codec.ui.XPathPanel;
+import com.aqishi.toolbox.feature.network.ui.NetDiagnosticsPanel;
+import com.aqishi.toolbox.feature.security.ui.WebhookSignaturePanel;
 import com.aqishi.toolbox.feature.security.ui.JwtPanel;
 import com.aqishi.toolbox.feature.cloud.ui.K8sManagerPanel;
 import com.aqishi.toolbox.feature.cloud.ui.K8sPanel;
@@ -88,6 +91,26 @@ public final class ToolRegistry {
         }
         this.descriptorsById = Collections.unmodifiableMap(index);
         this.factoriesById = Collections.unmodifiableMap(new LinkedHashMap<>(factoriesById));
+        verifyPairing(index.keySet(), this.factoriesById.keySet());
+    }
+
+    /**
+     * 目录与工厂必须一一对应。
+     *
+     * <p>少了工厂，工具照样出现在导航里，点下去才炸；多了工厂，则是目录里漏登记了一个工具，
+     * 它永远不会出现。两种都留到运行时才暴露，所以在装配时就断掉。</p>
+     */
+    private static void verifyPairing(java.util.Set<String> descriptorIds,
+                                      java.util.Set<String> factoryIds) {
+        List<String> missingFactories = new ArrayList<>(descriptorIds);
+        missingFactories.removeAll(factoryIds);
+        List<String> orphanFactories = new ArrayList<>(factoryIds);
+        orphanFactories.removeAll(descriptorIds);
+        if (!missingFactories.isEmpty() || !orphanFactories.isEmpty()) {
+            throw new IllegalStateException("Tool catalog and registry disagree"
+                    + (missingFactories.isEmpty() ? "" : "; descriptors without a factory: " + missingFactories)
+                    + (orphanFactories.isEmpty() ? "" : "; factories without a descriptor: " + orphanFactories));
+        }
     }
 
     public static ToolRegistry createDefault() {
@@ -101,6 +124,7 @@ public final class ToolRegistry {
         factories.put("jwt.codec", context -> new JwtPanel());
         factories.put("file.batch.digest", context -> new BatchDigestPanel());
         factories.put("cert.inspector", context -> new CertInspectorPanel());
+        factories.put("webhook.signature", context -> new WebhookSignaturePanel());
         factories.put("radix.encoding", context -> new ConvertPanel());
         factories.put("timestamp", context -> new TimePanel());
         factories.put("base64.image", context -> new Base64ImagePanel());
@@ -113,6 +137,7 @@ public final class ToolRegistry {
         factories.put("regex.tester", context -> new RegexPanel());
         factories.put("text.diff", context -> new TextDiffPanel());
         factories.put("jsonpath.tester", context -> new JsonPathPanel());
+        factories.put("xpath.tool", context -> new XPathPanel());
         factories.put("http.client", context -> new HttpTestPanel());
         factories.put("openapi.workbench", context -> new OpenApiPanel());
         factories.put("callback.mock", context -> new CallbackTestPanel());
@@ -120,6 +145,7 @@ public final class ToolRegistry {
         factories.put("mqtt.client", context -> new MqttClientPanel());
         factories.put("subnet.calc", context -> new SubnetPanel());
         factories.put("port.scanner", context -> new PortScannerPanel());
+        factories.put("net.diagnostics", context -> new NetDiagnosticsPanel());
         factories.put("ssh", context -> new SshClientPanel());
         factories.put("database.connector", context -> new DatabasePanel());
         factories.put("redis.management", context -> new RedisPanel());

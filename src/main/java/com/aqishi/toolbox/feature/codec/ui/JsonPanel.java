@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.JsonFormatter;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -27,9 +28,7 @@ public class JsonPanel extends AbstractTreeFormatPanel {
     };
 
     public JsonPanel() {
-        super("format", "json.format",
-                "JSON", "美化", "压缩", "格式化",
-                "Json美化", "Json压缩", "格式化JSON");
+        super(ToolCatalog.JSON_FORMAT);
     }
 
     @Override

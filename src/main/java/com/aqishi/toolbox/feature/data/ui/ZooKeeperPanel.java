@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.data.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.feature.network.ssh.domain.RemoteEndpoint;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
@@ -57,8 +58,7 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
     private volatile List<SshTunnelBridge.BridgeResult> activeSshBridges = new ArrayList<>();
 
     public ZooKeeperPanel() {
-        super("dev", "zookeeper.management",
-                "ZooKeeper", "Zookeeper", "ZK", "节点", "分布式协调", "注册中心");
+        super(ToolCatalog.ZOOKEEPER_MANAGEMENT);
     }
 
     @Override

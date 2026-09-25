@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.system.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.Json;
 
 import com.aqishi.toolbox.feature.system.domain.WeChatContactReader;
@@ -96,8 +97,7 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
     private Thread sendThread = null;
 
     public WeChatPanel() {
-        super("dev", "wechat.sender",
-                "微信", "群发", "WeChat", "批量", "发送", "模拟按键", "联系人");
+        super(ToolCatalog.WECHAT_SENDER);
     }
 
     @Override

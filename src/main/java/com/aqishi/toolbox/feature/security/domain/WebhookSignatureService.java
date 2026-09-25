@@ -1,5 +1,8 @@
 package com.aqishi.toolbox.feature.security.domain;
 
+import com.aqishi.toolbox.util.Errors;
+import com.aqishi.toolbox.util.Hex;
+
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.ByteArrayInputStream;
@@ -405,7 +408,7 @@ public final class WebhookSignatureService {
             } catch (IllegalArgumentException badBase64) {
                 return failure("error.badSignatureEncoding", badBase64.getMessage(), payload, freshness, skew);
             } catch (Exception error) {
-                return failure("error.verifyFailed", describe(error), payload, freshness, skew);
+                return failure("error.verifyFailed", Errors.describe(error), payload, freshness, skew);
             }
         }
 
@@ -416,7 +419,7 @@ public final class WebhookSignatureService {
                     : digest(request.algorithm, payload);
             computed = encode(digest, request.encoding);
         } catch (Exception error) {
-            return failure("error.computeFailed", describe(error), payload, freshness, skew);
+            return failure("error.computeFailed", Errors.describe(error), payload, freshness, skew);
         }
 
         boolean base64 = request.encoding == Encoding.BASE64;
@@ -511,16 +514,14 @@ public final class WebhookSignatureService {
     }
 
     private static String encode(byte[] raw, Encoding encoding) {
-        if (encoding == Encoding.BASE64) {
-            return Base64.getEncoder().encodeToString(raw);
+        switch (encoding) {
+            case BASE64:
+                return Base64.getEncoder().encodeToString(raw);
+            case HEX_UPPER:
+                return Hex.toHexUpper(raw);
+            default:
+                return Hex.toHex(raw);
         }
-        StringBuilder text = new StringBuilder(raw.length * 2);
-        for (byte value : raw) {
-            text.append(Character.forDigit((value >> 4) & 0xF, 16));
-            text.append(Character.forDigit(value & 0xF, 16));
-        }
-        String hex = text.toString();
-        return encoding == Encoding.HEX_UPPER ? hex.toUpperCase(Locale.ROOT) : hex;
     }
 
     private static String stripPrefix(String signature, String prefix) {
@@ -574,10 +575,5 @@ public final class WebhookSignatureService {
     private static Result failure(String errorCode, String detail, String payload,
                                   Freshness freshness, long skew) {
         return new Result(false, errorCode, detail, payload, "", false, false, freshness, skew);
-    }
-
-    private static String describe(Throwable error) {
-        String message = error.getMessage();
-        return message == null || message.isEmpty() ? error.getClass().getSimpleName() : message;
     }
 }

@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.security.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.VaultAccessPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
@@ -80,8 +81,7 @@ public final class AccountManagerPanel extends ToolPanel {
     private boolean updatingCategory;
 
     public AccountManagerPanel(VaultService service, SecureClipboard clipboard) {
-        super("crypto", "account.manager",
-                "密码管理", "账号密码", "密码簿", "Password Manager", "Account", "Keeper");
+        super(ToolCatalog.ACCOUNT_MANAGER);
         this.service = Objects.requireNonNull(service, "service");
         this.clipboard = Objects.requireNonNull(clipboard, "clipboard");
     }

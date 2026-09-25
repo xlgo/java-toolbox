@@ -32,7 +32,7 @@ public final class ConfigManager {
         try {
             configStore.load();
         } catch (IOException ignored) {
-            // Keep empty preferences. Task 1 exposes write failures through save().
+            // Keep empty preferences; write failures surface later through save().
         }
         return new Initialization(configStore, warnings, directoryError);
     }

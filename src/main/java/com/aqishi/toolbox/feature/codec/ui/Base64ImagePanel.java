@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
 import com.aqishi.toolbox.ui.ToolPanel;
@@ -56,9 +57,7 @@ public class Base64ImagePanel extends ToolPanel implements ManagedResourceOwner 
     private byte[] decodedImageBytes;
 
     public Base64ImagePanel() {
-        super("convert", "base64.image",
-                "Base64", "图片", "Image", "DataURI", "Data URI",
-                "图片编码", "图片解码", "图片转换");
+        super(ToolCatalog.BASE64_IMAGE);
     }
 
     @Override

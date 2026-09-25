@@ -1,6 +1,10 @@
 package com.aqishi.toolbox.feature.security.domain;
 
+import org.bouncycastle.asn1.ASN1Sequence;
 import org.bouncycastle.asn1.gm.GMNamedCurves;
+import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
+import org.bouncycastle.asn1.sec.ECPrivateKey;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.asn1.x9.X9ECParameters;
 import org.bouncycastle.crypto.AsymmetricCipherKeyPair;
 import org.bouncycastle.crypto.engines.SM2Engine;
@@ -265,36 +269,41 @@ public final class SM2Utils {
     }
 
     /**
-     * 从 X.509 SubjectPublicKeyInfo 中提取 EC 点。
+     * 从 X.509 SubjectPublicKeyInfo（{@code 3059...}）中取出公钥点 {@code 04||x||y}。
+     *
+     * <p>按 ASN.1 结构解析，而不是在字节里找第一个 {@code 0x04}：DER 的长度、OID 字节
+     * 都可能恰好等于 0x04，扫描会取到错误的 65 字节并得到一个错误（或非法）的点。</p>
      */
     private static ECPoint extractPointFromSubjectPublicKeyInfo(byte[] spki, X9ECParameters params) {
-        // SM2 曲线的 OID 后跟着的公钥位串是 04||x||y
-        // 简化：查找 0x04 标记后的 65 字节
-        for (int i = 0; i < spki.length - 65; i++) {
-            if (spki[i] == 0x04 && spki.length - i >= 65) {
-                byte[] point = new byte[65];
-                System.arraycopy(spki, i, point, 0, 65);
-                return params.getCurve().decodePoint(point);
-            }
+        try {
+            byte[] point = SubjectPublicKeyInfo.getInstance(spki).getPublicKeyData().getOctets();
+            return params.getCurve().decodePoint(point);
+        } catch (RuntimeException malformed) {
+            throw new IllegalArgumentException("无法解析 SubjectPublicKeyInfo 公钥: " + malformed.getMessage(), malformed);
         }
-        throw new IllegalArgumentException("无法从 SubjectPublicKeyInfo 中提取 EC 点");
     }
 
     /**
-     * 从编码的私钥字节中提取 32 字节 D 值。
+     * 从 DER 编码的私钥中取出 D 值，支持 PKCS#8（{@code PrivateKeyInfo}）与 SEC1（{@code ECPrivateKey}）。
+     *
+     * <p>早先直接取"最后 32 字节"：两种编码都会在 D 之后附带可选的曲线参数与公钥，
+     * 最后 32 字节通常是公钥 y 坐标，于是用错误的私钥解密、签名而不报错。</p>
      */
     private static byte[] extractPrivateKeyD(byte[] encoded) {
-        if (encoded.length == COORD_SIZE) {
-            return encoded;
+        try {
+            ASN1Sequence sequence = ASN1Sequence.getInstance(encoded);
+            ECPrivateKey key;
+            // PKCS#8 的第二个元素是算法标识（SEQUENCE）；SEC1 的第二个元素直接是 D（OCTET STRING）。
+            if (sequence.size() >= 3 && sequence.getObjectAt(1) instanceof ASN1Sequence) {
+                key = ECPrivateKey.getInstance(PrivateKeyInfo.getInstance(sequence).parsePrivateKey());
+            } else {
+                key = ECPrivateKey.getInstance(sequence);
+            }
+            return fixLength(key.getKey().toByteArray(), COORD_SIZE);
+        } catch (java.io.IOException | RuntimeException malformed) {
+            throw new IllegalArgumentException("Unrecognized SM2 private key encoding"
+                    + " (expected 32-byte D, PKCS#8 or SEC1 DER): " + malformed.getMessage(), malformed);
         }
-        // 对于 DER 编码的 EC 私钥，遍历找 32 字节的 D 值
-        // 简化：取最后 32 字节
-        if (encoded.length > COORD_SIZE) {
-            byte[] d = new byte[COORD_SIZE];
-            System.arraycopy(encoded, encoded.length - COORD_SIZE, d, 0, COORD_SIZE);
-            return d;
-        }
-        return encoded;
     }
 
     /**

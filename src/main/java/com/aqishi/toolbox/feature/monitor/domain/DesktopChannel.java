@@ -3,7 +3,8 @@ package com.aqishi.toolbox.feature.monitor.domain;
 import java.util.function.Consumer;
 
 /**
- * 远程桌面通道接口，屏蔽底层直连 Socket 和中转 WebSocket 的实现差异。
+ * 远程桌面数据通道接口，屏蔽 TCP 直连、UDP 打洞与 ICE 三种传输的差异。
+ * WebSocket 仅用于信令交换，不承载桌面数据，因此不实现本接口。
  */
 public interface DesktopChannel {
 

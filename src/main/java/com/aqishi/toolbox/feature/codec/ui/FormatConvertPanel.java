@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.feature.codec.domain.FormatConversionService;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -27,9 +28,7 @@ public class FormatConvertPanel extends ToolPanel {
     private final FormatConversionService conversionService = new FormatConversionService();
 
     public FormatConvertPanel() {
-        super("format", "format.convert",
-                "JSON", "XML", "YAML", "CSV", "Properties", "INI", "TOML",
-                "格式互转", "数据转换", "序列化", "语法校验");
+        super(ToolCatalog.FORMAT_CONVERT);
     }
 
     @Override

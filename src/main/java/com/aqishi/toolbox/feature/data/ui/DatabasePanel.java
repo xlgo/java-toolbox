@@ -1,5 +1,8 @@
 package com.aqishi.toolbox.feature.data.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
+import com.aqishi.toolbox.feature.codec.domain.SqlFormatter;
+import com.aqishi.toolbox.feature.data.domain.SelectQueryBuilder;
 import com.aqishi.toolbox.feature.data.application.DatabaseMetadataService;
 import com.aqishi.toolbox.feature.data.application.SqlExecutionService;
 import com.aqishi.toolbox.domain.DatabaseProfile;
@@ -38,14 +41,15 @@ import java.sql.*;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Pattern;
-import java.util.regex.Matcher;
 
 /**
  * 数据库客户端面板：支持 MySQL、PostgreSQL、Oracle 及自定义驱动链接自定义数据库。
  * 支持连接折叠、函数/视图/表树形浏览、数据库/Schema切换、SQL 智能提示及可视化条件编辑器。
  */
 public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
+
+    /** 可视化查询最多取回的行数。 */
+    private static final int VISUAL_QUERY_LIMIT = 100;
 
     private final SqlExecutionService sqlExecutionService = new SqlExecutionService();
     private final DatabaseConnectionFactory connectionFactory = new DatabaseConnectionFactory();
@@ -136,8 +140,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     private JTextArea consoleOutput;
 
     public DatabasePanel() {
-        super("dev", "database.connector",
-                "Database", "SQL", "MySQL", "Postgres", "Oracle", "JDBC", "连接器", "客户端");
+        super(ToolCatalog.DATABASE_CONNECTOR);
     }
 
     @Override
@@ -445,7 +448,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         // SQL Buttons
         runBtn.addActionListener(e -> executeSql());
         formatBtn.addActionListener(e -> {
-            sqlEditor.setText(formatSql(sqlEditor.getText()));
+            sqlEditor.setText(SqlFormatter.format(sqlEditor.getText()));
         });
         clearSqlBtn.addActionListener(e -> sqlEditor.setText(""));
 
@@ -632,7 +635,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                 try {
                     resource = createConnection(url, user, pwd, driverClass, jarPath);
                 } catch (Exception ex) {
-                    error = ex.getMessage();
+                    error = Errors.describeRoot(ex);
                 } finally {
                     if (resource != null) resource.close();
                     releaseSshBridge();
@@ -714,8 +717,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                     // Load database & schema lists
                     loadDatabaseNames();
                 } catch (Exception ex) {
-                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    error = cause.getMessage();
+                    error = Errors.describeRoot(ex);
                     connBtn.setEnabled(true);
                     testBtn.setEnabled(true);
                     UIUtils.error(getView(), "连接失败：\n" + error);
@@ -889,7 +891,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                     
                     SwingUtilities.invokeLater(() -> urlField.setText(newUrl));
                 } else {
-                    // Standard MySQL switching catalog
+                    // 其余类型（MySQL、Oracle、自定义驱动）在同一连接上切换 catalog
                     connection.setCatalog(dbName);
                 }
                 return null;
@@ -902,8 +904,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                     consoleLog("数据库切换成功！");
                     loadSchemaNames();
                 } catch (Exception ex) {
-                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    err = cause.getMessage();
+                    err = Errors.describeRoot(ex);
                     UIUtils.error(getView(), "切换数据库失败:\n" + err);
                     consoleLog("切换数据库失败：" + err);
                 }
@@ -929,8 +930,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                     consoleLog("模式切换成功！");
                     loadMetadataTree();
                 } catch (Exception ex) {
-                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    consoleLog("切换模式警告（已继续刷新树）：" + cause.getMessage());
+                    consoleLog("切换模式警告（已继续刷新树）：" + Errors.describeRoot(ex));
                     loadMetadataTree();
                 }
             }
@@ -1006,8 +1006,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
 
                     consoleLog("元数据加载成功，表共计 " + tables.size() + " 个，视图 " + views.size() + " 个，函数 " + funcs.size() + " 个。");
                 } catch (Exception ex) {
-                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    consoleLog("加载元数据树失败: " + cause.getMessage());
+                    consoleLog("加载元数据树失败: " + Errors.describeRoot(ex));
                 }
             }
         }.execute();
@@ -1451,48 +1450,15 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
             return "";
         }
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("SELECT * FROM ").append(tableName);
-
-        if (!conditionRowsList.isEmpty()) {
-            sb.append(" WHERE ");
-            for (int i = 0; i < conditionRowsList.size(); i++) {
-                ConditionRow row = conditionRowsList.get(i);
-                String col = (String) row.colCombo.getSelectedItem();
-                String op = (String) row.opCombo.getSelectedItem();
-                String val = row.valField.getText().trim();
-
-                if (col == null || col.isEmpty()) continue;
-                if (i > 0) {
-                    sb.append(" AND ");
-                }
-
-                sb.append(col).append(" ").append(op);
-
-                if (!"IS NULL".equals(op) && !"IS NOT NULL".equals(op)) {
-                    sb.append(" ");
-                    boolean isNumeric = val.matches("-?\\d+(\\.\\d+)?");
-                    if (isNumeric) {
-                        sb.append(val);
-                    } else {
-                        sb.append("'").append(val.replace("'", "''")).append("'");
-                    }
-                }
-            }
+        List<SelectQueryBuilder.Condition> conditions = new ArrayList<>();
+        for (ConditionRow row : conditionRowsList) {
+            conditions.add(new SelectQueryBuilder.Condition(
+                    (String) row.colCombo.getSelectedItem(),
+                    (String) row.opCombo.getSelectedItem(),
+                    row.valField.getText()));
         }
-
-        String dbType = (String) dbTypeCombo.getSelectedItem();
-        if ("Oracle".equals(dbType)) {
-            if (conditionRowsList.isEmpty()) {
-                sb.append(" WHERE ROWNUM <= 100");
-            } else {
-                sb.append(" AND ROWNUM <= 100");
-            }
-        } else {
-            sb.append(" LIMIT 100");
-        }
-
-        String sql = sb.toString();
+        boolean oracle = "Oracle".equals(dbTypeCombo.getSelectedItem());
+        String sql = SelectQueryBuilder.build(tableName, conditions, oracle, VISUAL_QUERY_LIMIT);
         if (switchToEditor) {
             sqlEditor.setText(sql);
             editorTabbedPane.setSelectedIndex(0);
@@ -1562,8 +1528,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                     }
                     consoleLog(statusText);
                 } catch (Exception ex) {
-                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    String err = cause.getMessage();
+                    String err = Errors.describeRoot(ex);
                     consoleLog("SQL 执行错误: " + err);
                     resultStatusLabel.setText("执行出错，请查看日志。");
                     rightTabbedPane.setSelectedIndex(1);
@@ -1692,67 +1657,6 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         }
     }
 
-    private String formatSql(String sql) {
-        if (sql == null || sql.trim().isEmpty()) return "";
-        sql = sql.replaceAll("\\s+", " ").trim();
-        Pattern pattern = Pattern.compile("'[^']*'|\"[^\"]*\"|`[^`]*`|\\w+|\\S");
-        Matcher matcher = pattern.matcher(sql);
-        List<String> tokens = new ArrayList<>();
-        while (matcher.find()) {
-            tokens.add(matcher.group());
-        }
-
-        Set<String> keywords = new HashSet<>(Arrays.asList(
-                "SELECT", "FROM", "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE",
-                "JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "ON", "GROUP", "BY", "ORDER", "HAVING", "LIMIT",
-                "AND", "OR", "UNION", "ALL", "AS", "IN", "IS", "NOT", "NULL", "LIKE", "EXISTS", "BETWEEN", "CASE", "WHEN", "THEN", "ELSE", "END"
-        ));
-        Set<String> newlineKeywords = new HashSet<>(Arrays.asList(
-                "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", "JOIN", "GROUP", "ORDER", "SET", "VALUES", "UNION"
-        ));
-
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < tokens.size(); i++) {
-            String token = tokens.get(i);
-            String upperToken = token.toUpperCase();
-            boolean isKeyword = keywords.contains(upperToken);
-            String displayToken = isKeyword ? upperToken : token;
-
-            if (isKeyword) {
-                String nextToken = (i + 1 < tokens.size()) ? tokens.get(i + 1).toUpperCase() : "";
-                String prevToken = (i - 1 >= 0) ? tokens.get(i - 1).toUpperCase() : "";
-
-                boolean isFirstOfMultiWord = false;
-                if (upperToken.equals("GROUP") && nextToken.equals("BY")) isFirstOfMultiWord = true;
-                if (upperToken.equals("ORDER") && nextToken.equals("BY")) isFirstOfMultiWord = true;
-                if ((upperToken.equals("LEFT") || upperToken.equals("RIGHT") || upperToken.equals("INNER")) && nextToken.equals("JOIN")) isFirstOfMultiWord = true;
-
-                boolean isSecondOfMultiWord = false;
-                if (upperToken.equals("BY") && (prevToken.equals("GROUP") || prevToken.equals("ORDER"))) isSecondOfMultiWord = true;
-                if (upperToken.equals("JOIN") && (prevToken.equals("LEFT") || prevToken.equals("RIGHT") || prevToken.equals("INNER"))) isSecondOfMultiWord = true;
-
-                if ((newlineKeywords.contains(upperToken) && !isSecondOfMultiWord) || isFirstOfMultiWord) {
-                    if (sb.length() > 0) {
-                        sb.append("\n");
-                    }
-                } else if (upperToken.equals("AND") || upperToken.equals("OR")) {
-                    sb.append("\n  ");
-                }
-            }
-
-            if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '\n' && sb.charAt(sb.length() - 1) != ' ') {
-                if (!displayToken.equals(",") && !displayToken.equals(")") && !displayToken.equals("(")) {
-                    sb.append(" ");
-                }
-            }
-            sb.append(displayToken);
-            if (displayToken.equals(",")) {
-                sb.append(" ");
-            }
-        }
-        return sb.toString().trim();
-    }
-
     // Tree Node Types
     private enum MetadataType {
         TABLE, VIEW, FUNCTION
@@ -1819,8 +1723,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
             colCombo = Fields.combo(new String[0], 150);
             updateColumns(cols);
 
-            opCombo = Fields.combo(
-                    new String[]{"=", "!=", ">", ">=", "<", "<=", "LIKE", "IS NULL", "IS NOT NULL"}, 120);
+            opCombo = Fields.combo(SelectQueryBuilder.OPERATORS.toArray(new String[0]), 120);
 
             valField = Fields.text("");
 

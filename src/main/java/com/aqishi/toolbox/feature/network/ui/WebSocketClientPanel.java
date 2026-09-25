@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.network.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.infra.network.WebSocketResource;
@@ -45,7 +46,7 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("HH:mm:ss.SSS");
 
     public WebSocketClientPanel() {
-        super("misc", "websocket.client", "websocket", "ws", "wss", "socket", "connect", "client", "测试", "长连接");
+        super(ToolCatalog.WEBSOCKET_CLIENT);
     }
 
     @Override

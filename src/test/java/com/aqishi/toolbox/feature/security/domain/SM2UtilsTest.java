@@ -1,6 +1,13 @@
 package com.aqishi.toolbox.feature.security.domain;
 
+import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.util.encoders.Hex;
 import org.junit.jupiter.api.Test;
+
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.spec.ECGenParameterSpec;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -107,5 +114,35 @@ class SM2UtilsTest {
         SM2Utils.SM2KeyPair kp2 = SM2Utils.generateKeyPair();
         assertNotEquals(kp1.publicKey, kp2.publicKey);
         assertNotEquals(kp1.privateKey, kp2.privateKey);
+    }
+
+    /**
+     * 回归：DER 私钥曾经被"取最后 32 字节"当作 D 值，PKCS#8 / SEC1 编码里那一段通常是公钥坐标，
+     * 用它解密会失败或得到乱码；公钥则曾靠扫描第一个 0x04 字节定位。
+     */
+    @Test
+    void acceptsDerEncodedKeysFromStandardTooling() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC", new BouncyCastleProvider());
+        generator.initialize(new ECGenParameterSpec("sm2p256v1"));
+        KeyPair pair = generator.generateKeyPair();
+
+        String spki = Hex.toHexString(pair.getPublic().getEncoded());
+        String pkcs8 = Hex.toHexString(pair.getPrivate().getEncoded());
+        String sec1 = Hex.toHexString(PrivateKeyInfo.getInstance(pair.getPrivate().getEncoded())
+                .parsePrivateKey().toASN1Primitive().getEncoded());
+
+        String cipher = SM2Utils.encrypt("国密 DER", spki);
+        assertEquals("国密 DER", SM2Utils.decrypt(cipher, pkcs8));
+        assertEquals("国密 DER", SM2Utils.decrypt(cipher, sec1));
+
+        String signature = SM2Utils.sign("payload", pkcs8);
+        assertTrue(SM2Utils.verify("payload", signature, spki));
+    }
+
+    @Test
+    void rejectsGarbagePrivateKeyInsteadOfGuessing() {
+        SM2Utils.SM2KeyPair kp = SM2Utils.generateKeyPair();
+        String cipher = SM2Utils.encrypt("x", kp.publicKey);
+        assertThrows(RuntimeException.class, () -> SM2Utils.decrypt(cipher, "30" + "ab".repeat(40)));
     }
 }

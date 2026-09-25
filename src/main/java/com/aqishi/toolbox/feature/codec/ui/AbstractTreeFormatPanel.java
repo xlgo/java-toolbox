@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
+import com.aqishi.toolbox.catalog.ToolDescriptor;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -32,8 +33,8 @@ public abstract class AbstractTreeFormatPanel extends ToolPanel {
     private JButton returnBtn;
     private String returnToolId = null;
 
-    protected AbstractTreeFormatPanel(String group, String name, String... searchKeywords) {
-        super(group, name, searchKeywords);
+    protected AbstractTreeFormatPanel(ToolDescriptor descriptor) {
+        super(descriptor);
     }
 
     // ===== 子类钩子 =====

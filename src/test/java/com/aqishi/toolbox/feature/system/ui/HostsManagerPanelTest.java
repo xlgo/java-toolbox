@@ -9,7 +9,7 @@ public class HostsManagerPanelTest {
     @Test
     public void testHostsManagerPanelInstantiation() {
         HostsManagerPanel panel = new HostsManagerPanel();
-        assertEquals("misc", panel.getGroup());
+        assertEquals("system", panel.getGroup());
         assertEquals("hosts.manager", panel.getName());
         assertNotNull(panel.getView());
     }

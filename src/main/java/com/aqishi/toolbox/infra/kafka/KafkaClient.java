@@ -9,9 +9,9 @@ import java.util.Properties;
 /**
  * Infrastructure factory for Kafka admin connections.
  *
- * <p>Message producers and short-lived consumers can be extracted behind the
- * same boundary incrementally; this first slice centralizes the persistent
- * cluster-admin lifecycle used by the Swing workbench.</p>
+ * <p>Only the long-lived {@code AdminClient} goes through this factory. The
+ * short-lived producers and consumers used for browsing and publishing are still
+ * created directly by {@code KafkaBrowserService}.</p>
  */
 public final class KafkaClient {
 

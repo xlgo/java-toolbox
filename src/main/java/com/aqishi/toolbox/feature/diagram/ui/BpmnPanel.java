@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.diagram.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -95,8 +96,7 @@ public class BpmnPanel extends ToolPanel {
     private boolean updatingProperties = false;
 
     public BpmnPanel() {
-        super("chart", "bpmn.designer",
-                "BPMN", "工作流", "设计器", "Workflow", "Process", "流程图", "Camunda", "Activiti");
+        super(ToolCatalog.BPMN_DESIGNER);
         
         // 初始化默认流程
         initDefaultProcess();

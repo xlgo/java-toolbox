@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -32,9 +33,7 @@ public class TimePanel extends ToolPanel implements ManagedResourceOwner {
     private JLabel topSecValueLabel;
 
     public TimePanel() {
-        super("convert", "timestamp",
-                "Unix", "Timestamp", "时间戳", "日期转换", "时区",
-                "毫秒", "秒戳", "DateTime", "时间格式化");
+        super(ToolCatalog.TIMESTAMP);
     }
 
     @Override

@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.compute.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -128,7 +129,7 @@ public class PinGamePanel extends ToolPanel implements ManagedResourceOwner {
     private static final Font FONT_BANNER = new Font(Font.DIALOG, Font.PLAIN, 13);
 
     public PinGamePanel() {
-        super("algo", "pingame", "见缝插针", "AA Pin Game", "Pin Game", "游戏", "AA", "见缝插针游戏");
+        super(ToolCatalog.PINGAME);
         loadSavedStats();
     }
 

@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.system.ui;
 
+import com.aqishi.toolbox.util.Errors;
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.util.UIUtils;
@@ -27,7 +29,7 @@ public class HostsManagerPanel extends ToolPanel {
     private File hostsFile;
 
     public HostsManagerPanel() {
-        super("misc", "hosts.manager", "hosts", "domain", "dns", "ip", "environment", "环境", "域名", "解析");
+        super(ToolCatalog.HOSTS_MANAGER);
     }
 
     @Override
@@ -288,9 +290,8 @@ public class HostsManagerPanel extends ToolPanel {
                         UIUtils.info(getView(), "DNS 刷新命令已执行 (退出代码: " + exit + ")");
                     }
                 } catch (Exception ex) {
-                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                     statusLabel.setText("刷新 DNS 失败");
-                    UIUtils.error(getView(), "刷新 DNS 失败: " + cause.getMessage());
+                    UIUtils.error(getView(), "刷新 DNS 失败: " + Errors.describeRoot(ex));
                 }
             }
         }.execute();

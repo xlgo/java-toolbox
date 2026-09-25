@@ -73,6 +73,33 @@ public final class Errors {
         return message == null || message.isBlank() ? type : type + ": " + message;
     }
 
+    /**
+     * 与 {@link #describe} 相同，但先沿 cause 链找到最内层带说明文字的异常。
+     *
+     * <p>包装型异常经常自己没有 message，真正的原因在里层：{@code HttpClient} 抛出的
+     * {@code ConnectException}、{@code SwingWorker.get()} 抛出的 {@code ExecutionException}
+     * 都是这样。直接 {@link #describe} 只能得到一个类名。</p>
+     *
+     * <p>最多下探 16 层，防止自引用的 cause 链造成死循环。</p>
+     */
+    public static String describeRoot(Throwable error) {
+        if (error == null) {
+            return describe(null);
+        }
+        Throwable deepest = error;
+        Throwable cursor = error;
+        for (int depth = 0; cursor != null && depth < 16; depth++) {
+            if (cursor.getMessage() != null && !cursor.getMessage().isBlank()) {
+                deepest = cursor;
+            }
+            if (cursor.getCause() == cursor) {
+                break;
+            }
+            cursor = cursor.getCause();
+        }
+        return describe(deepest);
+    }
+
     private static String detailSuffix(Throwable error) {
         return error == null ? "" : System.lineSeparator() + describe(error);
     }

@@ -5,8 +5,8 @@ package com.aqishi.toolbox.util;
  *
  * <p>此前 MD5/SHA/SM3/签名等工具各自在字节循环里调用
  * {@code String.format("%02x", b & 0xff)}：每次格式化都要解析格式串、走一遍
- * Formatter，放在逐字节循环里开销明显。这里统一改为查表法
- * {@code HEX[b & 0xff]}，并复用同一份字符表，快约一个数量级。</p>
+ * Formatter，放在逐字节循环里开销明显。这里统一改为按半字节查表
+ * （{@code table[b >>> 4]}、{@code table[b & 0xF]}），快约一个数量级。</p>
  */
 public final class Hex {
 

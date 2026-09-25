@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -38,9 +39,7 @@ public class TextDiffPanel extends ToolPanel {
     }
 
     public TextDiffPanel() {
-        super("dev", "text.diff",
-                "Diff", "差异", "对比", "文本差异",
-                "差异比较", "LCS", "比较");
+        super(ToolCatalog.TEXT_DIFF);
     }
 
     @Override

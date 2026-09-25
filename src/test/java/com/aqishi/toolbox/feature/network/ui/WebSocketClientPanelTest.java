@@ -9,7 +9,7 @@ public class WebSocketClientPanelTest {
     @Test
     public void testWebSocketClientPanelInstantiation() {
         WebSocketClientPanel panel = new WebSocketClientPanel();
-        assertEquals("misc", panel.getGroup());
+        assertEquals("network", panel.getGroup());
         assertEquals("websocket.client", panel.getName());
         assertNotNull(panel.getView());
     }

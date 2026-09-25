@@ -1,5 +1,7 @@
 package com.aqishi.toolbox.feature.codec.domain;
 
+import com.aqishi.toolbox.util.Errors;
+
 import org.w3c.dom.Attr;
 import org.w3c.dom.Document;
 import org.w3c.dom.NamedNodeMap;
@@ -279,7 +281,7 @@ public final class XPathService {
                 }
             }
         } catch (Exception error) {
-            return new QueryResult(false, "", describe(error), 0, elapsedMs(started), mode);
+            return new QueryResult(false, "", Errors.describeRoot(error), 0, elapsedMs(started), mode);
         }
     }
 
@@ -309,7 +311,7 @@ public final class XPathService {
             transformer.transform(new DOMSource(source), new StreamResult(writer));
             return new TransformResult(true, writer.toString(), null, elapsedMs(started));
         } catch (Exception error) {
-            return new TransformResult(false, "", describe(error), elapsedMs(started));
+            return new TransformResult(false, "", Errors.describeRoot(error), elapsedMs(started));
         }
     }
 
@@ -429,15 +431,6 @@ public final class XPathService {
 
     private static long elapsedMs(long startedNanos) {
         return (System.nanoTime() - startedNanos) / 1_000_000L;
-    }
-
-    private static String describe(Throwable error) {
-        Throwable cause = error;
-        while (cause.getCause() != null && cause.getMessage() == null) {
-            cause = cause.getCause();
-        }
-        String message = cause.getMessage();
-        return message == null || message.isEmpty() ? cause.getClass().getSimpleName() : message;
     }
 
     private static void setFeatureQuietly(DocumentBuilderFactory factory, String feature, boolean value) {

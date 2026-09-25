@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.network.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.util.Json;
 import com.aqishi.toolbox.util.UIUtils;
@@ -65,7 +66,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
     private static final ObjectMapper jsonMapper = Json.prettyMapper();
 
     public MqttClientPanel() {
-        super("dev", "mqtt.client", "mqtt", "iot", "emqx", "broker", "publish", "subscribe", "消息队列", "物联网", "测试");
+        super(ToolCatalog.MQTT_CLIENT);
     }
 
     @Override

@@ -77,7 +77,7 @@ public class P2PConnector {
     }
 
     /**
-     * Kept for compatibility with callers outside the remote desktop panel.
+     * Lists this machine's non-loopback IPv4 addresses for display as connection candidates.
      */
     public static List<String> getLocalIPv4Addresses() {
         List<String> ipv4 = new ArrayList<>();

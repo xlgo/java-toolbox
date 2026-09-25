@@ -9,6 +9,7 @@ import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 
@@ -223,7 +224,7 @@ public class LogViewerPanel extends ToolPanel implements ManagedResourceOwner {
                     }
                     updateStatus(chunk);
                 } catch (Exception ex) {
-                    UIUtils.error(content, I18n.get("log.viewer.read.failed", rootMessage(ex)));
+                    UIUtils.error(content, I18n.get("log.viewer.read.failed", Errors.describeRoot(ex)));
                 }
             }
         }.execute();
@@ -389,13 +390,6 @@ public class LogViewerPanel extends ToolPanel implements ManagedResourceOwner {
         statusLabel.setText(text);
     }
 
-    private static String rootMessage(Throwable ex) {
-        Throwable cursor = ex;
-        while (cursor.getCause() != null) {
-            cursor = cursor.getCause();
-        }
-        return cursor.getMessage() == null ? cursor.getClass().getSimpleName() : cursor.getMessage();
-    }
 
     @Override
     public void closeResources() {

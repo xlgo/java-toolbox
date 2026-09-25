@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.cloud.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.Json;
 
@@ -143,8 +144,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
     }
 
     public K8sManagerPanel(KubernetesServiceFactory kubernetesServiceFactory) {
-        super("dev", "k8s.manager",
-                "k8s", "kubernetes", "容器", "集群", "运维", "kubeconfig", "docker", "pod", "deployment");
+        super(ToolCatalog.K8S_MANAGER);
         this.kubernetesServiceFactory = java.util.Objects.requireNonNull(
                 kubernetesServiceFactory, "kubernetesServiceFactory");
     }
@@ -254,8 +254,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
             caCertStatusLabel.setToolTipText(file.getAbsolutePath());
             skipTlsCheck.setSelected(false);
         } catch (Exception ex) {
-            Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-            UIUtils.error(getView(), "CA 证书解析失败: " + cause.getMessage());
+            UIUtils.error(getView(), "CA 证书解析失败: " + Errors.describeRoot(ex));
         }
     }
 
@@ -724,8 +723,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
                     toggleState(false);
                     activeSocketFactory = null;
                     activeHostnameVerifier = null;
-                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    UIUtils.error(connBtn, "连接失败: " + cause.getMessage());
+                    UIUtils.error(connBtn, "连接失败: " + Errors.describeRoot(ex));
                 }
             }
         }.execute();
@@ -861,8 +859,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
                 try {
                     rows = get();
                 } catch (Exception ex) {
-                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    UIUtils.error(getView(), "加载 " + resourceLabel + " 失败: " + cause.getMessage());
+                    UIUtils.error(getView(), "加载 " + resourceLabel + " 失败: " + Errors.describeRoot(ex));
                     return;
                 }
                 replaceRows(model, rows);

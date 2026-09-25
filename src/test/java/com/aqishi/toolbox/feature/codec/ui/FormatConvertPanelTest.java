@@ -14,7 +14,7 @@ class FormatConvertPanelTest {
     void exposesFormatConversionViewAndNewFormatSearchTerms() {
         FormatConvertPanel panel = new FormatConvertPanel();
 
-        assertEquals("format", panel.getGroup());
+        assertEquals("codec", panel.getGroup());
         assertEquals("format.convert", panel.getName());
         assertTrue(Arrays.asList(panel.getSearchKeywords()).contains("INI"));
         assertTrue(Arrays.asList(panel.getSearchKeywords()).contains("TOML"));

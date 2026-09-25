@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.generation.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -18,9 +19,7 @@ import java.awt.*;
 public class ColorPanel extends ToolPanel {
 
     public ColorPanel() {
-        super("dev", "color.convert",
-                "HEX", "RGB", "HSL", "调色板", "Color",
-                "颜色", "颜色选择", "色值");
+        super(ToolCatalog.COLOR_CONVERT);
     }
 
     private JTextField hexF, rgbF, hslF;

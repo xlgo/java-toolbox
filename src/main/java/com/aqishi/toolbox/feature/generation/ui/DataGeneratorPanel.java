@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.generation.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.ui.kit.Layouts;
@@ -15,7 +16,7 @@ import java.awt.*;
 public class DataGeneratorPanel extends ToolPanel {
 
     public DataGeneratorPanel() {
-        super("generate", "data.generator", "生成", "Generator", "数据", "密码", "UUID", "假数据", "Mock");
+        super(ToolCatalog.DATA_GENERATOR);
     }
 
     @Override

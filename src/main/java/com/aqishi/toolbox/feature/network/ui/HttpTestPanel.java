@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.network.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.JsonFormatter;
 import com.aqishi.toolbox.feature.network.ssh.domain.RemoteEndpoint;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
@@ -12,6 +13,7 @@ import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.Json;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.util.FormatUtils;
@@ -53,8 +55,7 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
     private volatile SshTunnelBridge.BridgeResult activeSshBridge;
 
     public HttpTestPanel() {
-        super("dev", "http.client",
-                "HTTP", "接口测试", "API", "Request", "Postman", "Curl");
+        super(ToolCatalog.HTTP_CLIENT);
     }
 
     @Override
@@ -257,7 +258,7 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
                         resp.body = "";
                     }
                 } catch (Exception ex) {
-                    resp.error = ex.getMessage();
+                    resp.error = Errors.describeRoot(ex);
                 } finally {
                     if (conn != null) {
                         conn.disconnect();

@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.security.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.feature.security.domain.SM3Utils;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -29,10 +30,7 @@ import javax.crypto.spec.SecretKeySpec;
 public class CryptoPanel extends ToolPanel {
 
     public CryptoPanel() {
-        super("crypto", "hash.codec",
-                "MD5", "SHA-1", "SHA-256", "SHA256", "SM3", "哈希", "Hash",
-                "消息摘要", "散列", "Base64", "编解码", "编码", "解码",
-                "国密", "Hmac", "HMAC");
+        super(ToolCatalog.HASH_CODEC);
     }
 
     @Override

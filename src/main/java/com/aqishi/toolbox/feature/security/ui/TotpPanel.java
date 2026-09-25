@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.security.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.feature.security.domain.OtpUtils;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
@@ -69,9 +70,7 @@ public final class TotpPanel extends ToolPanel implements ManagedResourceOwner {
     private boolean globalShowDirectly;
 
     public TotpPanel(VaultService service, SecureClipboard clipboard) {
-        super("crypto", "totp.authenticator",
-                "谷歌验证器", "Google Authenticator", "2FA", "OTP", "MFA",
-                "双因素认证", "身份验证", "totp", "authenticator");
+        super(ToolCatalog.TOTP_AUTHENTICATOR);
         this.service = Objects.requireNonNull(service, "service");
         this.clipboard = Objects.requireNonNull(clipboard, "clipboard");
         this.globalShowDirectly = Boolean.parseBoolean(

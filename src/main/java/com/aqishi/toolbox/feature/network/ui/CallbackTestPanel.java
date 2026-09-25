@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.network.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.Json;
 
 import com.aqishi.toolbox.util.JsonFormatter;
@@ -94,8 +95,7 @@ public class CallbackTestPanel extends ToolPanel implements ManagedResourceOwner
 
     CallbackTestPanel(CallbackMockRuleRepository repository,
                       CallbackMockService service) {
-        super("dev", "callback.mock",
-                "回调", "接口测试", "Mock", "Webhook", "Server", "服务器", "HTTP Mock");
+        super(ToolCatalog.CALLBACK_MOCK);
         this.repository = repository;
         this.service = service;
     }

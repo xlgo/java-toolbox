@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -27,10 +28,7 @@ import java.nio.charset.StandardCharsets;
 public class ConvertPanel extends ToolPanel {
 
     public ConvertPanel() {
-        super("convert", "radix.encoding",
-                "二进制", "八进制", "十进制", "十六进制", "Hex",
-                "UTF-8", "UTF8", "GBK", "ISO-8859-1", "URL编码", "URL解码",
-                "进制转换", "编码转换", "字符编码");
+        super(ToolCatalog.RADIX_ENCODING);
     }
 
     @Override

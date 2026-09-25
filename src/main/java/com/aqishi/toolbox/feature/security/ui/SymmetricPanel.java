@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.security.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.feature.security.domain.SymmetricUtils;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -36,10 +37,7 @@ public class SymmetricPanel extends ToolPanel {
     private JTextArea outputArea;
 
     public SymmetricPanel() {
-        super("crypto", "symmetric.crypto",
-                "AES", "DES", "3DES", "SM4", "国密",
-                "GCM", "ECB", "CBC", "PKCS5", "密钥", "加密", "解密",
-                "对称");
+        super(ToolCatalog.SYMMETRIC_CRYPTO);
     }
 
     @Override

@@ -1,5 +1,8 @@
 package com.aqishi.toolbox.feature.data.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
+import com.aqishi.toolbox.feature.data.application.RedisValueWriter;
+import com.aqishi.toolbox.feature.data.domain.RedisValueEdit;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshTunnelBridge;
@@ -125,11 +128,12 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
     private volatile SshTunnelBridge.BridgeResult activeSshBridge;
     /** Jedis connections are stateful and must not be used by concurrent workers. */
     private final Object redisLock = new Object();
+    /** 只在 EDT 上读写；后台任务需要 key 时，须在提交前把它拷到局部变量。 */
     private String currentSelectedKey = null;
+    private final RedisValueWriter valueWriter = new RedisValueWriter();
 
     public RedisPanel() {
-        super("dev", "redis.management",
-                "Redis", "缓存", "NoSQL", "Key-Value", "数据库", "命令行", "Console");
+        super(ToolCatalog.REDIS_MANAGEMENT);
     }
 
     @Override
@@ -792,8 +796,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
                     setConnCollapsed(true);
                 } catch (Exception ex) {
                     toggleState(false);
-                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    UIUtils.error(connBtn, "连接失败: " + cause.getMessage());
+                    UIUtils.error(connBtn, "连接失败: " + Errors.describeRoot(ex));
                 }
             }
         }.execute();
@@ -886,6 +889,10 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
 
             @Override
             protected void done() {
+                // 用户已切到别的 key：丢弃这次结果，否则旧值会填进新 key 的编辑器，保存时写错对象。
+                if (!key.equals(currentSelectedKey)) {
+                    return;
+                }
                 try {
                     Map<String, Object> data = get();
                     String type = (String) data.get("type");
@@ -1012,14 +1019,15 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
 
     private void deleteSelectedKey() {
         if (jedis == null || currentSelectedKey == null) return;
-        boolean opt = UIUtils.confirm(null, "确定删除键: " + currentSelectedKey + " 吗？", "提示");
+        String key = currentSelectedKey;
+        boolean opt = UIUtils.confirm(null, "确定删除键: " + key + " 吗？", "提示");
         if (opt) {
             new SwingWorker<Void, Void>() {
                 @Override
                 protected Void doInBackground() {
                     synchronized (redisLock) {
                         if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
-                        jedis.del(currentSelectedKey);
+                        jedis.del(key);
                     }
                     return null;
                 }
@@ -1048,15 +1056,16 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
             return;
         }
 
+        String key = currentSelectedKey;
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
                 synchronized (redisLock) {
                     if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
                     if (ttl < 0) {
-                        jedis.persist(currentSelectedKey);
+                        jedis.persist(key);
                     } else {
-                        jedis.expire(currentSelectedKey, ttl);
+                        jedis.expire(key, ttl);
                     }
                 }
                 return null;
@@ -1067,7 +1076,9 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
                 try {
                     get();
                     UIUtils.info(null, "TTL 更新成功！");
-                    loadKeyDetail(currentSelectedKey);
+                    if (key.equals(currentSelectedKey)) {
+                        loadKeyDetail(key);
+                    }
                 } catch (Exception ex) {
                     UIUtils.error(ttlField, "修改 TTL 失败: " + ex.getMessage());
                 }
@@ -1098,62 +1109,21 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
         stopEditing(listTable);
         stopEditing(setTable);
         stopEditing(zsetTable);
-        String type = keyTypeLabel.getText();
+        // 在 EDT 上把 key 和编辑内容一起冻结：后台线程排队期间用户可能已经点了别的 key。
+        RedisValueEdit edit;
+        try {
+            edit = snapshotEditor(currentSelectedKey, keyTypeLabel.getText());
+        } catch (IllegalArgumentException invalid) {
+            UIUtils.error(saveValueBtn, "保存失败: " + invalid.getMessage());
+            return;
+        }
 
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
                 synchronized (redisLock) {
                     if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
-                    // Remove first to rewrite list/set/zset
-                    if (!"string".equals(type) && !"hash".equals(type)) {
-                        jedis.del(currentSelectedKey);
-                    }
-
-                    if ("string".equals(type)) {
-                        jedis.set(currentSelectedKey, stringArea.getText());
-                    } else if ("hash".equals(type)) {
-                        // Collect modified values
-                        Map<String, String> currentHash = jedis.hgetAll(currentSelectedKey);
-                        Set<String> fieldsInTable = new HashSet<>();
-                        for (int i = 0; i < hashModel.getRowCount(); i++) {
-                            String field = (String) hashModel.getValueAt(i, 0);
-                            String value = (String) hashModel.getValueAt(i, 1);
-                            if (field != null && !field.trim().isEmpty()) {
-                                jedis.hset(currentSelectedKey, field, value);
-                                fieldsInTable.add(field);
-                            }
-                        }
-                        // Remove fields deleted in GUI
-                        for (String field : currentHash.keySet()) {
-                            if (!fieldsInTable.contains(field)) {
-                                jedis.hdel(currentSelectedKey, field);
-                            }
-                        }
-                    } else if ("list".equals(type)) {
-                        for (int i = 0; i < listModel.getRowCount(); i++) {
-                            String val = (String) listModel.getValueAt(i, 1);
-                            if (val != null) {
-                                jedis.rpush(currentSelectedKey, val);
-                            }
-                        }
-                    } else if ("set".equals(type)) {
-                        for (int i = 0; i < setModel.getRowCount(); i++) {
-                            String val = (String) setModel.getValueAt(i, 0);
-                            if (val != null && !val.trim().isEmpty()) {
-                                jedis.sadd(currentSelectedKey, val);
-                            }
-                        }
-                    } else if ("zset".equals(type)) {
-                        for (int i = 0; i < zsetModel.getRowCount(); i++) {
-                            String scoreStr = String.valueOf(zsetModel.getValueAt(i, 0));
-                            String member = (String) zsetModel.getValueAt(i, 1);
-                            if (member != null && !member.trim().isEmpty()) {
-                                double score = Double.parseDouble(scoreStr);
-                                jedis.zadd(currentSelectedKey, score, member);
-                            }
-                        }
-                    }
+                    valueWriter.save(jedis, edit);
                 }
                 return null;
             }
@@ -1163,12 +1133,54 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
                 try {
                     get();
                     UIUtils.info(null, "保存成功！");
-                    loadKeyDetail(currentSelectedKey);
+                    if (edit.key().equals(currentSelectedKey)) {
+                        loadKeyDetail(edit.key());
+                    }
                 } catch (Exception ex) {
-                    UIUtils.error(saveValueBtn, "保存失败: " + ex.getMessage());
+                    UIUtils.error(saveValueBtn, "保存失败: " + Errors.describeRoot(ex));
                 }
             }
         }.execute();
+    }
+
+    /** 把当前类型对应的编辑器内容转成不可变快照；分值等格式错误在这里就抛出，不会写到一半。 */
+    private RedisValueEdit snapshotEditor(String key, String redisType) {
+        switch (RedisValueEdit.Type.of(redisType)) {
+            case STRING:
+                return RedisValueEdit.string(key, stringArea.getText());
+            case HASH:
+                return RedisValueEdit.hash(key, tableRows(hashModel, 0, 1));
+            case LIST: {
+                List<String> values = new ArrayList<>();
+                for (String[] row : tableRows(listModel, 1)) {
+                    values.add(row[0]);
+                }
+                return RedisValueEdit.list(key, values);
+            }
+            case SET: {
+                List<String> members = new ArrayList<>();
+                for (String[] row : tableRows(setModel, 0)) {
+                    members.add(row[0]);
+                }
+                return RedisValueEdit.set(key, members);
+            }
+            default:
+                return RedisValueEdit.zset(key, tableRows(zsetModel, 0, 1));
+        }
+    }
+
+    /** 按列取出表格内容；非字符串单元格（如分值列的 Double）转成文本，空单元格保持 null。 */
+    private static List<String[]> tableRows(DefaultTableModel model, int... columns) {
+        List<String[]> rows = new ArrayList<>();
+        for (int row = 0; row < model.getRowCount(); row++) {
+            String[] values = new String[columns.length];
+            for (int i = 0; i < columns.length; i++) {
+                Object cell = model.getValueAt(row, columns[i]);
+                values[i] = cell == null ? null : String.valueOf(cell);
+            }
+            rows.add(values);
+        }
+        return rows;
     }
 
     private void executeConsoleCommand() {

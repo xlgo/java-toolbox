@@ -113,7 +113,7 @@ final class K8sPodFileTransfer {
                     success = true;
                 }
             } catch (Exception ex) {
-                errorMsg = ex.getMessage();
+                errorMsg = Errors.describeRoot(ex);
             } finally {
                 if (fos != null) {
                     try { fos.close(); } catch (Exception e) { Errors.ignored("关闭下载输出流失败，文件已写完", e); }
@@ -232,7 +232,7 @@ final class K8sPodFileTransfer {
                     success = true;
                 }
             } catch (Exception ex) {
-                errorMsg = ex.getMessage();
+                errorMsg = Errors.describeRoot(ex);
             } finally {
                 if (client != null) {
                     try { client.close(); } catch (Exception ignored) { Errors.ignored("关闭 K8s 客户端失败", ignored); }

@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.cloud.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -21,9 +22,7 @@ import java.util.regex.Pattern;
 public class DockerComposePanel extends ToolPanel {
 
     public DockerComposePanel() {
-        super("dev", "docker.convert",
-                "Docker", "Compose", "容器", "docker-compose",
-                "docker run", "容器编排");
+        super(ToolCatalog.DOCKER_CONVERT);
     }
 
     @Override

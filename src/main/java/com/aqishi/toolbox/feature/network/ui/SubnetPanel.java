@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.network.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -16,9 +17,7 @@ import java.awt.*;
 public class SubnetPanel extends ToolPanel {
 
     public SubnetPanel() {
-        super("dev", "subnet.calc",
-                "Subnet", "CIDR", "IP", "子网掩码",
-                "网络地址", "广播地址", "子网");
+        super(ToolCatalog.SUBNET_CALC);
     }
 
     @Override

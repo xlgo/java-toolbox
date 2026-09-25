@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.compute.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -18,9 +19,7 @@ import java.util.Arrays;
 public class StatisticsPanel extends ToolPanel {
 
     public StatisticsPanel() {
-        super("calc", "statistics",
-                "均值", "中位数", "标准差", "方差", "Variance",
-                "统计", "平均值", "极差", "总和", "最大", "最小");
+        super(ToolCatalog.STATISTICS);
     }
 
     @Override

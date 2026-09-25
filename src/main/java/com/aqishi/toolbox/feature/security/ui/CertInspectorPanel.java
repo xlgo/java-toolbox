@@ -12,6 +12,7 @@ import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.FormGrid;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 
@@ -158,7 +159,7 @@ public class CertInspectorPanel extends ToolPanel implements ManagedResourceOwne
         runBackgroundWithInputs(csrWorker, csrButtons(), new JComponent[]{csrInputArea},
                 () -> service.parseCsr(pem),
                 info -> csrResultArea.setText(formatCsrInfo(info)),
-                error -> UIUtils.error(getView(), "解析 CSR 失败: " + errorMessage(error)));
+                error -> UIUtils.error(getView(), "解析 CSR 失败: " + Errors.describeRoot(error)));
     }
 
     private static String formatCsrInfo(CertInspectorService.CsrInfo info) {
@@ -223,7 +224,7 @@ public class CertInspectorPanel extends ToolPanel implements ManagedResourceOwne
                         csrInputArea.setText(result.pem);
                         csrResultArea.setText(formatCsrInfo(result.info));
                     },
-                    error -> UIUtils.error(getView(), "读取或解析 CSR 失败: " + errorMessage(error)));
+                    error -> UIUtils.error(getView(), "读取或解析 CSR 失败: " + Errors.describeRoot(error)));
         }
     }
 
@@ -312,7 +313,7 @@ public class CertInspectorPanel extends ToolPanel implements ManagedResourceOwne
                         p12ListModel.clear();
                         p12DetailArea.setText("");
                     },
-                    error -> UIUtils.error(getView(), "读取失败: " + errorMessage(error)));
+                    error -> UIUtils.error(getView(), "读取失败: " + Errors.describeRoot(error)));
         }
     }
 
@@ -336,7 +337,7 @@ public class CertInspectorPanel extends ToolPanel implements ManagedResourceOwne
                     }
                     UIUtils.info(getView(), "成功读取到 " + entries.size() + " 个别名条目！");
                 },
-                error -> UIUtils.error(getView(), "解锁失败（密码错误或文件损坏）: " + errorMessage(error)),
+                error -> UIUtils.error(getView(), "解锁失败（密码错误或文件损坏）: " + Errors.describeRoot(error)),
                 () -> Arrays.fill(password, '\0'));
     }
 
@@ -374,7 +375,7 @@ public class CertInspectorPanel extends ToolPanel implements ManagedResourceOwne
                     UIUtils.copyToClipboard(pem);
                     UIUtils.info(getView(), "证书 PEM 已复制到剪贴板！");
                 },
-                error -> UIUtils.error(getView(), "导出失败: " + errorMessage(error)));
+                error -> UIUtils.error(getView(), "导出失败: " + Errors.describeRoot(error)));
     }
 
     private void exportSelectedKey() {
@@ -389,7 +390,7 @@ public class CertInspectorPanel extends ToolPanel implements ManagedResourceOwne
                     UIUtils.copyToClipboard(pem);
                     UIUtils.info(getView(), "私钥 PEM 已复制到剪贴板！");
                 },
-                error -> UIUtils.error(getView(), "导出私钥失败: " + errorMessage(error)));
+                error -> UIUtils.error(getView(), "导出私钥失败: " + Errors.describeRoot(error)));
     }
 
     // ==========================================
@@ -461,7 +462,7 @@ public class CertInspectorPanel extends ToolPanel implements ManagedResourceOwne
         runBackgroundWithInputs(chainWorker, chainButtons(), new JComponent[]{chainInputArea},
                 () -> service.validateCertificateChainFromPem(pem),
                 this::showChainResult,
-                error -> showChainError(errorMessage(error)));
+                error -> showChainError(Errors.describeRoot(error)));
     }
 
     private void generateSampleChain() {
@@ -482,7 +483,7 @@ public class CertInspectorPanel extends ToolPanel implements ManagedResourceOwne
                     showChainResult(result.validation);
                     UIUtils.info(getView(), "已生成自签证书链测试样本！");
                 },
-                error -> UIUtils.error(getView(), "生成失败: " + errorMessage(error)));
+                error -> UIUtils.error(getView(), "生成失败: " + Errors.describeRoot(error)));
     }
 
     private void loadChainFile() {
@@ -498,7 +499,7 @@ public class CertInspectorPanel extends ToolPanel implements ManagedResourceOwne
                         chainInputArea.setText(result.pem);
                         showChainResult(result.validation);
                     },
-                    error -> UIUtils.error(getView(), "读取或校验证书链失败: " + errorMessage(error)));
+                    error -> UIUtils.error(getView(), "读取或校验证书链失败: " + Errors.describeRoot(error)));
         }
     }
 
@@ -683,15 +684,6 @@ public class CertInspectorPanel extends ToolPanel implements ManagedResourceOwne
         }
     }
 
-    private static String errorMessage(Throwable error) {
-        if (error == null) {
-            return "未知错误";
-        }
-        String message = error.getMessage();
-        return message == null || message.trim().isEmpty()
-                ? error.getClass().getSimpleName()
-                : message;
-    }
 
     @FunctionalInterface
     private interface BackgroundTask<T> {

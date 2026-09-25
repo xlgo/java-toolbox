@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.system.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -30,7 +31,7 @@ public class ChmodPanel extends ToolPanel {
     private boolean isUpdatingFromCode = false;
 
     public ChmodPanel() {
-        super("calc", "chmod.calc", "chmod", "permission", "linux", "octal", "rwxrwxrwx", "755", "777", "644", "权限");
+        super(ToolCatalog.CHMOD_CALC);
     }
 
     @Override

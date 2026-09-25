@@ -9,7 +9,7 @@ public class UrlToolPanelTest {
     @Test
     public void testUrlToolPanelInstantiation() {
         UrlToolPanel panel = new UrlToolPanel();
-        assertEquals("convert", panel.getGroup());
+        assertEquals("codec", panel.getGroup());
         assertEquals("url.tool", panel.getName());
         assertNotNull(panel.getView());
     }

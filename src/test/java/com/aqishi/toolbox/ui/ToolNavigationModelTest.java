@@ -66,7 +66,7 @@ class ToolNavigationModelTest {
 
     private static ToolPanel tool(
             String group, String id, String label, String groupLabel, String... keywords) {
-        return new ToolPanel(group, id, keywords) {
+        return new ToolPanel(TestDescriptors.of(group, id, keywords)) {
             @Override
             public String getLabel() {
                 return label;

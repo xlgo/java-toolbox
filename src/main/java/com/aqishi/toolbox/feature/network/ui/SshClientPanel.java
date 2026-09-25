@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.network.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.UIUtils;
 
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
@@ -40,7 +41,7 @@ public class SshClientPanel extends ToolPanel implements ManagedResourceOwner {
     private JPanel welcomeTabPanel;
 
     public SshClientPanel() {
-        super("dev", "ssh", "ssh", "terminal", "sftp", "shell", "服务器", "远程连接");
+        super(ToolCatalog.SSH);
         this.configStore = SshConfigStore.getInstance();
     }
 

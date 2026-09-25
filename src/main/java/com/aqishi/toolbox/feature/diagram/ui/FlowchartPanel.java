@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.diagram.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.Json;
 
@@ -171,8 +172,7 @@ public class FlowchartPanel extends ToolPanel {
     }
 
     public FlowchartPanel() {
-        super("chart", "flowchart",
-                "Flowchart", "流程图", "画图", "设计器", "ProcessOn", "Draw.io", "Diagram");
+        super(ToolCatalog.FLOWCHART);
         initDefaultDiagram();
     }
 

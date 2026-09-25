@@ -199,7 +199,11 @@ public final class ToolRegistry {
             throw new IllegalStateException("Missing factory for tool id: " + id);
         }
         ToolPanel panel = Objects.requireNonNull(factory.apply(context), "factory result");
-        panel.bindDescriptor(descriptor);
+        // 面板自己声明目录描述符；这里只核对，防止工厂接错面板（导航显示 A、点开却是 B）。
+        if (!descriptor.getId().equals(panel.getName())) {
+            throw new IllegalStateException("Factory for tool id " + id
+                    + " produced a panel declaring " + panel.getName());
+        }
         return panel;
     }
 

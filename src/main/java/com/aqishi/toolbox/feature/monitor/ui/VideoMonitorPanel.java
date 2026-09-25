@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.monitor.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -59,8 +60,7 @@ public class VideoMonitorPanel extends ToolPanel {
     private final List<String> savedNames = new ArrayList<>();
 
     public VideoMonitorPanel() {
-        super("monitor", "video.monitor",
-                "视频", "监控", "摄像头", "Video", "camera", "RTSP", "分屏", "合并", "直播");
+        super(ToolCatalog.VIDEO_MONITOR);
     }
 
     // ==================== 构建主面板 ====================

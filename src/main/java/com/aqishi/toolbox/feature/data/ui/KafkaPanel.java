@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.data.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.Hex;
 
@@ -161,8 +162,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     private JTextArea consoleOutput;
 
     public KafkaPanel() {
-        super("dev", "kafka.connector",
-                "Kafka", "Message", "Consumer", "Group", "Lag", "Topic", "队列", "消息");
+        super(ToolCatalog.KAFKA_CONNECTOR);
     }
 
     @Override
@@ -1251,10 +1251,9 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     /**
-     * Reads the normal Metadata response through a short-lived consumer. The
-     * Kafka cluster used by the SSH profile is 2.7 and does not implement the
-     * newer DescribeCluster API; using it here turns a useful broker address
-     * into an avoidable timeout.
+     * Reads the normal Metadata response through a short-lived consumer.
+     * Brokers older than 2.8 do not implement the DescribeCluster API, so using
+     * it here would turn a useful broker address into an avoidable timeout.
      */
     private static Collection<Node> readMetadataBrokers(Properties clientProperties,
                                                          Collection<String> bootstrapHosts) throws Exception {
@@ -1403,8 +1402,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                     UIUtils.info(getView(), "Kafka 连接测试成功！");
                     consoleLog("连接测试成功。");
                 } catch (Exception ex) {
-                    Throwable c = ex.getCause() != null ? ex.getCause() : ex;
-                    err = c.getMessage();
+                    err = Errors.describeRoot(ex);
                     UIUtils.error(getView(), "Kafka 连接测试失败:\n" + err);
                     consoleLog("连接测试失败: " + err);
                 } finally {
@@ -1476,8 +1474,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                     loadTopicsList();
                     loadGroupsList();
                 } catch (Exception ex) {
-                    Throwable c = ex.getCause() != null ? ex.getCause() : ex;
-                    err = c.getMessage();
+                    err = Errors.describeRoot(ex);
                     connBtn.setEnabled(true);
                     testBtn.setEnabled(true);
                     UIUtils.error(getView(), "连接 Kafka 失败:\n" + err);
@@ -1564,8 +1561,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                     filterTopics();
                     consoleLog("主题列表加载成功，共 " + allTopicsList.size() + " 个主题。");
                 } catch (Exception ex) {
-                    Throwable c = ex.getCause() != null ? ex.getCause() : ex;
-                    consoleLog("加载主题列表失败: " + c.getMessage());
+                    consoleLog("加载主题列表失败: " + Errors.describeRoot(ex));
                 }
             }
         }.execute();
@@ -1600,8 +1596,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                     filterGroups();
                     consoleLog("消费组列表加载成功，共 " + allGroupsList.size() + " 个消费组。");
                 } catch (Exception ex) {
-                    Throwable c = ex.getCause() != null ? ex.getCause() : ex;
-                    consoleLog("加载消费组失败: " + c.getMessage());
+                    consoleLog("加载消费组失败: " + Errors.describeRoot(ex));
                 }
             }
         }.execute();
@@ -1665,8 +1660,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                     }
                     lagStatusLabel.setText("消费组 '" + groupId + "' 消费状态已更新，共计监测 " + data.size() + " 个分区。");
                 } catch (Exception ex) {
-                    Throwable c = ex.getCause() != null ? ex.getCause() : ex;
-                    lagStatusLabel.setText("查询 Lag 详情失败: " + c.getMessage());
+                    lagStatusLabel.setText("查询 Lag 详情失败: " + Errors.describeRoot(ex));
                 }
             }
         }.execute();
@@ -1751,9 +1745,8 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
 
                     fetchStatusLabel.setText("已拉取 " + list.size() + " 条消息。");
                 } catch (Exception ex) {
-                    Throwable c = ex.getCause() != null ? ex.getCause() : ex;
-                    fetchStatusLabel.setText("拉取失败: " + c.getMessage());
-                    consoleLog("拉取消息失败: " + c.getMessage());
+                    fetchStatusLabel.setText("拉取失败: " + Errors.describeRoot(ex));
+                    consoleLog("拉取消息失败: " + Errors.describeRoot(ex));
                 }
             }
         }.execute();
@@ -1790,10 +1783,9 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                     produceHeadersArea.setText("");
                     produceValueArea.setText("");
                 } catch (Exception ex) {
-                    Throwable c = ex.getCause() != null ? ex.getCause() : ex;
                     produceStatusLabel.setText("发送失败！");
-                    UIUtils.error(getView(), "发送消息失败:\n" + c.getMessage());
-                    consoleLog("发送消息失败: " + c.getMessage());
+                    UIUtils.error(getView(), "发送消息失败:\n" + Errors.describeRoot(ex));
+                    consoleLog("发送消息失败: " + Errors.describeRoot(ex));
                 }
             }
         }.execute();
@@ -1905,9 +1897,8 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                     subscribersStatusLabel.setText("主题 '" + topicName + "' 订阅者查询成功，找到 "
                             + result.subscribers().size() + " 个订阅消费组。");
                 } catch (Exception ex) {
-                    Throwable c = ex.getCause() != null ? ex.getCause() : ex;
-                    subscribersStatusLabel.setText("查询订阅者失败: " + c.getMessage());
-                    consoleLog("查询主题订阅者失败: " + c.getMessage());
+                    subscribersStatusLabel.setText("查询订阅者失败: " + Errors.describeRoot(ex));
+                    consoleLog("查询主题订阅者失败: " + Errors.describeRoot(ex));
                 }
             }
         }.execute();

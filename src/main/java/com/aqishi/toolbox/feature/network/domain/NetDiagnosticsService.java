@@ -1,5 +1,8 @@
 package com.aqishi.toolbox.feature.network.domain;
 
+import com.aqishi.toolbox.util.Errors;
+import com.aqishi.toolbox.util.Hex;
+
 import javax.naming.NamingException;
 import javax.naming.directory.Attribute;
 import javax.naming.directory.Attributes;
@@ -131,10 +134,10 @@ public final class NetDiagnosticsService {
         try {
             records.addAll(queryViaJndi(target, wanted, resolver, timeoutMs));
         } catch (NamingException namingError) {
-            error = describe(namingError);
+            error = Errors.describeRoot(namingError);
         } catch (Exception providerMissing) {
             // jdk.naming.dns 不在运行时镜像里时退回系统解析栈，至少给出 A/AAAA。
-            error = describe(providerMissing);
+            error = Errors.describeRoot(providerMissing);
         }
 
         // 系统解析栈的结果单独列出：它反映的是本机 hosts + 解析器的最终行为，
@@ -149,7 +152,7 @@ public final class NetDiagnosticsService {
                 error = null;
             } catch (Exception resolveFailed) {
                 if (error == null) {
-                    error = describe(resolveFailed);
+                    error = Errors.describeRoot(resolveFailed);
                 }
             }
         }
@@ -182,7 +185,7 @@ public final class NetDiagnosticsService {
             return new DnsResult(address, Collections.unmodifiableList(records), elapsedMs(started),
                     records.isEmpty() ? "no.records" : null);
         } catch (Exception error) {
-            return new DnsResult(address, List.of(), elapsedMs(started), describe(error));
+            return new DnsResult(address, List.of(), elapsedMs(started), Errors.describeRoot(error));
         }
     }
 
@@ -203,7 +206,7 @@ public final class NetDiagnosticsService {
         try {
             return handshake(target, port, sni, timeoutMs, null, true, started);
         } catch (Exception strictFailure) {
-            String trustError = describe(strictFailure);
+            String trustError = Errors.describeRoot(strictFailure);
             try {
                 TlsResult permissive = handshake(target, port, sni, timeoutMs,
                         trustAllContext(), false, started);
@@ -213,7 +216,7 @@ public final class NetDiagnosticsService {
                         permissive.handshakeMs(), null);
             } catch (Exception connectFailure) {
                 return new TlsResult(target, port, null, null, sni, false, trustError, false,
-                        List.of(), elapsedMs(started), describe(connectFailure));
+                        List.of(), elapsedMs(started), Errors.describeRoot(connectFailure));
             }
         }
     }
@@ -239,7 +242,7 @@ public final class NetDiagnosticsService {
         try {
             uri = URI.create(input);
         } catch (Exception badUrl) {
-            return errorResult(input, describe(badUrl));
+            return errorResult(input, Errors.describeRoot(badUrl));
         }
         String host = uri.getHost();
         if (host == null) {
@@ -277,7 +280,7 @@ public final class NetDiagnosticsService {
         } catch (Exception probeFailed) {
             return new HttpResult(input, 0, null, dnsMs, tcpMs, tlsMs, -1L, -1L,
                     elapsedMs(totalStarted), -1L, remoteAddress, List.of(), Map.of(),
-                    describe(probeFailed));
+                    Errors.describeRoot(probeFailed));
         }
 
         List<HttpHop> redirects = new ArrayList<>();
@@ -321,7 +324,7 @@ public final class NetDiagnosticsService {
         } catch (Exception requestFailed) {
             return new HttpResult(input, 0, null, dnsMs, tcpMs, tlsMs, -1L, -1L,
                     elapsedMs(totalStarted), -1L, remoteAddress,
-                    Collections.unmodifiableList(redirects), Map.of(), describe(requestFailed));
+                    Collections.unmodifiableList(redirects), Map.of(), Errors.describeRoot(requestFailed));
         }
     }
 
@@ -482,15 +485,9 @@ public final class NetDiagnosticsService {
 
     private static String fingerprint(X509Certificate certificate) {
         try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(certificate.getEncoded());
-            StringBuilder text = new StringBuilder(digest.length * 3);
-            for (int i = 0; i < digest.length; i++) {
-                if (i > 0) {
-                    text.append(':');
-                }
-                text.append(String.format("%02X", digest[i]));
-            }
-            return text.toString();
+            String hex = Hex.toHexUpper(MessageDigest.getInstance("SHA-256").digest(certificate.getEncoded()));
+            // 按浏览器证书查看器的习惯每字节用冒号分隔：AB:CD:...
+            return hex.replaceAll("(..)(?!$)", "$1:");
         } catch (Exception unavailable) {
             return "";
         }
@@ -586,17 +583,6 @@ public final class NetDiagnosticsService {
 
     private static long elapsedMs(long startedNanos) {
         return (System.nanoTime() - startedNanos) / 1_000_000L;
-    }
-
-    private static String describe(Throwable error) {
-        Throwable cause = error;
-        while (cause.getCause() != null && (cause.getMessage() == null || cause.getMessage().isEmpty())) {
-            cause = cause.getCause();
-        }
-        String message = cause.getMessage();
-        return message == null || message.isEmpty()
-                ? cause.getClass().getSimpleName()
-                : cause.getClass().getSimpleName() + ": " + message;
     }
 
     /** 常用公共 DNS，方便在「系统解析器」与「权威视角」之间快速切换。 */

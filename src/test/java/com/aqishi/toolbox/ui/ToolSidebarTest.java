@@ -147,7 +147,7 @@ class ToolSidebarTest {
     void refreshLabelsKeepsTheMountedViewAndCallbacksOnTheEdt() throws Exception {
         AtomicInteger builds = new AtomicInteger();
         AtomicReference<Boolean> callbackOnEdt = new AtomicReference<>(false);
-        ToolPanel tool = new ToolPanel("crypto", "hash.codec", "digest") {
+        ToolPanel tool = new ToolPanel(TestDescriptors.of("crypto", "hash.codec", "digest")) {
             @Override public String getLabel() { return "Hash"; }
             @Override public String getGroupLabel() { return "Security"; }
             @Override protected JComponent build() {
@@ -189,7 +189,7 @@ class ToolSidebarTest {
 
     private static ToolPanel tool(
             String group, String id, String label, String groupLabel, String... keywords) {
-        return new ToolPanel(group, id, keywords) {
+        return new ToolPanel(TestDescriptors.of(group, id, keywords)) {
             @Override public String getLabel() { return label; }
             @Override public String getGroupLabel() { return groupLabel; }
             @Override protected JComponent build() { return new JPanel(); }

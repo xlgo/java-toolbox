@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.compute.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -71,7 +72,7 @@ public class HanoiPanel extends ToolPanel implements ManagedResourceOwner {
     private JLabel statusLabel;
 
     public HanoiPanel() {
-        super("algo", "hanoi", "Hanoi", "汉诺塔", "递归", "Tower of Hanoi");
+        super(ToolCatalog.HANOI);
         for (int i = 0; i < 3; i++) {
             towers[i] = new Stack<>();
         }

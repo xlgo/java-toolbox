@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.cloud.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -186,9 +187,7 @@ public class K8sPanel extends ToolPanel {
     private JTextArea outputArea;
 
     public K8sPanel() {
-        super("dev", "k8s.deployment",
-                "K8s", "Kubernetes", "部署", "YAML", "容器",
-                "Deployment", "Service", "Ingress", "ConfigMap", "编排");
+        super(ToolCatalog.K8S_DEPLOYMENT);
     }
 
     @Override

@@ -17,8 +17,8 @@ import java.util.Base64;
  * 通用对称加密工具类：支持 AES、DES、3DES、SM4 算法。
  *
  * <p>支持 GCM（推荐，自带完整性校验）、CBC 与 ECB 模式。ECB 不提供语义安全
- * ——相同明文块永远产生相同密文块，会直接泄露数据模式——因此仅保留用于解密
- * 历史遗留数据，新数据请使用 GCM。</p>
+ * ——相同明文块永远产生相同密文块，会直接泄露数据模式——因此仅推荐用于解密历史
+ * 遗留数据，新数据请使用 GCM；界面在选择 ECB 加密时会给出警告但不会阻止。</p>
  */
 public final class SymmetricUtils {
 
@@ -74,7 +74,8 @@ public final class SymmetricUtils {
      * 生成随机密钥
      *
      * @param algorithm 算法名称 ("AES", "DES", "DESede" (3DES), "SM4")
-     * @param keySize   密钥位长度 (AES: 128/192/256; DES: 64; 3DES: 192; SM4: 128)
+     * @param keySize   密钥位长度 (AES: 128/192/256; DES: 64; 3DES: 192; SM4: 128)。
+     *                  DES/3DES 按含奇偶校验位的总长度计，JCE 内部对应 56/168 位有效密钥
      * @return Base64 编码的密钥字符串
      */
     public static String generateKey(String algorithm, int keySize) throws Exception {
@@ -93,11 +94,11 @@ public final class SymmetricUtils {
      * 加密
      *
      * @param algorithm  算法 ("AES", "DES", "DESede", "SM4")
-     * @param mode       模式 ("ECB", "CBC")
-     * @param padding    填充方式 ("PKCS5Padding", "NoPadding")
+     * @param mode       模式 ("ECB", "CBC", "GCM")
+     * @param padding    填充方式 ("PKCS5Padding", "ISO10126Padding", "NoPadding")；GCM 忽略此项
      * @param plainText  明文
      * @param keyBytes   密钥字节数组
-     * @param customIv   自定义 IV，如果为 CBC 模式且 customIv 为空，则自动生成随机 IV 拼在密文前
+     * @param customIv   自定义 IV / nonce；CBC 与 GCM 模式留空时自动生成随机值并拼在密文前
      * @param useHex     是否输出 Hex 字符串（否则输出 Base64）
      * @return 密文
      */
@@ -151,11 +152,11 @@ public final class SymmetricUtils {
      * 解密
      *
      * @param algorithm  算法 ("AES", "DES", "DESede", "SM4")
-     * @param mode       模式 ("ECB", "CBC")
-     * @param padding    填充方式 ("PKCS5Padding", "NoPadding")
+     * @param mode       模式 ("ECB", "CBC", "GCM")
+     * @param padding    填充方式 ("PKCS5Padding", "ISO10126Padding", "NoPadding")；GCM 忽略此项
      * @param cipherText 密文 (Base64 或 Hex 格式)
      * @param keyBytes   密钥字节数组
-     * @param customIv   自定义 IV，若为 CBC 且为空，则默认密文前面拼有 IV
+     * @param customIv   自定义 IV / nonce，留空时按密文前缀解析（CBC 与 GCM 均如此）
      * @param isHex      密文是否为 Hex 格式
      * @return 明文
      */

@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.compute.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.feature.compute.domain.SimpleEval;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -8,22 +9,20 @@ import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
 
-import javax.script.ScriptEngine;
-import javax.script.ScriptEngineManager;
-import javax.script.ScriptException;
 import javax.swing.*;
 import java.awt.*;
 
 /**
- * 科学计算器面板：支持表达式求值（基于 Nashorn/兼容引擎）+ 常用数学函数按钮。
- * <p>注意：JDK 15+ 移除了 Nashorn，本面板在无 JS 引擎时回退到简易中缀求值器。</p>
+ * 科学计算器面板：表达式求值 + 常用数学函数按钮，求值由 {@link SimpleEval} 完成。
+ *
+ * <p>早先优先交给 JS 脚本引擎求值，但 JDK 15 起已移除 Nashorn、项目也未引入其他引擎，
+ * 那条路径从未生效；而按钮插入的 {@code Math.sqrt(...)} 回退求值器又不认识，
+ * 函数按钮因此一直报错。现在按钮只插入求值器支持的写法。</p>
  */
 public class CalculatorPanel extends ToolPanel {
 
     public CalculatorPanel() {
-        super("calc", "calculator",
-                "表达式", "求值", "计算器", "Calc",
-                "数学", "函数", "sqrt", "pow");
+        super(ToolCatalog.CALCULATOR);
     }
 
     @Override
@@ -94,16 +93,16 @@ public class CalculatorPanel extends ToolPanel {
                         expr.setText(result);
                         break;
                     case "sqrt":
-                        expr.setText("Math.sqrt(" + (expr.getText().isEmpty() ? "0" : expr.getText()) + ")");
+                        expr.setText("sqrt(" + (expr.getText().isEmpty() ? "0" : expr.getText()) + ")");
                         break;
                     case "pow":
-                        expr.setText(expr.getText() + "Math.pow(,)");
+                        expr.setText(expr.getText() + "pow(,)");
                         break;
                     case "pi":
-                        expr.setText(expr.getText() + "Math.PI");
+                        expr.setText(expr.getText() + "pi");
                         break;
                     case "e":
-                        expr.setText(expr.getText() + "Math.E");
+                        expr.setText(expr.getText() + "e");
                         break;
                     default:
                         expr.setText(expr.getText() + k);
@@ -121,23 +120,11 @@ public class CalculatorPanel extends ToolPanel {
         return root;
     }
 
-    /** 优先使用脚本引擎，失败回退简易求值器 */
     private String evaluate(String expression) {
         if (expression == null || expression.trim().isEmpty()) return "0";
         try {
-            ScriptEngine engine = new ScriptEngineManager().getEngineByName("js");
-            if (engine != null) {
-                Object r = engine.eval(expression);
-                double val = ((Number) r).doubleValue();
-                return formatResult(val);
-            }
-        } catch (ScriptException ignore) {
-        }
-        // 回退：简易中缀求值
-        try {
-            double val = SimpleEval.eval(expression);
-            return formatResult(val);
-        } catch (Exception ex) {
+            return formatResult(SimpleEval.eval(expression));
+        } catch (IllegalArgumentException ex) {
             return "错误";
         }
     }

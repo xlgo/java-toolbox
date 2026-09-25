@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.compute.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -29,10 +30,7 @@ public class SortPanel extends ToolPanel implements ManagedResourceOwner {
     private final Timer[] sortTimer = new Timer[1];
 
     public SortPanel() {
-        super("algo", "sort.visualizer",
-                "冒泡", "Bubble", "选择", "Selection", "插入", "Insertion",
-                "快速", "Quick", "归并", "Merge", "排序算法",
-                "排序动画", "算法可视化");
+        super(ToolCatalog.SORT_VISUALIZER);
     }
 
     @Override

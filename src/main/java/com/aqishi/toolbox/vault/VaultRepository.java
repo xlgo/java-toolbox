@@ -124,6 +124,13 @@ public final class VaultRepository implements AutoCloseable {
         }
     }
 
+    /**
+     * Deletes the vault file after archiving an encrypted copy under the backup directory.
+     *
+     * <p>This is the "forgot master password" path, so the archived copy is the user's only way
+     * back if they later remember the password. If the copy cannot be written the vault file is
+     * left untouched and the reset fails; it never deletes without a backup.</p>
+     */
     public synchronized void reset() throws VaultException {
         requireWritable();
         Path target = paths.getVaultFile();
@@ -135,10 +142,7 @@ public final class VaultRepository implements AutoCloseable {
                 if (backupDir != null) {
                     Files.createDirectories(backupDir);
                     Path backup = backupDir.resolve("vault-reset-" + System.currentTimeMillis() + "-" + UUID.randomUUID() + ".json.enc");
-                    try {
-                        Files.copy(target, backup);
-                    } catch (IOException ignored) {
-                    }
+                    Files.copy(target, backup);
                 }
                 Files.deleteIfExists(target);
             }

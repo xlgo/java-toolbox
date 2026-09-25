@@ -42,7 +42,7 @@ class ToolNavigationStateTest {
     }
 
     private static ToolPanel tool(String group, String id) {
-        return new ToolPanel(group, id) {
+        return new ToolPanel(TestDescriptors.of(group, id)) {
             @Override
             protected JComponent build() {
                 return new JPanel();

@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -39,7 +40,7 @@ public class UrlToolPanel extends ToolPanel {
     private JTextArea outputArea;
 
     public UrlToolPanel() {
-        super("convert", "url.tool", "url", "uri", "encode", "decode", "query", "parameter", "params", "http", "编码", "解码");
+        super(ToolCatalog.URL_TOOL);
     }
 
     @Override

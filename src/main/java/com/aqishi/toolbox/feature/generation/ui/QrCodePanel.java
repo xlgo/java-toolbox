@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.generation.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.UIUtils;
 
 import com.aqishi.toolbox.util.Json;
@@ -64,7 +65,7 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
     private JButton generateAiBtn;
 
     public QrCodePanel() {
-        super("misc", "qrcode", "qrcode", "qr", "barcode", "2dcode", "scan", "generate", "decode", "encode", "二维码", "条码");
+        super(ToolCatalog.QRCODE);
     }
 
     @Override

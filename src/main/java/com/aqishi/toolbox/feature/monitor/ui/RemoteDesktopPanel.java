@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.monitor.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.UIUtils;
 
@@ -124,7 +125,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
     private TransparentOverlayWindow overlayWindow;
 
     public RemoteDesktopPanel() {
-        super("monitor", "remote_desktop", "p2p", "desktop", "control", "远程桌面", "远程控制");
+        super(ToolCatalog.REMOTE_DESKTOP);
         try {
             this.robot = new Robot();
         } catch (Exception e) {

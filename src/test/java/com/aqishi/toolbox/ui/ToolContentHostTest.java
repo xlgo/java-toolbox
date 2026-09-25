@@ -41,7 +41,7 @@ class ToolContentHostTest {
     }
 
     private static ToolPanel tool(String id, AtomicInteger builds) {
-        return new ToolPanel("group", id) {
+        return new ToolPanel(TestDescriptors.of("group", id)) {
             @Override
             protected JComponent build() {
                 builds.incrementAndGet();

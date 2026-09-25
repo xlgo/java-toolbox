@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.security.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.JsonFormatter;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -52,9 +53,7 @@ public class JwtPanel extends ToolPanel {
     }
 
     public JwtPanel() {
-        super("dev", "jwt.codec",
-                "JWT", "Token", "HS256", "签名", "JWT解码",
-                "JWT编码", "Json Web Token", "JWT验证", "令牌");
+        super(ToolCatalog.JWT_CODEC);
     }
 
     @Override

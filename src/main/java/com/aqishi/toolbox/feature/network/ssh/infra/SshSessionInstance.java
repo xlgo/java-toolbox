@@ -69,7 +69,7 @@ public class SshSessionInstance implements AutoCloseable {
     private volatile String lastErrorMessage = "";
     private volatile boolean manualDisconnect;
     private volatile boolean closed;
-    /** Supplied by the UI layer; never null inside the session after construction. */
+    /** Supplied by the UI layer; may be null, in which case unknown host keys are rejected. */
     private final SshHostKeyPrompt hostKeyPrompt;
     private boolean reconnectPending;
     private long reconnectDelayMs = 2_000L;
@@ -277,7 +277,10 @@ public class SshSessionInstance implements AutoCloseable {
         }, delay, TimeUnit.MILLISECONDS);
     }
 
-    /** Creates a local forward with port 0 so JSch atomically selects a free port. */
+    /**
+     * Creates a local forward, preferring the port assigned last time (or the configured one)
+     * so reconnects keep the same local endpoint; falls back to port 0 and lets JSch pick.
+     */
     public synchronized boolean startTunnel(SshTunnelConfig tunnel) {
         if (tunnel == null) return false;
         ensureManaged(tunnel);

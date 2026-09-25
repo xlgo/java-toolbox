@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.compute.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -19,9 +20,7 @@ import java.util.Arrays;
 public class SearchPanel extends ToolPanel {
 
     public SearchPanel() {
-        super("algo", "search.algorithm",
-                "二分查找", "Binary Search", "线性查找", "Linear Search",
-                "搜索算法", "查找");
+        super(ToolCatalog.SEARCH_ALGORITHM);
     }
 
     @Override

@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.system.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -35,9 +36,7 @@ public class CronPanel extends ToolPanel {
     private boolean isRebuilding = false;
 
     public CronPanel() {
-        super("dev", "cron.parser",
-                "Cron", "定时", "调度", "表达式",
-                "Cron表达式", "定时任务", "crontab");
+        super(ToolCatalog.CRON_PARSER);
     }
 
     @Override

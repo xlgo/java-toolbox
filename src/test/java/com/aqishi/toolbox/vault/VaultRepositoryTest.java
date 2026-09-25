@@ -55,14 +55,36 @@ class VaultRepositoryTest {
             char[] password = "masterPassword".toCharArray();
             repository.create(support.sampleData(), password).close();
             assertTrue(repository.exists());
+            byte[] original = Files.readAllBytes(support.paths().getVaultFile());
 
             repository.reset();
             assertFalse(repository.exists());
             assertFalse(Files.exists(support.paths().getVaultFile()));
+            try (java.util.stream.Stream<Path> backups = Files.list(support.paths().getBackupDirectory())) {
+                List<Path> archived = backups.toList();
+                assertEquals(1, archived.size(), archived.toString());
+                assertArrayEquals(original, Files.readAllBytes(archived.get(0)));
+            }
 
             VaultRepository.OpenedVault recreated = repository.create(new VaultData(), "newPassword".toCharArray());
             assertTrue(repository.exists());
             recreated.close();
+        }
+    }
+
+    /** 备份写不出来时绝不删除：这是忘记主密码后唯一的挽回途径。 */
+    @Test
+    void resetKeepsVaultWhenBackupCannotBeWritten() throws Exception {
+        try (VaultTestSupport support = new VaultTestSupport(temp)) {
+            VaultRepository repository = support.repository();
+            repository.create(support.sampleData(), "masterPassword".toCharArray()).close();
+            Path backupDir = support.paths().getBackupDirectory();
+            Files.deleteIfExists(backupDir);
+            // 备份目录位置被一个同名文件占住，备份因此写不出来。
+            Files.writeString(backupDir, "not a directory");
+
+            assertThrows(VaultException.class, repository::reset);
+            assertTrue(repository.exists());
         }
     }
 

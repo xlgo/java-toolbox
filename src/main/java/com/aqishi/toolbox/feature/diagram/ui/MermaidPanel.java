@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.diagram.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -95,9 +96,7 @@ public class MermaidPanel extends ToolPanel {
     }
 
     public MermaidPanel() {
-        super("chart", "mermaid",
-                "Mermaid", "绘图", "画图", "流程图",
-                "时序图", "UML", "图表", "diagram");
+        super(ToolCatalog.MERMAID);
     }
 
     @Override

@@ -9,7 +9,7 @@ public class QrCodePanelTest {
     @Test
     public void testQrCodePanelInstantiation() {
         QrCodePanel panel = new QrCodePanel();
-        assertEquals("misc", panel.getGroup());
+        assertEquals("generation", panel.getGroup());
         assertEquals("qrcode", panel.getName());
         assertNotNull(panel.getView());
     }

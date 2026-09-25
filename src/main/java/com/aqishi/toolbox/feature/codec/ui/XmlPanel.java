@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import org.w3c.dom.Document;
 import org.xml.sax.InputSource;
 
@@ -20,9 +21,7 @@ import java.io.StringWriter;
 public class XmlPanel extends AbstractTreeFormatPanel {
 
     public XmlPanel() {
-        super("format", "xml.format",
-                "XML", "美化", "压缩", "格式化",
-                "Xml美化", "Xml压缩");
+        super(ToolCatalog.XML_FORMAT);
     }
 
     @Override

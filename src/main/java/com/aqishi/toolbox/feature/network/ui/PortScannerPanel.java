@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.network.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
@@ -89,7 +90,7 @@ public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner 
     }
 
     public PortScannerPanel() {
-        super("dev", "port.scanner", "port", "scanner", "network", "ping", "nmap", "tcp", "端口扫描", "网络诊断");
+        super(ToolCatalog.PORT_SCANNER);
     }
 
     @Override

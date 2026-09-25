@@ -19,7 +19,7 @@ public final class SM3Utils {
      * 计算字符串的 SM3 哈希值。
      *
      * @param text 输入文本
-     * @return 十六进制格式的哈希值（64 位）
+     * @return 十六进制格式的哈希值（64 个字符，即 256 位）
      */
     public static String hash(String text) {
         byte[] input = text.getBytes(StandardCharsets.UTF_8);
@@ -34,7 +34,7 @@ public final class SM3Utils {
      * 计算字节数组的 SM3 哈希值。
      *
      * @param data 输入数据
-     * @return 十六进制格式的哈希值（64 位）
+     * @return 十六进制格式的哈希值（64 个字符，即 256 位）
      */
     public static String hash(byte[] data) {
         SM3Digest digest = new SM3Digest();

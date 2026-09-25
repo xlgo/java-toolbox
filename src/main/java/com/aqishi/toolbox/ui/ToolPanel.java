@@ -4,35 +4,23 @@ import com.aqishi.toolbox.catalog.ToolDescriptor;
 import com.aqishi.toolbox.util.I18n;
 
 import javax.swing.*;
-import java.util.Arrays;
 import java.util.Objects;
 
 /**
  * 工具面板基类。每个具体工具继承此类并实现 {@link #build()}。
- * <p>分组 + 名称用于左侧导航展示，{@code build()} 返回的组件会放进右侧内容区。</p>
- * <p>搜索关键词用于模糊匹配，搜索时名称、分组名、关键词均参与匹配。</p>
+ *
+ * <p>身份元数据（稳定 ID、分类、标签键、搜索关键词）只在 {@code ToolCatalog} 里维护一份，
+ * 面板通过构造器传入对应的 {@link ToolDescriptor}，自己不再声明任何一项——
+ * 早期每个面板各写一份分类和关键词，目录重排后几乎全部过期而无人察觉。</p>
+ *
+ * <p>{@code build()} 返回的组件会放进右侧内容区，且只构建一次。</p>
  */
 public abstract class ToolPanel {
 
-    private ToolDescriptor descriptor;
+    private final ToolDescriptor descriptor;
     private JComponent view;
 
-    /**
-     * 兼容旧面板构造器。新面板应传入 ToolDescriptor；注册表会在迁移期间绑定集中目录元数据。
-     */
-    protected ToolPanel(String group, String name, String... searchKeywords) {
-        this.descriptor = new ToolDescriptor(
-                name, group, "tool." + name, Arrays.asList(searchKeywords));
-    }
-
     protected ToolPanel(ToolDescriptor descriptor) {
-        this.descriptor = Objects.requireNonNull(descriptor, "descriptor");
-    }
-
-    /**
-     * 仅供 ToolRegistry 在旧面板迁移期间绑定集中目录元数据。
-     */
-    public final void bindDescriptor(ToolDescriptor descriptor) {
         this.descriptor = Objects.requireNonNull(descriptor, "descriptor");
     }
 

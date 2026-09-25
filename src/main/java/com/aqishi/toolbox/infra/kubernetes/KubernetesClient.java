@@ -94,10 +94,27 @@ public final class KubernetesClient implements ManagedResource {
         }
     }
 
-    private void configure(HttpURLConnection connection, String method, String body) throws Exception {
+    /**
+     * 配置连接并写出请求体。
+     *
+     * <p>TLS 设置必须在 {@code getOutputStream()} 之前完成：取输出流会立即建连并握手，
+     * 之后再设 {@code SSLSocketFactory} 不会生效。顺序反过来时，带请求体的
+     * PUT/POST（扩缩容、应用 YAML）会退回 JVM 默认信任库且不带客户端证书，
+     * 在自签 CA 或证书认证的集群上握手失败或被拒为 401/403，而 GET 一切正常。</p>
+     */
+    void configure(HttpURLConnection connection, String method, String body) throws Exception {
         connection.setConnectTimeout(6000);
         connection.setReadTimeout(12000);
         connection.setRequestMethod(method);
+        if (connection instanceof HttpsURLConnection) {
+            HttpsURLConnection secureConnection = (HttpsURLConnection) connection;
+            if (socketFactory != null) {
+                secureConnection.setSSLSocketFactory(socketFactory);
+            }
+            if (hostnameVerifier != null) {
+                secureConnection.setHostnameVerifier(hostnameVerifier);
+            }
+        }
         if (!token.trim().isEmpty()) {
             connection.setRequestProperty("Authorization", "Bearer " + token);
         }
@@ -107,15 +124,6 @@ public final class KubernetesClient implements ManagedResource {
             connection.setDoOutput(true);
             try (OutputStream output = connection.getOutputStream()) {
                 output.write(body.getBytes(StandardCharsets.UTF_8));
-            }
-        }
-        if (connection instanceof HttpsURLConnection) {
-            HttpsURLConnection secureConnection = (HttpsURLConnection) connection;
-            if (socketFactory != null) {
-                secureConnection.setSSLSocketFactory(socketFactory);
-            }
-            if (hostnameVerifier != null) {
-                secureConnection.setHostnameVerifier(hostnameVerifier);
             }
         }
     }

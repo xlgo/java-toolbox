@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.security.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.feature.security.domain.CertUtils;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.feature.security.infra.acme.AcmeChallengeHelper;
@@ -82,9 +83,7 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
     private Map<AcmeClient.AcmeChallenge, String> cfRecordIds = new ConcurrentHashMap<>();
 
     public CertPanel() {
-        super("crypto", "cert.management",
-                "证书", "CA", "根证书", "自签证书", "X.509",
-                "SSL", "TLS", "PKI", "证书解析", "certificate", "ACME", "Let's Encrypt", "免费证书", "Cloudflare");
+        super(ToolCatalog.CERT_MANAGEMENT);
     }
 
     @Override

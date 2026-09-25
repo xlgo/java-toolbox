@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.security.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.feature.security.domain.RSAUtils;
 import com.aqishi.toolbox.feature.security.domain.SM2Utils;
 import com.aqishi.toolbox.ui.ToolPanel;
@@ -34,9 +35,7 @@ public class AsymmetricPanel extends ToolPanel {
     private JTextArea output;
 
     public AsymmetricPanel() {
-        super("crypto", "asymmetric.crypto",
-                "RSA", "SM2", "国密", "公钥", "私钥", "签名", "验签",
-                "非对称", "密钥对", "数字签名");
+        super(ToolCatalog.ASYMMETRIC_CRYPTO);
     }
 
     @Override

@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
+import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Fields;
@@ -18,9 +19,7 @@ import java.util.regex.Pattern;
 public class RegexPanel extends ToolPanel {
 
     public RegexPanel() {
-        super("dev", "regex.tester",
-                "Regex", "正则表达式", "匹配", "正则",
-                "正则匹配", "正则测试", "Pattern");
+        super(ToolCatalog.REGEX_TESTER);
     }
 
     @Override

@@ -11,6 +11,7 @@ import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.FormGrid;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 
@@ -487,7 +488,7 @@ public class NetDiagnosticsPanel extends ToolPanel implements ManagedResourceOwn
                 try {
                     onDone.accept(get());
                 } catch (Exception error) {
-                    setStatus(status, describe(error), Tokens.danger());
+                    setStatus(status, Errors.describeRoot(error), Tokens.danger());
                 }
             }
         };
@@ -589,11 +590,6 @@ public class NetDiagnosticsPanel extends ToolPanel implements ManagedResourceOwn
             default:
                 return raw;
         }
-    }
-
-    private static String describe(Throwable error) {
-        String message = error.getMessage();
-        return message == null || message.isEmpty() ? error.getClass().getSimpleName() : message;
     }
 
     @Override

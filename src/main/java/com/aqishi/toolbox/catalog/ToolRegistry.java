@@ -35,6 +35,10 @@ import com.aqishi.toolbox.feature.codec.ui.JsonPathPanel;
 import com.aqishi.toolbox.feature.codec.ui.XPathPanel;
 import com.aqishi.toolbox.feature.network.ui.NetDiagnosticsPanel;
 import com.aqishi.toolbox.feature.security.ui.WebhookSignaturePanel;
+import com.aqishi.toolbox.feature.security.ui.JwkPanel;
+import com.aqishi.toolbox.feature.codec.ui.TextEscapePanel;
+import com.aqishi.toolbox.feature.system.ui.ThreadDumpPanel;
+import com.aqishi.toolbox.feature.generation.ui.DdlEntityPanel;
 import com.aqishi.toolbox.feature.security.ui.JwtPanel;
 import com.aqishi.toolbox.feature.cloud.ui.K8sManagerPanel;
 import com.aqishi.toolbox.feature.cloud.ui.K8sPanel;
@@ -125,6 +129,7 @@ public final class ToolRegistry {
         factories.put("file.batch.digest", context -> new BatchDigestPanel());
         factories.put("cert.inspector", context -> new CertInspectorPanel());
         factories.put("webhook.signature", context -> new WebhookSignaturePanel());
+        factories.put("jwk.tool", context -> new JwkPanel());
         factories.put("radix.encoding", context -> new ConvertPanel());
         factories.put("timestamp", context -> new TimePanel());
         factories.put("base64.image", context -> new Base64ImagePanel());
@@ -134,6 +139,7 @@ public final class ToolRegistry {
         factories.put("xml.format", context -> new XmlPanel());
         factories.put("sql.format", context -> new SqlPanel());
         factories.put("string.tool", context -> new StringToolPanel());
+        factories.put("text.escape", context -> new TextEscapePanel());
         factories.put("regex.tester", context -> new RegexPanel());
         factories.put("text.diff", context -> new TextDiffPanel());
         factories.put("jsonpath.tester", context -> new JsonPathPanel());
@@ -160,9 +166,11 @@ public final class ToolRegistry {
         factories.put("hosts.manager", context -> new HostsManagerPanel());
         factories.put("wechat.sender", context -> new WeChatPanel());
         factories.put("log.viewer", context -> new LogViewerPanel());
+        factories.put("thread.dump", context -> new ThreadDumpPanel());
         factories.put("data.generator", context -> new DataGeneratorPanel());
         factories.put("qrcode", context -> new QrCodePanel());
         factories.put("color.convert", context -> new ColorPanel());
+        factories.put("ddl.entity", context -> new DdlEntityPanel());
         factories.put("calculator", context -> new CalculatorPanel());
         factories.put("statistics", context -> new StatisticsPanel());
         factories.put("sort.visualizer", context -> new SortPanel());

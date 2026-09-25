@@ -43,6 +43,9 @@ public final class ToolCatalog {
     public static final ToolDescriptor WEBHOOK_SIGNATURE = tool("webhook.signature", "security",
             "Webhook", "回调", "签名", "验签", "HMAC", "Signature", "GitHub", "Stripe", "Slack",
             "飞书", "Lark", "钉钉", "企业微信", "微信支付", "重放", "Replay");
+    public static final ToolDescriptor JWK_TOOL = tool("jwk.tool", "security",
+            "JWK", "JWKS", "JWT", "OIDC", "OAuth2", "公钥", "PEM", "kid", "Thumbprint", "RS256", "ES256",
+            "EdDSA", "验签", "Keycloak", "Auth0");
 
     public static final ToolDescriptor RADIX_ENCODING = tool("radix.encoding", "codec",
             "二进制", "八进制", "十进制", "十六进制", "Hex", "UTF-8", "UTF8", "GBK", "ISO-8859-1",
@@ -63,6 +66,10 @@ public final class ToolCatalog {
             "SQL", "美化", "格式化", "Sql美化", "SQL美化", "关键字大写");
     public static final ToolDescriptor STRING_TOOL = tool("string.tool", "codec",
             "String", "Length", "Delete", "Trim", "Uppercase", "Lowercase", "Regex", "字符串", "长度", "删除", "过滤", "大写", "小写", "统计");
+    public static final ToolDescriptor TEXT_ESCAPE = tool("text.escape", "codec",
+            "转义", "反转义", "Escape", "Unescape", "Unicode", "\\u", "HTML实体", "Entity",
+            "JSON字符串", "Java字符串", "native2ascii", "驼峰", "下划线", "camelCase", "snake_case",
+            "kebab-case", "命名", "Naming");
     public static final ToolDescriptor REGEX_TESTER = tool("regex.tester", "codec",
             "Regex", "正则表达式", "匹配", "正则", "正则匹配", "正则测试", "Pattern");
     public static final ToolDescriptor TEXT_DIFF = tool("text.diff", "codec",
@@ -119,6 +126,9 @@ public final class ToolCatalog {
     public static final ToolDescriptor LOG_VIEWER = tool("log.viewer", "system",
             "日志", "log", "日志查看", "LogViewer", "tail", "实时日志", "跟进", "大文件",
             "分页", "正则", "过滤", "高亮", "grep");
+    public static final ToolDescriptor THREAD_DUMP = tool("thread.dump", "system",
+            "Thread Dump", "jstack", "jcmd", "线程", "线程转储", "死锁", "Deadlock", "锁竞争",
+            "BLOCKED", "堆栈", "JVM");
 
     public static final ToolDescriptor DATA_GENERATOR = tool("data.generator", "generation",
             "生成", "Generator", "数据", "密码", "UUID", "假数据", "Mock");
@@ -126,6 +136,9 @@ public final class ToolCatalog {
             "qrcode", "qr", "barcode", "2dcode", "scan", "generate", "decode", "encode", "二维码", "条码");
     public static final ToolDescriptor COLOR_CONVERT = tool("color.convert", "generation",
             "HEX", "RGB", "HSL", "调色板", "Color", "颜色", "颜色选择", "色值");
+    public static final ToolDescriptor DDL_ENTITY = tool("ddl.entity", "generation",
+            "DDL", "CREATE TABLE", "实体", "Entity", "POJO", "JavaBean", "Lombok", "JPA", "MyBatis",
+            "MyBatis-Plus", "代码生成", "建表语句", "Record");
 
     public static final ToolDescriptor CALCULATOR = tool("calculator", "compute",
             "表达式", "求值", "计算器", "Calc", "数学", "函数", "sqrt", "pow");
@@ -155,14 +168,16 @@ public final class ToolCatalog {
     private static final List<ToolDescriptor> DESCRIPTORS = Collections.unmodifiableList(Arrays.asList(
             HASH_CODEC, SYMMETRIC_CRYPTO, ASYMMETRIC_CRYPTO, CERT_MANAGEMENT, ACCOUNT_MANAGER,
             TOTP_AUTHENTICATOR, JWT_CODEC, FILE_BATCH_DIGEST, CERT_INSPECTOR, WEBHOOK_SIGNATURE,
+            JWK_TOOL,
             RADIX_ENCODING, TIMESTAMP, BASE64_IMAGE, URL_TOOL,
-            FORMAT_CONVERT, JSON_FORMAT, XML_FORMAT, SQL_FORMAT, STRING_TOOL, REGEX_TESTER, TEXT_DIFF,
-            JSONPATH_TESTER, XPATH_TOOL,
+            FORMAT_CONVERT, JSON_FORMAT, XML_FORMAT, SQL_FORMAT, STRING_TOOL, TEXT_ESCAPE, REGEX_TESTER,
+            TEXT_DIFF, JSONPATH_TESTER, XPATH_TOOL,
             HTTP_CLIENT, OPENAPI_WORKBENCH, CALLBACK_MOCK, WEBSOCKET_CLIENT, MQTT_CLIENT, SUBNET_CALC,
             PORT_SCANNER, NET_DIAGNOSTICS, SSH,
             DATABASE_CONNECTOR, REDIS_MANAGEMENT, KAFKA_CONNECTOR, ZOOKEEPER_MANAGEMENT,
             DOCKER_CONVERT, K8S_DEPLOYMENT, K8S_MANAGER, CHMOD_CALC, CRON_PARSER, HOSTS_MANAGER,
-            WECHAT_SENDER, LOG_VIEWER, DATA_GENERATOR, QRCODE, COLOR_CONVERT, CALCULATOR, STATISTICS,
+            WECHAT_SENDER, LOG_VIEWER, THREAD_DUMP, DATA_GENERATOR, QRCODE, COLOR_CONVERT, DDL_ENTITY,
+            CALCULATOR, STATISTICS,
             SORT_VISUALIZER, SEARCH_ALGORITHM, HANOI, PINGAME, BPMN_DESIGNER, MERMAID, FLOWCHART,
             VIDEO_MONITOR, REMOTE_DESKTOP));
 

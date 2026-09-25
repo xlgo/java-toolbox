@@ -1,0 +1,70 @@
+2026-09-26 11:00:00
+Full thread dump OpenJDK 64-Bit Server VM (11.0.20+8 mixed mode):
+
+"main" #1 prio=5 os_prio=0 cpu=10.00ms elapsed=100.00s tid=0x00007f0000001000 nid=0x100 runnable  [0x00007f0000a00000]
+   java.lang.Thread.State: RUNNABLE
+	at java.io.FileInputStream.readBytes(java.base@11.0.20/Native Method)
+	at java.io.FileInputStream.read(java.base@11.0.20/FileInputStream.java:279)
+	at com.example.Console.readLine(Console.java:10)
+
+"report-1" #10 prio=5 os_prio=0 cpu=5.00ms elapsed=90.00s tid=0x00007f0000002000 nid=0x200 waiting for monitor entry  [0x00007f0000b00000]
+   java.lang.Thread.State: BLOCKED (on object monitor)
+	at com.example.Report.render(Report.java:88)
+	- waiting to lock <0x00000007a0001000> (a com.example.Cache)
+	at com.example.Report.run(Report.java:40)
+
+"cache-loader" #11 prio=5 os_prio=0 cpu=900.00ms elapsed=90.00s tid=0x00007f0000003000 nid=0x300 runnable  [0x00007f0000c00000]
+   java.lang.Thread.State: RUNNABLE
+	at java.net.SocketInputStream.socketRead0(java.base@11.0.20/Native Method)
+	at java.net.SocketInputStream.read(java.base@11.0.20/SocketInputStream.java:168)
+	at com.example.Cache.load(Cache.java:51)
+	- locked <0x00000007a0001000> (a com.example.Cache)
+	at com.example.Cache.run(Cache.java:20)
+
+"idle-worker" #12 prio=5 os_prio=0 cpu=0.10ms elapsed=90.00s tid=0x00007f0000004000 nid=0x400 waiting on condition  [0x00007f0000d00000]
+   java.lang.Thread.State: WAITING (parking)
+	at jdk.internal.misc.Unsafe.park(java.base@11.0.20/Native Method)
+	- parking to wait for  <0x00000007a0002000> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+	at java.util.concurrent.LinkedBlockingQueue.take(java.base@11.0.20/LinkedBlockingQueue.java:433)
+
+"short-lived" #13 prio=5 os_prio=0 cpu=0.10ms elapsed=1.00s tid=0x00007f0000005000 nid=0x500 runnable  [0x00007f0000e00000]
+   java.lang.Thread.State: RUNNABLE
+	at com.example.Task.compute(Task.java:5)
+
+JNI global references: 7
+
+2026-09-26 11:00:10
+Full thread dump OpenJDK 64-Bit Server VM (11.0.20+8 mixed mode):
+
+"main" #1 prio=5 os_prio=0 cpu=10.00ms elapsed=110.00s tid=0x00007f0000001000 nid=0x100 runnable  [0x00007f0000a00000]
+   java.lang.Thread.State: RUNNABLE
+	at java.io.FileInputStream.readBytes(java.base@11.0.20/Native Method)
+	at java.io.FileInputStream.read(java.base@11.0.20/FileInputStream.java:279)
+	at com.example.Console.readLine(Console.java:10)
+
+"report-1" #10 prio=5 os_prio=0 cpu=5.00ms elapsed=100.00s tid=0x00007f0000002000 nid=0x200 waiting for monitor entry  [0x00007f0000b00000]
+   java.lang.Thread.State: BLOCKED (on object monitor)
+	at com.example.Report.render(Report.java:88)
+	- waiting to lock <0x00000007a0001000> (a com.example.Cache)
+	at com.example.Report.run(Report.java:40)
+
+"cache-loader" #11 prio=5 os_prio=0 cpu=950.00ms elapsed=100.00s tid=0x00007f0000003000 nid=0x300 runnable  [0x00007f0000c00000]
+   java.lang.Thread.State: RUNNABLE
+	at java.net.SocketInputStream.socketRead0(java.base@11.0.20/Native Method)
+	at java.net.SocketInputStream.read(java.base@11.0.20/SocketInputStream.java:168)
+	at com.example.Cache.load(Cache.java:51)
+	- locked <0x00000007a0001000> (a com.example.Cache)
+	at com.example.Cache.run(Cache.java:20)
+
+"idle-worker" #12 prio=5 os_prio=0 cpu=0.10ms elapsed=100.00s tid=0x00007f0000004000 nid=0x400 waiting on condition  [0x00007f0000d00000]
+   java.lang.Thread.State: WAITING (parking)
+	at jdk.internal.misc.Unsafe.park(java.base@11.0.20/Native Method)
+	- parking to wait for  <0x00000007a0002000> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+	at java.util.concurrent.LinkedBlockingQueue.take(java.base@11.0.20/LinkedBlockingQueue.java:433)
+
+"late-starter" #14 prio=5 os_prio=0 cpu=0.10ms elapsed=2.00s tid=0x00007f0000006000 nid=0x600 runnable  [0x00007f0000f00000]
+   java.lang.Thread.State: RUNNABLE
+	at com.example.Task.compute(Task.java:5)
+
+JNI global references: 7
+

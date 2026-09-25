@@ -18,6 +18,7 @@
 | 加密 | 文件批量摘要与签名 | 最多 4 文件受限并发的流式摘要、校验清单核对，以及文件数字签名与验签 |
 | 加密 | CSR / PKCS#12 / 证书链检查 | 解析 CSR 并自验签、检查 PKCS#12 密钥库、诊断多级 X.509 证书链 |
 | 加密 | Webhook 签名验证 | 内置 GitHub / GitLab / Stripe / Slack / 钉钉 / 飞书 / 企业微信 / 微信支付 v3 预设，摊开「待签串 + 算法 + 编码」逐字比对，恒定时间校验并提示重放窗口 |
+| 加密 | JWK / JWKS 工具 | 解析 JWK / JWKS（RSA / EC / Ed25519 / oct），计算 RFC 7638 指纹并提示私钥泄露；JWK 与 PEM 互转；支持 OIDC Discovery 在线拉取 JWKS；用公钥验证 RS / PS / ES / EdDSA / HS 签名的 JWT，校验 exp / nbf / iat / iss / aud，拒绝 `none`、`crit` 与算法混淆 |
 | 转换 | 进制与编码 | 二/八/十/十六进制互转（二进制 4 位自动分组美化），UTF-8/GBK/URL 编码 |
 | 转换 | 时间戳转换 | 秒/毫秒、自定义格式、时区 |
 | 转换 | Base64 图片转换 | 图片文件与 Base64 字符串互转，支持比例自适应预览与本地保存 |
@@ -25,6 +26,7 @@
 | 转换 | 格式转换 | JSON / XML / YAML / TOML / INI / CSV / Properties 之间双向转换，支持嵌套结构与语法诊断 |
 | 转换 | JSONPath 查询 | 基于 JSONPath 的字段提取、切片/过滤查询、路径列表模式与错误定位 |
 | 转换 | XPath / XSLT | XPath 表达式求值（节点集/字符串/数值/布尔与命名空间自动映射）与 XSLT 样式表转换，解析关闭外部实体 |
+| 转换 | 转义与命名风格 | Java / JSON / JavaScript / Unicode / HTML / XML / CSV / SQL / 正则 / Properties 十种格式的转义与反转义，出错时定位到具体字符，可选宽松模式；camelCase / snake_case / kebab-case 等 14 种命名风格互转，正确处理缩写与数字 |
 | 算法 | 排序可视化 | 冒泡/选择/插入/快排/归并，逐帧动画 + 统计 |
 | 算法 | 查找算法 | 二分查找（区间收缩过程）+ 线性查找 |
 | 算法 | 汉诺塔 | 汉诺塔交互演示，支持手动拖盘与自动动画播放 |
@@ -59,6 +61,7 @@
 | 生成 | 账号密码管理 | 与 TOTP 共用安全保险库和主密码，支持检索、增删改、隐藏与安全复制 |
 | 生成 | 动态验证码 (TOTP) | 与密码管理共用锁定会话，支持密钥/链接导入、自适应账号展示与安全复制 |
 | 生成 | 随机测试数据生成 | 批量生成模拟测试数据，包含百家姓姓名、手机号、电子邮箱、地址、身份证号与银行卡号 |
+| 生成 | DDL 转 Java 实体 | 解析 MySQL / PostgreSQL / Oracle / SQL Server 建表语句（含 COMMENT、COMMENT ON、复合主键），生成 Lombok / 普通 JavaBean / Record 实体，可选 JPA（jakarta / javax）或 MyBatis-Plus 注解与 MyBatis resultMap，支持批量保存为文件 |
 | 运维 | SSH 客户端 | 服务器连接管理与分组树展示，支持多会话交互终端与 SFTP 文件传输 |
 | 运维 | 数据库管理 | 多数据库管理客户端（支持 MySQL / PostgreSQL / Oracle / SQLite / H2 等），数据库树形浏览、SQL 执行与结果导出 |
 | 运维 | Hosts 环境管理 | 系统 Hosts 文件管理，支持多套 Dev/QA/Staging 环境规则定义、一键开关应用与 DNS 缓存刷新 |
@@ -68,6 +71,7 @@
 | 运维 | MQTT 客户端 | MQTT v3.1 / v3.1.1 客户端测试，broker 连接、主题订阅 / 发布与实时消息收发 |
 | 运维 | 端口扫描 | 端口扫描与网络连通性诊断，支持预设端口组（Web / DB / 运维）、自定义范围、并发扫描与已知服务识别 |
 | 运维 | K8s 集群管理 | 多集群管理，Kubeconfig 导入与 Namespace 切换，浏览 Pod/Deployment/Service/ConfigMap/Node，日志追踪，Exec 容器终端，以及**容器文件上传与下载** |
+| 运维 | 线程转储分析 | 解析 jstack / jcmd / kill -3 输出（含 JDK 21 JSON 格式与多份转储），按状态统计、死锁检测（监视器与 ReentrantLock）、锁竞争排行、相同栈分组、线程池聚合、热点方法，以及多份转储间的卡死线程对比 |
 | 监控 | 视频监控 | 视频监控面板，支持多路画面分屏布局、格子合并拆分与设备树管理 |
 | 监控 | 远程桌面 | 纯 P2P 远程控制桌面，优先采用 ice4j 完整 ICE 状态机进行 UDP 双向打洞（多 STUN、triggered check、peer-reflexive candidate、角色冲突处理与候选对提名），失败后尝试带 UPnP/NAT-PMP 的 TCP 直连；不配置 TURN，信令服务器不转发桌面数据 |
 | 其它 | 微信群发与通讯录 | 微信群发，以及自适应读取微信 SQLite 通讯录（展示昵称、备注、微信号、头像，支持 Excel 导出、一键追加群发、头像批量下载） |

@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.cloud.ui;
 
+import com.aqishi.toolbox.feature.cloud.domain.StreamingUtf8Decoder;
 import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.UIUtils;
 import com.jediterm.terminal.Questioner;
@@ -200,6 +201,10 @@ final class K8sExecTerminal {
             headers.put("Sec-WebSocket-Protocol", "v4.channel.k8s.io");
 
             org.java_websocket.client.WebSocketClient client = new org.java_websocket.client.WebSocketClient(uri, headers) {
+                // 每个输出通道一个有状态解码器，跨帧的多字节字符不会被切成乱码。
+                private final StreamingUtf8Decoder stdout = new StreamingUtf8Decoder();
+                private final StreamingUtf8Decoder stderr = new StreamingUtf8Decoder();
+
                 @Override
                 public void onOpen(org.java_websocket.handshake.ServerHandshake handshakedata) {
                     SwingUtilities.invokeLater(() -> {
@@ -228,7 +233,10 @@ final class K8sExecTerminal {
                         if (channel == 1 || channel == 2) {
                             byte[] data = new byte[bytes.remaining()];
                             bytes.get(data);
-                            readQueue.offer(new String(data, StandardCharsets.UTF_8));
+                            String text = (channel == 1 ? stdout : stderr).decode(data);
+                            if (!text.isEmpty()) {
+                                readQueue.offer(text);
+                            }
                         } else if (channel == 3) {
                             byte[] data = new byte[bytes.remaining()];
                             bytes.get(data);

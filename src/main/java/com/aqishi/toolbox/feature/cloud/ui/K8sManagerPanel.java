@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.cloud.ui;
 
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.Json;
@@ -27,16 +28,10 @@ import com.aqishi.toolbox.util.UIUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import javax.net.ssl.HttpsURLConnection;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
@@ -118,16 +113,17 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
     private DefaultTableModel nodeModel;
 
     // State
-    private boolean isConnected = false;
+    private volatile boolean isConnected = false;
     private String activeServerUrl = "";
     private String activeToken = "";
     private boolean activeSkipTls = false;
     private String activeClientCert = null;
     private String activeClientKey = null;
     private String activeCaCert = null;
-    private javax.net.ssl.SSLSocketFactory activeSocketFactory = null;
-    private javax.net.ssl.HostnameVerifier activeHostnameVerifier = null;
-    private KubernetesService kubernetesService;
+    // 以下连接状态在后台任务里读、在其他后台任务或界面线程里写，必须 volatile 才能保证可见性。
+    private volatile javax.net.ssl.SSLSocketFactory activeSocketFactory = null;
+    private volatile javax.net.ssl.HostnameVerifier activeHostnameVerifier = null;
+    private volatile KubernetesService kubernetesService;
     private final KubernetesServiceFactory kubernetesServiceFactory;
     private final KubernetesResourceApplyService resourceApplyService = new KubernetesResourceApplyService();
     /** Pod 文件传输的在途资源登记表：应用关闭时统一取消，见 closeResources()。 */
@@ -297,7 +293,8 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
                 String text = searchField.getText().trim();
                 javax.swing.RowFilter<Object, Object> filter = null;
                 if (!text.isEmpty()) {
-                    filter = javax.swing.RowFilter.regexFilter("(?i)" + text);
+                    // 按字面文本过滤：输入里的 [ ( + 等字符不能当正则解释，否则每次按键都抛异常。
+                    filter = javax.swing.RowFilter.regexFilter("(?i)" + java.util.regex.Pattern.quote(text));
                 }
                 if (podSorter != null) podSorter.setRowFilter(filter);
                 if (deploySorter != null) deploySorter.setRowFilter(filter);
@@ -1377,18 +1374,18 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
                 return;
             }
             deployBtn.setEnabled(false);
-            new SwingWorker<Void, Void>() {
+            String namespace = getSelectedNamespace();
+            new SwingWorker<Integer, Void>() {
                 @Override
-                protected Void doInBackground() throws Exception {
-                    applyResourceYaml(yaml);
-                    return null;
+                protected Integer doInBackground() throws Exception {
+                    return applyResourceYaml(yaml, namespace);
                 }
 
                 @Override
                 protected void done() {
                     try {
-                        get();
-                        UIUtils.info(dialog, "发布成功！已在集群中应用该资源。");
+                        int applied = get();
+                        UIUtils.info(dialog, I18n.get("tool.k8s.apply.success", applied));
                         dialog.dispose();
                         // 刷新当前列表
                         loadPods();
@@ -1417,9 +1414,27 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
         dialog.setVisible(true);
     }
 
-    private void applyResourceYaml(String yamlText) throws Exception {
-        KubernetesResourceApplyService.ApplyPlan plan = resourceApplyService.prepare(
-                yamlText, getSelectedNamespace());
+    /**
+     * 按文档顺序应用多文档清单，返回成功应用的资源数。所有文档在发出第一个请求前就已校验完毕；
+     * 某个资源应用失败时，异常信息会指出是第几个、哪个资源，此前的资源已经生效。
+     *
+     * @param namespace 在 EDT 上读取的当前命名空间；后台线程不再读取界面控件
+     */
+    private int applyResourceYaml(String yamlText, String namespace) throws Exception {
+        List<KubernetesResourceApplyService.ApplyPlan> plans = resourceApplyService.prepareAll(yamlText, namespace);
+        for (int i = 0; i < plans.size(); i++) {
+            KubernetesResourceApplyService.ApplyPlan plan = plans.get(i);
+            try {
+                applyPlan(plan);
+            } catch (Exception error) {
+                throw new IllegalStateException(I18n.get("tool.k8s.apply.partialFailure",
+                        i + 1, plans.size(), plan.resourceName(), i, Errors.describeRoot(error)), error);
+            }
+        }
+        return plans.size();
+    }
+
+    private void applyPlan(KubernetesResourceApplyService.ApplyPlan plan) throws Exception {
         String resourcePath = plan.resourcePath();
         String collectionPath = plan.collectionPath();
 

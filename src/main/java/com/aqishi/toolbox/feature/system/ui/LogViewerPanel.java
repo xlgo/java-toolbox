@@ -265,6 +265,21 @@ public class LogViewerPanel extends ToolPanel implements ManagedResourceOwner {
         loadPage(pageStart, false, false);
     }
 
+    /** 跟随模式下文本区最多保留的行数，持续写入的日志否则会让内存无限增长。 */
+    private static final int MAX_FOLLOW_LINES = 20_000;
+
+    private void trimToLastLines(int maxLines) {
+        int excess = content.getLineCount() - maxLines;
+        if (excess <= 0) {
+            return;
+        }
+        try {
+            content.getDocument().remove(0, content.getLineStartOffset(excess));
+        } catch (javax.swing.text.BadLocationException impossible) {
+            Errors.ignored("Failed to trim log text", impossible);
+        }
+    }
+
     private void render(List<String> lines, boolean append) {
         List<String> shown = new ArrayList<>();
         for (String line : lines) {
@@ -344,6 +359,12 @@ public class LogViewerPanel extends ToolPanel implements ManagedResourceOwner {
             if (size == visibleEndOffset) {
                 return;
             }
+            // 落后超过一次追加的上限（例如在第一页就开启了跟随）时直接跳到末尾：
+            // 否则会按每秒一页的速度把整个文件灌进文本区。
+            if (size - visibleEndOffset > MAX_APPEND_BYTES) {
+                goTail();
+                return;
+            }
             final long from = visibleEndOffset;
             loading = true;
             new SwingWorker<LogFileService.Chunk, Void>() {
@@ -360,6 +381,7 @@ public class LogViewerPanel extends ToolPanel implements ManagedResourceOwner {
                         visibleEndOffset = chunk.getNextOffset();
                         pageEnd = chunk.getNextOffset();
                         render(chunk.getLines(), true);
+                        trimToLastLines(MAX_FOLLOW_LINES);
                         content.setCaretPosition(content.getDocument().getLength());
                         updateStatus(chunk);
                     } catch (Exception ex) {

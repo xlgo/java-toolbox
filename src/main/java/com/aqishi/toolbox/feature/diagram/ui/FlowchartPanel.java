@@ -90,6 +90,8 @@ public class FlowchartPanel extends ToolPanel {
     final List<FlowNode> selectedNodes = new ArrayList<>();
     FlowNode selectedNode = null;
     FlowEdge selectedEdge = null;
+    /** 标签位置滑块本次拖动是否已经记录过撤销点。 */
+    private boolean labelDragStateSaved;
 
     // 交互辅助变量
     enum DragState {
@@ -568,8 +570,13 @@ public class FlowchartPanel extends ToolPanel {
 
         edgeLabelPosSlider.addChangeListener(e -> {
             if (updatingProperties || selectedEdge == null) return;
-            if (!edgeLabelPosSlider.getValueIsAdjusting()) {
+            // 撤销点要在拖动的第一个事件、修改之前记录；早先在松手时才记录，
+            // 那时位置已经被改过，撤销无法回到拖动前。
+            if (!labelDragStateSaved) {
                 saveState();
+                labelDragStateSaved = edgeLabelPosSlider.getValueIsAdjusting();
+            } else if (!edgeLabelPosSlider.getValueIsAdjusting()) {
+                labelDragStateSaved = false;
             }
             selectedEdge.labelPosition = edgeLabelPosSlider.getValue() / 100.0;
             canvasPanel.repaint();
@@ -833,11 +840,8 @@ public class FlowchartPanel extends ToolPanel {
             nodeFontSizeSpinner.setEnabled(false);
             nodeBoldToggle.setEnabled(false);
 
-            // 【重磅体验优化】：选中连线时，连线标签输入框直接获取焦点并全选，支持秒级打字输入！
-            SwingUtilities.invokeLater(() -> {
-                edgeLabelField.requestFocusInWindow();
-                edgeLabelField.selectAll();
-            });
+            // 不再把焦点抢到标签输入框：那样按 Delete 删掉的是标签文字而不是连线。
+            // 需要改标签时按 F2 / Enter 或双击连线。
 
         } else {
             nameField.setEditable(false);
@@ -1009,6 +1013,8 @@ public class FlowchartPanel extends ToolPanel {
                 }
 
                 if (json != null && !json.isEmpty()) {
+                    // 导入会替换整张图，先留一个撤销点，误导入后还能回到原来的图。
+                    saveState();
                     deserializeFromJson(json);
                     UIUtils.info(getView(), "导入成功，已恢复可编辑状态！");
                 } else {
@@ -1059,8 +1065,21 @@ public class FlowchartPanel extends ToolPanel {
             g2.fillRect(0, 0, width, height);
 
             g2.translate(-minX, -minY);
-            canvasPanel.drawAll(g2);
-            g2.dispose();
+            // 导出前暂时清掉选中状态，否则选中的节点和连线会以高亮色画进图片。
+            List<FlowNode> savedSelection = new ArrayList<>(selectedNodes);
+            FlowNode savedNode = selectedNode;
+            FlowEdge savedEdge = selectedEdge;
+            selectedNodes.clear();
+            selectedNode = null;
+            selectedEdge = null;
+            try {
+                canvasPanel.drawAll(g2);
+            } finally {
+                selectedNodes.addAll(savedSelection);
+                selectedNode = savedNode;
+                selectedEdge = savedEdge;
+                g2.dispose();
+            }
 
             try {
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();

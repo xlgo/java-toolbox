@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.security.ui;
 
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.JsonFormatter;
 import com.aqishi.toolbox.ui.ToolPanel;
@@ -235,7 +236,9 @@ public class JwtPanel extends ToolPanel {
             return;
         }
 
-        String[] parts = token.split("\\.");
+        // limit -1 保留结尾的空段：未签名的 "header.payload." 必须识别为三段、签名为空，
+        // 否则会被当成"没有签名段"而跳过验证，填了密钥也不给任何提示。
+        String[] parts = token.split("\\.", -1);
         if (parts.length < 2 || parts.length > 3) {
             decInfoLabel.setText("  错误：JWT 格式不正确（必须包含点 \".\" 分隔符）");
             decInfoLabel.setForeground(Tokens.danger());
@@ -260,7 +263,10 @@ public class JwtPanel extends ToolPanel {
 
             // 4. 签名验证（如果有签名段且提供了密钥）
             String secret = new String(decSecretField.getPassword());
-            if (parts.length == 3 && !secret.isEmpty()) {
+            if (parts.length == 3 && parts[2].isEmpty()) {
+                decInfoLabel.setText(decInfoLabel.getText() + I18n.get("tool.jwt.unsigned", extractAlg(headerJson)));
+                decInfoLabel.setForeground(Tokens.danger());
+            } else if (parts.length == 3 && !secret.isEmpty()) {
                 doVerifySignature(headerJson, parts, secret);
             } else if (parts.length == 3 && secret.isEmpty()) {
                 decInfoLabel.setText(decInfoLabel.getText() + "  |  输入签名密钥可验证签名");
@@ -309,9 +315,10 @@ public class JwtPanel extends ToolPanel {
             byte[] expectedSigBytes = mac.doFinal(content.getBytes(StandardCharsets.UTF_8));
             String expectedSig = Base64.getUrlEncoder().withoutPadding().encodeToString(expectedSigBytes);
 
-            // 对比签名
-            String actualSig = parts[2];
-            if (expectedSig.equals(actualSig)) {
+            // 对比签名：容忍带 "=" 填充的写法，并用恒定时间比较
+            String actualSig = parts[2].replaceAll("=+$", "");
+            if (java.security.MessageDigest.isEqual(expectedSig.getBytes(StandardCharsets.US_ASCII),
+                    actualSig.getBytes(StandardCharsets.US_ASCII))) {
                 decInfoLabel.setText(decInfoLabel.getText() + "  |  ✅ 签名验证通过 (" + alg + ")");
                 decInfoLabel.setForeground(Tokens.success());
             } else {
@@ -354,12 +361,23 @@ public class JwtPanel extends ToolPanel {
 
             String content = headerB64 + "." + payloadB64;
 
-            // 签名计算（默认使用 HS256 / HmacSHA256）
+            // 签名算法以 Header 里的 alg 为准。早先无论写的是 HS384、HS512 还是 none 都按 HS256 签名，
+            // 生成的令牌与它自己的 Header 自相矛盾，任何按 alg 验签的服务都会拒绝。
+            String alg = extractAlg(headerJson);
             String signatureB64 = "";
-            if (secret != null && !secret.isEmpty()) {
+            if (!"none".equalsIgnoreCase(alg)) {
+                String macAlg = HMAC_ALG_MAP.get(alg);
+                if (macAlg == null) {
+                    UIUtils.error(encOutputArea, I18n.get("tool.jwt.encode.unsupportedAlg", alg));
+                    return;
+                }
+                if (secret == null || secret.isEmpty()) {
+                    UIUtils.error(encOutputArea, I18n.get("tool.jwt.encode.secretRequired", alg));
+                    return;
+                }
                 SecretKeySpec secretKey = new SecretKeySpec(
-                        secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-                Mac mac = Mac.getInstance("HmacSHA256");
+                        secret.getBytes(StandardCharsets.UTF_8), macAlg);
+                Mac mac = Mac.getInstance(macAlg);
                 mac.init(secretKey);
                 byte[] rawHmac = mac.doFinal(content.getBytes(StandardCharsets.UTF_8));
                 signatureB64 = Base64.getUrlEncoder().withoutPadding().encodeToString(rawHmac);
@@ -367,7 +385,7 @@ public class JwtPanel extends ToolPanel {
 
             encOutputArea.setText(content + "." + signatureB64);
         } catch (Exception ex) {
-            UIUtils.error(encOutputArea, "JWT 生成失败：" + ex.getMessage());
+            UIUtils.error(encOutputArea, I18n.get("tool.jwt.encode.failed", ex.getMessage()));
         }
     }
 

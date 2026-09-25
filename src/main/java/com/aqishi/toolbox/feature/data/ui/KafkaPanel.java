@@ -1110,7 +1110,10 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         rightTabbedPane.setSelectedIndex(1);
 
         if (autoFetch) {
-            offsetStrategyCombo.setSelectedItem("最新 50 条 (Latest 50)");
+            // 双击主题 = 拉取最新 50 条。早先选的是下拉框里不存在的选项，被静默忽略，
+            // 实际沿用了当前的策略与条数。
+            offsetStrategyCombo.setSelectedIndex(0);
+            msgLimitSpinner.setValue(50);
             fetchMessages();
         }
     }
@@ -1375,7 +1378,9 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         String servers = serversField.getText().trim();
         Properties custom = parseCustomProperties();
 
+        // 测试与正式连接共用 SSH 隧道字段，测试期间禁止点"连接"，否则测试结束时会关掉正式连接的隧道。
         testBtn.setEnabled(false);
+        connBtn.setEnabled(false);
         consoleLog("正在测试连接: " + servers);
 
         new SwingWorker<Void, Void>() {
@@ -1397,6 +1402,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
             @Override
             protected void done() {
                 testBtn.setEnabled(true);
+                connBtn.setEnabled(true);
                 try {
                     get();
                     UIUtils.info(getView(), "Kafka 连接测试成功！");
@@ -1848,13 +1854,19 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         for (String n : profiles.keySet()) {
             profileCombo.addItem(n);
         }
+        boolean applyFirst = false;
         if (selectName != null) {
             profileCombo.setSelectedItem(selectName);
         } else if (profileCombo.getItemCount() > 0) {
             profileCombo.setSelectedIndex(0);
-            onProfileSelected();
+            applyFirst = true;
         }
         ignoreProfileEvents = false;
+        // 必须在恢复事件之后再应用：早先在 ignoreProfileEvents=true 期间调用，onProfileSelected 直接返回，
+        // 首个配置从未被自动填入。
+        if (applyFirst) {
+            onProfileSelected();
+        }
     }
 
     private void onProfileSelected() {

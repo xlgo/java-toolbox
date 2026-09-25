@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.network.ui;
 
 import com.aqishi.toolbox.catalog.ToolCatalog;
+import com.aqishi.toolbox.feature.network.domain.CurlCommand;
 import com.aqishi.toolbox.util.JsonFormatter;
 import com.aqishi.toolbox.feature.network.ssh.domain.RemoteEndpoint;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
@@ -407,20 +408,17 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
         String headersText = reqHeadersArea.getText();
         String bodyText = reqBodyArea.getText();
 
-        StringBuilder sb = new StringBuilder("curl -X ").append(method).append(" \"").append(url).append("\"");
-
+        java.util.List<String> headers = new java.util.ArrayList<>();
         for (String line : headersText.split("\n")) {
-            line = line.trim();
-            if (!line.isEmpty()) {
-                sb.append(" \\\n  -H \"").append(line.replace("\"", "\\\"")).append("\"");
+            if (!line.trim().isEmpty()) {
+                headers.add(line.trim());
             }
         }
+        boolean hasBody = ("POST".equals(method) || "PUT".equals(method))
+                && bodyText != null && !bodyText.trim().isEmpty();
+        CurlCommand curl = new CurlCommand(method, url, headers, hasBody ? bodyText : "");
 
-        if (("POST".equals(method) || "PUT".equals(method)) && bodyText != null && !bodyText.trim().isEmpty()) {
-            sb.append(" \\\n  --data-raw '").append(bodyText.replace("'", "'\\''")).append("'");
-        }
-
-        UIUtils.copyToClipboard(sb.toString());
+        UIUtils.copyToClipboard(curl.toShell());
         UIUtils.info(getView(), "cURL 命令已成功复制到剪贴板！");
     }
 
@@ -444,43 +442,16 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void parseAndApplyCurl(String curlStr) {
-        // 去除换行符与反斜杠
-        String singleLine = curlStr.replaceAll("\\\\\\r?\\n", " ").replaceAll("\\r?\\n", " ").trim();
-
-        String method = "GET";
-        String url = "";
-        StringBuilder headersSb = new StringBuilder();
-        String body = "";
-
-        // 匹配 -X 或 --request
-        java.util.regex.Matcher mMethod = java.util.regex.Pattern.compile("(?:-X|--request)\\s+([A-Z]+)").matcher(singleLine);
-        if (mMethod.find()) {
-            method = mMethod.group(1);
+        CurlCommand curl;
+        try {
+            curl = CurlCommand.parse(curlStr);
+        } catch (IllegalArgumentException invalid) {
+            throw new IllegalArgumentException("未能解析 cURL 命令：" + invalid.getMessage(), invalid);
         }
-
-        // 匹配 -H 或 --header
-        java.util.regex.Matcher mHeader = java.util.regex.Pattern.compile("(?:-H|--header)\\s+[\"']([^\"']+)[\"']").matcher(singleLine);
-        while (mHeader.find()) {
-            if (headersSb.length() > 0) headersSb.append("\n");
-            headersSb.append(mHeader.group(1));
-        }
-
-        // 匹配 -d, --data, --data-raw
-        java.util.regex.Matcher mBody = java.util.regex.Pattern.compile("(?:-d|--data|--data-raw|--data-binary)\\s+['\"](.*?)['\"](?=\\s+-|$)").matcher(singleLine);
-        if (mBody.find()) {
-            body = mBody.group(1);
-            if ("GET".equals(method)) method = "POST";
-        }
-
-        // 匹配 URL
-        java.util.regex.Matcher mUrl = java.util.regex.Pattern.compile("(https?://[^\\s'\"]+)").matcher(singleLine);
-        if (mUrl.find()) {
-            url = mUrl.group(1);
-        }
-
-        if (url.isEmpty()) {
-            throw new IllegalArgumentException("未能在 cURL 命令中解析到有效 URL");
-        }
+        String method = curl.method();
+        String url = curl.url();
+        String body = curl.body();
+        StringBuilder headersSb = new StringBuilder(String.join("\n", curl.headers()));
 
         // 应用到 UI
         methodBox.setSelectedItem(method);

@@ -116,6 +116,7 @@ public class MainFrame extends JFrame {
                 persistNavigationState();
                 ConfigManager.save();
                 closeManagedResources();
+                secureClipboard.clearPending();
                 vaultService.close();
             }
         });
@@ -139,6 +140,7 @@ public class MainFrame extends JFrame {
     public void dispose() {
         if (statusTimer != null) statusTimer.stop();
         closeManagedResources();
+        secureClipboard.clearPending();
         vaultService.close();
         super.dispose();
     }

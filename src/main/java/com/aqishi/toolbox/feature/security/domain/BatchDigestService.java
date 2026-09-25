@@ -159,6 +159,34 @@ public class BatchDigestService {
     }
 
     /**
+     * 按路径在清单里找对应条目：统一分隔符后要求在目录边界上匹配；
+     * 找不到时仅当清单里恰好只有一个同名文件才按文件名匹配。
+     *
+     * <p>早先直接 {@code endsWith(key)}：{@code data.txt} 会命中键 {@code a.txt}（没有分隔符边界）；
+     * Windows 上 {@code /} 分隔的清单路径永远对不上，退回按文件名匹配时，
+     * 所有同名文件都和清单里第一条比较，出现成片的误报。</p>
+     */
+    static String findByPath(File file, Map<String, String> checksumMap) {
+        String path = file.getAbsolutePath().replace('\\', '/');
+        String basenameMatch = null;
+        int basenameHits = 0;
+        for (Map.Entry<String, String> e : checksumMap.entrySet()) {
+            String key = e.getKey().replace('\\', '/');
+            while (key.startsWith("./")) {
+                key = key.substring(2);
+            }
+            if (path.equals(key) || path.endsWith("/" + key)) {
+                return e.getValue();
+            }
+            if (file.getName().equals(key.substring(key.lastIndexOf('/') + 1))) {
+                basenameMatch = e.getValue();
+                basenameHits++;
+            }
+        }
+        return basenameHits == 1 ? basenameMatch : null;
+    }
+
+    /**
      * 将当前结果与校验清单比对，更新 MatchStatus。
      */
     public void matchChecksums(List<DigestResult> results, Map<String, String> checksumMap, String targetAlgorithm) {
@@ -166,13 +194,7 @@ public class BatchDigestService {
         for (DigestResult r : results) {
             String expected = checksumMap.get(r.getFileName());
             if (expected == null) {
-                // 也尝试比对绝对路径或基名
-                for (Map.Entry<String, String> e : checksumMap.entrySet()) {
-                    if (r.getFile().getAbsolutePath().endsWith(e.getKey()) || r.getFileName().equals(new File(e.getKey()).getName())) {
-                        expected = e.getValue();
-                        break;
-                    }
-                }
+                expected = findByPath(r.getFile(), checksumMap);
             }
             if (expected == null) {
                 r.setMatchStatus("-");

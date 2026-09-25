@@ -34,6 +34,27 @@ class SecureClipboardTest {
         assertEquals("user replacement", gateway.readText());
     }
 
+    /** 回归：退出或锁定时调度器被关闭，30 秒后的清除任务随之丢失，密码一直留在剪贴板。 */
+    @Test
+    void clearPendingWipesImmediatelyAndOnlyOwnContent() throws Exception {
+        MemoryClipboard gateway = new MemoryClipboard();
+        CapturingScheduler scheduler = new CapturingScheduler();
+        SecureClipboard clipboard = new SecureClipboard(gateway, scheduler);
+
+        clipboard.copySensitive("secret");
+        clipboard.clearPending();
+        assertEquals("", gateway.readText());
+
+        clipboard.copySensitive("otp-123456");
+        gateway.writeText("user replacement");
+        clipboard.clearPending();
+        assertEquals("user replacement", gateway.readText());
+
+        // 已经清过的条目，延迟任务再跑一次也不应动用户后来复制的内容。
+        scheduler.runScheduled();
+        assertEquals("user replacement", gateway.readText());
+    }
+
     private static final class MemoryClipboard implements SecureClipboard.ClipboardGateway {
         private String value = "";
 

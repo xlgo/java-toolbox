@@ -68,6 +68,8 @@ public class PinGamePanel extends ToolPanel implements ManagedResourceOwner {
     private GameState state = GameState.READY;
     private Difficulty currentDifficulty = Difficulty.NORMAL;
     private int currentLevel = 1;
+    /** 正在程序化重建关卡下拉框，期间忽略其选中事件。 */
+    private boolean refreshingLevels;
     private int maxUnlockedLevel = 1;
     private int score = 0;
     private int highScore = 0;
@@ -174,6 +176,7 @@ public class PinGamePanel extends ToolPanel implements ManagedResourceOwner {
         levelBox.setSelectedItem(currentLevel);
         levelBox.addActionListener(e -> {
             Integer sel = (Integer) levelBox.getSelectedItem();
+            if (refreshingLevels) return;
             if (sel != null && sel != currentLevel) {
                 currentLevel = sel;
                 initLevel(currentLevel);
@@ -275,12 +278,21 @@ public class PinGamePanel extends ToolPanel implements ManagedResourceOwner {
         return opts;
     }
 
+    /**
+     * 重建关卡下拉框。重建过程中的选中变化不是用户操作：{@code addItem} 第一项时会自动选中并触发监听，
+     * 早先因此把关卡重置成 1，通关最高关后又被 {@code ++} 送回第 2 关。
+     */
     private void refreshLevelBoxOptions() {
-        levelBox.removeAllItems();
-        for (int i = 1; i <= maxUnlockedLevel; i++) {
-            levelBox.addItem(i);
+        refreshingLevels = true;
+        try {
+            levelBox.removeAllItems();
+            for (int i = 1; i <= maxUnlockedLevel; i++) {
+                levelBox.addItem(i);
+            }
+            levelBox.setSelectedItem(currentLevel);
+        } finally {
+            refreshingLevels = false;
         }
-        levelBox.setSelectedItem(currentLevel);
         if (startLatestBtn != null) {
             startLatestBtn.setText("最新关卡 (" + maxUnlockedLevel + ")");
         }
@@ -469,6 +481,8 @@ public class PinGamePanel extends ToolPanel implements ManagedResourceOwner {
                     collidedPin2 = conflict;
                     animEffectTimer = 40;
                     shootBtn.setEnabled(false);
+                    // 失败的这一局也可能刷新了最高分，同样要保存。
+                    saveStats();
                 } else {
                     // 插针成功！
                     attachedPins.add(newPin);
@@ -485,11 +499,14 @@ public class PinGamePanel extends ToolPanel implements ManagedResourceOwner {
                         lockTimerRemaining = 3.0;
                         animEffectTimer = 50;
 
-                        if (currentLevel >= maxUnlockedLevel) {
-                            maxUnlockedLevel = currentLevel + 1;
-                            refreshLevelBoxOptions();
-                        }
+                        boolean unlocksNewLevel = currentLevel >= maxUnlockedLevel;
                         currentLevel++;
+                        if (unlocksNewLevel) {
+                            maxUnlockedLevel = currentLevel;
+                            refreshLevelBoxOptions();
+                        } else {
+                            levelBox.setSelectedItem(currentLevel);
+                        }
                         saveStats();
                         shootBtn.setEnabled(false);
                     }
@@ -551,6 +568,9 @@ public class PinGamePanel extends ToolPanel implements ManagedResourceOwner {
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
             if (!comp.isShowing()) {
                 return false; // 当前游戏工具页未处于显示状态，不拦截
+            }
+            if (e.getComponent() instanceof javax.swing.text.JTextComponent) {
+                return false; // 焦点在输入框（例如侧栏搜索）时，空格是要输入的字符
             }
             if (e.getID() == KeyEvent.KEY_PRESSED && e.getKeyCode() == KeyEvent.VK_SPACE) {
                 handleCanvasOrSpaceAction();

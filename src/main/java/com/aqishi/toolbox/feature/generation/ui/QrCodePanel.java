@@ -1,36 +1,14 @@
 package com.aqishi.toolbox.feature.generation.ui;
 
 import com.aqishi.toolbox.catalog.ToolCatalog;
+import com.aqishi.toolbox.feature.generation.application.ReplicateQrClient;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
+import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.UIUtils;
 
-import com.aqishi.toolbox.util.Json;
-
-import com.aqishi.toolbox.infra.ManagedResourceOwner;
-import com.aqishi.toolbox.ui.ToolPanel;
-import java.util.prefs.Preferences;
-import com.aqishi.toolbox.ui.kit.Card;
-
-import javax.imageio.ImageIO;
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import java.awt.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.io.OutputStream;
-import java.io.InputStreamReader;
-import java.io.BufferedReader;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.JsonNode;
-import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.Transferable;
-import java.awt.image.BufferedImage;
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.TimerTask;
-import java.util.Timer;
-import java.awt.Dimension;
 import com.google.zxing.*;
 import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import com.google.zxing.client.j2se.MatrixToImageConfig;
@@ -39,6 +17,19 @@ import com.google.zxing.common.BitMatrix;
 import com.google.zxing.common.HybridBinarizer;
 import com.google.zxing.qrcode.QRCodeWriter;
 
+import javax.imageio.ImageIO;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import java.awt.*;
+import java.awt.Dimension;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.prefs.Preferences;
+
 /**
  * 二维码生成与解析工具 (QR Code Generator & Decoder)
  * 基于原生 Java 实现无第三方依赖的二维码矩阵绘制与展示。
@@ -46,7 +37,8 @@ import com.google.zxing.qrcode.QRCodeWriter;
 public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
 
     /** Held as a field so shutdown can cancel polling started from a local scope. */
-    private java.util.Timer aiPollTimer;
+    private final java.util.concurrent.ExecutorService aiExecutor = DaemonThreads.single("qrcode-ai");
+    private volatile java.util.concurrent.Future<?> aiJob;
 
     private JTextArea inputContentArea;
     private JSpinner sizeSpinner;
@@ -340,109 +332,92 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
         previewImageLabel.setIcon(null);
         previewImageLabel.setText("正在提交生图任务到云端...");
 
-        new Thread(() -> {
-            try {
-                ObjectMapper mapper = Json.mapper();
-                // Start Prediction
-                URL url = new URL("https://api.replicate.com/v1/predictions");
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                String getUrl;
-                try {
-                    conn.setRequestMethod("POST");
-                    conn.setRequestProperty("Authorization", "Bearer " + token);
-                    conn.setRequestProperty("Content-Type", "application/json");
-                    conn.setDoOutput(true);
-
-                    Map<String, Object> input = new HashMap<>();
-                    input.put("qr_code_content", text);
-                    input.put("prompt", prompt);
-                    input.put("negative_prompt", negativePrompt);
-
-                    Map<String, Object> body = new HashMap<>();
-                    // z-uo/qrcode-controlnet version
-                    body.put("version", "628e604e13fc636433fbe4d9c0e5a95efd58117a421b4700d11f9746e16694e8");
-                    body.put("input", input);
-
-                    try (OutputStream os = conn.getOutputStream()) {
-                        mapper.writeValue(os, body);
-                    }
-
-                    if (conn.getResponseCode() >= 400) {
-                        BufferedReader br = new BufferedReader(new InputStreamReader(conn.getErrorStream(), StandardCharsets.UTF_8));
-                        String err = br.lines().reduce("", String::concat);
-                        throw new Exception("API 请求失败: " + conn.getResponseCode() + " " + err);
-                    }
-
-                    JsonNode root = mapper.readTree(conn.getInputStream());
-                    getUrl = root.path("urls").path("get").asText();
-                } finally {
-                    conn.disconnect();
-                }
-
-                SwingUtilities.invokeLater(() -> {
-                    previewImageLabel.setText("任务已提交，正在等待云端渲染完成 (可能需要数十秒)...");
-                });
-
-                pollAiResult(getUrl, token, mapper);
-
-            } catch (Exception ex) {
-                SwingUtilities.invokeLater(() -> {
-                    generateAiBtn.setEnabled(true);
-                    generateAiBtn.setText("生成 AI 艺术二维码");
-                    previewImageLabel.setText("");
-                    UIUtils.error(getView(), "AI 生成请求出错: " + ex.getMessage());
-                });
-            }
-        }).start();
+        cancelAiJob();
+        java.util.concurrent.Future<?> job = aiExecutor.submit(() -> runAiJob(token, text, prompt, negativePrompt));
+        aiJob = job;
     }
 
-    private void pollAiResult(String getUrl, String token, ObjectMapper mapper) {
-        Timer timer = new Timer(true);
-        aiPollTimer = timer;
-        timer.scheduleAtFixedRate(new TimerTask() {
-            @Override
-            public void run() {
+    /** 最长等待时间：模型通常几十秒出图，超过这个时间多半是任务卡住了。 */
+    private static final long AI_DEADLINE_MILLIS = 5 * 60_000L;
+    private static final long AI_POLL_INTERVAL_MILLIS = 3_000L;
+    /** 连续这么多次可重试错误（网络抖动、5xx）后放弃。 */
+    private static final int AI_MAX_CONSECUTIVE_FAILURES = 5;
+
+    /**
+     * 提交任务并轮询到结束。每条出口都会恢复按钮：成功、任务失败、不可重试的 HTTP 错误、
+     * 连续失败过多、超时。早先的 Timer 轮询吞掉所有异常，401/404 或响应缺字段时会每 3 秒
+     * 重试到永远，按钮一直停在禁用状态。
+     */
+    private void runAiJob(String token, String text, String prompt, String negativePrompt) {
+        ReplicateQrClient client = new ReplicateQrClient(token);
+        try {
+            java.net.URI statusUrl = client.submit(text, prompt, negativePrompt);
+            SwingUtilities.invokeLater(() ->
+                    previewImageLabel.setText("任务已提交，正在等待云端渲染完成 (可能需要数十秒)..."));
+
+            long deadline = System.currentTimeMillis() + AI_DEADLINE_MILLIS;
+            int failures = 0;
+            while (true) {
+                Thread.sleep(AI_POLL_INTERVAL_MILLIS);
+                if (System.currentTimeMillis() > deadline) {
+                    finishAi(null, "等待超时（超过 5 分钟仍未完成），请稍后在 Replicate 控制台查看任务");
+                    return;
+                }
+                ReplicateQrClient.Status status;
                 try {
-                    URL url = new URL(getUrl);
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    try {
-                        conn.setRequestMethod("GET");
-                        conn.setRequestProperty("Authorization", "Bearer " + token);
-
-                        JsonNode root = mapper.readTree(conn.getInputStream());
-                        String status = root.path("status").asText();
-
-                        if ("succeeded".equals(status)) {
-                            String imageUrl = root.path("output").get(0).asText(); // For this model it returns an array of urls
-                            BufferedImage img = ImageIO.read(new URL(imageUrl));
-                            SwingUtilities.invokeLater(() -> {
-                                currentQrImage = img;
-                                // scale for preview if too large, but model generates 768x768 usually
-                                Image scaled = img.getScaledInstance(350, 350, Image.SCALE_SMOOTH);
-                                previewImageLabel.setIcon(new ImageIcon(scaled));
-                                previewImageLabel.setText("AI 艺术二维码生成完毕");
-                                generateAiBtn.setEnabled(true);
-                                generateAiBtn.setText("生成 AI 艺术二维码");
-                            });
-                            timer.cancel();
-                        } else if ("failed".equals(status) || "canceled".equals(status)) {
-                            String error = root.path("error").asText();
-                            SwingUtilities.invokeLater(() -> {
-                                generateAiBtn.setEnabled(true);
-                                generateAiBtn.setText("生成 AI 艺术二维码");
-                                previewImageLabel.setText("");
-                                UIUtils.error(getView(), "AI 任务失败或被取消: " + error);
-                            });
-                            timer.cancel();
-                        }
-                    } finally {
-                        conn.disconnect();
+                    status = client.poll(statusUrl);
+                    failures = 0;
+                } catch (ReplicateQrClient.ReplicateException error) {
+                    if (!error.isRetryable() || ++failures >= AI_MAX_CONSECUTIVE_FAILURES) {
+                        throw error;
                     }
-                } catch (Exception ex) {
-                    // Ignore transient network errors during polling
+                    continue;
+                }
+                if (status.state() == ReplicateQrClient.State.SUCCEEDED) {
+                    BufferedImage image = ImageIO.read(new java.io.ByteArrayInputStream(
+                            client.download(status.imageUrl())));
+                    if (image == null) {
+                        finishAi(null, "结果不是可识别的图片格式");
+                    } else {
+                        finishAi(image, null);
+                    }
+                    return;
+                }
+                if (status.state() == ReplicateQrClient.State.FAILED) {
+                    finishAi(null, "AI 任务失败或被取消: " + status.error());
+                    return;
                 }
             }
-        }, 3000, 3000);
+        } catch (InterruptedException cancelled) {
+            // 面板关闭或重新提交：静默结束，不再触碰界面状态由新任务接管。
+            Thread.currentThread().interrupt();
+        } catch (Exception error) {
+            finishAi(null, "AI 生成请求出错: " + Errors.describeRoot(error));
+        }
+    }
+
+    private void finishAi(BufferedImage image, String error) {
+        SwingUtilities.invokeLater(() -> {
+            generateAiBtn.setEnabled(true);
+            generateAiBtn.setText("生成 AI 艺术二维码");
+            if (image != null) {
+                currentQrImage = image;
+                Image scaled = image.getScaledInstance(350, 350, Image.SCALE_SMOOTH);
+                previewImageLabel.setIcon(new ImageIcon(scaled));
+                previewImageLabel.setText("AI 艺术二维码生成完毕");
+            } else {
+                previewImageLabel.setText("");
+                UIUtils.error(getView(), error);
+            }
+        });
+    }
+
+    private void cancelAiJob() {
+        java.util.concurrent.Future<?> running = aiJob;
+        aiJob = null;
+        if (running != null) {
+            running.cancel(true);
+        }
     }
 
     private void generateQrCode() {
@@ -572,16 +547,10 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
         }
     }
 
-    /**
-     * Cancels the cloud polling timer. It is already a daemon, so this also
-     * stops the wasted HTTP polling after the window closes.
-     */
+    /** 取消进行中的云端生成任务并关闭它的线程；可重复调用。 */
     @Override
     public void closeResources() {
-        java.util.Timer running = aiPollTimer;
-        aiPollTimer = null;
-        if (running != null) {
-            running.cancel();
-        }
+        cancelAiJob();
+        DaemonThreads.shutdownQuietly(aiExecutor);
     }
 }

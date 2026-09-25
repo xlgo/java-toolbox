@@ -88,10 +88,15 @@ public class SubnetPanel extends ToolPanel {
             long network = ip & mask;
             long broadcast = network | (~mask & 0xFFFFFFFFL);
 
-            long firstIp = prefix >= 31 ? 0 : network + 1;
-            long lastIp = prefix >= 31 ? 0 : broadcast - 1;
-            long totalHosts = prefix >= 31 ? 0 : (broadcast - network - 1);
-            if (prefix == 32) {
+            long firstIp = network + 1;
+            long lastIp = broadcast - 1;
+            long totalHosts = broadcast - network - 1;
+            if (prefix == 31) {
+                // RFC 3021：/31 点对点链路没有网络地址与广播地址之分，两个地址都可分配给主机。
+                firstIp = network;
+                lastIp = broadcast;
+                totalHosts = 2;
+            } else if (prefix == 32) {
                 firstIp = ip;
                 lastIp = ip;
                 totalHosts = 1;
@@ -107,13 +112,11 @@ public class SubnetPanel extends ToolPanel {
             sb.append("广播地址 (Broadcast ID):   ").append(toIpStr(broadcast))
                     .append("   (").append(toBinaryStr(broadcast)).append(")\n\n");
 
-            if (prefix < 31) {
-                sb.append("可用 IP 范围:  ").append(toIpStr(firstIp)).append(" - ").append(toIpStr(lastIp)).append("\n");
-            } else if (prefix == 32) {
-                sb.append("可用 IP 范围:  ").append(toIpStr(firstIp)).append("\n");
-            } else {
-                sb.append("可用 IP 范围:  点对点连接 (无独立主机 IP)\n");
+            sb.append("可用 IP 范围:  ").append(toIpStr(firstIp));
+            if (prefix < 32) {
+                sb.append(" - ").append(toIpStr(lastIp));
             }
+            sb.append("\n");
             sb.append("可用主机数 (Hosts): ").append(totalHosts).append(" 个\n");
 
             return sb.toString();

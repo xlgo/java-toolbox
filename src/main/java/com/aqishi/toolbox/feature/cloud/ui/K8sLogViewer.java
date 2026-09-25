@@ -91,8 +91,14 @@ final class K8sLogViewer {
         JScrollPane sp = UIUtils.scrollText(area, "日志输出");
 
         final int[] currentTailLines = {1000};
-        final HttpURLConnection[] activeConn = new HttpURLConnection[1];
-        final Thread[] activeThread = new Thread[1];
+        // 跨线程读写的跟随状态：连接在建连之前就要发布，停止时才能断开它。
+        // 读超时为 0（持续跟随），interrupt() 解不开阻塞的读取，只有断开套接字才能让线程退出。
+        final java.util.concurrent.atomic.AtomicReference<HttpURLConnection> activeConn =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.atomic.AtomicReference<Thread> activeThread =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.atomic.AtomicReference<java.util.concurrent.atomic.AtomicBoolean> activeCancel =
+                new java.util.concurrent.atomic.AtomicReference<>();
 
         JScrollBar verticalBar = sp.getVerticalScrollBar();
         verticalBar.addAdjustmentListener(e -> {
@@ -101,10 +107,12 @@ final class K8sLogViewer {
         });
 
         Runnable stopFollowing = () -> {
-            final Thread t = activeThread[0];
-            final HttpURLConnection conn = activeConn[0];
-            activeThread[0] = null;
-            activeConn[0] = null;
+            java.util.concurrent.atomic.AtomicBoolean cancel = activeCancel.getAndSet(null);
+            if (cancel != null) {
+                cancel.set(true);
+            }
+            final Thread t = activeThread.getAndSet(null);
+            final HttpURLConnection conn = activeConn.getAndSet(null);
 
             if (t != null || conn != null) {
                 new Thread(() -> {
@@ -126,12 +134,19 @@ final class K8sLogViewer {
             String c = (String) containerCombo.getSelectedItem();
             if (c == null) return;
             area.setText("正在开启追踪日志...\n");
+            java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean();
+            activeCancel.set(cancelled);
             Thread t = new Thread(() -> {
                 HttpURLConnection conn = null;
                 try {
-                    String path = "/api/v1/namespaces/" + ns + "/pods/" + podName + "/log?container=" + c + "&follow=true&tailLines=200";
+                    String path = "/api/v1/namespaces/" + encode(ns) + "/pods/" + encode(podName)
+                            + "/log?container=" + encode(c) + "&follow=true&tailLines=200";
                     URL url = new URL(ctx.serverUrl().replaceAll("/+$", "") + path);
                     conn = (HttpURLConnection) url.openConnection();
+                    activeConn.set(conn);
+                    if (cancelled.get()) {
+                        return;
+                    }
                     conn.setConnectTimeout(6000);
                     conn.setReadTimeout(0); // Infinite read timeout
                     conn.setRequestMethod("GET");
@@ -144,17 +159,20 @@ final class K8sLogViewer {
                         applyTls((HttpsURLConnection) conn, ctx);
                     }
 
-                    activeConn[0] = conn;
                     int code = conn.getResponseCode();
                     if (code >= 200 && code < 300) {
                         SwingUtilities.invokeLater(() -> area.setText(""));
                         try (InputStream is = conn.getInputStream();
                              java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is, StandardCharsets.UTF_8))) {
                             String line;
-                            while (!Thread.currentThread().isInterrupted() && (line = reader.readLine()) != null) {
+                            while (!cancelled.get() && (line = reader.readLine()) != null) {
                                 final String finalLine = line;
                                 SwingUtilities.invokeLater(() -> {
+                                    if (cancelled.get()) {
+                                        return;
+                                    }
                                     area.append(finalLine + "\n");
+                                    trimToLastLines(area, MAX_FOLLOW_LINES);
                                     area.setCaretPosition(area.getDocument().getLength());
                                 });
                             }
@@ -176,7 +194,7 @@ final class K8sLogViewer {
                         }
                     }
                 } catch (Exception ex) {
-                    if (!Thread.currentThread().isInterrupted()) {
+                    if (!cancelled.get()) {
                         SwingUtilities.invokeLater(() -> area.append("\n[追踪日志断开]: " + ex.getMessage() + "\n"));
                     }
                 } finally {
@@ -185,7 +203,7 @@ final class K8sLogViewer {
                     }
                 }
             });
-            activeThread[0] = t;
+            activeThread.set(t);
             t.setDaemon(true);
             t.start();
         };
@@ -316,5 +334,24 @@ final class K8sLogViewer {
         if (ctx.hostnameVerifier() != null) {
             connection.setHostnameVerifier(ctx.hostnameVerifier());
         }
+    }
+
+    /** 跟随模式最多保留的行数；日志量大的 Pod 否则会让文本区与内存无限增长。 */
+    private static final int MAX_FOLLOW_LINES = 5000;
+
+    private static void trimToLastLines(JTextArea area, int maxLines) {
+        int excess = area.getLineCount() - maxLines;
+        if (excess <= 0) {
+            return;
+        }
+        try {
+            area.getDocument().remove(0, area.getLineStartOffset(excess));
+        } catch (javax.swing.text.BadLocationException impossible) {
+            Errors.ignored("Failed to trim log text", impossible);
+        }
+    }
+
+    private static String encode(String pathSegment) {
+        return java.net.URLEncoder.encode(pathSegment, StandardCharsets.UTF_8).replace("+", "%20");
     }
 }

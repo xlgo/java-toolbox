@@ -9,10 +9,19 @@ import java.security.MessageDigest;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
-/** Copies sensitive text and clears it after 30 seconds only when unchanged. */
+/**
+ * Copies sensitive text and clears it after 30 seconds only when unchanged.
+ *
+ * <p>The delayed clear runs on the vault scheduler, which is shut down with the
+ * vault; a copy made shortly before exit or lock would otherwise stay on the
+ * system clipboard indefinitely. {@link #clearPending()} performs the outstanding
+ * clears immediately and is called on lock and on application exit.</p>
+ */
 public final class SecureClipboard {
     private final ClipboardGateway gateway;
     private final VaultScheduler scheduler;
+    /** Digests of copies whose delayed clear has not run yet. */
+    private final java.util.List<byte[]> pending = new java.util.ArrayList<>();
 
     public SecureClipboard(VaultScheduler scheduler) {
         this(new AwtClipboardGateway(), scheduler);
@@ -28,10 +37,35 @@ public final class SecureClipboard {
         final byte[] expected = digest(value);
         try {
             gateway.writeText(value);
-            scheduler.schedule(() -> clearIfUnchanged(expected), 30, TimeUnit.SECONDS);
+            synchronized (pending) {
+                pending.add(expected);
+            }
+            scheduler.schedule(() -> {
+                if (takePending(expected)) {
+                    clearIfUnchanged(expected);
+                }
+            }, 30, TimeUnit.SECONDS);
         } catch (Exception error) {
             VaultCrypto.wipe(expected);
             throw clipboardFailure(error);
+        }
+    }
+
+    /** Immediately clears every sensitive copy that is still on the clipboard. Safe to call repeatedly. */
+    public void clearPending() {
+        java.util.List<byte[]> outstanding;
+        synchronized (pending) {
+            outstanding = new java.util.ArrayList<>(pending);
+            pending.clear();
+        }
+        for (byte[] expected : outstanding) {
+            clearIfUnchanged(expected);
+        }
+    }
+
+    private boolean takePending(byte[] expected) {
+        synchronized (pending) {
+            return pending.remove(expected);
         }
     }
 

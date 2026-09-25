@@ -113,6 +113,25 @@ class CallbackMockRuleRepositoryTest {
         assertArrayEquals(unsupported, Files.readAllBytes(file()));
     }
 
+    /** 回归：读不了的规则文件在第一次编辑保存时被默认规则直接覆盖，原有规则全部丢失。 */
+    @Test
+    void unreadableFileIsBackedUpBeforeItCanBeOverwritten() throws Exception {
+        byte[] unsupported = ("{\"version\":999,\"rules\":[]}").getBytes(StandardCharsets.UTF_8);
+        Files.write(file(), unsupported);
+        CallbackMockRuleRepository repository = repository(new AtomicFiles());
+
+        CallbackMockRuleRepository.LoadResult result = repository.load();
+        repository.save(result.getRuleSet());
+
+        java.util.List<Path> backups;
+        try (java.util.stream.Stream<Path> files = Files.list(file().getParent())) {
+            backups = files.filter(p -> p.getFileName().toString().contains(".unreadable-")).toList();
+        }
+        assertEquals(1, backups.size(), backups.toString());
+        assertArrayEquals(unsupported, Files.readAllBytes(backups.get(0)));
+        assertTrue(result.getWarning().contains(backups.get(0).getFileName().toString()), result.getWarning());
+    }
+
     @Test
     void semanticallyInvalidRulesFallBackToDefaultsWithWarning() throws Exception {
         byte[] invalid = ("{\"version\":1,\"rules\":[{"

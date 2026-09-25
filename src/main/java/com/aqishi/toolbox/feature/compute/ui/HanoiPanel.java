@@ -176,61 +176,43 @@ public class HanoiPanel extends ToolPanel implements ManagedResourceOwner {
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                if (draggedDisk != -1) {
-                    if (isDragging) {
-                        int w = canvas.getWidth();
-                        int rodWidth = w / 3;
-                        if (rodWidth > 0) {
-                            int releasedRod = e.getX() / rodWidth;
-                            if (releasedRod < 0) releasedRod = 0;
-                            if (releasedRod > 2) releasedRod = 2;
-
-                            if (releasedRod != draggedFromRod) {
-                                if (isValidMove(draggedFromRod, releasedRod)) {
-                                    towers[draggedFromRod].pop();
-                                    towers[releasedRod].push(draggedDisk);
-                                    manualMovesCount++;
-                                    checkFinished();
-                                } else {
-                                    Toolkit.getDefaultToolkit().beep();
-                                    statusLabel.setText("非法移动：大盘子不能压在小盘子上面！");
-                                }
-                            }
+                if (isAutoMode || isFinished) return;
+                int rodWidth = canvas.getWidth() / 3;
+                if (rodWidth > 0) {
+                    int rod = Math.max(0, Math.min(2, e.getX() / rodWidth));
+                    if (draggedDisk != -1 && isDragging) {
+                        if (rod != draggedFromRod) {
+                            moveDisk(draggedFromRod, rod);
+                        }
+                    } else if (selectedRod == -1) {
+                        // 点击模式第一步：选中一根有盘子的柱子
+                        if (!towers[rod].isEmpty()) {
+                            selectedRod = rod;
                         }
                     } else {
-                        // 这是一个普通的点击选择事件
-                        int w = canvas.getWidth();
-                        int rodWidth = w / 3;
-                        if (rodWidth > 0) {
-                            int clickedRod = e.getX() / rodWidth;
-                            if (clickedRod < 0) clickedRod = 0;
-                            if (clickedRod > 2) clickedRod = 2;
-
-                            if (selectedRod == -1) {
-                                if (!towers[clickedRod].isEmpty()) {
-                                    selectedRod = clickedRod;
-                                }
-                            } else {
-                                if (selectedRod != clickedRod) {
-                                    if (isValidMove(selectedRod, clickedRod)) {
-                                        int disk = towers[selectedRod].pop();
-                                        towers[clickedRod].push(disk);
-                                        manualMovesCount++;
-                                        checkFinished();
-                                    } else {
-                                        Toolkit.getDefaultToolkit().beep();
-                                        statusLabel.setText("非法移动：大盘子不能压在小盘子上面！");
-                                    }
-                                }
-                                selectedRod = -1;
-                            }
+                        // 第二步：点击目标柱。目标可以是空柱——早先这一步藏在"按下时抓到了盘子"的分支里，
+                        // 点空柱永远没有反应，而开局时两根目标柱恰好都是空的。
+                        if (selectedRod != rod) {
+                            moveDisk(selectedRod, rod);
                         }
+                        selectedRod = -1;
                     }
-                    draggedDisk = -1;
-                    draggedFromRod = -1;
-                    isDragging = false;
-                    canvas.repaint();
-                    updateStatus();
+                }
+                draggedDisk = -1;
+                draggedFromRod = -1;
+                isDragging = false;
+                canvas.repaint();
+                updateStatus();
+            }
+
+            private void moveDisk(int from, int to) {
+                if (isValidMove(from, to)) {
+                    towers[to].push(towers[from].pop());
+                    manualMovesCount++;
+                    checkFinished();
+                } else {
+                    Toolkit.getDefaultToolkit().beep();
+                    statusLabel.setText("非法移动：大盘子不能压在小盘子上面！");
                 }
             }
         };

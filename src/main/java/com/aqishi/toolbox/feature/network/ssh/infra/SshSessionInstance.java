@@ -71,6 +71,11 @@ public class SshSessionInstance implements AutoCloseable {
     private volatile boolean closed;
     /** Supplied by the UI layer; may be null, in which case unknown host keys are rejected. */
     private final SshHostKeyPrompt hostKeyPrompt;
+    /**
+     * 正在 {@code connect()} 中的会话。连接线程在整个连接过程中持有对象锁，
+     * 断开/关闭需要不等锁就能打断它，见 {@link #disconnect()}。
+     */
+    private volatile Session connectingSession;
     private boolean reconnectPending;
     private long reconnectDelayMs = 2_000L;
     private ScheduledFuture<?> reconnectFuture;
@@ -192,11 +197,16 @@ public class SshSessionInstance implements AutoCloseable {
             // 首次连接通过指纹确认，之后使用 known_hosts 拒绝未确认的变更。
             properties.put("StrictHostKeyChecking", "ask");
             session.setConfig(properties);
-            session.setUserInfo(new FingerprintUserInfo(hostKeyPrompt));
+            session.setUserInfo(new FingerprintUserInfo(hostKeyPrompt, () -> manualDisconnect || closed));
             if (config.getKeepAliveSec() > 0) {
                 session.setServerAliveInterval(config.getKeepAliveSec() * 1000);
             }
-            session.connect(config.getConnectTimeoutMs());
+            connectingSession = session;
+            try {
+                session.connect(config.getConnectTimeoutMs());
+            } finally {
+                connectingSession = null;
+            }
 
             channelShell = (ChannelShell) session.openChannel("shell");
             channelShell.setPtyType("xterm-256color");
@@ -425,8 +435,47 @@ public class SshSessionInstance implements AutoCloseable {
         return ttyConnector;
     }
 
-    /** User-requested disconnect. It deliberately cancels automatic reconnect. */
-    public synchronized void disconnect() {
+    /**
+     * User-requested disconnect. It deliberately cancels automatic reconnect.
+     *
+     * <p>Callable from the Swing thread while a connect is in progress. The connecting
+     * thread holds this object's monitor for the whole handshake, including the host-key
+     * prompt, which itself waits for the Swing thread; blocking here on the monitor
+     * would deadlock the application. Instead the pending session's socket is closed so
+     * the handshake fails fast, and the locked cleanup runs on the lifecycle thread.</p>
+     */
+    public void disconnect() {
+        manualDisconnect = true;
+        if (abortPendingConnect()) {
+            submitLifecycle(this::disconnectLocked);
+            return;
+        }
+        disconnectLocked();
+    }
+
+    /** Closes the socket of an in-flight {@code connect()}; returns whether one was running. */
+    private boolean abortPendingConnect() {
+        Session pending = connectingSession;
+        if (pending == null) {
+            return false;
+        }
+        try {
+            pending.disconnect();
+        } catch (Exception ignored) {
+            Errors.ignored("Failed to abort pending SSH connect", ignored);
+        }
+        return true;
+    }
+
+    private void submitLifecycle(Runnable lockedWork) {
+        try {
+            lifecycleExecutor.execute(lockedWork);
+        } catch (java.util.concurrent.RejectedExecutionException alreadyClosed) {
+            // 执行器已关闭说明 close() 已在处理清理，无需重复。
+        }
+    }
+
+    private synchronized void disconnectLocked() {
         manualDisconnect = true;
         reconnectPending = false;
         if (reconnectFuture != null) reconnectFuture.cancel(false);
@@ -472,12 +521,22 @@ public class SshSessionInstance implements AutoCloseable {
                 && currentShell != null && currentShell.isConnected();
     }
 
+    /** Releases the session; like {@link #disconnect()}, never blocks behind an in-flight connect. */
     @Override
-    public synchronized void close() {
+    public void close() {
         if (closed) return;
         closed = true;
         manualDisconnect = true;
-        disconnect();
+        if (abortPendingConnect()) {
+            submitLifecycle(this::closeLocked);
+            lifecycleExecutor.shutdown();
+            return;
+        }
+        closeLocked();
+    }
+
+    private synchronized void closeLocked() {
+        disconnectLocked();
         if (monitorFuture != null) monitorFuture.cancel(false);
         lifecycleExecutor.shutdownNow();
     }
@@ -511,9 +570,11 @@ public class SshSessionInstance implements AutoCloseable {
      */
     private static final class FingerprintUserInfo implements com.jcraft.jsch.UserInfo {
         private final SshHostKeyPrompt prompt;
+        private final java.util.function.BooleanSupplier cancelled;
 
-        FingerprintUserInfo(SshHostKeyPrompt prompt) {
+        FingerprintUserInfo(SshHostKeyPrompt prompt, java.util.function.BooleanSupplier cancelled) {
             this.prompt = prompt;
+            this.cancelled = cancelled;
         }
 
         @Override public String getPassphrase() { return null; }
@@ -523,7 +584,8 @@ public class SshSessionInstance implements AutoCloseable {
 
         @Override
         public boolean promptYesNo(String message) {
-            if (prompt == null) return false;
+            // 用户已经点了断开或关闭：不再弹出指纹确认框，直接拒绝。
+            if (prompt == null || cancelled.getAsBoolean()) return false;
             return prompt.confirmHostKey(message);
         }
 

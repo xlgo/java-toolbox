@@ -1,6 +1,8 @@
 package com.aqishi.toolbox.feature.diagram.ui;
 
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.catalog.ToolCatalog;
+import com.aqishi.toolbox.feature.diagram.domain.LayeredLayout;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -21,7 +23,6 @@ import java.awt.event.*;
 import java.awt.geom.Line2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -352,6 +353,9 @@ public class BpmnPanel extends ToolPanel {
             public void mousePressed(MouseEvent e) {
                 canvasPanel.requestFocusInWindow();
                 if (checkPopupTrigger(e)) return;
+                // 只有左键开始拖动、框选或连线。Windows 上右键菜单在松开时才触发、松开事件会直接返回，
+                // 若按下时就进入了框选或连线状态，这些状态会残留到下一次左键操作。
+                if (!SwingUtilities.isLeftMouseButton(e)) return;
 
                 Point p = e.getPoint();
                 lastMousePoint = p;
@@ -643,61 +647,28 @@ public class BpmnPanel extends ToolPanel {
     private void autoLayout() {
         if (nodes.isEmpty()) return;
 
-        // 1. 初始化每个节点的 level = -1
-        for (BpmnNode node : nodes) {
-            node.level = -1;
+        // 1-3. 分层：回环（如"驳回 → 回到审批"）由 LayeredLayout 切开，保证一定终止。
+        java.util.Map<BpmnNode, Integer> indexOf = new java.util.IdentityHashMap<>();
+        for (int i = 0; i < nodes.size(); i++) {
+            indexOf.put(nodes.get(i), i);
         }
-
-        // 计算入度
-        java.util.Map<BpmnNode, Integer> inDegree = new java.util.HashMap<>();
-        for (BpmnNode node : nodes) {
-            inDegree.put(node, 0);
-        }
+        List<int[]> links = new ArrayList<>();
         for (BpmnEdge edge : edges) {
-            inDegree.put(edge.target, inDegree.get(edge.target) + 1);
-        }
-
-        // 2. 查找开始节点作为最顶端层次起点
-        java.util.Queue<BpmnNode> queue = new java.util.LinkedList<>();
-        for (BpmnNode node : nodes) {
-            if (node.type.equals(TYPE_START) && inDegree.get(node) == 0) {
-                node.level = 0;
-                queue.add(node);
+            Integer source = indexOf.get(edge.source);
+            Integer target = indexOf.get(edge.target);
+            if (source != null && target != null) {
+                links.add(new int[]{source, target});
             }
         }
-        // 查找其他入度为 0 的节点
-        for (BpmnNode node : nodes) {
-            if (node.level == -1 && inDegree.get(node) == 0) {
-                node.level = 0;
-                queue.add(node);
+        List<Integer> starts = new ArrayList<>();
+        for (int i = 0; i < nodes.size(); i++) {
+            if (TYPE_START.equals(nodes.get(i).type)) {
+                starts.add(i);
             }
         }
-        // 若全部都有环路入度，随机选第一个作为第 0 层开始
-        if (queue.isEmpty()) {
-            BpmnNode first = nodes.get(0);
-            first.level = 0;
-            queue.add(first);
-        }
-
-        // 3. BFS 分层
-        while (!queue.isEmpty()) {
-            BpmnNode curr = queue.poll();
-            for (BpmnEdge edge : edges) {
-                if (edge.source == curr) {
-                    BpmnNode next = edge.target;
-                    if (next.level < curr.level + 1) {
-                        next.level = curr.level + 1;
-                        queue.add(next);
-                    }
-                }
-            }
-        }
-
-        // 孤立节点设为 0
-        for (BpmnNode node : nodes) {
-            if (node.level == -1) {
-                node.level = 0;
-            }
+        int[] levels = LayeredLayout.assignLevels(nodes.size(), links, starts);
+        for (int i = 0; i < nodes.size(); i++) {
+            nodes.get(i).level = levels[i];
         }
 
         // 4. 根据 level 分组排序
@@ -1111,8 +1082,15 @@ public class BpmnPanel extends ToolPanel {
         chooser.setDialogTitle("导出 BPMN 2.0 XML");
         if (chooser.showSaveDialog(canvasPanel) == JFileChooser.APPROVE_OPTION) {
             File file = chooser.getSelectedFile();
-            try (FileWriter writer = new FileWriter(file)) {
-                writer.write(generateXmlString());
+            String idProblem = findIdProblem();
+            if (idProblem != null) {
+                UIUtils.error(canvasPanel, I18n.get("tool.bpmn.exportInvalid", idProblem));
+                return;
+            }
+            // 文件头声明的是 UTF-8，必须按 UTF-8 写；FileWriter 用平台编码（中文 Windows 上是 GBK），
+            // 中文节点名会变成乱码或让文件无法解析。
+            try {
+                java.nio.file.Files.writeString(file.toPath(), generateXmlString(), java.nio.charset.StandardCharsets.UTF_8);
                 UIUtils.info(canvasPanel, "导出成功：" + file.getName());
             } catch (IOException ex) {
                 UIUtils.error(canvasPanel, "导出失败: " + ex.getMessage());
@@ -1180,12 +1158,12 @@ public class BpmnPanel extends ToolPanel {
         sb.append("  <bpmn:process id=\"Process_1\" isExecutable=\"true\">\n");
 
         for (BpmnNode node : nodes) {
-            sb.append("    <bpmn:").append(node.type).append(" id=\"").append(node.id).append("\" name=\"").append(escapeXml(node.name)).append("\" />\n");
+            sb.append("    <bpmn:").append(xmlElementName(node.type)).append(" id=\"").append(escapeXml(node.id)).append("\" name=\"").append(escapeXml(node.name)).append("\" />\n");
         }
 
         for (BpmnEdge edge : edges) {
-            sb.append("    <bpmn:sequenceFlow id=\"").append(edge.id).append("\" name=\"").append(escapeXml(edge.name)).append("\"")
-                    .append(" sourceRef=\"").append(edge.source.id).append("\" targetRef=\"").append(edge.target.id).append("\"");
+            sb.append("    <bpmn:sequenceFlow id=\"").append(escapeXml(edge.id)).append("\" name=\"").append(escapeXml(edge.name)).append("\"")
+                    .append(" sourceRef=\"").append(escapeXml(edge.source.id)).append("\" targetRef=\"").append(escapeXml(edge.target.id)).append("\"");
             if (edge.condition != null && !edge.condition.trim().isEmpty()) {
                 sb.append(">\n");
                 sb.append("      <bpmn:conditionExpression xsi:type=\"bpmn:tFormalExpression\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">")
@@ -1202,7 +1180,7 @@ public class BpmnPanel extends ToolPanel {
         sb.append("    <bpmndi:BPMNPlane id=\"BPMNPlane_1\" bpmnElement=\"Process_1\">\n");
 
         for (BpmnNode node : nodes) {
-            sb.append("      <bpmndi:BPMNShape id=\"").append(node.id).append("_di\" bpmnElement=\"").append(node.id).append("\">\n");
+            sb.append("      <bpmndi:BPMNShape id=\"").append(escapeXml(node.id)).append("_di\" bpmnElement=\"").append(escapeXml(node.id)).append("\">\n");
             sb.append("        <dc:Bounds x=\"").append(node.x).append("\" y=\"").append(node.y)
                     .append("\" width=\"").append(node.w).append("\" height=\"").append(node.h).append("\" />\n");
             sb.append("      </bpmndi:BPMNShape>\n");
@@ -1212,7 +1190,7 @@ public class BpmnPanel extends ToolPanel {
             Point p1 = edge.getIntersectionPointSource();
             Point p2 = edge.getIntersectionPointTarget();
 
-            sb.append("      <bpmndi:BPMNEdge id=\"").append(edge.id).append("_di\" bpmnElement=\"").append(edge.id).append("\">\n");
+            sb.append("      <bpmndi:BPMNEdge id=\"").append(escapeXml(edge.id)).append("_di\" bpmnElement=\"").append(escapeXml(edge.id)).append("\">\n");
             sb.append("        <di:waypoint x=\"").append(p1.x).append("\" y=\"").append(p1.y).append("\" />\n");
             sb.append("        <di:waypoint x=\"").append(p2.x).append("\" y=\"").append(p2.y).append("\" />\n");
             sb.append("      </bpmndi:BPMNEdge>\n");
@@ -1223,6 +1201,31 @@ public class BpmnPanel extends ToolPanel {
         sb.append("</bpmn:definitions>\n");
 
         return sb.toString();
+    }
+
+    /**
+     * 内部类型名到 BPMN 2.0 元素名。事件网关在规范里叫 {@code eventBasedGateway}；
+     * 内部仍用 {@code eventGateway} 以兼容已保存的图，只在导出时换名。
+     */
+    private static String xmlElementName(String type) {
+        return TYPE_EVENT_GATEWAY.equals(type) ? "eventBasedGateway" : type;
+    }
+
+    /** 导出前检查 ID：BPMN 引用全靠 ID，重复或含非法字符都会让其他工具拒收整份文件。 */
+    private String findIdProblem() {
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        java.util.List<String> ids = new ArrayList<>();
+        for (BpmnNode node : nodes) ids.add(node.id);
+        for (BpmnEdge edge : edges) ids.add(edge.id);
+        for (String id : ids) {
+            if (id == null || !id.matches("[A-Za-z_][A-Za-z0-9_.-]*")) {
+                return I18n.get("tool.bpmn.idInvalid", id);
+            }
+            if (!seen.add(id)) {
+                return I18n.get("tool.bpmn.idDuplicate", id);
+            }
+        }
+        return null;
     }
 
     private String escapeXml(String s) {

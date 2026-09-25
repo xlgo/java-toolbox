@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.data.ui;
 
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.feature.network.ssh.domain.RemoteEndpoint;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
@@ -48,6 +49,9 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
     private JTextField pathField;
     private JTextArea dataArea;
     private JLabel versionLabel;
+    /** 编辑器当前显示的节点及其读取时的版本号，保存时用于乐观并发控制。 */
+    private String loadedPath;
+    private int loadedVersion = -1;
     private JButton refreshBtn;
     private JButton createBtn;
     private JButton deleteBtn;
@@ -358,8 +362,21 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
                 try {
                     NodeData nodeData = get();
                     if (path.equals(pathField.getText())) {
-                        dataArea.setText(new String(nodeData.data, StandardCharsets.UTF_8));
-                        versionLabel.setText("version: " + nodeData.version);
+                        loadedPath = path;
+                        loadedVersion = nodeData.version;
+                        // 非 UTF-8 的二进制数据按文本显示再写回就会被损坏：只读展示十六进制，禁止保存。
+                        String text = decodeUtf8Strict(nodeData.data);
+                        if (text == null) {
+                            dataArea.setText(com.aqishi.toolbox.util.Hex.toHex(nodeData.data));
+                            dataArea.setEditable(false);
+                            saveDataBtn.setEnabled(false);
+                            versionLabel.setText(I18n.get("tool.zookeeper.binaryReadOnly", String.valueOf(nodeData.version)));
+                        } else {
+                            dataArea.setText(text);
+                            dataArea.setEditable(true);
+                            saveDataBtn.setEnabled(true);
+                            versionLabel.setText("version: " + nodeData.version);
+                        }
                     }
                 } catch (Exception error) {
                     if (path.equals(pathField.getText())) {
@@ -410,12 +427,18 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
         String path = pathField.getText().trim();
         ZooKeeper client = zooKeeper;
         if (!connected || client == null || path.isEmpty()) return;
+        if (!path.equals(loadedPath)) {
+            UIUtils.error(getView(), I18n.get("tool.zookeeper.notLoaded"));
+            return;
+        }
         String data = dataArea.getText();
+        // 带上读取时的版本号：期间若有人改过该节点，ZooKeeper 会拒绝写入，而不是悄悄覆盖对方的修改。
+        int expectedVersion = loadedVersion;
         saveDataBtn.setEnabled(false);
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() throws Exception {
-                client.setData(path, data.getBytes(StandardCharsets.UTF_8), -1);
+                client.setData(path, data.getBytes(StandardCharsets.UTF_8), expectedVersion);
                 return null;
             }
 
@@ -427,7 +450,11 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
                     statusLabel.setText("节点数据已保存: " + path);
                     loadNodeData(path);
                 } catch (Exception error) {
-                    UIUtils.error(getView(), "保存节点数据失败:\n" + safeMessage(error));
+                    if (error.getCause() instanceof org.apache.zookeeper.KeeperException.BadVersionException) {
+                        UIUtils.error(getView(), I18n.get("tool.zookeeper.badVersion"));
+                    } else {
+                        UIUtils.error(getView(), "保存节点数据失败:\n" + safeMessage(error));
+                    }
                 }
             }
         }.execute();
@@ -556,6 +583,18 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
             if ("/".equals(path)) return "/";
             int slash = path.lastIndexOf('/');
             return slash < 0 ? path : path.substring(slash + 1);
+        }
+    }
+
+    /** 严格按 UTF-8 解码；不是合法 UTF-8 时返回 null。 */
+    private static String decodeUtf8Strict(byte[] data) {
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(data)).toString();
+        } catch (java.nio.charset.CharacterCodingException binary) {
+            return null;
         }
     }
 

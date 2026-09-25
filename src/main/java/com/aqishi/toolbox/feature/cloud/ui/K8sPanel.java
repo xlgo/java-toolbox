@@ -11,6 +11,8 @@ import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.ConfigManager;
+import com.aqishi.toolbox.util.Json;
+import com.aqishi.toolbox.util.ShellQuote;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -1154,7 +1156,7 @@ public class K8sPanel extends ToolPanel {
             int eq = ln.indexOf('=');
             if (eq > 0) {
                 y.append("  ").append(ln.substring(0, eq).trim())
-                        .append(": \"").append(ln.substring(eq + 1).trim()).append("\"\n");
+                        .append(": ").append(yamlQuote(ln.substring(eq + 1).trim())).append("\n");
             } else {
                 y.append("  ").append(ln.trim()).append(": \"\"\n");
             }
@@ -1271,7 +1273,7 @@ public class K8sPanel extends ToolPanel {
     private static void addLabel(StringBuilder y, String ln, String indent) {
         String[] kv = ln.split("=", 2);
         if (kv.length == 2) {
-            y.append(indent).append(kv[0].trim()).append(": ").append(kv[1].trim()).append("\n");
+            y.append(indent).append(kv[0].trim()).append(": ").append(yamlQuote(kv[1].trim())).append("\n");
         }
     }
 
@@ -1285,19 +1287,29 @@ public class K8sPanel extends ToolPanel {
 
         if ("HTTP GET".equals(actionType)) {
             y.append("          httpGet:\n");
-            y.append("            path: ").append(val.isEmpty() ? "/health" : val).append("\n");
+            y.append("            path: ").append(yamlQuote(val.isEmpty() ? "/health" : val)).append("\n");
             y.append("            port: ").append(port).append("\n");
         } else if ("TCP Socket".equals(actionType)) {
             y.append("          tcpSocket:\n");
-            y.append("            port: ").append(val.isEmpty() ? port : val).append("\n");
+            // 取值框在三种探针间共用，默认值是 HTTP 路径；不是端口号或端口名时退回容器端口。
+            boolean portLike = val.matches("\\d{1,5}") || val.matches("[a-z0-9]([a-z0-9-]{0,13}[a-z0-9])?");
+            y.append("            port: ").append(portLike ? val : port).append("\n");
         } else if ("Exec Command".equals(actionType)) {
             y.append("          exec:\n");
             y.append("            command:\n");
             if (val.isEmpty()) {
                 y.append("            - cat\n            - /tmp/healthy\n");
             } else {
-                for (String arg : val.split("\\s+")) {
-                    y.append("            - ").append(arg).append("\n");
+                // 按 shell 规则切分：sh -c "curl -f x" 里带引号的整段是一个参数。
+                // 预览随输入实时刷新，引号还没输完时退回按空白切分，避免每次按键都报错。
+                java.util.List<String> args;
+                try {
+                    args = ShellQuote.split(val);
+                } catch (IllegalArgumentException unterminatedQuote) {
+                    args = java.util.Arrays.asList(val.split("\\s+"));
+                }
+                for (String arg : args) {
+                    y.append("            - ").append(yamlQuote(arg)).append("\n");
                 }
             }
         }
@@ -1307,8 +1319,19 @@ public class K8sPanel extends ToolPanel {
         if (notEmpty(val(timeoutField))) y.append("          timeoutSeconds: ").append(val(timeoutField)).append("\n");
     }
 
+    /**
+     * 生成一定能被 YAML 当作字符串读取的标量：用 JSON 字符串转义后加双引号
+     * （YAML 1.2 的双引号字符串是 JSON 字符串的超集）。
+     *
+     * <p>早先只在出现特殊字符时才加引号、而且不转义：{@code 8080}、{@code true}、{@code 1.0}
+     * 被解析成数字或布尔，Kubernetes 拒收 env value；{@code C:\tmp} 里的 {@code \t} 变成了制表符。</p>
+     */
     private static String yamlQuote(String val) {
-        return val.matches(".*[\\{\\}\\[\\],&\\*\\?#|\\-<>=!%@:`].*") ? "\"" + val + "\"" : val;
+        try {
+            return Json.mapper().writeValueAsString(val == null ? "" : val);
+        } catch (Exception impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 
     private static String val(JTextField f) { return f.getText().trim(); }

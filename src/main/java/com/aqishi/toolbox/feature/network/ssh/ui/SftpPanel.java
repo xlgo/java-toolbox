@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 
 import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
@@ -28,6 +29,13 @@ import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
  * SFTP 远程文件传输与目录管理面板
  */
 public class SftpPanel extends JPanel {
+
+    /**
+     * 所有 SFTP 操作都排进这一个线程：JSch 的 {@code ChannelSftp} 不是线程安全的，
+     * 连接成功时状态监听与连接回调会各触发一次刷新，并发使用同一通道会得到错乱的回包或卡死。
+     */
+    private final java.util.concurrent.ExecutorService sftpExecutor =
+            com.aqishi.toolbox.infra.concurrency.DaemonThreads.single("sftp");
 
     private final SshSessionInstance sessionInstance;
     private final JTextField pathField;
@@ -198,11 +206,11 @@ public class SftpPanel extends JPanel {
         }
         statusLabel.setText("正在读取目录: " + path + "...");
 
-        new Thread(() -> {
+        sftpExecutor.execute(() -> {
             try {
                 ChannelSftp sftp = sessionInstance.getSftpChannel();
                 if (sftp == null) {
-                    SwingUtilities.invokeLater(() -> statusLabel.setText("获取 SFTP 通道失败。"));
+                    SwingUtilities.invokeLater(() -> statusLabel.setText(I18n.get("tool.sftp.channelFailed")));
                     return;
                 }
                 String targetPath = (path == null || path.trim().isEmpty()) ? "/" : path.trim();
@@ -249,14 +257,14 @@ public class SftpPanel extends JPanel {
             } catch (Exception e) {
                 SwingUtilities.invokeLater(() -> statusLabel.setText("加载目录失败: " + e.getMessage()));
             }
-        }, "SFTP-LoadDir").start();
+        });
     }
 
     private void createDirectoryDialog() {
         String name = UIUtils.input(this, "输入新建文件夹名称:", "新建文件夹", null);
         if (name == null || name.trim().isEmpty()) return;
 
-        new Thread(() -> {
+        sftpExecutor.execute(() -> {
             try {
                 ChannelSftp sftp = sessionInstance.getSftpChannel();
                 if (sftp != null) {
@@ -267,7 +275,7 @@ public class SftpPanel extends JPanel {
             } catch (Exception e) {
                 SwingUtilities.invokeLater(() -> UIUtils.error(this, "创建失败: " + e.getMessage()));
             }
-        }).start();
+        });
     }
 
     private void uploadFileDialog() {
@@ -283,7 +291,7 @@ public class SftpPanel extends JPanel {
                 progressBar.setValue(0);
                 statusLabel.setText("正在上传: " + selectedFile.getName() + "...");
 
-                new Thread(() -> {
+                sftpExecutor.execute(() -> {
                     try (FileInputStream fis = new FileInputStream(selectedFile)) {
                         ChannelSftp sftp = sessionInstance.getSftpChannel();
                         long fileSize = selectedFile.length();
@@ -313,7 +321,7 @@ public class SftpPanel extends JPanel {
                             UIUtils.error(this, "上传失败: " + e.getMessage());
                         });
                     }
-                }).start();
+                });
             }
         }
     }
@@ -334,17 +342,28 @@ public class SftpPanel extends JPanel {
         int res = chooser.showSaveDialog(this);
         if (res == JFileChooser.APPROVE_OPTION) {
             File saveFile = chooser.getSelectedFile();
+            if (saveFile.exists() && !UIUtils.confirm(this,
+                    I18n.get("tool.sftp.overwriteConfirm", saveFile.getAbsolutePath()),
+                    I18n.get("tool.sftp.overwriteConfirm.title"))) {
+                return;
+            }
             String remoteFile = currentPath.endsWith("/") ? currentPath + name : currentPath + "/" + name;
 
             progressBar.setVisible(true);
             progressBar.setValue(0);
             statusLabel.setText("正在下载: " + name + "...");
 
-            new Thread(() -> {
-                try (FileOutputStream fos = new FileOutputStream(saveFile)) {
+            sftpExecutor.execute(() -> {
+                // 先写到同目录下的临时文件，完整下载后再替换目标：下载失败不会把已有的本地文件清空。
+                File partial = new File(saveFile.getAbsoluteFile().getParentFile(), saveFile.getName() + ".part");
+                try {
                     ChannelSftp sftp = sessionInstance.getSftpChannel();
+                    if (sftp == null) {
+                        throw new IllegalStateException(I18n.get("tool.sftp.channelFailed"));
+                    }
                     SftpATTRS attrs = sftp.stat(remoteFile);
                     long fileSize = attrs.getSize();
+                    try (FileOutputStream fos = new FileOutputStream(partial)) {
 
                     sftp.get(remoteFile, fos, new com.jcraft.jsch.SftpProgressMonitor() {
                         private long count = 0;
@@ -360,6 +379,9 @@ public class SftpPanel extends JPanel {
                         @Override
                         public void end() {}
                     });
+                    }
+                    java.nio.file.Files.move(partial.toPath(), saveFile.toPath(),
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
 
                     SwingUtilities.invokeLater(() -> {
                         progressBar.setVisible(false);
@@ -367,13 +389,16 @@ public class SftpPanel extends JPanel {
                         UIUtils.info(this, "下载成功！文件保存在: " + saveFile.getAbsolutePath(), "成功");
                     });
                 } catch (Exception e) {
+                    if (!partial.delete() && partial.exists()) {
+                        partial.deleteOnExit();
+                    }
                     SwingUtilities.invokeLater(() -> {
                         progressBar.setVisible(false);
                         statusLabel.setText("下载失败: " + e.getMessage());
                         UIUtils.error(this, "下载失败: " + e.getMessage());
                     });
                 }
-            }).start();
+            });
         }
     }
 
@@ -381,10 +406,11 @@ public class SftpPanel extends JPanel {
         int row = fileTable.getSelectedRow();
         if (row < 0) return;
         String oldName = (String) tableModel.getValueAt(row, 1);
+        if (isNavigationEntry(oldName)) return;
         String newName = UIUtils.input(this, "修改名称:", oldName);
         if (newName == null || newName.trim().isEmpty() || newName.equals(oldName)) return;
 
-        new Thread(() -> {
+        sftpExecutor.execute(() -> {
             try {
                 ChannelSftp sftp = sessionInstance.getSftpChannel();
                 if (sftp != null) {
@@ -396,7 +422,7 @@ public class SftpPanel extends JPanel {
             } catch (Exception e) {
                 SwingUtilities.invokeLater(() -> UIUtils.error(this, "重命名失败: " + e.getMessage()));
             }
-        }).start();
+        });
     }
 
     private void deleteSelectedFile() {
@@ -404,11 +430,15 @@ public class SftpPanel extends JPanel {
         if (row < 0) return;
         String type = (String) tableModel.getValueAt(row, 0);
         String name = (String) tableModel.getValueAt(row, 1);
+        // ".." 指向上级目录：递归删除它等于删掉当前目录及所有同级内容。
+        if (isNavigationEntry(name)) return;
 
-        boolean confirm = UIUtils.confirm(this, "确定删除 " + name + " ?", "确认删除");
+        boolean confirm = UIUtils.confirm(this,
+                "<DIR>".equals(type) ? I18n.get("tool.sftp.deleteDirConfirm", name) : "确定删除 " + name + " ?",
+                "确认删除");
         if (!confirm) return;
 
-        new Thread(() -> {
+        sftpExecutor.execute(() -> {
             try {
                 ChannelSftp sftp = sessionInstance.getSftpChannel();
                 if (sftp != null) {
@@ -423,7 +453,7 @@ public class SftpPanel extends JPanel {
             } catch (Exception e) {
                 SwingUtilities.invokeLater(() -> UIUtils.error(this, "删除失败: " + e.getMessage()));
             }
-        }).start();
+        });
     }
 
     private void deleteRecursive(ChannelSftp sftp, String path) throws Exception {
@@ -441,4 +471,12 @@ public class SftpPanel extends JPanel {
         sftp.rmdir(path);
     }
 
+    private static boolean isNavigationEntry(String name) {
+        return ".".equals(name) || "..".equals(name);
+    }
+
+    /** 由所属会话标签页在关闭时调用，结束排队中的 SFTP 操作。 */
+    public void dispose() {
+        com.aqishi.toolbox.infra.concurrency.DaemonThreads.shutdownQuietly(sftpExecutor);
+    }
 }

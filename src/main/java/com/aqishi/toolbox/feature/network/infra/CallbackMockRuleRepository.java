@@ -66,7 +66,7 @@ public final class CallbackMockRuleRepository {
             if (version != MockRuleSet.CURRENT_VERSION) {
                 return new LoadResult(defaultRuleSet(),
                         "Unsupported callback mock rule version " + version
-                                + "; built-in defaults are in use.");
+                                + "; built-in defaults are in use." + preserveUnreadableFile());
             }
             MockRuleSet loaded = readRuleSet(root);
             List<String> validationErrors = validator.validate(loaded);
@@ -77,7 +77,30 @@ public final class CallbackMockRuleRepository {
             return new LoadResult(loaded, null);
         } catch (Exception error) {
             return new LoadResult(defaultRuleSet(),
-                    "Unable to load callback mock rules; built-in defaults are in use.");
+                    "Unable to load callback mock rules; built-in defaults are in use." + preserveUnreadableFile());
+        }
+    }
+
+    /**
+     * Copies a rule file that could not be loaded aside before anything can overwrite it.
+     *
+     * <p>After a failed load the panel runs on built-in defaults, and its first edit calls
+     * {@link #save}, which atomically replaces the file. Without this copy, opening rules
+     * written by a newer build in an older one and toggling a single rule loses them all.</p>
+     *
+     * @return a sentence naming the backup for the load warning, or an empty string
+     */
+    private String preserveUnreadableFile() {
+        try {
+            if (!Files.isRegularFile(file)) {
+                return "";
+            }
+            java.nio.file.Path backup = file.resolveSibling(file.getFileName() + ".unreadable-"
+                    + System.currentTimeMillis() + ".bak");
+            Files.copy(file, backup);
+            return " The original file was kept as " + backup.getFileName() + ".";
+        } catch (Exception copyFailed) {
+            return " The original file could not be backed up; saving will replace it.";
         }
     }
 

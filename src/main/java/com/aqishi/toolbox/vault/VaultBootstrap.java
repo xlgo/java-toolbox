@@ -37,7 +37,14 @@ public final class VaultBootstrap {
             VaultService service = new VaultService(
                     repository, migrator, worker, SwingUtilities::invokeLater,
                     VaultClock.system(), scheduler, idleMinutes);
-            return new Components(service, new SecureClipboard(scheduler));
+            SecureClipboard clipboard = new SecureClipboard(scheduler);
+            // 锁定后不应在剪贴板里继续留着刚复制的密码或验证码。
+            service.addListener(state -> {
+                if (state == VaultState.LOCKED) {
+                    clipboard.clearPending();
+                }
+            });
+            return new Components(service, clipboard);
         } catch (Exception error) {
             throw new IllegalStateException("Unable to initialize secure vault", error);
         }

@@ -54,6 +54,12 @@ public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner 
     private JTable resultTable;
 
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
+    /**
+     * 每次开始或停止扫描都递增。探测任务与界面回调只在代次仍为当前值时生效：
+     * 否则"停止后立刻重新开始"时，上一轮排队中的探测会把旧主机的结果写进新表格，
+     * 其计数到达旧总数时还会调用 finishScan，提前结束新一轮扫描。
+     */
+    private final java.util.concurrent.atomic.AtomicLong scanGeneration = new java.util.concurrent.atomic.AtomicLong();
     /** Pools are swapped atomically so abort, completion, and shutdown can race safely. */
     private final java.util.concurrent.atomic.AtomicReference<ExecutorService> scanExecutor =
             new java.util.concurrent.atomic.AtomicReference<>();
@@ -314,6 +320,7 @@ public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner 
         }
 
         resultTableModel.setRowCount(0);
+        long generation = scanGeneration.incrementAndGet();
         isScanning.set(true);
         startBtn.setEnabled(false);
         stopBtn.setEnabled(true);
@@ -326,32 +333,36 @@ public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner 
 
         statusLabel.setText("扫描中... 目标: " + host + " (共 " + ports.size() + " 个端口)");
 
+        shutdownPool(scanExecutor, true);
+        shutdownPool(dispatchExecutor, true);
         scanExecutor.set(DaemonThreads.fixed("port-scanner", threads));
         dispatchExecutor.set(DaemonThreads.single("port-scanner-dispatch"));
+        ExecutorService dispatcher = dispatchExecutor.get();
         AtomicInteger completedCount = new AtomicInteger(0);
         AtomicInteger openCount = new AtomicInteger(0);
         ExecutorService scanPool = scanExecutor.get();
 
-        dispatchExecutor.get().submit(() -> {
+        dispatcher.submit(() -> {
             for (int port : ports) {
-                if (!isScanning.get()) break;
+                if (generation != scanGeneration.get()) break;
                 try {
-                    scanPool.submit(() -> probePort(host, port, timeout, ports.size(),
+                    scanPool.submit(() -> probePort(generation, host, port, timeout, ports.size(),
                             openCount, completedCount));
                 } catch (java.util.concurrent.RejectedExecutionException ignored) {
                     // The scan was aborted while ports were still queued.
                     break;
                 }
             }
-            // Gentle shutdown: queued probes still finish, no new ones arrive.
-            shutdownPool(scanExecutor, false);
-            shutdownPool(dispatchExecutor, false);
+            // Gentle shutdown: queued probes still finish, no new ones arrive. The holder keeps
+            // its reference so a later Stop can still shutdownNow() the probes that are queued.
+            scanPool.shutdown();
+            dispatcher.shutdown();
         });
     }
 
-    private void probePort(String host, int port, int timeout, int totalPorts,
+    private void probePort(long generation, String host, int port, int timeout, int totalPorts,
                            AtomicInteger openCount, AtomicInteger completedCount) {
-        if (!isScanning.get()) return;
+        if (generation != scanGeneration.get()) return;
 
         long startMs = System.currentTimeMillis();
         boolean isOpen = false;
@@ -367,6 +378,9 @@ public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner 
         final boolean finalOpen = isOpen;
 
         SwingUtilities.invokeLater(() -> {
+            if (generation != scanGeneration.get()) {
+                return;
+            }
             String serviceName = KNOWN_SERVICES.getOrDefault(port, "未知服务/自定义");
             String statusStr = finalOpen ? "开放 (Open)" : "关闭 (Closed)";
             String costStr = finalOpen ? costMs + " ms" : "-";
@@ -385,6 +399,7 @@ public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner 
     }
 
     private void stopScan() {
+        scanGeneration.incrementAndGet();
         isScanning.set(false);
         shutdownPool(scanExecutor, true);
         shutdownPool(dispatchExecutor, true);
@@ -417,6 +432,7 @@ public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner 
 
     @Override
     public void closeResources() {
+        scanGeneration.incrementAndGet();
         isScanning.set(false);
         shutdownPool(scanExecutor, true);
         shutdownPool(dispatchExecutor, true);

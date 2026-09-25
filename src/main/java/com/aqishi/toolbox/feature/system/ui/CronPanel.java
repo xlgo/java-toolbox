@@ -10,6 +10,7 @@ import com.aqishi.toolbox.ui.kit.FormGrid;
 import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.I18n;
 
 import javax.swing.*;
 import java.awt.*;
@@ -899,45 +900,69 @@ public class CronPanel extends ToolPanel {
         return results;
     }
 
+    /**
+     * 解析单个 cron 字段为允许值集合。
+     *
+     * <p>步长必须 ≥ 1、所有数值必须落在字段范围内，否则抛出带说明的
+     * {@link IllegalArgumentException}。早先 {@code *}{@code /0} 会让循环永不前进，
+     * 而这个解析在每次按键时都跑在界面线程上——输入 {@code 1/0} 就能把整个程序卡死。</p>
+     */
     private static Set<Integer> parseField(String field, int min, int max) {
         Set<Integer> values = new TreeSet<>();
         if (field.equals("*") || field.equals("?")) {
             for (int i = min; i <= max; i++) values.add(i);
             return values;
         }
-        String[] parts = field.split(",");
-        for (String part : parts) {
+        for (String part : field.split(",")) {
+            int start;
+            int end;
+            int step = 1;
+            String range = part;
             if (part.contains("/")) {
-                String[] stepParts = part.split("/");
-                String range = stepParts[0];
-                int step = Integer.parseInt(stepParts[1]);
-                int start = min;
-                int end = max;
-                if (!range.equals("*")) {
-                    if (range.contains("-")) {
-                        String[] rangeParts = range.split("-");
-                        start = Integer.parseInt(rangeParts[0]);
-                        end = Integer.parseInt(rangeParts[1]);
-                    } else {
-                        start = Integer.parseInt(range);
-                    }
+                String[] stepParts = part.split("/", -1);
+                if (stepParts.length != 2) {
+                    throw new IllegalArgumentException(I18n.get("tool.cron.error.stepSyntax", part));
                 }
-                for (int i = start; i <= end; i += step) {
-                    if (i >= min && i <= max) values.add(i);
+                range = stepParts[0];
+                step = parseNumber(stepParts[1], part);
+                if (step < 1) {
+                    throw new IllegalArgumentException(I18n.get("tool.cron.error.stepPositive", part));
                 }
-            } else if (part.contains("-")) {
-                String[] rangeParts = part.split("-");
-                int start = Integer.parseInt(rangeParts[0]);
-                int end = Integer.parseInt(rangeParts[1]);
-                for (int i = start; i <= end; i++) {
-                    if (i >= min && i <= max) values.add(i);
+            }
+            if (range.equals("*") || range.equals("?")) {
+                start = min;
+                end = max;
+            } else if (range.contains("-")) {
+                String[] rangeParts = range.split("-", -1);
+                if (rangeParts.length != 2) {
+                    throw new IllegalArgumentException(I18n.get("tool.cron.error.rangeSyntax", part));
                 }
+                start = parseNumber(rangeParts[0], part);
+                end = parseNumber(rangeParts[1], part);
             } else {
-                int val = Integer.parseInt(part);
-                if (val >= min && val <= max) values.add(val);
+                start = parseNumber(range, part);
+                // "5/15" 表示从 5 开始每 15 个单位一次；单独的 "5" 只匹配 5。
+                end = part.contains("/") ? max : start;
+            }
+            if (start < min || end > max || start > end) {
+                throw new IllegalArgumentException(I18n.get("tool.cron.error.outOfRange", min, max, part));
+            }
+            for (int i = start; i <= end; i += step) {
+                values.add(i);
             }
         }
+        if (values.isEmpty()) {
+            throw new IllegalArgumentException(I18n.get("tool.cron.error.empty", field));
+        }
         return values;
+    }
+
+    private static int parseNumber(String text, String part) {
+        try {
+            return Integer.parseInt(text.trim());
+        } catch (NumberFormatException notNumeric) {
+            throw new IllegalArgumentException(I18n.get("tool.cron.error.unsupported", part), notNumeric);
+        }
     }
 
     private static int getNextAllowed(int current, Set<Integer> allowed) {

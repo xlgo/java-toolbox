@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.monitor.ui;
 
+import com.aqishi.toolbox.feature.monitor.domain.ReceivedFileNames;
 import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.Json;
 
@@ -119,7 +120,8 @@ public class FileTransferDialog extends JDialog {
                 String fileId = (String) msg.get("fileId");
 
                 if ("start_send".equals(action)) {
-                    String fileName = (String) msg.get("fileName");
+                    // 对端给的名字不可信：只保留最后一段并替换非法字符，防止 ../ 写出下载目录。
+                    String fileName = ReceivedFileNames.sanitize((String) msg.get("fileName"));
                     Number fileSizeNum = (Number) msg.get("fileSize");
                     long fileSize = fileSizeNum.longValue();
 
@@ -131,7 +133,8 @@ public class FileTransferDialog extends JDialog {
                     if (!downloadDir.exists()) {
                         downloadDir.mkdirs();
                     }
-                    File localFile = new File(downloadDir, fileName + ".tmp");
+                    File localFile = new File(downloadDir,
+                            fileName + "." + ReceivedFileNames.sanitize(fileId) + ".tmp");
 
                     FileReceiver receiver = new FileReceiver(fileId, fileName, fileSize, localFile);
                     receivers.put(fileId, receiver);
@@ -153,10 +156,9 @@ public class FileTransferDialog extends JDialog {
                     FileReceiver receiver = receivers.remove(fileId);
                     if (receiver != null) {
                         receiver.close();
-                        File finalFile = new File(receiver.targetFile.getParent(), receiver.fileName);
-                        if (finalFile.exists()) {
-                            finalFile.delete();
-                        }
+                        // 重名时追加编号，不覆盖用户已有的文件。
+                        File finalFile = ReceivedFileNames.uniqueTarget(
+                                receiver.targetFile.getParentFile(), receiver.fileName);
                         if (receiver.targetFile.renameTo(finalFile)) {
                             log.accept(I18n.get("remote_desktop.ft_peer_success", finalFile.getAbsolutePath()));
                         } else {

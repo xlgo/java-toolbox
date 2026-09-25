@@ -214,8 +214,16 @@ public final class VaultService implements AutoCloseable {
         }
     }
 
+    /**
+     * Closes the open vault and drops the decrypted snapshot.
+     *
+     * <p>Listeners receive the state actually entered, which is not always
+     * {@link VaultState#LOCKED}: a vault that still needs migration or that is
+     * read-only falls back to {@code MIGRATION_REQUIRED} / {@code ERROR_READ_ONLY}.
+     * Reporting LOCKED there made panels offer an unlock that could not succeed.</p>
+     */
     public void lock() {
-        boolean notify = false;
+        VaultState notifyState = null;
         synchronized (mutex) {
             if (opened != null) {
                 opened.close();
@@ -225,10 +233,10 @@ public final class VaultService implements AutoCloseable {
             VaultState lockedState = fallbackLockedState();
             if (state != lockedState) {
                 state = lockedState;
-                notify = true;
+                notifyState = lockedState;
             }
         }
-        if (notify) notifyListeners(VaultState.LOCKED);
+        if (notifyState != null) notifyListeners(notifyState);
     }
 
     @Override

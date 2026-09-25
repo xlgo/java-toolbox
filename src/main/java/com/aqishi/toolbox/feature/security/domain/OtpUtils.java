@@ -87,13 +87,14 @@ public final class OtpUtils {
 
         OtpConfig config = new OtpConfig();
 
-        // 解析 Path 提取 label
-        String path = uri.getPath();
+        // 解析 Path 提取 label。用原始路径只解码一次：getPath() 已经解码过，再交给 URLDecoder
+        // 会把 alice+test@x.com 里的 "+" 变成空格，遇到编码后的 "%"（%25）则直接抛异常导致导入失败。
+        String path = uri.getRawPath();
         if (path != null && path.startsWith("/")) {
             path = path.substring(1);
         }
         if (path != null && !path.isEmpty()) {
-            String decodedLabel = URLDecoder.decode(path, StandardCharsets.UTF_8.name());
+            String decodedLabel = percentDecode(path);
             config.label = decodedLabel;
             int colonIndex = decodedLabel.indexOf(':');
             if (colonIndex > 0) {
@@ -110,11 +111,11 @@ public final class OtpUtils {
             if (secret == null || secret.isEmpty()) {
                 throw new IllegalArgumentException("链接中未找到必填参数: secret");
             }
-            config.secret = secret.toUpperCase();
+            config.secret = normalizeSecret(percentDecode(secret));
 
             String queryIssuer = queryParams.get("issuer");
             if (queryIssuer != null && !queryIssuer.isEmpty()) {
-                config.issuer = URLDecoder.decode(queryIssuer, StandardCharsets.UTF_8.name());
+                config.issuer = percentDecode(queryIssuer);
             }
 
             // 若 label 缺省，则用 issuer 兜底
@@ -155,6 +156,26 @@ public final class OtpUtils {
         }
 
         return config;
+    }
+
+    /**
+     * 只解码 %XX，不把 "+" 当空格：otpauth 链接的路径部分不是表单编码，
+     * 账户名里的 "+"（如 alice+test@x.com）必须原样保留。
+     */
+    private static String percentDecode(String raw) {
+        return URLDecoder.decode(raw.replace("+", "%2B"), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 规范化 Base32 密钥：去掉空格、连字符和结尾的 "=" 填充并转大写，然后校验字符集。
+     * 早先原样保存，带 %3D 填充或空格的密钥会被存下来，之后每次计算都失败，界面永远显示 "------"。
+     */
+    static String normalizeSecret(String secret) {
+        String normalized = secret.replaceAll("[\\s-]", "").replaceAll("=+$", "").toUpperCase(java.util.Locale.ROOT);
+        if (normalized.isEmpty() || !normalized.matches("[A-Z2-7]+")) {
+            throw new IllegalArgumentException("secret is not a valid Base32 key");
+        }
+        return normalized;
     }
 
     private static Map<String, String> parseQuery(String query) throws Exception {

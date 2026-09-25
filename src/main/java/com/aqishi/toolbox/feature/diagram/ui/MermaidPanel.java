@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.diagram.ui;
 
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -202,9 +203,17 @@ public class MermaidPanel extends ToolPanel {
         // 4. 事件响应绑定
         templateCombo.addActionListener(e -> {
             String selectedKey = (String) templateCombo.getSelectedItem();
-            if (selectedKey != null && TEMPLATES.containsKey(selectedKey)) {
-                codeArea.setText(TEMPLATES.get(selectedKey));
+            if (selectedKey == null || !TEMPLATES.containsKey(selectedKey)) {
+                return;
             }
+            String template = TEMPLATES.get(selectedKey);
+            String current = codeArea.getText();
+            // 编辑区没有撤销，而重新选中同一项也会触发这个事件：内容与任一模板都不同时，先确认再覆盖。
+            if (!current.trim().isEmpty() && !current.equals(template) && !TEMPLATES.containsValue(current)
+                    && !UIUtils.confirm(getView(), I18n.get("tool.mermaid.replaceConfirm"), I18n.get("tool.mermaid.replaceConfirm.title"))) {
+                return;
+            }
+            codeArea.setText(template);
         });
 
         renderBtn.addActionListener(e -> triggerRender());

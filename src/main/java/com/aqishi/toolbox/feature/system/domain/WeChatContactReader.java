@@ -5,6 +5,7 @@ import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import java.io.*;
@@ -18,6 +19,9 @@ import java.util.*;
  * 支持自适应表结构、下载头像和导出 Excel。
  */
 public class WeChatContactReader {
+
+    /** 导出表头与导入识别共用：导出的 Excel 必须能原样导回。 */
+    private static final String TAG_HEADER = "标签";
 
     /**
      * 联系人信息 DTO
@@ -323,7 +327,7 @@ public class WeChatContactReader {
 
             // 创建表头
             Row headerRow = sheet.createRow(0);
-            String[] headers = {"昵称", "微信号", "备注名", "标签"};
+            String[] headers = {"昵称", "微信号", "备注名", TAG_HEADER};
             for (int i = 0; i < headers.length; i++) {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(headers[i]);
@@ -334,7 +338,8 @@ public class WeChatContactReader {
             for (ContactInfo contact : contacts) {
                 Row row = sheet.createRow(rowIdx++);
                 row.createCell(0).setCellValue(contact.nickname != null ? contact.nickname : "");
-                row.createCell(1).setCellValue(contact.alias != null ? contact.alias : "");
+                // 大多数联系人没有 alias，只写 alias 会丢掉 wxid，重新导入后只能生成随机 ID。
+                row.createCell(1).setCellValue(contact.getWeChatId() != null ? contact.getWeChatId() : "");
                 row.createCell(2).setCellValue(contact.remark != null ? contact.remark : "");
                 row.createCell(3).setCellValue(contact.tag != null ? contact.tag : "");
             }
@@ -362,15 +367,17 @@ public class WeChatContactReader {
     public static List<ContactInfo> readContactsFromExcel(File excelFile) throws Exception {
         List<ContactInfo> contacts = new ArrayList<>();
         try (InputStream is = new FileInputStream(excelFile);
-             Workbook workbook = new XSSFWorkbook(is)) {
+             // WorkbookFactory 同时支持 .xls 与 .xlsx；文件选择器两种都提供，XSSFWorkbook 打不开 .xls。
+             Workbook workbook = WorkbookFactory.create(is)) {
             Sheet sheet = workbook.getSheetAt(0);
             int rowCount = sheet.getLastRowNum();
             if (rowCount < 0) return contacts;
 
             // 1. 尝试从第一行读取表头进行列对齐
             Row headerRow = sheet.getRow(0);
-            int nickCol = 0, wechatCol = 1, remarkCol = 2, genderCol = 3;
+            int nickCol = 0, wechatCol = 1, remarkCol = 2, genderCol = 3, tagCol = -1;
             boolean hasHeader = false;
+            boolean genderHeader = false;
             if (headerRow != null) {
                 for (int c = 0; c < headerRow.getLastCellNum(); c++) {
                     Cell cell = headerRow.getCell(c);
@@ -380,7 +387,8 @@ public class WeChatContactReader {
                             if (val.contains("昵称") || val.equalsIgnoreCase("nickname")) { nickCol = c; hasHeader = true; }
                             else if (val.contains("微信") || val.equalsIgnoreCase("alias") || val.equalsIgnoreCase("wechat") || val.contains("账号") || val.contains("ID")) { wechatCol = c; hasHeader = true; }
                             else if (val.contains("备注") || val.equalsIgnoreCase("remark")) { remarkCol = c; hasHeader = true; }
-                            else if (val.contains("性别") || val.equalsIgnoreCase("gender") || val.equalsIgnoreCase("sex")) { genderCol = c; hasHeader = true; }
+                            else if (val.contains("性别") || val.equalsIgnoreCase("gender") || val.equalsIgnoreCase("sex")) { genderCol = c; hasHeader = true; genderHeader = true; }
+                            else if (val.contains(TAG_HEADER) || val.equalsIgnoreCase("tag")) { tagCol = c; hasHeader = true; }
                         } catch (Exception ignored) {
                             Errors.ignored("表头单元格不是文本，跳过该列的表头识别", ignored);
                         }
@@ -388,6 +396,10 @@ public class WeChatContactReader {
                 }
             }
 
+            // 本工具导出的第 4 列是"标签"而不是性别；有表头却没有性别列时，不能按默认位置把标签当性别读。
+            if (hasHeader && !genderHeader) {
+                genderCol = -1;
+            }
             int startRow = hasHeader ? 1 : 0;
             for (int r = startRow; r <= rowCount; r++) {
                 Row row = sheet.getRow(r);
@@ -398,6 +410,9 @@ public class WeChatContactReader {
                 info.alias = getRowCellValue(row, wechatCol);
                 info.username = info.alias != null && !info.alias.isEmpty() ? info.alias : UUID.randomUUID().toString();
                 info.remark = getRowCellValue(row, remarkCol);
+                if (tagCol >= 0) {
+                    info.tag = getRowCellValue(row, tagCol);
+                }
 
                 String genderVal = getRowCellValue(row, genderCol);
                 if (genderVal.contains("男") || genderVal.equals("1")) info.gender = 1;

@@ -301,7 +301,7 @@ public final class TotpPanel extends ToolPanel implements ManagedResourceOwner {
         byte[] key = null;
         try {
             key = OtpUtils.decodeBase32(account.getSecret());
-            long step = System.currentTimeMillis() / 1000L / account.getPeriod();
+            long step = System.currentTimeMillis() / 1000L / periodOf(account);
             return OtpUtils.generateTOTP(key, step, account.getDigits(),
                     "Hmac" + account.getAlgorithm());
         } catch (Exception error) {
@@ -347,7 +347,7 @@ public final class TotpPanel extends ToolPanel implements ManagedResourceOwner {
             code.setForeground(Tokens.foreground());
             // 进度条紧贴验证码：剩余秒数用长度表达，比只读数字更容易被余光捕捉
             countdown.setMinimum(0);
-            countdown.setMaximum(account.getPeriod());
+            countdown.setMaximum(periodOf(account));
             countdown.setBorderPainted(false);
             countdown.setStringPainted(false);
             JPanel body = Layouts.box(0, Tokens.SPACE_SM);
@@ -380,7 +380,7 @@ public final class TotpPanel extends ToolPanel implements ManagedResourceOwner {
             if (revealed && value.length() == 8) value = value.substring(0, 4) + " " + value.substring(4);
             code.setText(value);
             long seconds = System.currentTimeMillis() / 1000L;
-            long left = account.getPeriod() - seconds % account.getPeriod();
+            long left = periodOf(account) - seconds % periodOf(account);
             remaining.setText(left + "s");
             countdown.setValue((int) left);
         }
@@ -402,5 +402,13 @@ public final class TotpPanel extends ToolPanel implements ManagedResourceOwner {
         if (running != null && running.isRunning()) {
             running.stop();
         }
+    }
+
+    /**
+     * 保险库不校验周期字段，旧数据或手工导入可能存进 0；直接拿来做除数会在每 250ms 的刷新里抛异常，
+     * 整个面板的验证码都停止更新。非正数按标准的 30 秒处理。
+     */
+    private static int periodOf(TotpAccount account) {
+        return account.getPeriod() > 0 ? account.getPeriod() : 30;
     }
 }

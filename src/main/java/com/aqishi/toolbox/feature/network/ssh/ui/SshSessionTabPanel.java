@@ -231,6 +231,9 @@ public class SshSessionTabPanel extends JPanel implements SshSessionInstance.Ses
     }
 
     public void closeSession() {
+        if (sftpPanel != null) {
+            sftpPanel.dispose();
+        }
         if (sessionInstance != null) {
             sessionInstance.removeListener(this);
             sessionInstance.close();

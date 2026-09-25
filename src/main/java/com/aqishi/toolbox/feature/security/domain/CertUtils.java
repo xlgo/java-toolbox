@@ -63,7 +63,7 @@ public class CertUtils {
 
         Date notBefore = new Date();
         Date notAfter = new Date(System.currentTimeMillis() + (long) years * 365 * 24 * 3600 * 1000);
-        BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
+        BigInteger serial = randomSerial();
 
         // 使用 X500Principal 构造，兼容 JDK X.509
         X500Principal issuerPrincipal = new X500Principal(issuerName.toString());
@@ -100,29 +100,37 @@ public class CertUtils {
             String sanDns, int years) throws Exception {
 
         X509Certificate caCert = parseCertFromPem(caCertPem);
-        PrivateKey caKey = parsePrivateKeyFromPem(caKeyPem);
+        PrivateKey caKey = parseCaPrivateKey(caKeyPem, caCert);
 
         int idx = indexOfKeyAlg(keyAlgLabel);
         if (idx < 0) throw new IllegalArgumentException("不支持的密钥算法: " + keyAlgLabel);
         KeyPair keyPair = generateKeyPair(idx);
-        String sigAlg = (KEY_ALG_INTERNAL[idx].equals("EC")) ? "SHA256withECDSA" : "SHA256withRSA";
+        // 签名由 CA 私钥完成，算法必须跟 CA 密钥走：RSA 根证书签 EC 叶子时用 SHA256withECDSA 会直接失败。
+        String sigAlg = signatureAlgorithmFor(caKey);
+        boolean ecLeaf = KEY_ALG_INTERNAL[idx].equals("EC");
 
         X500Name subjectName = buildX500Name(cn, o, ou, l, st, c);
         X500Principal subjectPrincipal = new X500Principal(subjectName.toString());
 
         Date notBefore = new Date();
         Date notAfter = new Date(System.currentTimeMillis() + (long) years * 365 * 24 * 3600 * 1000);
-        BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
+        BigInteger serial = randomSerial();
 
+        // 叶子证书的颁发者是 CA 的"主体"。早先误用了 CA 的颁发者：自签根证书两者相同所以碰巧能用，
+        // 由中间 CA 签发时颁发者就成了根证书的名字，证书链无法构建。
         X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
-                caCert.getIssuerX500Principal(), // 使用 JDK X500Principal
+                caCert.getSubjectX500Principal(),
                 serial, notBefore, notAfter, subjectPrincipal, keyPair.getPublic());
 
         // 终端证书：非 CA
         builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
-        // 密钥用法：数字签名 + 密钥加密
+        // 密钥用法：RSA 为数字签名 + 密钥加密；EC 密钥不能做密钥加密，只声明数字签名。
         builder.addExtension(Extension.keyUsage, true,
-                new KeyUsage(KeyUsage.digitalSignature | KeyUsage.keyEncipherment));
+                new KeyUsage(ecLeaf ? KeyUsage.digitalSignature
+                        : KeyUsage.digitalSignature | KeyUsage.keyEncipherment));
+        // 扩展密钥用法：macOS / iOS 要求 TLS 证书声明 serverAuth。
+        builder.addExtension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(
+                new KeyPurposeId[]{KeyPurposeId.id_kp_serverAuth, KeyPurposeId.id_kp_clientAuth}));
         // 主题密钥标识
         builder.addExtension(Extension.subjectKeyIdentifier, false,
                 createSubjectKeyId(keyPair.getPublic()));
@@ -130,9 +138,11 @@ public class CertUtils {
         builder.addExtension(Extension.authorityKeyIdentifier, false,
                 createAuthorityKeyId(caCert));
 
-        // SAN —— 支持 DNS:, IP:, EMAIL:, URI: 前缀，无前缀时自动识别 IP 地址
-        if (sanDns != null && !sanDns.trim().isEmpty()) {
-            String[] items = sanDns.split("[,\\s]+");
+        // SAN —— 支持 DNS:, IP:, EMAIL:, URI: 前缀，无前缀时自动识别 IP 地址。
+        // 留空时用 CN 兜底：Chrome 等浏览器早已不看 CN，没有 SAN 的证书一律报名称不匹配。
+        String sanSource = sanDns != null && !sanDns.trim().isEmpty() ? sanDns : cn;
+        if (sanSource != null && !sanSource.trim().isEmpty()) {
+            String[] items = sanSource.split("[,\\s]+");
             List<GeneralName> nameList = new ArrayList<>();
             for (String item : items) {
                 String d = item.trim();
@@ -178,6 +188,50 @@ public class CertUtils {
         return new CertResult(cert, keyPair.getPrivate());
     }
 
+    /**
+     * 读取 CA 私钥；兼容旧版本导出的、缺少曲线参数的 SEC1 EC 私钥。
+     *
+     * <p>这类文件只含 D 值，单独无法还原。但签发时手里一定有配对的 CA 证书，
+     * 它的公钥带着曲线参数，据此即可重建私钥，用户已保存的旧 CA 不必重新生成。</p>
+     */
+    private static PrivateKey parseCaPrivateKey(String pem, X509Certificate caCert) throws Exception {
+        try {
+            return parsePrivateKeyFromPem(pem);
+        } catch (Exception unreadable) {
+            if (!(caCert.getPublicKey() instanceof java.security.interfaces.ECPublicKey ecPublic)) {
+                throw unreadable;
+            }
+            Object parsed;
+            try (PEMParser parser = new PEMParser(new StringReader(pem))) {
+                parsed = parser.readObject();
+            }
+            if (!(parsed instanceof PEMKeyPair keyPair)) {
+                throw unreadable;
+            }
+            BigInteger d = org.bouncycastle.asn1.sec.ECPrivateKey
+                    .getInstance(keyPair.getPrivateKeyInfo().parsePrivateKey()).getKey();
+            return java.security.KeyFactory.getInstance("EC").generatePrivate(
+                    new java.security.spec.ECPrivateKeySpec(d, ecPublic.getParams()));
+        }
+    }
+
+    /** 按签名私钥选择签名算法。 */
+    private static String signatureAlgorithmFor(PrivateKey signingKey) {
+        String algorithm = signingKey.getAlgorithm();
+        return "EC".equalsIgnoreCase(algorithm) || "ECDSA".equalsIgnoreCase(algorithm)
+                ? "SHA256withECDSA" : "SHA256withRSA";
+    }
+
+    /**
+     * 随机正整数序列号（最多 159 位，符合 RFC 5280 不超过 20 字节的要求）。
+     * 早先用毫秒时间戳：同一毫秒签发的两张证书序列号相同，而且可被预测。
+     */
+    private static BigInteger randomSerial() {
+        return new BigInteger(159, SERIAL_RANDOM).add(BigInteger.ONE);
+    }
+
+    private static final java.security.SecureRandom SERIAL_RANDOM = new java.security.SecureRandom();
+
     /** 判断字符串是否可能是 IP 地址（IPv4 / IPv6） */
     private static boolean isLikelyIpAddress(String s) {
         if (s == null || s.isEmpty()) return false;
@@ -216,10 +270,17 @@ public class CertUtils {
         return sw.toString();
     }
 
+    /**
+     * 以 PKCS#8（{@code -----BEGIN PRIVATE KEY-----}）导出私钥。
+     *
+     * <p>早先直接交给 {@code JcaPEMWriter}，EC 私钥会被转成 SEC1（{@code EC PRIVATE KEY}），
+     * 而 JDK 生成的密钥把曲线 OID 放在 PKCS#8 外层，转换时丢失，导出的文件只剩 D 值、无法再被读回。
+     * PKCS#8 完整保留算法标识，OpenSSL、nginx 与 Java 都能直接使用。</p>
+     */
     public static String toPemPrivateKey(PrivateKey key) throws IOException {
         StringWriter sw = new StringWriter();
         try (JcaPEMWriter pw = new JcaPEMWriter(sw)) {
-            pw.writeObject(key);
+            pw.writeObject(new org.bouncycastle.openssl.jcajce.JcaPKCS8Generator(key, null));
         }
         return sw.toString();
     }
@@ -254,11 +315,20 @@ public class CertUtils {
     // ===========================================================
     //  辅助方法
     // ===========================================================
+    /**
+     * EC 密钥按命名曲线生成。只给位数时，BouncyCastle 生成的密钥带显式曲线参数，
+     * 导出的私钥 PEM 再读回来会被 JDK 的 SunEC 拒绝（"EC domain parameters must be encoded
+     * in the algorithm identifier"），EC 根证书因此无法签发任何证书。命名曲线只编码曲线 OID，各实现都认。
+     */
     public static KeyPair generateKeyPair(int idx) throws Exception {
         String algorithm = KEY_ALG_INTERNAL[idx];
         int size = KEY_SIZES[idx];
         KeyPairGenerator kpg = KeyPairGenerator.getInstance(algorithm);
-        kpg.initialize(size, new SecureRandom());
+        if ("EC".equals(algorithm)) {
+            kpg.initialize(new java.security.spec.ECGenParameterSpec("secp" + size + "r1"), new SecureRandom());
+        } else {
+            kpg.initialize(size, new SecureRandom());
+        }
         return kpg.generateKeyPair();
     }
 

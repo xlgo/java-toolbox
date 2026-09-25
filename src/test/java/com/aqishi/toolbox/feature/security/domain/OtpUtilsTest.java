@@ -80,4 +80,22 @@ class OtpUtilsTest {
         assertThrows(IllegalArgumentException.class,
                 () -> OtpUtils.parseOtpAuthUrl("otpauth://totp/Label?issuer=Acme"));
     }
+
+    /** 回归：标签被解码两次，"+" 变成空格，"%25" 让导入直接失败。 */
+    @Test
+    void labelIsDecodedExactlyOnce() throws Exception {
+        assertEquals("Acme:alice+test@x.com",
+                OtpUtils.parseOtpAuthUrl("otpauth://totp/Acme:alice+test@x.com?secret=JBSWY3DPEHPK3PXP").label);
+        assertEquals("Acme:100% alice",
+                OtpUtils.parseOtpAuthUrl("otpauth://totp/Acme:100%25%20alice?secret=JBSWY3DPEHPK3PXP").label);
+    }
+
+    /** 回归：带填充或空格的密钥被原样存下，之后每次计算都失败。 */
+    @Test
+    void secretIsNormalizedAndValidated() throws Exception {
+        assertEquals("JBSWY3DPEHPK3PXP",
+                OtpUtils.parseOtpAuthUrl("otpauth://totp/x?secret=jbsw%20y3dp-ehpk3pxp%3D%3D").secret);
+        assertThrows(IllegalArgumentException.class,
+                () -> OtpUtils.parseOtpAuthUrl("otpauth://totp/x?secret=not-base32!"));
+    }
 }

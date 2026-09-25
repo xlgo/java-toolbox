@@ -1,7 +1,9 @@
 package com.aqishi.toolbox.feature.system.ui;
 
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.catalog.ToolCatalog;
+import com.aqishi.toolbox.feature.system.domain.HostsFile;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.util.UIUtils;
@@ -10,12 +12,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.awt.datatransfer.StringSelection;
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.InputStreamReader;
 
 /**
  * Hosts 域名本地环境切换管理工具
@@ -27,6 +24,12 @@ public class HostsManagerPanel extends ToolPanel {
     private JTextField searchField;
     private JLabel statusLabel;
     private File hostsFile;
+    /** 上次成功读取的文件；读取失败时为 null，此时禁止保存，以免用空表格覆盖系统 hosts。 */
+    private HostsFile loadedDocument;
+    private java.nio.charset.Charset loadedCharset = java.nio.charset.StandardCharsets.UTF_8;
+    private javax.swing.table.TableRowSorter<DefaultTableModel> rowSorter;
+    /** 隐藏列：规则在原文件中的行号；新加的行为 null。 */
+    private static final int ID_COLUMN = 4;
 
     public HostsManagerPanel() {
         super(ToolCatalog.HOSTS_MANAGER);
@@ -57,6 +60,11 @@ public class HostsManagerPanel extends ToolPanel {
         searchField = new JTextField(15);
         searchField.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         searchField.addActionListener(e -> filterTable());
+        searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { filterTable(); }
+            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { filterTable(); }
+            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { filterTable(); }
+        });
         searchBar.add(searchField);
 
         JButton reloadBtn = new JButton("重新读取系统 Hosts");
@@ -76,11 +84,12 @@ public class HostsManagerPanel extends ToolPanel {
         tableCard.setLayout(new BorderLayout(0, 8));
         tableCard.setBorder(new EmptyBorder(12, 12, 12, 12));
 
-        String[] columnNames = {"启用", "IP 地址", "域名 (Host)", "注释 / 说明"};
+        String[] columnNames = {"启用", "IP 地址", I18n.get("tool.hosts.column.hosts"), "注释 / 说明", "id"};
         tableModel = new DefaultTableModel(columnNames, 0) {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
-                return columnIndex == 0 ? Boolean.class : String.class;
+                if (columnIndex == 0) return Boolean.class;
+                return columnIndex == ID_COLUMN ? Integer.class : String.class;
             }
         };
 
@@ -88,17 +97,20 @@ public class HostsManagerPanel extends ToolPanel {
         hostsTable.setRowHeight(26);
         hostsTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         hostsTable.getColumnModel().getColumn(0).setMaxWidth(60);
+        hostsTable.removeColumn(hostsTable.getColumnModel().getColumn(ID_COLUMN));
+        rowSorter = new javax.swing.table.TableRowSorter<>(tableModel);
+        hostsTable.setRowSorter(rowSorter);
 
         JScrollPane scrollPane = new JScrollPane(hostsTable);
 
         JPanel tableBtnBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         JButton addRowBtn = new JButton("添加规则");
-        addRowBtn.addActionListener(e -> tableModel.addRow(new Object[]{true, "127.0.0.1", "dev.example.com", "本地开发"}));
+        addRowBtn.addActionListener(e -> tableModel.addRow(new Object[]{true, "127.0.0.1", "dev.example.com", "本地开发", null}));
 
         JButton delRowBtn = new JButton("删除选中规则");
         delRowBtn.addActionListener(e -> {
             int row = hostsTable.getSelectedRow();
-            if (row >= 0) tableModel.removeRow(row);
+            if (row >= 0) tableModel.removeRow(hostsTable.convertRowIndexToModel(row));
         });
 
         JButton enableAllBtn = new JButton("全部启用");
@@ -160,75 +172,83 @@ public class HostsManagerPanel extends ToolPanel {
     }
 
     private void loadHostsFile() {
+        loadedDocument = null;
+        tableModel.setRowCount(0);
         if (hostsFile == null || !hostsFile.exists()) {
             statusLabel.setText("未找到系统 hosts 文件");
             return;
         }
-
-        tableModel.setRowCount(0);
-        try (BufferedReader reader = new BufferedReader(new FileReader(hostsFile))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                String trimmed = line.trim();
-                if (trimmed.isEmpty()) continue;
-
-                boolean enabled = !trimmed.startsWith("#");
-                String cleanLine = enabled ? trimmed : trimmed.substring(1).trim();
-
-                // 拆分 IP 和 域名
-                String[] parts = cleanLine.split("\\s+");
-                if (parts.length >= 2 && isIpAddress(parts[0])) {
-                    String ip = parts[0];
-                    String host = parts[1];
-                    StringBuilder comment = new StringBuilder();
-                    for (int i = 2; i < parts.length; i++) {
-                        comment.append(parts[i]).append(" ");
-                    }
-                    tableModel.addRow(new Object[]{enabled, ip, host, comment.toString().trim()});
-                } else if (!enabled) {
-                    // 纯注释行跳过或加入说明
-                }
+        try {
+            byte[] raw = java.nio.file.Files.readAllBytes(hostsFile.toPath());
+            loadedCharset = detectCharset(raw);
+            loadedDocument = HostsFile.parse(new String(raw, loadedCharset));
+            for (HostsFile.Entry entry : loadedDocument.entries()) {
+                tableModel.addRow(new Object[]{entry.enabled(), entry.ip(), entry.hostsText(), entry.comment(), entry.id()});
             }
             statusLabel.setText("成功载入 " + tableModel.getRowCount() + " 条解析规则");
         } catch (Exception e) {
-            statusLabel.setText("读取失败: " + e.getMessage());
+            statusLabel.setText("读取失败: " + Errors.describeRoot(e));
         }
     }
 
-    private boolean isIpAddress(String str) {
-        if (str == null) return false;
-        return str.matches("^\\d{1,3}(\\.\\d{1,3}){3}$") || str.equals("::1") || str.startsWith("0.0.0.0");
+    /**
+     * hosts 文件没有编码声明：能按 UTF-8 严格解码就用 UTF-8，否则按系统原生编码（中文 Windows 上是 GBK）。
+     * 保存时沿用读取时的编码，避免把原有注释写成乱码。
+     */
+    private static java.nio.charset.Charset detectCharset(byte[] raw) {
+        try {
+            java.nio.charset.StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(raw));
+            return java.nio.charset.StandardCharsets.UTF_8;
+        } catch (java.nio.charset.CharacterCodingException notUtf8) {
+            String nativeName = System.getProperty("native.encoding");
+            try {
+                return nativeName == null ? java.nio.charset.Charset.defaultCharset()
+                        : java.nio.charset.Charset.forName(nativeName);
+            } catch (RuntimeException unsupported) {
+                return java.nio.charset.Charset.defaultCharset();
+            }
+        }
     }
 
     private void saveHostsFile() {
         if (hostsFile == null) return;
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("# Generated by Java Toolbox - Hosts Manager\n");
-        sb.append("# Timestamp: ").append(new java.util.Date()).append("\n\n");
-
-        for (int i = 0; i < tableModel.getRowCount(); i++) {
-            boolean enabled = (Boolean) tableModel.getValueAt(i, 0);
-            String ip = String.valueOf(tableModel.getValueAt(i, 1)).trim();
-            String host = String.valueOf(tableModel.getValueAt(i, 2)).trim();
-            String comment = String.valueOf(tableModel.getValueAt(i, 3)).trim();
-
-            if (ip.isEmpty() || host.isEmpty()) continue;
-
-            if (!enabled) sb.append("# ");
-            sb.append(ip).append("\t").append(host);
-            if (!comment.isEmpty()) sb.append("\t# ").append(comment);
-            sb.append("\n");
+        if (loadedDocument == null) {
+            UIUtils.error(getView(), I18n.get("tool.hosts.notLoaded"));
+            return;
+        }
+        // 正在编辑的单元格要先提交，否则最后一处修改会丢。
+        if (hostsTable.isEditing() && hostsTable.getCellEditor() != null) {
+            hostsTable.getCellEditor().stopCellEditing();
         }
 
-        try (FileWriter writer = new FileWriter(hostsFile)) {
-            writer.write(sb.toString());
-            statusLabel.setText("保存成功！已更新系统 Hosts");
-            UIUtils.info(getView(), "系统 Hosts 文件已成功更新！");
+        java.util.List<HostsFile.Entry> edited = new java.util.ArrayList<>();
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            edited.add(HostsFile.entry(
+                    (Integer) tableModel.getValueAt(i, ID_COLUMN),
+                    Boolean.TRUE.equals(tableModel.getValueAt(i, 0)),
+                    String.valueOf(tableModel.getValueAt(i, 1)),
+                    String.valueOf(tableModel.getValueAt(i, 2)),
+                    String.valueOf(tableModel.getValueAt(i, 3))));
+        }
+        String content = loadedDocument.render(edited);
+
+        java.nio.file.Path target = hostsFile.toPath();
+        java.nio.file.Path backup = target.resolveSibling(target.getFileName() + ".javatoolbox.bak");
+        try {
+            // 先备份再原地写：保留系统 hosts 文件本身的权限与属性；写入中途失败也能从备份恢复。
+            java.nio.file.Files.copy(target, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            java.nio.file.Files.write(target, content.getBytes(loadedCharset));
+            loadedDocument = HostsFile.parse(content);
+            loadHostsFile();
+            statusLabel.setText(I18n.get("tool.hosts.saved.status", String.valueOf(backup.getFileName())));
+            UIUtils.info(getView(), I18n.get("tool.hosts.saved", String.valueOf(backup)));
         } catch (Exception e) {
             statusLabel.setText("保存失败 (无写入权限)");
-            UIUtils.copyToClipboard(sb.toString());
-            UIUtils.warn(getView(), "写入系统 Hosts 失败（可能是由于没有管理员权限）。\n最新 Hosts 内容已自动复制到剪贴板，您可以手动保存至:\n" + hostsFile.getAbsolutePath(), "权限受限提示");
+            UIUtils.copyToClipboard(content);
+            UIUtils.warn(getView(), I18n.get("tool.hosts.writeFailed", Errors.describeRoot(e), hostsFile.getAbsolutePath()), "权限受限提示");
         }
     }
 
@@ -313,16 +333,9 @@ public class HostsManagerPanel extends ToolPanel {
     }
 
     private void filterTable() {
-        String query = searchField.getText().trim().toLowerCase();
-        if (query.isEmpty()) return;
-
-        for (int i = tableModel.getRowCount() - 1; i >= 0; i--) {
-            String host = String.valueOf(tableModel.getValueAt(i, 2)).toLowerCase();
-            String ip = String.valueOf(tableModel.getValueAt(i, 1)).toLowerCase();
-            if (!host.contains(query) && !ip.contains(query)) {
-                // 可隐藏或排序
-            }
-        }
+        String query = searchField.getText().trim();
+        rowSorter.setRowFilter(query.isEmpty() ? null
+                : RowFilter.regexFilter("(?i)" + java.util.regex.Pattern.quote(query), 1, 2, 3));
     }
 
     private void setAllRowsState(boolean enabled) {
@@ -333,7 +346,7 @@ public class HostsManagerPanel extends ToolPanel {
 
     private void addPresetBtn(JPanel panel, String label, String ip, String host) {
         JButton btn = new JButton(label);
-        btn.addActionListener(e -> tableModel.addRow(new Object[]{true, ip, host, "预设解析"}));
+        btn.addActionListener(e -> tableModel.addRow(new Object[]{true, ip, host, "预设解析", null}));
         panel.add(btn);
     }
 }

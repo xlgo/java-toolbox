@@ -625,7 +625,9 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         String driverClass = driverClassField.getText().trim();
         String jarPath = jarPathField.getText().trim();
 
+        // 测试与正式连接共用 SSH 隧道字段，测试期间禁止点"连接"，否则测试结束时会关掉正式连接的隧道。
         testBtn.setEnabled(false);
+        connBtn.setEnabled(false);
         consoleLog("正在测试连接：" + url);
         new SwingWorker<Void, Void>() {
             private String error = null;
@@ -646,6 +648,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
             @Override
             protected void done() {
                 testBtn.setEnabled(true);
+                connBtn.setEnabled(true);
                 if (error == null) {
                     UIUtils.info(getView(), "连接测试成功！");
                     consoleLog("连接测试成功。");
@@ -1617,13 +1620,18 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         for (String n : profiles.keySet()) {
             profileCombo.addItem(n);
         }
+        boolean applyFirst = false;
         if (selectName != null) {
             profileCombo.setSelectedItem(selectName);
         } else if (profileCombo.getItemCount() > 0) {
             profileCombo.setSelectedIndex(0);
-            onProfileSelected();
+            applyFirst = true;
         }
         ignoreProfileEvents = false;
+        // 必须在恢复事件之后再应用，否则 onProfileSelected 直接返回，首个配置从未被自动填入。
+        if (applyFirst) {
+            onProfileSelected();
+        }
     }
 
     private void onProfileSelected() {

@@ -70,6 +70,63 @@ class JsonPreferencesStoreTest {
                 () -> new JsonPreferencesStore<>(node, "k", null));
     }
 
+    /** 回归：两个带证书的 K8s 配置就超过 Preferences 单值 8192 字符上限，旧实现保存直接抛异常。 */
+    @Test
+    void payloadsLargerThanPreferencesLimitRoundTrip() throws Exception {
+        LinkedHashMap<String, KafkaProfile> profiles = new LinkedHashMap<>();
+        String pem = "-----BEGIN CERTIFICATE-----\n" + "A".repeat(6000) + "\n-----END CERTIFICATE-----";
+        for (int i = 0; i < 4; i++) {
+            profiles.put("cluster-" + i, new KafkaProfile("cluster-" + i, "h" + i + ":9092", pem + i));
+        }
+
+        store.save(profiles);
+
+        LinkedHashMap<String, KafkaProfile> loaded = store.load();
+        assertEquals(4, loaded.size());
+        assertEquals(pem + "3", loaded.get("cluster-3").customProperties);
+        for (String key : node.keys()) {
+            assertTrue(node.get(key, "").length() <= Preferences.MAX_VALUE_LENGTH, key);
+        }
+    }
+
+    @Test
+    void shrinkingBackToInlineRemovesStaleChunks() throws Exception {
+        LinkedHashMap<String, KafkaProfile> big = new LinkedHashMap<>();
+        big.put("big", new KafkaProfile("big", "h:9092", "x".repeat(20000)));
+        store.save(big);
+        assertTrue(node.keys().length > 1);
+
+        LinkedHashMap<String, KafkaProfile> small = new LinkedHashMap<>();
+        small.put("small", new KafkaProfile("small", "h:9092", null));
+        store.save(small);
+
+        assertEquals(List.of("profiles"), List.of(node.keys()));
+        assertEquals(List.of("small"), List.copyOf(store.load().keySet()));
+    }
+
+    @Test
+    void rewritingAChunkedPayloadDropsThePreviousGeneration() throws Exception {
+        LinkedHashMap<String, KafkaProfile> first = new LinkedHashMap<>();
+        first.put("a", new KafkaProfile("a", "h:9092", "1".repeat(20000)));
+        store.save(first);
+        int keysAfterFirst = node.keys().length;
+
+        LinkedHashMap<String, KafkaProfile> second = new LinkedHashMap<>();
+        second.put("b", new KafkaProfile("b", "h:9092", "2".repeat(20000)));
+        store.save(second);
+
+        assertEquals(keysAfterFirst, node.keys().length);
+        assertEquals("2".repeat(20000), store.load().get("b").customProperties);
+    }
+
+    /** 已有用户的数据是单值写法，升级后必须照常读出。 */
+    @Test
+    void readsLegacyInlinePayload() {
+        node.put("profiles", "{\"x\":{\"name\":\"x\",\"bootstrapServers\":\"h:1\"}}");
+
+        assertEquals("h:1", store.load().get("x").bootstrapServers);
+    }
+
     @Test
     void saveNullValueEntriesSurviveRoundTrip() {
         Map<String, KafkaProfile> profiles = new LinkedHashMap<>();

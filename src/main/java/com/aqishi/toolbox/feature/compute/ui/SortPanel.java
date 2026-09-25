@@ -108,6 +108,10 @@ public class SortPanel extends ToolPanel implements ManagedResourceOwner {
         });
 
         gen.addActionListener(e -> {
+            // 播放中生成新数据时先停掉动画，否则下一帧会把新数组覆盖回去。
+            if (sortTimer[0] != null && sortTimer[0].isRunning()) {
+                sortTimer[0].stop();
+            }
             int n = size.getValue();
             int[] arr = new int[n];
             for (int i = 0; i < n; i++) arr[i] = ThreadLocalRandom.current().nextInt(10, 100);
@@ -119,7 +123,8 @@ public class SortPanel extends ToolPanel implements ManagedResourceOwner {
         start.addActionListener(e -> {
             if (sortTimer[0] != null && sortTimer[0].isRunning()) return;
             int[] arr = canvas.array.clone();
-            Function<int[], Snapshot> sorter = pickSorter((String) algo.getSelectedItem());
+            String algorithmName = (String) algo.getSelectedItem();
+            Function<int[], Snapshot> sorter = pickSorter(algorithmName);
             Snapshot snap = sorter.apply(arr);
             // 播放快照
             final List<Frame> frames = snap.frames;
@@ -134,7 +139,7 @@ public class SortPanel extends ToolPanel implements ManagedResourceOwner {
                     ((Timer) ev.getSource()).stop();
                     canvas.resetHighlights(arr);
                     status.setText(String.format("完成 | 算法:%s | 比较:%d | 交换:%d | 耗时:%d ms",
-                            algo.getSelectedItem(), snap.compares, snap.swaps, snap.elapsed));
+                            algorithmName, snap.compares, snap.swaps, snap.elapsed));
                 }
             });
             sortTimer[0] = t;

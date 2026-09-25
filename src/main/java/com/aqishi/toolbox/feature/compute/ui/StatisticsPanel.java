@@ -6,6 +6,7 @@ import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Fields;
 import com.aqishi.toolbox.ui.kit.Layouts;
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -74,8 +75,15 @@ public class StatisticsPanel extends ToolPanel {
             sb.append(String.format("极差        : %.4f\n", max - min));
             sb.append(String.format("总体方差 σ²  : %.4f\n", var));
             sb.append(String.format("总体标准差 σ : %.4f\n", std));
-            sb.append(String.format("样本方差 s²  : %.4f\n", sq / (d.length - 1)));
-            sb.append(String.format("样本标准差 s : %.4f\n", Math.sqrt(sq / (d.length - 1))));
+            // 样本方差除以 N-1，只有一个数据时没有定义，显示 N/A 而不是 NaN。
+            String sampleVar = d.length > 1 ? String.format("%.4f", sq / (d.length - 1)) : "N/A";
+            String sampleStd = d.length > 1 ? String.format("%.4f", Math.sqrt(sq / (d.length - 1))) : "N/A";
+            sb.append(String.format("样本方差 s²  : %s\n", sampleVar));
+            sb.append(String.format("样本标准差 s : %s\n", sampleStd));
+            int skipped = countSkipped(input.getText());
+            if (skipped > 0) {
+                sb.append('\n').append(I18n.get("tool.statistics.skipped", skipped)).append('\n');
+            }
             out.setText(sb.toString());
         });
 
@@ -94,6 +102,17 @@ public class StatisticsPanel extends ToolPanel {
         clear.addActionListener(e -> { input.setText(""); out.setText(""); });
 
         return root;
+    }
+
+    /** 统计被 {@link #parse} 当作非数字而跳过的片段数，结果里要告诉用户，否则 N 会悄悄变少。 */
+    private static int countSkipped(String text) {
+        int skipped = 0;
+        for (String p : text.split("[,，\\s;；\n]+")) {
+            p = p.trim();
+            if (p.isEmpty()) continue;
+            try { Double.parseDouble(p); } catch (NumberFormatException notNumber) { skipped++; }
+        }
+        return skipped;
     }
 
     private static double[] parse(String text) {

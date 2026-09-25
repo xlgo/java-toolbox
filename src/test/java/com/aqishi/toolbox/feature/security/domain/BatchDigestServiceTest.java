@@ -83,4 +83,33 @@ class BatchDigestServiceTest {
         boolean tamperedValid = service.verifyFileSignature(testFile.toFile(), kp.getPublic(), signature, "SHA256withRSA");
         assertFalse(tamperedValid);
     }
+
+    /** 回归：endsWith 没有目录边界，data.txt 会命中清单里的 a.txt。 */
+    @Test
+    void manifestPathsMatchOnDirectoryBoundaries() {
+        File file = new File("/work/release/data.txt");
+        Map<String, String> manifest = new LinkedHashMap<>();
+        manifest.put("a.txt", "AAA");
+        manifest.put("release/data.txt", "DDD");
+
+        assertEquals("DDD", BatchDigestService.findByPath(file, manifest));
+        assertNull(BatchDigestService.findByPath(new File("/work/xa.txt"), Map.of("a.txt", "AAA")));
+    }
+
+    /** Windows 反斜杠路径与清单里的正斜杠路径应视为同一路径。 */
+    @Test
+    void manifestPathsIgnoreSeparatorStyle() {
+        assertEquals("X", BatchDigestService.findByPath(new File("/work/sub/f.bin"), Map.of("./sub\\f.bin", "X")));
+    }
+
+    /** 清单里有多个同名文件时不能按文件名随便挑第一条，否则会误报不匹配。 */
+    @Test
+    void basenameFallbackOnlyWhenUnambiguous() {
+        Map<String, String> manifest = new LinkedHashMap<>();
+        manifest.put("x/readme.md", "1");
+        manifest.put("y/readme.md", "2");
+
+        assertNull(BatchDigestService.findByPath(new File("/elsewhere/readme.md"), manifest));
+        assertEquals("1", BatchDigestService.findByPath(new File("/elsewhere/readme.md"), Map.of("x/readme.md", "1")));
+    }
 }

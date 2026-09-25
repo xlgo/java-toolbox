@@ -44,8 +44,9 @@ class CanvasPanel extends JPanel {
                     if (dtde.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.stringFlavor)) {
                         dtde.acceptDrop(DnDConstants.ACTION_COPY);
                         String shapeType = (String) dtde.getTransferable().getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor);
-                        Point dropPoint = dtde.getLocation();
-                        
+                        // 拖放事件不经过 processMouseEvent，拿到的是屏幕像素，需自行换算成模型坐标。
+                        Point dropPoint = getZoomedPoint(dtde.getLocation());
+
                         // 直接在拖放下的中心位置创建节点
                         CanvasPanel.this.parent.addNewNodeAt(shapeType, dropPoint);
                         dtde.dropComplete(true);
@@ -260,7 +261,8 @@ class CanvasPanel extends JPanel {
                     snapOffsetY = 0;
                 }
 
-                Point zoomPt = getZoomedPoint(e.getPoint());
+                // processMouseEvent 已把坐标换算成模型坐标，这里不能再除一次缩放比例。
+                Point zoomPt = e.getPoint();
                 if (CanvasPanel.this.parent.isConnecting && CanvasPanel.this.parent.connectSourceNode != null) {
                     completeConnection(zoomPt);
                     // 连线工具使用一次就自动恢复为选择模式
@@ -564,11 +566,9 @@ class CanvasPanel extends JPanel {
                     } else if (CanvasPanel.this.parent.selectedEdge != null) {
                         editEdgeLabel(CanvasPanel.this.parent.selectedEdge);
                     }
-                } else if (e.isControlDown() && e.getKeyCode() == KeyEvent.VK_Z) {
-                    CanvasPanel.this.parent.undo();
-                } else if (e.isControlDown() && e.getKeyCode() == KeyEvent.VK_Y) {
-                    CanvasPanel.this.parent.redo();
                 }
+                // Ctrl+Z / Ctrl+Y 由 FlowchartPanel 注册在窗口级的快捷键处理。这里再处理一次的话，
+                // 画布有焦点时（每次点击画布都会取得焦点）一次按键会撤销两步。
             }
         });
 
@@ -1485,6 +1485,7 @@ class CanvasPanel extends JPanel {
 
     // --- 拦截并对准缩放的鼠标事件 ---
 
+    /** 屏幕像素 → 模型坐标。只用于不经过 processMouseEvent 的输入（如拖放）。 */
     private Point getZoomedPoint(Point p) {
         double zoom = CanvasPanel.this.parent.zoomFactor;
         return new Point((int) (p.x / zoom), (int) (p.y / zoom));

@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.cloud.ui;
 
+import com.aqishi.toolbox.feature.cloud.domain.ExecStatus;
 import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.UIUtils;
 
@@ -53,6 +54,7 @@ final class K8sPodFileTransfer {
                 fos = new FileOutputStream(localFile);
                 final FileOutputStream finalFos = fos;
                 final StringBuilder stderr = new StringBuilder();
+                final StringBuilder execStatus = new StringBuilder();
 
                 String fullPath = execUrl(ctx, ns, podName, containerName,
                         "stdin=false&stdout=true&stderr=true&tty=false&command=cat"
@@ -83,8 +85,10 @@ final class K8sPodFileTransfer {
                                 } catch (IOException e) {
                                     // ignore
                                 }
-                            } else if (channel == 2 || channel == 3) { // stderr/error
+                            } else if (channel == 2) { // stderr
                                 stderr.append(new String(data, StandardCharsets.UTF_8));
+                            } else if (channel == 3) { // 命令结束状态（成功时也会发送）
+                                execStatus.append(new String(data, StandardCharsets.UTF_8));
                             }
                         }
                     }
@@ -107,10 +111,11 @@ final class K8sPodFileTransfer {
                 client.connect();
                 latch.await();
 
-                if (stderr.length() > 0) {
-                    errorMsg = stderr.toString();
-                } else {
+                ExecStatus status = ExecStatus.of(execStatus.toString(), stderr.toString());
+                if (status.isSuccess()) {
                     success = true;
+                } else {
+                    errorMsg = status.message();
                 }
             } catch (Exception ex) {
                 errorMsg = Errors.describeRoot(ex);
@@ -160,6 +165,7 @@ final class K8sPodFileTransfer {
             org.java_websocket.client.WebSocketClient client = null;
             try {
                 final StringBuilder stderr = new StringBuilder();
+                final StringBuilder execStatus = new StringBuilder();
 
                 String escapedPath = finalContainerPath.replace("'", "'\\''");
                 String fullPath = execUrl(ctx, ns, podName, containerName,
@@ -202,8 +208,10 @@ final class K8sPodFileTransfer {
                             byte channel = bytes.get();
                             byte[] data = new byte[bytes.remaining()];
                             bytes.get(data);
-                            if (channel == 2 || channel == 3) { // stderr/error
+                            if (channel == 2) { // stderr
                                 stderr.append(new String(data, StandardCharsets.UTF_8));
+                            } else if (channel == 3) { // 命令结束状态（成功时也会发送）
+                                execStatus.append(new String(data, StandardCharsets.UTF_8));
                             }
                         }
                     }
@@ -226,10 +234,11 @@ final class K8sPodFileTransfer {
                 client.connect();
                 latch.await();
 
-                if (stderr.length() > 0) {
-                    errorMsg = stderr.toString();
-                } else {
+                ExecStatus status = ExecStatus.of(execStatus.toString(), stderr.toString());
+                if (status.isSuccess()) {
                     success = true;
+                } else {
+                    errorMsg = status.message();
                 }
             } catch (Exception ex) {
                 errorMsg = Errors.describeRoot(ex);

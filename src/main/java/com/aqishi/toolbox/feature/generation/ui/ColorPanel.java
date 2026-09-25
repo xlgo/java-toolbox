@@ -111,15 +111,23 @@ public class ColorPanel extends ToolPanel {
         }
     }
 
+    /**
+     * 解析 {@code #RGB} / {@code #RRGGBB}（井号可省略）。
+     *
+     * <p>不能直接用 {@code Color.decode}：它把数字当整数解析，{@code #FFF} 成了 {@code 0x000FFF}（蓝色），
+     * 7 位或更长的输入则被静默截成低 24 位，都不报错。</p>
+     */
     private void fromHex(String text) {
-        try {
-            String t = text.trim();
-            if (!t.startsWith("#")) t = "#" + t;
-            Color c = Color.decode(t);
-            apply(c);
-        } catch (Exception ex) {
-            UIUtils.error(hexF, "HEX 解析失败");
+        String t = text.trim();
+        if (t.startsWith("#")) t = t.substring(1);
+        if (t.matches("[0-9A-Fa-f]{3}")) {
+            t = "" + t.charAt(0) + t.charAt(0) + t.charAt(1) + t.charAt(1) + t.charAt(2) + t.charAt(2);
         }
+        if (!t.matches("[0-9A-Fa-f]{6}")) {
+            UIUtils.error(hexF, "HEX 解析失败");
+            return;
+        }
+        apply(new Color(Integer.parseInt(t, 16)));
     }
 
     private void fromRgb(String text) {
@@ -184,7 +192,8 @@ public class ColorPanel extends ToolPanel {
             g = hue(p, q, h);
             b = hue(p, q, h - 1f / 3);
         }
-        return new Color(clamp((int) (r * 255)), clamp((int) (g * 255)), clamp((int) (b * 255)));
+        // 四舍五入而不是截断：截断时 hsl(0,0%,50%) 得 #7F7F7F 而不是 #808080。
+        return new Color(clamp(Math.round(r * 255)), clamp(Math.round(g * 255)), clamp(Math.round(b * 255)));
     }
 
     private static float hue(float p, float q, float t) {

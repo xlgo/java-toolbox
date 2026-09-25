@@ -256,7 +256,8 @@ public class ChmodPanel extends ToolPanel {
     private void applyOctalString(String str) {
         if (str == null) return;
         String clean = str.trim();
-        if (clean.startsWith("0")) clean = clean.substring(1);
+        // 不能无条件去掉一个前导 0：000、044、070 这类三位权限会被截成两位而被拒绝。
+        // "0755" 本身就是合法的四位写法（特殊位为 0），无需特殊处理。
         if (!clean.matches("^[0-7]{3,4}$")) return;
 
         isUpdatingFromCode = true;

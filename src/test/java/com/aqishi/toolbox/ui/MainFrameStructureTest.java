@@ -69,10 +69,19 @@ class MainFrameStructureTest {
                 assertHeaderLayout(frame);
 
                 JLabel title = named(frame, "workbench.title", JLabel.class);
-                title.setText("en_US".equals(locale)
+                String probe = "en_US".equals(locale)
                         ? "JSON formatting and deeply nested structured data transformation workbench"
-                        : "JSON 格式化与多层嵌套结构化数据转换工作台：完整工具名称显示测试");
+                        : "JSON 格式化与多层嵌套结构化数据转换工作台：完整工具名称显示测试";
+                // 字体度量因平台而异：CI 的 xvfb 没有 Windows 字体，同一句话在 1024 宽下可能放得下。
+                // 重复探针直到它确实超宽，保证每个平台都测到截断场景。
+                StringBuilder text = new StringBuilder(probe);
+                title.setText(text.toString());
                 frame.validate();
+                for (int i = 0; i < 8 && title.getPreferredSize().width <= title.getWidth(); i++) {
+                    text.append(' ').append(probe);
+                    title.setText(text.toString());
+                    frame.validate();
+                }
                 assertTrue(title.getPreferredSize().width > title.getWidth(),
                         "the regression probe must exercise a title that needs clipping");
                 assertHeaderLayout(frame);

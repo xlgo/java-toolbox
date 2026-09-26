@@ -14,6 +14,7 @@ import com.aqishi.toolbox.ui.kit.FormGrid;
 import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -49,6 +50,11 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
     private JTextField signSanField;
     private JSpinner signYearsSpinner;
     private JTextArea signCertOut, signKeyOut;
+    /** 国密双证书：勾选后多签发一张 SM2 加密证书，输出区多出一行。 */
+    private JCheckBox signDualCheck;
+    private JTextArea encCertOut, encKeyOut;
+    private Card outCertCard, outKeyCard;
+    private JPanel signGrid, caRow, outRow, encRow;
 
     // ==================== Tab 3: 证书解析 ====================
     private JTextArea parseInputArea;
@@ -143,8 +149,12 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
         JButton createBtn = Buttons.primary("生成根证书");
         JButton clearBtn = Buttons.ghost("清空");
 
+        JPanel rootConfigBody = Layouts.box(0, Tokens.SPACE_SM);
+        rootConfigBody.add(Layouts.columns(Tokens.SPACE_XL, left, right), BorderLayout.CENTER);
+        rootConfigBody.add(sm2Hint(rootAlgCombo), BorderLayout.SOUTH);
+
         Card config = Card.titled("根证书配置");
-        config.setContent(Layouts.columns(Tokens.SPACE_XL, left, right));
+        config.setContent(rootConfigBody);
         config.addHeaderAction(clearBtn);
         config.addHeaderAction(createBtn);
 
@@ -195,7 +205,10 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
         signYearsSpinner = Fields.spinner(2, 1, 50, 1);
 
         FormGrid left = new FormGrid();
-        left.rowCompact("密钥算法：", signAlgCombo);
+        signDualCheck = Fields.check(I18n.get("tool.cert.sm2.dual"), false);
+        signDualCheck.setToolTipText(I18n.get("tool.cert.sm2.dual.tip"));
+        signDualCheck.setEnabled(false);
+        left.rowCompact("密钥算法：", Layouts.wrapRow(Tokens.SPACE_SM, 0, signAlgCombo, signDualCheck));
         left.row("通用名称：", signCnField);
         left.row("组织：", signOField);
         left.row("部门：", signOuField);
@@ -214,7 +227,10 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
 
         JPanel configBody = Layouts.box(0, Tokens.SPACE_SM);
         configBody.add(Layouts.columns(Tokens.SPACE_XL, left, right), BorderLayout.NORTH);
-        configBody.add(sanForm, BorderLayout.SOUTH);
+        JPanel sanAndHint = Layouts.box(0, Tokens.SPACE_SM);
+        sanAndHint.add(sanForm, BorderLayout.CENTER);
+        sanAndHint.add(sm2Hint(signAlgCombo), BorderLayout.SOUTH);
+        configBody.add(sanAndHint, BorderLayout.SOUTH);
 
         JButton signBtn = Buttons.primary("签发证书");
 
@@ -241,20 +257,48 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
         JButton signKeyDlBtn = Buttons.secondary("下载私钥");
         signKeyDlBtn.addActionListener(e -> downloadPem(signKeyOut.getText(), "server.key"));
 
-        Card outCertCard = Card.flush("证书");
+        outCertCard = Card.flush(I18n.get("tool.cert.out.cert"));
         outCertCard.setContent(Fields.scroll(signCertOut));
         outCertCard.addHeaderAction(signCertDlBtn);
 
-        Card outKeyCard = Card.flush("私钥");
+        outKeyCard = Card.flush(I18n.get("tool.cert.out.key"));
         outKeyCard.setContent(Fields.scroll(signKeyOut));
         outKeyCard.addHeaderAction(signKeyDlBtn);
 
+        encCertOut = Fields.output(6, 30);
+        encKeyOut = Fields.output(6, 30);
+        JButton encCertDlBtn = Buttons.secondary(I18n.get("tool.cert.btn.downloadCert"));
+        encCertDlBtn.addActionListener(e -> downloadPem(encCertOut.getText(), "server_enc.crt"));
+        JButton encKeyDlBtn = Buttons.secondary(I18n.get("tool.cert.btn.downloadKey"));
+        encKeyDlBtn.addActionListener(e -> downloadPem(encKeyOut.getText(), "server_enc.key"));
+
+        Card encCertCard = Card.flush(I18n.get("tool.cert.out.encCert"));
+        encCertCard.setContent(Fields.scroll(encCertOut));
+        encCertCard.addHeaderAction(encCertDlBtn);
+        Card encKeyCard = Card.flush(I18n.get("tool.cert.out.encKey"));
+        encKeyCard.setContent(Fields.scroll(encKeyOut));
+        encKeyCard.addHeaderAction(encKeyDlBtn);
+
+        caRow = Layouts.columns(Tokens.SPACE_LG, caCertCard, caKeyCard);
+        outRow = Layouts.columns(Tokens.SPACE_LG, outCertCard, outKeyCard);
+        encRow = Layouts.columns(Tokens.SPACE_LG, encCertCard, encKeyCard);
+        signGrid = Layouts.box();
+        layoutSignOutputs(false);
+
         p.add(config, BorderLayout.NORTH);
-        p.add(Layouts.rows(Tokens.SPACE_LG,
-                Layouts.columns(Tokens.SPACE_LG, caCertCard, caKeyCard),
-                Layouts.columns(Tokens.SPACE_LG, outCertCard, outKeyCard)), BorderLayout.CENTER);
+        p.add(signGrid, BorderLayout.CENTER);
 
         signBtn.addActionListener(e -> doSignCertificate());
+        // 双证书只对 SM2 叶子有意义：切到其它算法时取消勾选并收起加密证书一行
+        signAlgCombo.addActionListener(e -> {
+            boolean sm2 = isSm2Selected();
+            signDualCheck.setEnabled(sm2);
+            if (!sm2 && signDualCheck.isSelected()) {
+                signDualCheck.setSelected(false);
+                layoutSignOutputs(false);
+            }
+        });
+        signDualCheck.addActionListener(e -> layoutSignOutputs(signDualCheck.isSelected()));
 
         return p;
     }
@@ -754,6 +798,39 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
         }
     }
 
+    /**
+     * 选中 SM2 时才出现的说明：本工具按国标使用默认用户 ID，而上游 OpenSSL 默认用空 ID，
+     * 不加参数去验证会报签名失败，用户很容易误以为证书签坏了。
+     */
+    private static JComponent sm2Hint(JComboBox<String> algorithmCombo) {
+        JLabel hint = Fields.caption("<html>" + I18n.get("tool.cert.sm2.opensslHint") + "</html>");
+        hint.setVisible("SM2".equals(algorithmCombo.getSelectedItem()));
+        algorithmCombo.addActionListener(e -> {
+            hint.setVisible("SM2".equals(algorithmCombo.getSelectedItem()));
+            hint.revalidate();
+        });
+        return hint;
+    }
+
+    private boolean isSm2Selected() {
+        return "SM2".equals(signAlgCombo.getSelectedItem());
+    }
+
+    /**
+     * 重建签发页的 PEM 网格。GridLayout 会给隐藏组件照样留出格子，
+     * 所以双证书的第三行只能增删，不能靠 setVisible 切换。
+     */
+    private void layoutSignOutputs(boolean dual) {
+        outCertCard.setTitle(I18n.get(dual ? "tool.cert.out.signCert" : "tool.cert.out.cert"));
+        outKeyCard.setTitle(I18n.get(dual ? "tool.cert.out.signKey" : "tool.cert.out.key"));
+        signGrid.removeAll();
+        signGrid.add(dual
+                ? Layouts.rows(Tokens.SPACE_LG, caRow, outRow, encRow)
+                : Layouts.rows(Tokens.SPACE_LG, caRow, outRow), BorderLayout.CENTER);
+        signGrid.revalidate();
+        signGrid.repaint();
+    }
+
     private void doSignCertificate() {
         try {
             String caCertPem = signCaCertArea.getText().trim();
@@ -779,11 +856,21 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
                 return;
             }
 
-            CertUtils.CertResult result = CertUtils.signCertificate(
-                    caCertPem, caKeyPem, alg, cn, o, ou, l, st, c, san, years);
-
-            signCertOut.setText(result.getCertificatePem());
-            signKeyOut.setText(result.getPrivateKeyPem());
+            encCertOut.setText("");
+            encKeyOut.setText("");
+            if (signDualCheck.isSelected() && isSm2Selected()) {
+                CertUtils.Sm2DualCertResult dual = CertUtils.signSm2DualCertificates(
+                        caCertPem, caKeyPem, cn, o, ou, l, st, c, san, years);
+                signCertOut.setText(dual.getSigning().getCertificatePem());
+                signKeyOut.setText(dual.getSigning().getPrivateKeyPem());
+                encCertOut.setText(dual.getEncryption().getCertificatePem());
+                encKeyOut.setText(dual.getEncryption().getPrivateKeyPem());
+            } else {
+                CertUtils.CertResult result = CertUtils.signCertificate(
+                        caCertPem, caKeyPem, alg, cn, o, ou, l, st, c, san, years);
+                signCertOut.setText(result.getCertificatePem());
+                signKeyOut.setText(result.getPrivateKeyPem());
+            }
 
             UIUtils.info(signCertOut, "✅ 证书签发成功！");
         } catch (Exception ex) {

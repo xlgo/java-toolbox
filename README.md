@@ -16,7 +16,7 @@
 | 加密 | 对称加密 | AES / DES / 3DES / SM4（推荐 AES-GCM；支持 CBC，ECB 仅用于历史兼容，含 PKCS5 填充与文本密钥生成） |
 | 加密 | 非对称加密 | RSA / SM2（支持密钥对生成、公钥加密/私钥解密、私钥签名/公钥验签） |
 | 加密 | 文件批量摘要与签名 | 最多 4 文件受限并发的流式摘要、校验清单核对，以及文件数字签名与验签 |
-| 加密 | CSR / PKCS#12 / 证书链检查 | 解析 CSR 并自验签、检查 PKCS#12 密钥库、诊断多级 X.509 证书链 |
+| 加密 | CSR / PKCS#12 / 证书链检查 | 解析 CSR 并自验签、检查 PKCS#12 密钥库、诊断多级 X.509 证书链；支持国密 SM2 / SM3withSM2 证书，能识别上游 OpenSSL 默认的空 SM2 用户 ID 签名并提示不符合国标 |
 | 加密 | Webhook 签名验证 | 内置 GitHub / GitLab / Stripe / Slack / 钉钉 / 飞书 / 企业微信 / 微信支付 v3 预设，摊开「待签串 + 算法 + 编码」逐字比对，恒定时间校验并提示重放窗口 |
 | 加密 | JWK / JWKS 工具 | 解析 JWK / JWKS（RSA / EC / Ed25519 / oct），计算 RFC 7638 指纹并提示私钥泄露；JWK 与 PEM 互转；支持 OIDC Discovery 在线拉取 JWKS；用公钥验证 RS / PS / ES / EdDSA / HS 签名的 JWT，校验 exp / nbf / iat / iss / aud，拒绝 `none`、`crit` 与算法混淆 |
 | 转换 | 进制与编码 | 二/八/十/十六进制互转（二进制 4 位自动分组美化），UTF-8/GBK/URL 编码 |
@@ -48,7 +48,7 @@
 | 开发工具 | OpenAPI 工作台 | 导入 OpenAPI 3 / Swagger 2.0 规范，浏览端点、编辑参数、在线调试与导出 cURL |
 | 开发工具 | 回调 Mock | 启动临时 HTTP 服务器接收回调请求，自定义响应状态码与内容，实时回显请求详情 |
 | 开发工具 | 颜色转换 | HEX / RGB / HSL 互转，集成 **JColorChooser 调色板** 与 **一键复制** |
-| 开发工具 | 证书管理 | X.509 证书管理：支持根证书创建、子证书签发、证书解析，以及 **ACME v2 免费证书自动申请**（支持 Let's Encrypt / ZeroSSL，集成 Cloudflare API 自动挂载/清理 TXT 记录、DNS-01/HTTP-01 验证、倒计时保护及一键打包 Zip 导出） |
+| 开发工具 | 证书管理 | X.509 证书管理：支持根证书创建、子证书签发、证书解析（RSA / EC / **国密 SM2**，SM2 使用 SM3withSM2 签名与 GM/T 0009 默认用户 ID，可一次签发 TLCP 所需的 SM2 签名 + 加密双证书），以及 **ACME v2 免费证书自动申请**（支持 Let's Encrypt / ZeroSSL，集成 Cloudflare API 自动挂载/清理 TXT 记录、DNS-01/HTTP-01 验证、倒计时保护及一键打包 Zip 导出） |
 | 开发工具 | K8s 部署生成 | Kubernetes 资源 YAML 生成器，支持 Deployment / Service / Ingress（含 TLS）/ ConfigMap 实时预览与导出 |
 | 开发工具 | Redis 管理 | Redis 连接管理与键浏览器（列表/树形双视图），支持值编辑与命令控制台操作 |
 | 开发工具 | 流程图与时序图设计 | 现代化流程图与时序图设计器，支持流程节点、生命线、激活条。支持多选拖动、节点修改文字、双击编辑、高阶撤销/重做（Ctrl+Z / Ctrl+Y）、中键/空白处拖拽画布滚动与 Ctrl+滚轮丝滑缩放，以及鼠标悬停节点控制点直接拖拽出连线吸附的极速连线交互，支持 PNG 导出 |

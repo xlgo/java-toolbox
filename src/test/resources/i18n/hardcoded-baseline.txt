@@ -2,7 +2,7 @@
 # 重新生成（注意引号，PowerShell 下不加会被拆参）：
 #   mvn "-Dtest=I18nHardcodedTextTest" "-Di18n.baseline.write=true" test
 # 这些数字只应随国际化推进而下降。
-# 当前：131 个文件，待迁移 3533 条，另有数据语料 445 条（不需要国际化）。
+# 当前：131 个文件，待迁移 3531 条，另有数据语料 445 条（不需要国际化）。
 com/aqishi/toolbox/Main.java=8
 com/aqishi/toolbox/catalog/ToolCatalog.java=268
 com/aqishi/toolbox/feature/cloud/application/KubernetesResourceApplyService.java=10
@@ -110,7 +110,7 @@ com/aqishi/toolbox/feature/security/ui/AccountManagerPanel.java=36
 com/aqishi/toolbox/feature/security/ui/AsymmetricPanel.java=51
 com/aqishi/toolbox/feature/security/ui/BatchDigestPanel.java=60
 com/aqishi/toolbox/feature/security/ui/CertInspectorPanel.java=76
-com/aqishi/toolbox/feature/security/ui/CertPanel.java=133
+com/aqishi/toolbox/feature/security/ui/CertPanel.java=131
 com/aqishi/toolbox/feature/security/ui/CryptoPanel.java=10
 com/aqishi/toolbox/feature/security/ui/JwtPanel.java=37
 com/aqishi/toolbox/feature/security/ui/TotpPanel.java=25

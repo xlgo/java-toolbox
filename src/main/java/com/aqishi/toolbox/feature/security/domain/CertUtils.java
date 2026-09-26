@@ -8,23 +8,21 @@ import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.asn1.x509.*;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
-import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.openssl.PEMKeyPair;
 import org.bouncycastle.openssl.PEMParser;
-import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 
 import com.aqishi.toolbox.util.Hex;
+import com.aqishi.toolbox.util.I18n;
 
 import javax.security.auth.x500.X500Principal;
 import java.io.*;
 import java.math.BigInteger;
 import java.net.InetAddress;
 import java.security.*;
-import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAPublicKey;
@@ -33,16 +31,20 @@ import java.util.*;
 /**
  * 证书工具类：根证书创建、证书签发、证书解析、PEM 编解码。
  * <p>使用 JDK 内置 RSA/EC 密钥生成 + BouncyCastle bcpkix 证书构建。
- * 不注册 BouncyCastleProvider，避免加载数百个加密服务占用内存。</p>
+ * 不注册 BouncyCastleProvider，避免加载数百个加密服务占用内存；
+ * 国密 SM2 走 {@link GmCrypto}，只在 SM2 相关调用上显式传入 provider 实例。</p>
  */
 public class CertUtils {
 
     // ===========================================================
     //  支持的密钥算法
     // ===========================================================
-    public static final String[] KEY_ALGORITHMS = {"RSA 2048", "RSA 4096", "EC P-256", "EC P-384", "EC P-521"};
-    public static final String[] KEY_ALG_INTERNAL = {"RSA", "RSA", "EC", "EC", "EC"};
-    public static final int[] KEY_SIZES = {2048, 4096, 256, 384, 521};
+    public static final String[] KEY_ALGORITHMS = {"RSA 2048", "RSA 4096", "EC P-256", "EC P-384", "EC P-521", "SM2"};
+    public static final String[] KEY_ALG_INTERNAL = {"RSA", "RSA", "EC", "EC", "EC", "SM2"};
+    public static final int[] KEY_SIZES = {2048, 4096, 256, 384, 521, 256};
+
+    /** 国密双证书中的一张：签名证书只做数字签名，加密证书用于密钥交换（GB/T 38636 TLCP）。 */
+    public enum Sm2Usage { SIGN, ENCRYPT }
 
     // ===========================================================
     //  1. 创建自签名根证书
@@ -57,7 +59,7 @@ public class CertUtils {
     public static CertResult createRootCA(int keyAlgIndex, String cn, String o, String ou,
                                            String l, String st, String c, int years) throws Exception {
         KeyPair keyPair = generateKeyPair(keyAlgIndex);
-        String sigAlg = (KEY_ALG_INTERNAL[keyAlgIndex].equals("EC")) ? "SHA256withECDSA" : "SHA256withRSA";
+        String sigAlg = signatureAlgorithmFor(keyPair.getPrivate());
 
         X500Name issuerName = buildX500Name(cn, o, ou, l, st, c);
 
@@ -81,12 +83,7 @@ public class CertUtils {
         builder.addExtension(Extension.subjectKeyIdentifier, false,
                 createSubjectKeyId(keyPair.getPublic()));
 
-        ContentSigner signer = new JcaContentSignerBuilder(sigAlg)
-                .build(keyPair.getPrivate());
-        X509CertificateHolder holder = builder.build(signer);
-        X509Certificate cert = new JcaX509CertificateConverter()
-                .getCertificate(holder);
-
+        X509Certificate cert = sign(builder, sigAlg, keyPair.getPrivate());
         return new CertResult(cert, keyPair.getPrivate());
     }
 
@@ -105,9 +102,53 @@ public class CertUtils {
         int idx = indexOfKeyAlg(keyAlgLabel);
         if (idx < 0) throw new IllegalArgumentException("不支持的密钥算法: " + keyAlgLabel);
         KeyPair keyPair = generateKeyPair(idx);
+        // 密钥用法：RSA 为数字签名 + 密钥加密；EC / SM2 密钥不能做 RSA 式的密钥加密，只声明数字签名。
+        int keyUsage = "RSA".equals(KEY_ALG_INTERNAL[idx])
+                ? KeyUsage.digitalSignature | KeyUsage.keyEncipherment
+                : KeyUsage.digitalSignature;
+        X509Certificate cert = issueLeaf(caCert, caKey, keyPair.getPublic(), keyUsage,
+                cn, o, ou, l, st, c, sanDns, years);
+        return new CertResult(cert, keyPair.getPrivate());
+    }
+
+    /**
+     * 签发国密双证书：同一主体的 SM2 签名证书与 SM2 加密证书，各有独立密钥。
+     *
+     * <p>国密 TLS（GB/T 38636 TLCP，GmSSL / 铜锁 / 国密版 Nginx）要求服务端同时配置两套证书：
+     * 签名证书只声明 digitalSignature，用于握手签名；加密证书声明 keyEncipherment、
+     * dataEncipherment 与 keyAgreement，用于 SM2 密钥交换。两张证书共用 CA、主体与 SAN。</p>
+     */
+    public static Sm2DualCertResult signSm2DualCertificates(
+            String caCertPem, String caKeyPem,
+            String cn, String o, String ou,
+            String l, String st, String c,
+            String sanDns, int years) throws Exception {
+        X509Certificate caCert = parseCertFromPem(caCertPem);
+        PrivateKey caKey = parseCaPrivateKey(caKeyPem, caCert);
+
+        KeyPair signKeys = GmCrypto.generateKeyPair();
+        KeyPair encKeys = GmCrypto.generateKeyPair();
+        X509Certificate signCert = issueLeaf(caCert, caKey, signKeys.getPublic(),
+                keyUsageFor(Sm2Usage.SIGN), cn, o, ou, l, st, c, sanDns, years);
+        X509Certificate encCert = issueLeaf(caCert, caKey, encKeys.getPublic(),
+                keyUsageFor(Sm2Usage.ENCRYPT), cn, o, ou, l, st, c, sanDns, years);
+        return new Sm2DualCertResult(new CertResult(signCert, signKeys.getPrivate()),
+                new CertResult(encCert, encKeys.getPrivate()));
+    }
+
+    static int keyUsageFor(Sm2Usage usage) {
+        return usage == Sm2Usage.SIGN
+                ? KeyUsage.digitalSignature
+                : KeyUsage.keyEncipherment | KeyUsage.dataEncipherment | KeyUsage.keyAgreement;
+    }
+
+    /** 由 CA 签发终端证书；签名算法跟随 CA 私钥，与叶子密钥的算法无关。 */
+    private static X509Certificate issueLeaf(X509Certificate caCert, PrivateKey caKey, PublicKey leafKey,
+                                             int keyUsage, String cn, String o, String ou,
+                                             String l, String st, String c,
+                                             String sanDns, int years) throws Exception {
         // 签名由 CA 私钥完成，算法必须跟 CA 密钥走：RSA 根证书签 EC 叶子时用 SHA256withECDSA 会直接失败。
         String sigAlg = signatureAlgorithmFor(caKey);
-        boolean ecLeaf = KEY_ALG_INTERNAL[idx].equals("EC");
 
         X500Name subjectName = buildX500Name(cn, o, ou, l, st, c);
         X500Principal subjectPrincipal = new X500Principal(subjectName.toString());
@@ -120,20 +161,17 @@ public class CertUtils {
         // 由中间 CA 签发时颁发者就成了根证书的名字，证书链无法构建。
         X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
                 caCert.getSubjectX500Principal(),
-                serial, notBefore, notAfter, subjectPrincipal, keyPair.getPublic());
+                serial, notBefore, notAfter, subjectPrincipal, leafKey);
 
         // 终端证书：非 CA
         builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
-        // 密钥用法：RSA 为数字签名 + 密钥加密；EC 密钥不能做密钥加密，只声明数字签名。
-        builder.addExtension(Extension.keyUsage, true,
-                new KeyUsage(ecLeaf ? KeyUsage.digitalSignature
-                        : KeyUsage.digitalSignature | KeyUsage.keyEncipherment));
+        builder.addExtension(Extension.keyUsage, true, new KeyUsage(keyUsage));
         // 扩展密钥用法：macOS / iOS 要求 TLS 证书声明 serverAuth。
         builder.addExtension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(
                 new KeyPurposeId[]{KeyPurposeId.id_kp_serverAuth, KeyPurposeId.id_kp_clientAuth}));
         // 主题密钥标识
         builder.addExtension(Extension.subjectKeyIdentifier, false,
-                createSubjectKeyId(keyPair.getPublic()));
+                createSubjectKeyId(leafKey));
         // 颁发机构密钥标识
         builder.addExtension(Extension.authorityKeyIdentifier, false,
                 createAuthorityKeyId(caCert));
@@ -179,13 +217,19 @@ public class CertUtils {
             }
         }
 
-        ContentSigner signer = new JcaContentSignerBuilder(sigAlg)
-                .build(caKey);
-        X509CertificateHolder holder = builder.build(signer);
-        X509Certificate cert = new JcaX509CertificateConverter()
-                .getCertificate(holder);
+        return sign(builder, sigAlg, caKey);
+    }
 
-        return new CertResult(cert, keyPair.getPrivate());
+    /** 签名并转换为 JCA 证书；SM2 私钥与涉及 SM2 的证书交给 BouncyCastle。 */
+    private static X509Certificate sign(X509v3CertificateBuilder builder, String sigAlg,
+                                        PrivateKey signingKey) throws Exception {
+        JcaContentSignerBuilder signerBuilder = new JcaContentSignerBuilder(sigAlg);
+        if (GmCrypto.isSm2(signingKey)) {
+            signerBuilder.setProvider(GmCrypto.provider());
+        }
+        ContentSigner signer = signerBuilder.build(signingKey);
+        X509CertificateHolder holder = builder.build(signer);
+        return GmCrypto.parseCertificate(holder.getEncoded());
     }
 
     /**
@@ -198,7 +242,9 @@ public class CertUtils {
         try {
             return parsePrivateKeyFromPem(pem);
         } catch (Exception unreadable) {
-            if (!(caCert.getPublicKey() instanceof java.security.interfaces.ECPublicKey ecPublic)) {
+            // 这条兜底只针对旧版导出的 NIST 曲线私钥；SM2 私钥从未以那种格式导出过
+            if (!(caCert.getPublicKey() instanceof java.security.interfaces.ECPublicKey ecPublic)
+                    || GmCrypto.isSm2(ecPublic)) {
                 throw unreadable;
             }
             Object parsed;
@@ -215,8 +261,11 @@ public class CertUtils {
         }
     }
 
-    /** 按签名私钥选择签名算法。 */
-    private static String signatureAlgorithmFor(PrivateKey signingKey) {
+    /** 按签名私钥选择签名算法。SM2 私钥的 JCA 算法名也是 "EC"，必须先按曲线区分出来。 */
+    static String signatureAlgorithmFor(PrivateKey signingKey) {
+        if (GmCrypto.isSm2(signingKey)) {
+            return GmCrypto.SIGNATURE_ALGORITHM;
+        }
         String algorithm = signingKey.getAlgorithm();
         return "EC".equalsIgnoreCase(algorithm) || "ECDSA".equalsIgnoreCase(algorithm)
                 ? "SHA256withECDSA" : "SHA256withRSA";
@@ -290,8 +339,7 @@ public class CertUtils {
                 .replaceAll("-----END[^-]+-----", "")
                 .replaceAll("\\s", "");
         byte[] der = Base64.getDecoder().decode(b64);
-        CertificateFactory cf = CertificateFactory.getInstance("X.509");
-        return (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(der));
+        return GmCrypto.parseCertificate(der);
     }
 
     public static PrivateKey parsePrivateKeyFromPem(String pem) throws Exception {
@@ -299,12 +347,12 @@ public class CertUtils {
         Object obj = parser.readObject();
         parser.close();
 
-        JcaPEMKeyConverter converter = new JcaPEMKeyConverter();
-
+        // SEC1（EC PRIVATE KEY，GmSSL / 铜锁默认输出）与 PKCS#8 都会落到 PrivateKeyInfo，
+        // 由 GmCrypto 按曲线决定交给 JDK 还是 BouncyCastle
         if (obj instanceof PrivateKeyInfo) {
-            return converter.getPrivateKey((PrivateKeyInfo) obj);
+            return GmCrypto.toPrivateKey((PrivateKeyInfo) obj);
         } else if (obj instanceof PEMKeyPair) {
-            return converter.getPrivateKey(((PEMKeyPair) obj).getPrivateKeyInfo());
+            return GmCrypto.toPrivateKey(((PEMKeyPair) obj).getPrivateKeyInfo());
         } else {
             throw new IllegalArgumentException("无法识别的私钥格式: "
                     + (obj == null ? "null" : obj.getClass().getName())
@@ -322,6 +370,9 @@ public class CertUtils {
      */
     public static KeyPair generateKeyPair(int idx) throws Exception {
         String algorithm = KEY_ALG_INTERNAL[idx];
+        if ("SM2".equals(algorithm)) {
+            return GmCrypto.generateKeyPair();
+        }
         int size = KEY_SIZES[idx];
         KeyPairGenerator kpg = KeyPairGenerator.getInstance(algorithm);
         if ("EC".equals(algorithm)) {
@@ -401,6 +452,20 @@ public class CertUtils {
         public String getPrivateKeyPem() throws IOException { return toPemPrivateKey(privateKey); }
     }
 
+    /** 国密双证书签发结果 */
+    public static class Sm2DualCertResult {
+        private final CertResult signing;
+        private final CertResult encryption;
+
+        public Sm2DualCertResult(CertResult signing, CertResult encryption) {
+            this.signing = signing;
+            this.encryption = encryption;
+        }
+
+        public CertResult getSigning() { return signing; }
+        public CertResult getEncryption() { return encryption; }
+    }
+
     /** 证书解析信息 */
     public static class CertInfo {
         private final String subject;
@@ -420,6 +485,8 @@ public class CertUtils {
         private final boolean isCA;
         private final boolean hasDigitalSignature;
         private final boolean hasKeyEncipherment;
+        private final boolean hasDataEncipherment;
+        private final boolean hasKeyAgreement;
         private final boolean hasKeyCertSign;
         private final String rawPem;
 
@@ -433,7 +500,9 @@ public class CertUtils {
             this.notBefore = cert.getNotBefore();
             this.notAfter = cert.getNotAfter();
             this.expired = new Date().after(cert.getNotAfter());
-            this.publicKeyAlgorithm = cert.getPublicKey().getAlgorithm();
+            // SM2 公钥的 JCA 算法名是 "EC"，单看它会把国密证书误报成 NIST 曲线证书
+            this.publicKeyAlgorithm = GmCrypto.isSm2(cert.getPublicKey())
+                    ? "SM2" : cert.getPublicKey().getAlgorithm();
             this.publicKeySize = getKeySize(cert.getPublicKey());
 
             this.md5Fingerprint = fingerprint(cert.getEncoded(), "MD5");
@@ -447,6 +516,8 @@ public class CertUtils {
             boolean[] keyUsage = cert.getKeyUsage();
             this.hasDigitalSignature = keyUsage != null && keyUsage.length > 0 && keyUsage[0];
             this.hasKeyEncipherment = keyUsage != null && keyUsage.length > 2 && keyUsage[2];
+            this.hasDataEncipherment = keyUsage != null && keyUsage.length > 3 && keyUsage[3];
+            this.hasKeyAgreement = keyUsage != null && keyUsage.length > 4 && keyUsage[4];
             this.hasKeyCertSign = keyUsage != null && keyUsage.length > 5 && keyUsage[5];
 
             int pathLen = cert.getBasicConstraints();
@@ -470,6 +541,8 @@ public class CertUtils {
         public boolean isCA() { return isCA; }
         public boolean hasDigitalSignature() { return hasDigitalSignature; }
         public boolean hasKeyEncipherment() { return hasKeyEncipherment; }
+        public boolean hasDataEncipherment() { return hasDataEncipherment; }
+        public boolean hasKeyAgreement() { return hasKeyAgreement; }
         public boolean hasKeyCertSign() { return hasKeyCertSign; }
         public String getRawPem() { return rawPem; }
 
@@ -492,6 +565,8 @@ public class CertUtils {
             List<String> usage = new ArrayList<>();
             if (hasDigitalSignature) usage.add("数字签名");
             if (hasKeyEncipherment) usage.add("密钥加密");
+            if (hasDataEncipherment) usage.add(I18n.get("tool.cert.usage.dataEncipherment"));
+            if (hasKeyAgreement) usage.add(I18n.get("tool.cert.usage.keyAgreement"));
             if (hasKeyCertSign) usage.add("证书签名");
             sb.append(usage.isEmpty() ? "未指定" : String.join(", ", usage)).append("\n");
 

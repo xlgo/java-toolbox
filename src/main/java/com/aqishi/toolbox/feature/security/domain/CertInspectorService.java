@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.security.domain;
 
 import com.aqishi.toolbox.util.Errors;
+import com.aqishi.toolbox.util.I18n;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.pkcs.Attribute;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
@@ -9,7 +10,6 @@ import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.GeneralNames;
 import org.bouncycastle.openssl.PEMParser;
-import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 import org.bouncycastle.operator.ContentVerifierProvider;
 import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -18,7 +18,6 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.cert.Certificate;
-import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAPublicKey;
@@ -145,9 +144,12 @@ public class CertInspectorService {
         info.setSignatureAlgorithm(req.getSignatureAlgorithm().getAlgorithm().getId());
 
         // 公钥提取与校验
-        JcaPEMKeyConverter converter = new JcaPEMKeyConverter();
-        PublicKey publicKey = converter.getPublicKey(req.getSubjectPublicKeyInfo());
-        if (publicKey instanceof RSAPublicKey) {
+        PublicKey publicKey = GmCrypto.toPublicKey(req.getSubjectPublicKeyInfo());
+        if (GmCrypto.isSm2(publicKey)) {
+            // SM2 公钥的 JCA 算法名也是 EC，先按曲线区分，否则国密 CSR 会被报成 NIST 曲线
+            info.setPublicKeyAlgorithm("SM2");
+            info.setKeySize(256);
+        } else if (publicKey instanceof RSAPublicKey) {
             info.setPublicKeyAlgorithm("RSA");
             info.setKeySize(((RSAPublicKey) publicKey).getModulus().bitLength());
         } else if (publicKey instanceof ECPublicKey) {
@@ -160,7 +162,11 @@ public class CertInspectorService {
 
         // 自签名校验（Proof-of-Possession 证明拥有对应私钥）
         try {
-            ContentVerifierProvider verifierProvider = new JcaContentVerifierProviderBuilder().build(publicKey);
+            JcaContentVerifierProviderBuilder verifierBuilder = new JcaContentVerifierProviderBuilder();
+            if (GmCrypto.isSm2(publicKey)) {
+                verifierBuilder.setProvider(GmCrypto.provider());
+            }
+            ContentVerifierProvider verifierProvider = verifierBuilder.build(publicKey);
             info.setSignatureValid(req.isSignatureValid(verifierProvider));
         } catch (Exception ex) {
             info.setSignatureValid(false);
@@ -197,10 +203,7 @@ public class CertInspectorService {
             throw new IllegalArgumentException("PKCS#12 数据不能为空");
         }
 
-        KeyStore ks = KeyStore.getInstance("PKCS12");
-        try (InputStream is = new ByteArrayInputStream(p12Bytes)) {
-            ks.load(is, password != null ? password : new char[0]);
-        }
+        KeyStore ks = loadPkcs12(p12Bytes, password);
 
         List<Pkcs12EntryInfo> list = new ArrayList<>();
         Enumeration<String> aliases = ks.aliases();
@@ -236,7 +239,7 @@ public class CertInspectorService {
                 entry.setIssuer(head.getIssuerX500Principal().getName());
                 entry.setNotBefore(formatDate(head.getNotBefore()));
                 entry.setNotAfter(formatDate(head.getNotAfter()));
-                entry.setKeyAlg(head.getPublicKey().getAlgorithm());
+                entry.setKeyAlg(GmCrypto.isSm2(head.getPublicKey()) ? "SM2" : head.getPublicKey().getAlgorithm());
             }
 
             if (isKey) {
@@ -262,16 +265,8 @@ public class CertInspectorService {
             throw new IllegalArgumentException("证书内容不能为空");
         }
 
-        CertificateFactory cf = CertificateFactory.getInstance("X.509");
-        Collection<? extends Certificate> certs = cf.generateCertificates(
-                new ByteArrayInputStream(pemsContent.getBytes(StandardCharsets.UTF_8)));
-
-        List<X509Certificate> chain = new ArrayList<>();
-        for (Certificate c : certs) {
-            if (c instanceof X509Certificate) {
-                chain.add((X509Certificate) c);
-            }
-        }
+        List<X509Certificate> chain = GmCrypto.parseCertificates(
+                pemsContent.getBytes(StandardCharsets.UTF_8));
         return validateCertificateChain(chain);
     }
 
@@ -320,8 +315,9 @@ public class CertInspectorService {
             X509Certificate parent = sorted.get(i + 1);
 
             try {
-                child.verify(parent.getPublicKey());
+                GmCrypto.Sm2SignerId signerId = GmCrypto.verifyReportingId(child, parent.getPublicKey());
                 res.getLogs().add(String.format("✓ Level %d 证书签名由上级 Level %d 签发验证通过", i, i + 1));
+                warnOnEmptySm2Id(res, signerId, i);
             } catch (Exception ex) {
                 res.getLogs().add(String.format("✗ Level %d 签名验证失败（非 Level %d 公钥签发）: %s", i, i + 1, ex.getMessage()));
                 allValid = false;
@@ -337,8 +333,9 @@ public class CertInspectorService {
         X509Certificate root = sorted.get(sorted.size() - 1);
         if (root.getSubjectX500Principal().equals(root.getIssuerX500Principal())) {
             try {
-                root.verify(root.getPublicKey());
+                GmCrypto.Sm2SignerId signerId = GmCrypto.verifyReportingId(root, root.getPublicKey());
                 res.getLogs().add("✓ 根证书 (Root CA) 为有效自签证书 (Self-Signed Root)");
+                warnOnEmptySm2Id(res, signerId, sorted.size() - 1);
             } catch (Exception ex) {
                 res.getLogs().add("✗ 根证书自签校验失败: " + ex.getMessage());
                 allValid = false;
@@ -349,6 +346,35 @@ public class CertInspectorService {
 
         res.setValid(allValid);
         return res;
+    }
+
+    /** 空 SM2 用户 ID 的签名密码学上有效，不判失败，但要说明它不符合国标、国密生态可能拒绝。 */
+    private static void warnOnEmptySm2Id(ChainValidationResult res, GmCrypto.Sm2SignerId signerId, int level) {
+        if (signerId == GmCrypto.Sm2SignerId.EMPTY) {
+            res.getLogs().add(I18n.get("tool.certinspector.sm2EmptyId", level));
+        }
+    }
+
+    /**
+     * 加载 PKCS#12。JDK 解不开国密密钥库（SM2 私钥、SM2 证书）时改用 BouncyCastle；
+     * 口令错误在两边都会失败，最终抛出 JDK 的原始异常，提示信息不变。
+     */
+    private static KeyStore loadPkcs12(byte[] p12Bytes, char[] password) throws Exception {
+        char[] secret = password != null ? password : new char[0];
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        try (InputStream is = new ByteArrayInputStream(p12Bytes)) {
+            ks.load(is, secret);
+            return ks;
+        } catch (Exception jdkFailure) {
+            KeyStore bc = KeyStore.getInstance("PKCS12", GmCrypto.provider());
+            try (InputStream is = new ByteArrayInputStream(p12Bytes)) {
+                bc.load(is, secret);
+                return bc;
+            } catch (Exception bcFailure) {
+                jdkFailure.addSuppressed(bcFailure);
+                throw jdkFailure;
+            }
+        }
     }
 
     private List<X509Certificate> sortChain(List<X509Certificate> input) {

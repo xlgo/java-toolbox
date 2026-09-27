@@ -1,0 +1,5 @@
+udp   UNCONN 0      0      127.0.0.53%lo:53        0.0.0.0:*
+tcp   LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*
+tcp   LISTEN 0      511          0.0.0.0:80        0.0.0.0:*
+tcp   LISTEN 0      50                 *:8080            *:*    users:(("java",pid=1234,fd=56))
+tcp   LISTEN 0      128             [::]:22           [::]:*

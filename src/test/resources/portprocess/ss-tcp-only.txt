@@ -1,0 +1,5 @@
+State      Recv-Q Send-Q Local Address:Port   Peer Address:Port  Process
+LISTEN     0      128          0.0.0.0:22          0.0.0.0:*      users:(("sshd",pid=900,fd=3))
+ESTAB      0      36          10.0.0.5:22         10.0.0.1:51234  users:(("sshd",pid=4321,fd=4))
+CLOSE-WAIT 1      0          127.0.0.1:41000     127.0.0.1:8080
+SYN-RECV   0      0           10.0.0.5:443      203.0.113.7:61000

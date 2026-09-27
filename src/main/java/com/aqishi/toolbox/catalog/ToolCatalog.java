@@ -70,6 +70,9 @@ public final class ToolCatalog {
             "转义", "反转义", "Escape", "Unescape", "Unicode", "\\u", "HTML实体", "Entity",
             "JSON字符串", "Java字符串", "native2ascii", "驼峰", "下划线", "camelCase", "snake_case",
             "kebab-case", "命名", "Naming");
+    public static final ToolDescriptor FILE_ENCODING = tool("file.encoding", "codec",
+            "编码", "文件编码", "GBK", "UTF-8", "GB2312", "GB18030", "BOM", "乱码", "乱码修复", "换行符",
+            "CRLF", "LF", "Encoding", "Charset", "Mojibake");
     public static final ToolDescriptor REGEX_TESTER = tool("regex.tester", "codec",
             "Regex", "正则表达式", "匹配", "正则", "正则匹配", "正则测试", "Pattern");
     public static final ToolDescriptor TEXT_DIFF = tool("text.diff", "codec",
@@ -129,6 +132,13 @@ public final class ToolCatalog {
     public static final ToolDescriptor THREAD_DUMP = tool("thread.dump", "system",
             "Thread Dump", "jstack", "jcmd", "线程", "线程转储", "死锁", "Deadlock", "锁竞争",
             "BLOCKED", "堆栈", "JVM");
+    public static final ToolDescriptor PORT_PROCESS = tool("port.process", "system",
+            "端口", "端口占用", "进程", "Port", "Process", "PID", "netstat", "lsof", "ss", "kill",
+            "taskkill", "结束进程", "8080");
+    public static final ToolDescriptor JAR_INSPECTOR = tool("jar.inspector", "system",
+            "JAR", "Class", "字节码", "class版本", "major version", "Unsupported class file major version",
+            "MANIFEST", "Spring Boot", "fat jar", "依赖冲突", "重复类", "类冲突", "找类",
+            "ClassNotFoundException", "NoSuchMethodError");
 
     public static final ToolDescriptor DATA_GENERATOR = tool("data.generator", "generation",
             "生成", "Generator", "数据", "密码", "UUID", "假数据", "Mock");
@@ -139,6 +149,9 @@ public final class ToolCatalog {
     public static final ToolDescriptor DDL_ENTITY = tool("ddl.entity", "generation",
             "DDL", "CREATE TABLE", "实体", "Entity", "POJO", "JavaBean", "Lombok", "JPA", "MyBatis",
             "MyBatis-Plus", "代码生成", "建表语句", "Record");
+    public static final ToolDescriptor ID_TOOLKIT = tool("id.toolkit", "generation",
+            "雪花", "雪花ID", "Snowflake", "UUID", "UUIDv7", "ULID", "ObjectId", "MongoDB", "KSUID", "NanoID",
+            "分布式ID", "ID解析", "Leaf", "UidGenerator", "Sonyflake", "MyBatis-Plus");
 
     public static final ToolDescriptor CALCULATOR = tool("calculator", "compute",
             "表达式", "求值", "计算器", "Calc", "数学", "函数", "sqrt", "pow");
@@ -171,12 +184,13 @@ public final class ToolCatalog {
             JWK_TOOL,
             RADIX_ENCODING, TIMESTAMP, BASE64_IMAGE, URL_TOOL,
             FORMAT_CONVERT, JSON_FORMAT, XML_FORMAT, SQL_FORMAT, STRING_TOOL, TEXT_ESCAPE, REGEX_TESTER,
-            TEXT_DIFF, JSONPATH_TESTER, XPATH_TOOL,
+            TEXT_DIFF, JSONPATH_TESTER, XPATH_TOOL, FILE_ENCODING,
             HTTP_CLIENT, OPENAPI_WORKBENCH, CALLBACK_MOCK, WEBSOCKET_CLIENT, MQTT_CLIENT, SUBNET_CALC,
             PORT_SCANNER, NET_DIAGNOSTICS, SSH,
             DATABASE_CONNECTOR, REDIS_MANAGEMENT, KAFKA_CONNECTOR, ZOOKEEPER_MANAGEMENT,
             DOCKER_CONVERT, K8S_DEPLOYMENT, K8S_MANAGER, CHMOD_CALC, CRON_PARSER, HOSTS_MANAGER,
-            WECHAT_SENDER, LOG_VIEWER, THREAD_DUMP, DATA_GENERATOR, QRCODE, COLOR_CONVERT, DDL_ENTITY,
+            WECHAT_SENDER, LOG_VIEWER, THREAD_DUMP, PORT_PROCESS, JAR_INSPECTOR,
+            DATA_GENERATOR, QRCODE, COLOR_CONVERT, DDL_ENTITY, ID_TOOLKIT,
             CALCULATOR, STATISTICS,
             SORT_VISUALIZER, SEARCH_ALGORITHM, HANOI, PINGAME, BPMN_DESIGNER, MERMAID, FLOWCHART,
             VIDEO_MONITOR, REMOTE_DESKTOP));

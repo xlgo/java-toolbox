@@ -1,0 +1,9 @@
+
+Aktive Verbindungen
+
+  Proto  Lokale Adresse         Remoteadresse          Status           PID
+  TCP    0.0.0.0:135            0.0.0.0:0              ABHÖREN         968
+  TCP    192.168.178.20:50433   52.113.194.132:443     HERGESTELLT     11240
+  TCP    192.168.178.20:50501   93.184.216.34:80       WARTEND         0
+  TCP    192.168.178.20:50502   93.184.216.34:80       SCHLIESSEN_WARTEN  11240
+  UDP    0.0.0.0:5050           *:*                                    7412

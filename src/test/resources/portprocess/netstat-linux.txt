@@ -1,0 +1,10 @@
+Active Internet connections (servers and established)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name
+tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      900/sshd
+tcp        0      0 127.0.0.1:5432          0.0.0.0:*               LISTEN      -
+tcp        0      0 10.0.0.5:22             10.0.0.1:51234          ESTABLISHED 4321/sshd: alice [p
+tcp6       0      0 :::80                   :::*                    LISTEN      1000/nginx: master
+tcp6       0      0 ::1:631                 :::*                    LISTEN      631/cupsd
+udp        0      0 0.0.0.0:68              0.0.0.0:*                           812/dhclient
+udp6       0      0 :::546                  :::*                                -
+udp        0      0 10.0.0.5:40000          8.8.8.8:53              ESTABLISHED 2222/Web Content

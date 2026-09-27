@@ -1,0 +1,9 @@
+COMMAND     PID   USER   FD   TYPE  DEVICE SIZE/OFF NODE NAME
+sshd        900   root    3u  IPv4   21345      0t0  TCP *:22 (LISTEN)
+sshd        900   root    4u  IPv6   21347      0t0  TCP *:22 (LISTEN)
+nginx      1000   root    6u  IPv4   23456      0t0  TCP *:80 (LISTEN)
+nginx      1001 www-data  6u  IPv4   23456      0t0  TCP *:80 (LISTEN)
+systemd-r   612 systemd-resolve   13u  IPv4   19876      0t0  UDP 127.0.0.53:53
+java       1234    app   56u  IPv6   40001      0t0  TCP *:8080 (LISTEN)
+java       1234    app   57u  IPv6   40002      0t0  TCP [::ffff:10.0.0.5]:8080->[::ffff:10.0.0.9]:50112 (ESTABLISHED)
+java       1234    app   58u  IPv6   40003      0t0  TCP 10.0.0.5:8080->10.0.0.10:50113 (CLOSE_WAIT)

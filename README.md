@@ -27,6 +27,7 @@
 | 转换 | JSONPath 查询 | 基于 JSONPath 的字段提取、切片/过滤查询、路径列表模式与错误定位 |
 | 转换 | XPath / XSLT | XPath 表达式求值（节点集/字符串/数值/布尔与命名空间自动映射）与 XSLT 样式表转换，解析关闭外部实体 |
 | 转换 | 转义与命名风格 | Java / JSON / JavaScript / Unicode / HTML / XML / CSV / SQL / 正则 / Properties 十种格式的转义与反转义，出错时定位到具体字符，可选宽松模式；camelCase / snake_case / kebab-case 等 14 种命名风格互转，正确处理缩写与数字 |
+| 转换 | 文件编码转换 | 自动识别 UTF-8 / GBK / GB18030 / UTF-16 / Big5 / Shift_JIS 等编码并给出置信度；按目录批量转换（先扫描预览、低置信度需人工确认、可备份、原子写入），统一 BOM 与换行符；另有乱码修复，还原 `ä¸­æ–‡` 这类二次解码乱码，并识别无法恢复的「锟斤拷」 |
 | 算法 | 排序可视化 | 冒泡/选择/插入/快排/归并，逐帧动画 + 统计 |
 | 算法 | 查找算法 | 二分查找（区间收缩过程）+ 线性查找 |
 | 算法 | 汉诺塔 | 汉诺塔交互演示，支持手动拖盘与自动动画播放 |
@@ -62,6 +63,7 @@
 | 生成 | 动态验证码 (TOTP) | 与密码管理共用锁定会话，支持密钥/链接导入、自适应账号展示与安全复制 |
 | 生成 | 随机测试数据生成 | 批量生成模拟测试数据，包含百家姓姓名、手机号、电子邮箱、地址、身份证号与银行卡号 |
 | 生成 | DDL 转 Java 实体 | 解析 MySQL / PostgreSQL / Oracle / SQL Server 建表语句（含 COMMENT、COMMENT ON、复合主键），生成 Lombok / 普通 JavaBean / Record 实体，可选 JPA（jakarta / javax）或 MyBatis-Plus 注解与 MyBatis resultMap，支持批量保存为文件 |
+| 生成 | 分布式 ID 工具 | 粘贴任意 ID 自动识别并解析时间戳：雪花 ID（Twitter / MyBatis-Plus / Hutool / 百度 UidGenerator / Sonyflake / Discord 预设及自定义位布局）、UUID v1/v3/v4/v5/v6/v7、ULID、MongoDB ObjectId、KSUID；支持批量生成，可视化雪花位布局与容量 |
 | 运维 | SSH 客户端 | 服务器连接管理与分组树展示，支持多会话交互终端与 SFTP 文件传输 |
 | 运维 | 数据库管理 | 多数据库管理客户端（支持 MySQL / PostgreSQL / Oracle / SQLite / H2 等），数据库树形浏览、SQL 执行与结果导出 |
 | 运维 | Hosts 环境管理 | 系统 Hosts 文件管理，支持多套 Dev/QA/Staging 环境规则定义、一键开关应用与 DNS 缓存刷新 |
@@ -72,6 +74,8 @@
 | 运维 | 端口扫描 | 端口扫描与网络连通性诊断，支持预设端口组（Web / DB / 运维）、自定义范围、并发扫描与已知服务识别 |
 | 运维 | K8s 集群管理 | 多集群管理，Kubeconfig 导入与 Namespace 切换，浏览 Pod/Deployment/Service/ConfigMap/Node，日志追踪，Exec 容器终端，以及**容器文件上传与下载** |
 | 运维 | 线程转储分析 | 解析 jstack / jcmd / kill -3 输出（含 JDK 21 JSON 格式与多份转储），按状态统计、死锁检测（监视器与 ReentrantLock）、锁竞争排行、相同栈分组、线程池聚合、热点方法，以及多份转储间的卡死线程对比 |
+| 运维 | 端口与进程 | 查看端口占用及对应进程（Windows netstat / tasklist，macOS lsof，Linux ss），按端口、范围或进程过滤，查看命令行，确认后结束进程或进程树；检查端口是否空闲，权限不足时给出提示 |
+| 运维 | JAR / Class 分析 | 解析 class 文件（编译版本、预览特性、字段与方法签名），分析 JAR / WAR / Spring Boot fat jar 的 MANIFEST、Maven 坐标、最低 Java 版本与内嵌依赖；在目录中搜索类所在的 jar，检测重复类并区分内容是否一致 |
 | 监控 | 视频监控 | 视频监控面板，支持多路画面分屏布局、格子合并拆分与设备树管理 |
 | 监控 | 远程桌面 | 纯 P2P 远程控制桌面，优先采用 ice4j 完整 ICE 状态机进行 UDP 双向打洞（多 STUN、triggered check、peer-reflexive candidate、角色冲突处理与候选对提名），失败后尝试带 UPnP/NAT-PMP 的 TCP 直连；不配置 TURN，信令服务器不转发桌面数据 |
 | 其它 | 微信群发与通讯录 | 微信群发，以及自适应读取微信 SQLite 通讯录（展示昵称、备注、微信号、头像，支持 Excel 导出、一键追加群发、头像批量下载） |

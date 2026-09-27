@@ -1,0 +1,21 @@
+[0.008s][info][gc] Using Parallel
+[0.500s][info][gc,start    ] GC(0) Pause Young (Allocation Failure)
+[0.507s][info][gc,heap     ] GC(0) PSYoungGen: 65536K(76288K)->10720K(76288K) Eden: 65536K(65536K)->0K(65536K) From: 0K(10752K)->10720K(10752K)
+[0.507s][info][gc,heap     ] GC(0) ParOldGen: 0K(175104K)->8K(175104K)
+[0.507s][info][gc,metaspace] GC(0) Metaspace: 1000K(1216K)->1000K(1216K) NonClass: 900K(1024K)->900K(1024K) Class: 100K(192K)->100K(192K)
+[0.507s][info][gc          ] GC(0) Pause Young (Allocation Failure) 64M->10M(245M) 7.000ms
+[0.507s][info][gc,cpu      ] GC(0) User=0.02s Sys=0.01s Real=0.01s
+[1.500s][info][gc,start    ] GC(1) Pause Young (Allocation Failure)
+[1.510s][info][gc,heap     ] GC(1) PSYoungGen: 76256K(76288K)->10700K(76288K) Eden: 65536K(65536K)->0K(65536K) From: 10720K(10752K)->10700K(10752K)
+[1.510s][info][gc,heap     ] GC(1) ParOldGen: 8K(175104K)->20488K(175104K)
+[1.510s][info][gc          ] GC(1) Pause Young (Allocation Failure) 74M->30M(245M) 10.000ms
+[1.510s][info][gc,cpu      ] GC(1) User=0.03s Sys=0.00s Real=0.01s
+[3.000s][info][gc,start    ] GC(2) Pause Full (Ergonomics)
+[3.100s][info][gc,phases   ] GC(2) Marking Phase 60.000ms
+[3.130s][info][gc,phases   ] GC(2) Summary Phase 0.500ms
+[3.200s][info][gc,phases   ] GC(2) Compaction Phase 39.000ms
+[3.200s][info][gc,heap     ] GC(2) PSYoungGen: 10700K(76288K)->0K(76288K) Eden: 0K(65536K)->0K(65536K) From: 10700K(10752K)->0K(10752K)
+[3.200s][info][gc,heap     ] GC(2) ParOldGen: 170000K(175104K)->40000K(175104K)
+[3.200s][info][gc          ] GC(2) Pause Full (Ergonomics) 176M->39M(245M) 200.000ms
+[3.200s][info][gc,cpu      ] GC(2) User=0.60s Sys=0.01s Real=0.20s
+[4.000s][info][gc          ] GC(3) Pause Full (Metadata GC Threshold) 50M->40M(245M) 80.000ms

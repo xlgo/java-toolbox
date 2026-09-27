@@ -1,0 +1,10 @@
+﻿[0.500s][info][gc] Using Serial
+[1.000s][info][gc] GC(0) Pause Young (Allocation Failure) 20M->5M(64M) 3.000ms
+Starting application on host-1 ...
+[main] INFO com.example.App - Started in 2.1 seconds
+[2.000s][info][gc] GC(1) Pause Young (Allocation Failure) 25M->8M(64M) 4.000ms
+[3.000s][info][gc] GC(2) Pause Full (Allocation Failure) 60M->20M(64M) 40.000ms
+this line is garbage -> 12M(3M)
+[0.600s][info][gc] Using Serial
+[1.200s][info][gc] GC(0) Pause Young (Allocation Failure) 22M->6M(64M) 5.000ms
+[2.200s][info][gc] GC(1) Pause Young (Allocation Failure) 26M->9M(64M) 6.000ms

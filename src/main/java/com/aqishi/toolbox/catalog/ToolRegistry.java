@@ -34,6 +34,7 @@ import com.aqishi.toolbox.feature.codec.ui.JsonPanel;
 import com.aqishi.toolbox.feature.codec.ui.JsonPathPanel;
 import com.aqishi.toolbox.feature.codec.ui.XPathPanel;
 import com.aqishi.toolbox.feature.network.ui.NetDiagnosticsPanel;
+import com.aqishi.toolbox.feature.network.ui.HttpBenchPanel;
 import com.aqishi.toolbox.feature.security.ui.WebhookSignaturePanel;
 import com.aqishi.toolbox.feature.security.ui.JwkPanel;
 import com.aqishi.toolbox.feature.codec.ui.TextEscapePanel;
@@ -41,6 +42,7 @@ import com.aqishi.toolbox.feature.system.ui.ThreadDumpPanel;
 import com.aqishi.toolbox.feature.generation.ui.DdlEntityPanel;
 import com.aqishi.toolbox.feature.codec.ui.FileEncodingPanel;
 import com.aqishi.toolbox.feature.system.ui.PortProcessPanel;
+import com.aqishi.toolbox.feature.system.ui.GcLogPanel;
 import com.aqishi.toolbox.feature.system.ui.JarInspectorPanel;
 import com.aqishi.toolbox.feature.generation.ui.IdToolkitPanel;
 import com.aqishi.toolbox.feature.security.ui.JwtPanel;
@@ -50,6 +52,7 @@ import com.aqishi.toolbox.feature.data.ui.KafkaPanel;
 import com.aqishi.toolbox.feature.diagram.ui.MermaidPanel;
 import com.aqishi.toolbox.feature.generation.ui.DataGeneratorPanel;
 import com.aqishi.toolbox.feature.network.ui.MqttClientPanel;
+import com.aqishi.toolbox.feature.network.ui.SocketDebugPanel;
 import com.aqishi.toolbox.feature.network.ui.PortScannerPanel;
 import com.aqishi.toolbox.feature.generation.ui.QrCodePanel;
 import com.aqishi.toolbox.feature.data.ui.RedisPanel;
@@ -155,9 +158,11 @@ public final class ToolRegistry {
         factories.put("callback.mock", context -> new CallbackTestPanel());
         factories.put("websocket.client", context -> new WebSocketClientPanel());
         factories.put("mqtt.client", context -> new MqttClientPanel());
+        factories.put("socket.debug", context -> new SocketDebugPanel());
         factories.put("subnet.calc", context -> new SubnetPanel());
         factories.put("port.scanner", context -> new PortScannerPanel());
         factories.put("net.diagnostics", context -> new NetDiagnosticsPanel());
+        factories.put("http.bench", context -> new HttpBenchPanel());
         // SSH 凭据与其他连接工具一样进保险库；安装到共享的 SshConfigStore，隧道也能用。
         factories.put("ssh", context -> new VaultAwareSshClientPanel(
                 VaultSecretStore.of(context.getVaultService())));
@@ -179,6 +184,7 @@ public final class ToolRegistry {
         factories.put("wechat.sender", context -> new WeChatPanel());
         factories.put("log.viewer", context -> new LogViewerPanel());
         factories.put("thread.dump", context -> new ThreadDumpPanel());
+        factories.put("gc.log", context -> new GcLogPanel());
         factories.put("port.process", context -> new PortProcessPanel());
         factories.put("jar.inspector", context -> new JarInspectorPanel());
         factories.put("data.generator", context -> new DataGeneratorPanel());

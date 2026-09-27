@@ -1,0 +1,14 @@
+Java HotSpot(TM) 64-Bit Server VM (25.301-b09) for linux-amd64 JRE (1.8.0_301-b09), built on Jun  9 2021 06:46:21 by "java_re" with gcc 7.3.0
+Memory: 4k page, physical 16318084k(1234567k free), swap 0k(0k free)
+CommandLine flags: -XX:InitialHeapSize=2147483648 -XX:MaxHeapSize=2147483648 -XX:+PrintGC -XX:+PrintGCDateStamps -XX:+PrintGCDetails -XX:+PrintGCTimeStamps -XX:+UseParallelGC
+2024-05-01T10:00:01.234+0800: 1.234: [GC (Allocation Failure) [PSYoungGen: 524800K->12345K(611840K)] 524800K->12353K(2010112K), 0.0123456 secs] [Times: user=0.05 sys=0.00, real=0.01 secs]
+2024-05-01T10:00:03.234+0800: 3.234: [GC (Allocation Failure) [PSYoungGen: 537145K->20000K(611840K)] 537153K->40000K(2010112K), 0.0200000 secs] [Times: user=0.08 sys=0.00, real=0.02 secs]
+2024-05-01T10:00:05.234+0800: 5.234: [GC (System.gc()) [PSYoungGen: 100000K->5000K(611840K)] 120000K->25000K(2010112K), 0.0050000 secs] [Times: user=0.01 sys=0.00, real=0.01 secs]
+2024-05-01T10:00:05.239+0800: 5.239: [Full GC (System.gc()) [PSYoungGen: 5000K->0K(611840K)] [ParOldGen: 20000K->18000K(1398272K)] 25000K->18000K(2010112K), [Metaspace: 30000K->30000K(1077248K)], 0.1000000 secs] [Times: user=0.30 sys=0.01, real=0.10 secs]
+2024-05-01T10:00:09.234+0800: 9.234: [Full GC (Ergonomics) [PSYoungGen: 12345K->0K(611840K)] [ParOldGen: 1398000K->200000K(1398272K)] 1410345K->200000K(2010112K), [Metaspace: 30000K->30000K(1077248K)], 0.5123456 secs] [Times: user=1.50 sys=0.01, real=0.51 secs]
+2024-05-01T10:00:09.750+0800: 9.750: Total time for which application threads were stopped: 0.5130000 seconds, Stopping threads took: 0.0001000 seconds
+Heap
+ PSYoungGen      total 611840K, used 10485K [0x00000000d5580000, 0x0000000100000000, 0x0000000100000000)
+  eden space 524800K, 2% used [0x00000000d5580000,0x00000000d5fbd4f8,0x00000000f5600000)
+ ParOldGen       total 1398272K, used 200000K [0x0000000080000000, 0x00000000d5580000, 0x00000000d5580000)
+ Metaspace       used 30000K, capacity 30500K, committed 30720K, reserved 1077248K

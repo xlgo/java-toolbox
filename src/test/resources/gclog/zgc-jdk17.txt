@@ -1,0 +1,36 @@
+[0.010s][info][gc,init] Initializing The Z Garbage Collector
+[0.010s][info][gc,init] Version: 17.0.2+8-86 (release)
+[0.010s][info][gc,init] Max Capacity: 1024M
+[0.012s][info][gc     ] Using The Z Garbage Collector
+[1.000s][info][gc,start    ] GC(0) Garbage Collection (Warmup)
+[1.000s][info][gc,phases   ] GC(0) Pause Mark Start 0.012ms
+[1.020s][info][gc,phases   ] GC(0) Concurrent Mark 19.500ms
+[1.021s][info][gc,phases   ] GC(0) Pause Mark End 0.030ms
+[1.021s][info][gc,phases   ] GC(0) Concurrent Mark Free 0.001ms
+[1.023s][info][gc,phases   ] GC(0) Concurrent Process Non-Strong References 1.800ms
+[1.023s][info][gc,phases   ] GC(0) Concurrent Reset Relocation Set 0.001ms
+[1.030s][info][gc,phases   ] GC(0) Concurrent Select Relocation Set 6.500ms
+[1.030s][info][gc,phases   ] GC(0) Pause Relocate Start 0.020ms
+[1.040s][info][gc,phases   ] GC(0) Concurrent Relocate 9.800ms
+[1.040s][info][gc,load     ] GC(0) Load: 0.50/0.40/0.30
+[1.040s][info][gc,mmu      ] GC(0) MMU: 2ms/99.0%, 5ms/99.6%, 10ms/99.7%, 20ms/99.8%, 50ms/99.9%, 100ms/100.0%
+[1.040s][info][gc,marking  ] GC(0) Mark: 2 stripe(s), 2 proactive flush(es), 1 terminate flush(es), 0 completion(s), 0 continuation(s)
+[1.040s][info][gc,heap     ] GC(0)                Mark Start          Mark End        Relocate Start      Relocate End           High               Low
+[1.040s][info][gc,heap     ] GC(0)  Capacity:     1024M (100%)       1024M (100%)       1024M (100%)       1024M (100%)       1024M (100%)       1024M (100%)
+[1.040s][info][gc,heap     ] GC(0)      Used:      200M (20%)         220M (21%)         230M (22%)         100M (10%)         230M (22%)          98M (10%)
+[1.040s][info][gc          ] GC(0) Garbage Collection (Warmup) 200M(20%)->100M(10%)
+[3.000s][info][gc,start    ] GC(1) Garbage Collection (Allocation Rate)
+[3.000s][info][gc,phases   ] GC(1) Pause Mark Start 0.015ms
+[3.030s][info][gc,phases   ] GC(1) Concurrent Mark 29.000ms
+[3.031s][info][gc,phases   ] GC(1) Pause Mark End 0.040ms
+[3.040s][info][gc,phases   ] GC(1) Pause Relocate Start 0.025ms
+[3.041s][info][gc          ] Allocation Stall (http-nio-8080-exec-1) 12.500ms
+[3.042s][info][gc          ] Allocation Stall (main) 3.500ms
+[3.060s][info][gc,phases   ] GC(1) Concurrent Relocate 19.000ms
+[3.060s][info][gc,heap     ] GC(1)  Capacity:     1024M (100%)       1024M (100%)       1024M (100%)       1024M (100%)       1024M (100%)       1024M (100%)
+[3.060s][info][gc          ] GC(1) Garbage Collection (Allocation Rate) 800M(78%)->300M(29%)
+[5.000s][info][gc,start    ] GC(2) Garbage Collection (Proactive)
+[5.000s][info][gc,phases   ] GC(2) Pause Mark Start 0.010ms
+[5.001s][info][gc,phases   ] GC(2) Pause Mark End 0.020ms
+[5.002s][info][gc,phases   ] GC(2) Pause Relocate Start 0.018ms
+[5.010s][info][gc          ] GC(2) Garbage Collection (Proactive) 400M(39%)->320M(31%)

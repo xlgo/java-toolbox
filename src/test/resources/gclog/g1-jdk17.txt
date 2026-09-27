@@ -1,0 +1,67 @@
+[2024-05-01T10:00:00.005+0800][0.005s][info][gc,init] Version: 17.0.9+9 (release)
+[2024-05-01T10:00:00.005+0800][0.005s][info][gc,init] CPUs: 8 total, 8 available
+[2024-05-01T10:00:00.005+0800][0.005s][info][gc,init] Memory: 16G
+[2024-05-01T10:00:00.005+0800][0.005s][info][gc,init] Large Page Support: Disabled
+[2024-05-01T10:00:00.005+0800][0.005s][info][gc,init] NUMA Support: Disabled
+[2024-05-01T10:00:00.005+0800][0.005s][info][gc,init] Compressed Oops: Enabled (Zero based)
+[2024-05-01T10:00:00.005+0800][0.005s][info][gc,init] Heap Region Size: 1M
+[2024-05-01T10:00:00.005+0800][0.005s][info][gc,init] Heap Min Capacity: 256M
+[2024-05-01T10:00:00.005+0800][0.005s][info][gc,init] Heap Initial Capacity: 256M
+[2024-05-01T10:00:00.005+0800][0.005s][info][gc,init] Heap Max Capacity: 256M
+[2024-05-01T10:00:00.005+0800][0.005s][info][gc,init] Pre-touch: Disabled
+[2024-05-01T10:00:00.005+0800][0.005s][info][gc,init] Parallel Workers: 8
+[2024-05-01T10:00:00.004+0800][0.004s][info][gc     ] Using G1
+[2024-05-01T10:00:00.010+0800][0.010s][info][gc,metaspace] CDS archive(s) mapped at: [0x0000000800000000-0x0000000800bc0000-0x0000000800bc0000), size 12320768, SharedBaseAddress: 0x0000000800000000, ArchiveRelocationMode: 0.
+[2024-05-01T10:00:01.000+0800][1.000s][info][gc,start    ] GC(0) Pause Young (Normal) (G1 Evacuation Pause)
+[2024-05-01T10:00:01.000+0800][1.000s][info][gc,task     ] GC(0) Using 8 workers of 8 for evacuation
+[2024-05-01T10:00:01.004+0800][1.004s][info][gc,phases   ] GC(0)   Pre Evacuate Collection Set: 0.1ms
+[2024-05-01T10:00:01.004+0800][1.004s][info][gc,phases   ] GC(0)   Merge Heap Roots: 0.1ms
+[2024-05-01T10:00:01.004+0800][1.004s][info][gc,phases   ] GC(0)   Evacuate Collection Set: 3.2ms
+[2024-05-01T10:00:01.004+0800][1.004s][info][gc,phases   ] GC(0)   Post Evacuate Collection Set: 0.4ms
+[2024-05-01T10:00:01.004+0800][1.004s][info][gc,phases   ] GC(0)   Other: 0.2ms
+[2024-05-01T10:00:01.004+0800][1.004s][info][gc,heap     ] GC(0) Eden regions: 24->0(20)
+[2024-05-01T10:00:01.004+0800][1.004s][info][gc,heap     ] GC(0) Survivor regions: 0->3(3)
+[2024-05-01T10:00:01.004+0800][1.004s][info][gc,heap     ] GC(0) Old regions: 0->1
+[2024-05-01T10:00:01.004+0800][1.004s][info][gc,heap     ] GC(0) Archive regions: 2->2
+[2024-05-01T10:00:01.004+0800][1.004s][info][gc,heap     ] GC(0) Humongous regions: 0->0
+[2024-05-01T10:00:01.004+0800][1.004s][info][gc,metaspace] GC(0) Metaspace: 5000K(5184K)->5000K(5184K) NonClass: 4400K(4480K)->4400K(4480K) Class: 600K(704K)->600K(704K)
+[2024-05-01T10:00:01.004+0800][1.004s][info][gc          ] GC(0) Pause Young (Normal) (G1 Evacuation Pause) 26M->6M(256M) 4.012ms
+[2024-05-01T10:00:01.004+0800][1.004s][info][gc,cpu      ] GC(0) User=0.02s Sys=0.01s Real=0.00s
+[2024-05-01T10:00:03.000+0800][3.000s][info][gc,start    ] GC(1) Pause Young (Concurrent Start) (G1 Humongous Allocation)
+[2024-05-01T10:00:03.006+0800][3.006s][info][gc,heap     ] GC(1) Eden regions: 18->0(20)
+[2024-05-01T10:00:03.006+0800][3.006s][info][gc,heap     ] GC(1) Survivor regions: 3->2(3)
+[2024-05-01T10:00:03.006+0800][3.006s][info][gc          ] GC(1) Pause Young (Concurrent Start) (G1 Humongous Allocation) 60M->44M(256M) 6.500ms
+[2024-05-01T10:00:03.006+0800][3.006s][info][gc,cpu      ] GC(1) User=0.03s Sys=0.00s Real=0.01s
+[2024-05-01T10:00:03.006+0800][3.006s][info][gc          ] GC(2) Concurrent Mark Cycle
+[2024-05-01T10:00:03.006+0800][3.006s][info][gc,marking  ] GC(2) Concurrent Clear Claimed Marks
+[2024-05-01T10:00:03.006+0800][3.006s][info][gc,marking  ] GC(2) Concurrent Clear Claimed Marks 0.012ms
+[2024-05-01T10:00:03.006+0800][3.006s][info][gc,marking  ] GC(2) Concurrent Scan Root Regions
+[2024-05-01T10:00:03.008+0800][3.008s][info][gc,marking  ] GC(2) Concurrent Scan Root Regions 1.500ms
+[2024-05-01T10:00:03.008+0800][3.008s][info][gc,marking  ] GC(2) Concurrent Mark (3.008s)
+[2024-05-01T10:00:03.030+0800][3.030s][info][gc,marking  ] GC(2) Concurrent Mark (3.008s, 3.030s) 22.000ms
+[2024-05-01T10:00:03.031+0800][3.031s][info][gc,start    ] GC(2) Pause Remark
+[2024-05-01T10:00:03.033+0800][3.033s][info][gc          ] GC(2) Pause Remark 50M->48M(256M) 2.000ms
+[2024-05-01T10:00:03.033+0800][3.033s][info][gc,cpu      ] GC(2) User=0.01s Sys=0.00s Real=0.00s
+[2024-05-01T10:00:03.040+0800][3.040s][info][gc,marking  ] GC(2) Concurrent Rebuild Remembered Sets 6.000ms
+[2024-05-01T10:00:03.041+0800][3.041s][info][gc,start    ] GC(2) Pause Cleanup
+[2024-05-01T10:00:03.041+0800][3.041s][info][gc          ] GC(2) Pause Cleanup 49M->49M(256M) 0.300ms
+[2024-05-01T10:00:03.041+0800][3.041s][info][gc,cpu      ] GC(2) User=0.00s Sys=0.00s Real=0.00s
+[2024-05-01T10:00:03.042+0800][3.042s][info][gc,marking  ] GC(2) Concurrent Cleanup for Next Mark 1.000ms
+[2024-05-01T10:00:03.042+0800][3.042s][info][gc          ] GC(2) Concurrent Mark Cycle 36.000ms
+[2024-05-01T10:00:05.000+0800][5.000s][info][gc,start    ] GC(3) Pause Young (Prepare Mixed) (G1 Evacuation Pause)
+[2024-05-01T10:00:05.005+0800][5.005s][info][gc          ] GC(3) Pause Young (Prepare Mixed) (G1 Evacuation Pause) 70M->50M(256M) 5.000ms
+[2024-05-01T10:00:06.000+0800][6.000s][info][gc,start    ] GC(4) Pause Young (Mixed) (G1 Evacuation Pause)
+[2024-05-01T10:00:06.008+0800][6.008s][info][gc          ] GC(4) Pause Young (Mixed) (G1 Evacuation Pause) 72M->30M(256M) 8.000ms
+[2024-05-01T10:00:08.000+0800][8.000s][info][gc,start    ] GC(5) Pause Young (Normal) (G1 Evacuation Pause)
+[2024-05-01T10:00:08.120+0800][8.120s][info][gc          ] GC(5) Pause Young (Normal) (G1 Evacuation Pause) (Evacuation Failure) 250M->240M(256M) 120.000ms
+[2024-05-01T10:00:09.000+0800][9.000s][info][gc,start    ] GC(6) Pause Full (G1 Compaction Pause)
+[2024-05-01T10:00:09.000+0800][9.000s][info][gc,task     ] GC(6) Using 8 workers of 8 for full compaction
+[2024-05-01T10:00:09.100+0800][9.100s][info][gc,phases   ] GC(6) Phase 1: Mark live objects 100.000ms
+[2024-05-01T10:00:09.150+0800][9.150s][info][gc,phases   ] GC(6) Phase 2: Prepare for compaction 50.000ms
+[2024-05-01T10:00:09.300+0800][9.300s][info][gc          ] GC(6) Pause Full (G1 Compaction Pause) 250M->80M(256M) 300.000ms
+[2024-05-01T10:00:10.000+0800][10.000s][info][gc,start    ] GC(7) Pause Full (System.gc())
+[2024-05-01T10:00:10.050+0800][10.050s][info][gc          ] GC(7) Pause Full (System.gc()) 90M->60M(256M) 50.000ms
+[2024-05-01T10:00:11.000+0800][11.000s][info][gc,start    ] GC(8) Pause Young (Concurrent Start) (Metadata GC Threshold)
+[2024-05-01T10:00:11.003+0800][11.003s][info][gc          ] GC(8) Pause Young (Concurrent Start) (Metadata GC Threshold) 70M->62M(256M) 3.000ms
+[2024-05-01T10:00:12.000+0800][12.000s][info][gc          ] GC(9) Pause Young (Normal) (G1 Humongous Allocation) 80M->64M(256M) 2.500ms
+[2024-05-01T10:00:20.000+0800][20.000s][info][gc,heap,exit] Heap

@@ -1,0 +1,7 @@
+[2024-05-01T10:00:00.100+0800][0.100s][12345][12346][info][gc] Using G1
+[2024-05-01T10:00:01.000+0800][1.000s][12345][12350][info][gc,start] GC(0) Pause Young (Normal) (G1 Evacuation Pause)
+[2024-05-01T10:00:01.010+0800][1.010s][12345][12350][info][gc] GC(0) Pause Young (Normal) (G1 Evacuation Pause) 30M->10M(128M) 10.000ms
+[2024-05-01T10:00:01.011+0800][1.011s][12345][12347][info][safepoint] Safepoint "G1CollectForAllocation", Time since last: 900000000 ns, Reaching safepoint: 120000 ns, Cleanup: 3000 ns, At safepoint: 10100000 ns, Total: 10223000 ns
+[2024-05-01T10:00:02.000+0800][2.000s][12345][12347][info][safepoint] Safepoint "Cleanup", Time since last: 989000000 ns, Reaching safepoint: 80000000 ns, At safepoint: 20000 ns, Total: 80020000 ns
+[2024-05-01T10:00:03.000+0800][3.000s][12345][12347][info][safepoint] Safepoint "ICBufferFull", Time since last: 1000000000 ns, Reaching safepoint: 40000 ns, At safepoint: 60000 ns, Total: 100000 ns
+[2024-05-01T10:00:04.000+0800][4.000s][12345][12347][info][safepoint] Total time for which application threads were stopped: 0.0020000 seconds, Stopping threads took: 0.0005000 seconds

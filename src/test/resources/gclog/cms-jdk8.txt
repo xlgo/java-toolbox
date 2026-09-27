@@ -1,0 +1,20 @@
+OpenJDK 64-Bit Server VM (25.312-b07) for linux-amd64 JRE (1.8.0_312-b07), built on Oct 20 2021 12:00:00 by "openjdk" with gcc 4.8.5
+Memory: 4k page, physical 8000000k(100000k free), swap 0k(0k free)
+CommandLine flags: -XX:+PrintGCDetails -XX:+PrintGCTimeStamps -XX:+UseConcMarkSweepGC -XX:+UseParNewGC
+2.345: [GC (Allocation Failure) 2.345: [ParNew
+Desired survivor size 4456448 bytes, new threshold 1 (max 6)
+- age   1:    8912896 bytes,    8912896 total
+: 78656K->8704K(78656K), 0.0200000 secs] 900000K->850000K(1078656K), 0.0201000 secs] [Times: user=0.05 sys=0.00, real=0.02 secs]
+10.000: [GC (CMS Initial Mark) [1 CMS-initial-mark: 500000K(1000000K)] 520000K(1078656K), 0.0012345 secs] [Times: user=0.00 sys=0.00, real=0.00 secs]
+10.001: [CMS-concurrent-mark-start]
+10.100: [CMS-concurrent-mark: 0.099/0.099 secs] [Times: user=0.20 sys=0.00, real=0.10 secs]
+10.100: [CMS-concurrent-preclean-start]
+10.110: [CMS-concurrent-preclean: 0.010/0.010 secs] [Times: user=0.01 sys=0.00, real=0.01 secs]
+10.500: [GC (CMS Final Remark) [YG occupancy: 30000 K (78656 K)]10.500: [Rescan (parallel) , 0.0100000 secs]10.510: [weak refs processing, 0.0001000 secs]10.510: [class unloading, 0.0010000 secs]10.511: [scrub symbol table, 0.0010000 secs]10.512: [scrub string table, 0.0001000 secs][1 CMS-remark: 500000K(1000000K)] 530000K(1078656K), 0.0150000 secs] [Times: user=0.05 sys=0.00, real=0.02 secs]
+10.515: [CMS-concurrent-sweep-start]
+10.600: [CMS-concurrent-sweep: 0.085/0.085 secs] [Times: user=0.09 sys=0.00, real=0.09 secs]
+10.610: [CMS-concurrent-reset: 0.010/0.010 secs] [Times: user=0.01 sys=0.00, real=0.01 secs]
+30.000: [GC (Allocation Failure) 30.000: [ParNew (promotion failed): 78656K->78656K(78656K), 0.0500000 secs]30.050: [CMS: 990000K->500000K(1000000K), 1.5000000 secs] 1068656K->500000K(1078656K), [Metaspace: 30000K->30000K(1077248K)], 1.5501000 secs] [Times: user=1.60 sys=0.00, real=1.55 secs]
+40.000: [Full GC (Allocation Failure) 40.000: [CMS40.500: [CMS-concurrent-mark: 0.400/0.500 secs] [Times: user=0.80 sys=0.00, real=0.50 secs]
+ (concurrent mode failure): 999000K->600000K(1000000K), 2.0000000 secs] 1077000K->600000K(1078656K), [Metaspace: 30000K->30000K(1077248K)], 2.0001000 secs] [Times: user=2.00 sys=0.00, real=2.00 secs]
+Exception in thread "main" java.lang.OutOfMemoryError: Java heap space

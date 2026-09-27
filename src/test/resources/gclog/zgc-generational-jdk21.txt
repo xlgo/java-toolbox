@@ -1,0 +1,26 @@
+[2024-05-01T10:00:00.010+0000][0.010s][info][gc,init] Initializing The Z Garbage Collector
+[2024-05-01T10:00:00.010+0000][0.010s][info][gc,init] Version: 21.0.2+13-58 (release)
+[2024-05-01T10:00:00.012+0000][0.012s][info][gc     ] Using The Z Garbage Collector
+[2024-05-01T10:00:01.000+0000][1.000s][info][gc          ] GC(0) Major Collection (Warmup)
+[2024-05-01T10:00:01.000+0000][1.000s][info][gc,task     ] GC(0) Using 2 Workers for Young Generation
+[2024-05-01T10:00:01.000+0000][1.000s][info][gc,phases   ] GC(0) Y: Young Generation
+[2024-05-01T10:00:01.000+0000][1.000s][info][gc,phases   ] GC(0) Y: Pause Mark Start (Major) 0.010ms
+[2024-05-01T10:00:01.005+0000][1.005s][info][gc,phases   ] GC(0) Y: Concurrent Mark 4.500ms
+[2024-05-01T10:00:01.005+0000][1.005s][info][gc,phases   ] GC(0) Y: Pause Mark End 0.012ms
+[2024-05-01T10:00:01.008+0000][1.008s][info][gc,phases   ] GC(0) Y: Pause Relocate Start 0.008ms
+[2024-05-01T10:00:01.010+0000][1.010s][info][gc,phases   ] GC(0) Y: Concurrent Relocate 2.100ms
+[2024-05-01T10:00:01.010+0000][1.010s][info][gc,heap     ] GC(0) Y: Young Generation 100M(10%)->20M(2%) 0.010s
+[2024-05-01T10:00:01.010+0000][1.010s][info][gc,phases   ] GC(0) O: Old Generation
+[2024-05-01T10:00:01.015+0000][1.015s][info][gc,phases   ] GC(0) O: Concurrent Mark 5.000ms
+[2024-05-01T10:00:01.016+0000][1.016s][info][gc,phases   ] GC(0) O: Pause Mark End 0.010ms
+[2024-05-01T10:00:01.030+0000][1.030s][info][gc,heap     ] GC(0) O: Old Generation 20M(2%)->18M(2%) 0.020s
+[2024-05-01T10:00:01.030+0000][1.030s][info][gc          ] GC(0) Major Collection (Warmup) 100M(10%)->38M(4%) 0.030s
+[2024-05-01T10:00:02.000+0000][2.000s][info][gc          ] GC(1) Minor Collection (Allocation Rate)
+[2024-05-01T10:00:02.000+0000][2.000s][info][gc,phases   ] GC(1) y: Young Generation
+[2024-05-01T10:00:02.000+0000][2.000s][info][gc,phases   ] GC(1) y: Pause Mark Start 0.011ms
+[2024-05-01T10:00:02.006+0000][2.006s][info][gc,phases   ] GC(1) y: Pause Mark End 0.013ms
+[2024-05-01T10:00:02.008+0000][2.008s][info][gc,phases   ] GC(1) y: Pause Relocate Start 0.009ms
+[2024-05-01T10:00:02.012+0000][2.012s][info][gc          ] GC(1) Minor Collection (Allocation Rate) 200M(20%)->50M(5%) 0.012s
+[2024-05-01T10:00:03.000+0000][3.000s][info][gc          ] GC(2) Minor Collection (Allocation Stall)
+[2024-05-01T10:00:03.001+0000][3.001s][info][gc          ] GC(2) Allocation Stall (worker-7) 25.000ms
+[2024-05-01T10:00:03.010+0000][3.010s][info][gc          ] GC(2) Minor Collection (Allocation Stall) 600M(60%)->100M(10%) 0.010s

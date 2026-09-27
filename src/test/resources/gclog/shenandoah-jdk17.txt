@@ -1,0 +1,23 @@
+[0.009s][info][gc] Using Shenandoah
+[0.009s][info][gc,init] Version: 17.0.6+10 (release)
+[0.009s][info][gc,init] Heuristics: Adaptive
+[10.000s][info][gc] Trigger: Free (204M) is below minimum threshold (204M)
+[10.000s][info][gc,ergo] Free: 204M, Max: 1024K regular, 204M humongous, Frag: 0% external, 0% internal; Reserve: 103M, Max: 1024K
+[10.001s][info][gc,start] GC(0) Pause Init Mark (unload classes)
+[10.001s][info][gc,task] GC(0) Using 4 of 8 workers for init marking
+[10.001s][info][gc] GC(0) Pause Init Mark (unload classes) 0.345ms
+[10.001s][info][gc,start] GC(0) Concurrent marking roots
+[10.002s][info][gc] GC(0) Concurrent marking roots 0.900ms
+[10.010s][info][gc] GC(0) Concurrent marking (unload classes) 1800M->1850M(2048M) 8.000ms
+[10.011s][info][gc] GC(0) Pause Final Mark (unload classes) 0.600ms
+[10.020s][info][gc] GC(0) Concurrent evacuation 1850M->1900M(2048M) 8.500ms
+[10.021s][info][gc] GC(0) Pause Init Update Refs 0.050ms
+[10.030s][info][gc] GC(0) Concurrent update references 1900M->1910M(2048M) 9.000ms
+[10.031s][info][gc] GC(0) Pause Final Update Refs 0.200ms
+[10.032s][info][gc] GC(0) Concurrent cleanup 1910M->600M(2048M) 0.300ms
+[20.000s][info][gc] Trigger: Handle Allocation Failure
+[20.001s][info][gc,start] GC(1) Pause Degenerated GC (Mark)
+[20.121s][info][gc] GC(1) Pause Degenerated GC (Mark) 2000M->900M(2048M) 120.000ms
+[30.000s][info][gc] Trigger: Handle Allocation Failure
+[30.001s][info][gc,start] GC(2) Pause Full
+[31.001s][info][gc] GC(2) Pause Full 2040M->500M(2048M) 1000.000ms

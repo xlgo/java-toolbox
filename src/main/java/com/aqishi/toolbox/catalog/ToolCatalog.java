@@ -92,6 +92,9 @@ public final class ToolCatalog {
             "websocket", "ws", "wss", "socket", "connect", "client", "测试", "长连接");
     public static final ToolDescriptor MQTT_CLIENT = tool("mqtt.client", "network",
             "mqtt", "iot", "emqx", "broker", "publish", "subscribe", "消息队列", "物联网", "测试");
+    public static final ToolDescriptor SOCKET_DEBUG = tool("socket.debug", "network",
+            "TCP", "UDP", "Socket", "调试", "网络调试助手", "串口", "HEX", "十六进制", "服务端", "客户端",
+            "广播", "组播", "Multicast", "NetAssist", "SocketTool", "Modbus", "CRC");
     public static final ToolDescriptor SUBNET_CALC = tool("subnet.calc", "network",
             "Subnet", "CIDR", "IP", "子网掩码", "网络地址", "广播地址", "子网");
     public static final ToolDescriptor PORT_SCANNER = tool("port.scanner", "network",
@@ -101,6 +104,9 @@ public final class ToolCatalog {
     public static final ToolDescriptor NET_DIAGNOSTICS = tool("net.diagnostics", "network",
             "DNS", "TLS", "SSL", "HTTP", "诊断", "解析", "证书", "握手", "耗时", "延迟",
             "nslookup", "dig", "curl", "重定向", "Latency", "Diagnostics");
+    public static final ToolDescriptor HTTP_BENCH = tool("http.bench", "network",
+            "压测", "压力测试", "性能测试", "负载测试", "QPS", "TPS", "并发", "Benchmark", "Load Test",
+            "ab", "wrk", "JMeter", "延迟", "P99");
 
     public static final ToolDescriptor DATABASE_CONNECTOR = tool("database.connector", "data",
             "Database", "SQL", "MySQL", "Postgres", "Oracle", "JDBC", "连接器", "客户端");
@@ -132,6 +138,9 @@ public final class ToolCatalog {
     public static final ToolDescriptor THREAD_DUMP = tool("thread.dump", "system",
             "Thread Dump", "jstack", "jcmd", "线程", "线程转储", "死锁", "Deadlock", "锁竞争",
             "BLOCKED", "堆栈", "JVM");
+    public static final ToolDescriptor GC_LOG = tool("gc.log", "system",
+            "GC", "GC日志", "垃圾回收", "G1", "ZGC", "Shenandoah", "CMS", "Full GC", "停顿", "Pause",
+            "吞吐量", "Throughput", "JVM", "Xlog", "PrintGCDetails");
     public static final ToolDescriptor PORT_PROCESS = tool("port.process", "system",
             "端口", "端口占用", "进程", "Port", "Process", "PID", "netstat", "lsof", "ss", "kill",
             "taskkill", "结束进程", "8080");
@@ -185,11 +194,11 @@ public final class ToolCatalog {
             RADIX_ENCODING, TIMESTAMP, BASE64_IMAGE, URL_TOOL,
             FORMAT_CONVERT, JSON_FORMAT, XML_FORMAT, SQL_FORMAT, STRING_TOOL, TEXT_ESCAPE, REGEX_TESTER,
             TEXT_DIFF, JSONPATH_TESTER, XPATH_TOOL, FILE_ENCODING,
-            HTTP_CLIENT, OPENAPI_WORKBENCH, CALLBACK_MOCK, WEBSOCKET_CLIENT, MQTT_CLIENT, SUBNET_CALC,
-            PORT_SCANNER, NET_DIAGNOSTICS, SSH,
+            HTTP_CLIENT, OPENAPI_WORKBENCH, CALLBACK_MOCK, WEBSOCKET_CLIENT, MQTT_CLIENT, SOCKET_DEBUG, SUBNET_CALC,
+            PORT_SCANNER, NET_DIAGNOSTICS, HTTP_BENCH, SSH,
             DATABASE_CONNECTOR, REDIS_MANAGEMENT, KAFKA_CONNECTOR, ZOOKEEPER_MANAGEMENT,
             DOCKER_CONVERT, K8S_DEPLOYMENT, K8S_MANAGER, CHMOD_CALC, CRON_PARSER, HOSTS_MANAGER,
-            WECHAT_SENDER, LOG_VIEWER, THREAD_DUMP, PORT_PROCESS, JAR_INSPECTOR,
+            WECHAT_SENDER, LOG_VIEWER, THREAD_DUMP, GC_LOG, PORT_PROCESS, JAR_INSPECTOR,
             DATA_GENERATOR, QRCODE, COLOR_CONVERT, DDL_ENTITY, ID_TOOLKIT,
             CALCULATOR, STATISTICS,
             SORT_VISUALIZER, SEARCH_ALGORITHM, HANOI, PINGAME, BPMN_DESIGNER, MERMAID, FLOWCHART,

@@ -28,6 +28,7 @@ import com.aqishi.toolbox.feature.network.ssh.domain.SshHostKeyPrompt;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
 import com.aqishi.toolbox.util.Errors;
+import com.aqishi.toolbox.util.I18n;
 
 /**
  * 代表一个活动的 SSH 连接会话，包含终端、SFTP、端口转发及自动恢复能力。
@@ -162,11 +163,15 @@ public class SshSessionInstance implements AutoCloseable {
         setStatus(Status.CONNECTING, "正在连接 " + config.getHost() + ":" + config.getPort() + "...");
 
         try {
+            // Vault-stored credentials: load them, or ask to unlock / for a session password.
+            if (!SshConfigStore.ensureCredentials(config)) {
+                throw new IllegalStateException(I18n.get("secrets.ssh.locked"));
+            }
             jSch = new JSch();
             configureHostKeyChecking(jSch);
 
             if (config.getAuthType() == SshConnectionConfig.AuthType.PRIVATE_KEY) {
-                String passphrase = SshSecurityUtils.decrypt(config.getEncryptedPassphrase());
+                String passphrase = config.resolvedPassphrase();
                 byte[] passphraseBytes = passphrase == null || passphrase.isEmpty()
                         ? null : passphrase.getBytes(StandardCharsets.UTF_8);
                 if (config.getKeySource() == SshConnectionConfig.KeySource.FILE_PATH) {
@@ -190,7 +195,7 @@ public class SshSessionInstance implements AutoCloseable {
 
             session = jSch.getSession(config.getUsername(), config.getHost(), config.getPort());
             if (config.getAuthType() == SshConnectionConfig.AuthType.PASSWORD) {
-                session.setPassword(SshSecurityUtils.decrypt(config.getEncryptedPassword()));
+                session.setPassword(config.resolvedPassword());
             }
 
             Properties properties = new Properties();

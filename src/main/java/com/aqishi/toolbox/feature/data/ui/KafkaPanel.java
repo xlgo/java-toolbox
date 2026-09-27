@@ -13,6 +13,10 @@ import com.aqishi.toolbox.feature.data.domain.KafkaConsumerLag;
 import com.aqishi.toolbox.feature.data.domain.KafkaMessageFormat;
 import com.aqishi.toolbox.feature.data.domain.KafkaSubscriberAnalysis;
 import com.aqishi.toolbox.domain.KafkaProfile;
+import com.aqishi.toolbox.domain.KafkaSensitiveProperties;
+import com.aqishi.toolbox.infra.secrets.ProfileSecretManager;
+import com.aqishi.toolbox.infra.secrets.SecretStore;
+import com.aqishi.toolbox.ui.secrets.ProfileSecretUi;
 import com.aqishi.toolbox.feature.network.ssh.domain.RemoteEndpoint;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
@@ -68,9 +72,14 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
     private JButton delProfileBtn;
-    private final Map<String, KafkaProfile> profiles = new LinkedHashMap<>();
     private final KafkaProfileStore profileStore = new KafkaProfileStore(
             java.util.prefs.Preferences.userNodeForPackage(KafkaPanel.class));
+    /** Owns the live profile map; credential property lines live in the vault. */
+    private final ProfileSecretManager<KafkaProfile> secretManager;
+    private final ProfileSecretUi<KafkaProfile> secretUi;
+    private final Map<String, KafkaProfile> profiles;
+    /** Credential lines last filled in from the vault; cleared from the form on lock. */
+    private String vaultFilledSecretLines;
     private boolean ignoreProfileEvents = false;
 
     // Collapsible Connection Config
@@ -162,7 +171,72 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     private JTextArea consoleOutput;
 
     public KafkaPanel() {
+        this(SecretStore.disabled());
+    }
+
+    /** @param secrets vault-backed store for credential properties; {@link SecretStore#disabled()} keeps none */
+    public KafkaPanel(SecretStore secrets) {
         super(ToolCatalog.KAFKA_CONNECTOR);
+        secretManager = new ProfileSecretManager<>(KafkaProfileStore.SECRET_NAMESPACE,
+                profileStore, secrets, SwingUtilities::invokeLater);
+        profiles = secretManager.profiles();
+        secretUi = new ProfileSecretUi<>(secretManager, this::getView);
+        secretManager.addListener(new ProfileSecretManager.Listener() {
+            @Override
+            public void onSecretsLocked() {
+                dropVaultFilledProperties();
+            }
+
+            @Override
+            public void onSecretsUnlocked() {
+                KafkaProfile selected = selectedProfile();
+                if (selected != null && customPropsArea != null && customPropsArea.isEnabled()
+                        && KafkaSensitiveProperties.sensitivePart(customPropsArea.getText()).isEmpty()) {
+                    showProfileProperties(selected);
+                }
+            }
+        });
+    }
+
+    private KafkaProfile selectedProfile() {
+        Object name = profileCombo == null ? null : profileCombo.getSelectedItem();
+        return name == null ? null : profiles.get(name.toString());
+    }
+
+    /** Public property lines plus the credential lines known right now (vault or legacy). */
+    private void showProfileProperties(KafkaProfile p) {
+        String secret = secretManager.knownSecrets(p).get(KafkaProfile.SECRET_PROPERTIES);
+        vaultFilledSecretLines = p.plaintextPending ? null : secret;
+        customPropsArea.setText(KafkaSensitiveProperties.merge(
+                KafkaSensitiveProperties.publicPart(p.customProperties), secret));
+    }
+
+    private void dropVaultFilledProperties() {
+        String filled = vaultFilledSecretLines;
+        vaultFilledSecretLines = null;
+        if (filled == null || customPropsArea == null) return;
+        String current = customPropsArea.getText();
+        if (filled.equals(KafkaSensitiveProperties.sensitivePart(current))) {
+            customPropsArea.setText(KafkaSensitiveProperties.publicPart(current));
+        }
+    }
+
+    /** Resolves vault-held credential lines (asking to unlock) before {@code action}. */
+    private void withStoredCredentials(Runnable action) {
+        KafkaProfile selected = selectedProfile();
+        if (selected == null || !secretManager.needsUnlock(selected)
+                || !KafkaSensitiveProperties.sensitivePart(customPropsArea.getText()).isEmpty()) {
+            action.run();
+            return;
+        }
+        secretUi.withSecrets(selected, false, resolution -> {
+            String secret = resolution.field(KafkaProfile.SECRET_PROPERTIES);
+            if (secret != null) {
+                vaultFilledSecretLines = secret;
+                customPropsArea.setText(KafkaSensitiveProperties.merge(customPropsArea.getText(), secret));
+            }
+            action.run();
+        });
     }
 
     @Override
@@ -181,7 +255,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         // --- Load Profiles ---
         loadProfilesFromPrefs();
 
-        return root;
+        return secretUi.wrap(root);
     }
 
     /** 标签页内容容器：比 page() 更薄的一层内边距，免得和外层页边距叠加过厚 */
@@ -1375,6 +1449,10 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void testConnection() {
+        withStoredCredentials(this::testConnectionNow);
+    }
+
+    private void testConnectionNow() {
         String servers = serversField.getText().trim();
         Properties custom = parseCustomProperties();
 
@@ -1427,6 +1505,10 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void connect() {
+        withStoredCredentials(this::connectNow);
+    }
+
+    private void connectNow() {
         String servers = serversField.getText().trim();
         Properties custom = parseCustomProperties();
 
@@ -1812,10 +1894,15 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                 serversField.getText().trim(),
                 customPropsArea.getText().trim()
         );
-        profiles.put(name, p);
-        saveProfilesToPrefs();
-        refreshProfilesCombo(name);
-        UIUtils.info(getView(), "Kafka 配置 '" + name + "' 保存成功！");
+        final String savedName = name;
+        secretUi.save(savedName, p, outcome -> {
+            if (outcome == ProfileSecretManager.SaveOutcome.SAVED_WITH_SECRET) {
+                String shown = KafkaSensitiveProperties.sensitivePart(customPropsArea.getText());
+                vaultFilledSecretLines = shown.isEmpty() ? null : shown;
+            }
+            refreshProfilesCombo(savedName);
+            UIUtils.info(getView(), "Kafka 配置 '" + savedName + "' 保存成功！");
+        });
     }
 
     private void deleteProfile() {
@@ -1823,8 +1910,11 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         if (name == null) return;
         boolean opt = UIUtils.confirm(getView(), "确定要删除 Kafka 配置 '" + name + "' 吗？", "确认删除");
         if (opt) {
-            profiles.remove(name);
-            saveProfilesToPrefs();
+            try {
+                secretManager.delete(name);
+            } catch (Exception ex) {
+                Errors.log("保存 Kafka 连接配置失败", ex);
+            }
             refreshProfilesCombo(null);
             UIUtils.info(getView(), "配置已删除。");
         }
@@ -1832,21 +1922,13 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
 
     private void loadProfilesFromPrefs() {
         try {
-            profiles.clear();
-            profiles.putAll(profileStore.load());
+            secretManager.ensureLoaded();
             refreshProfilesCombo(null);
         } catch (Exception ex) {
             Errors.log("加载 Kafka 连接配置失败", ex);
         }
     }
 
-    private void saveProfilesToPrefs() {
-        try {
-            profileStore.save(profiles);
-        } catch (Exception ex) {
-            Errors.log("保存 Kafka 连接配置失败", ex);
-        }
-    }
 
     private void refreshProfilesCombo(String selectName) {
         ignoreProfileEvents = true;
@@ -1878,7 +1960,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
 
         ignoreProfileEvents = true;
         serversField.setText(p.bootstrapServers);
-        customPropsArea.setText(p.customProperties);
+        showProfileProperties(p);
         ignoreProfileEvents = false;
     }
 

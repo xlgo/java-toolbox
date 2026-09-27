@@ -15,6 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.aqishi.toolbox.feature.monitor.domain.DesktopChannel;
 import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
 
 class TcpDirectConnectorTest {
@@ -66,8 +67,8 @@ class TcpDirectConnectorTest {
     void establishesDirectTcpChannelFromCandidateReceivedBeforeConnectorStarts() throws Exception {
         TcpDirectConnector host = new TcpDirectConnector(false);
         TcpDirectConnector controller = new TcpDirectConnector(false);
-        AtomicReference<SocketChannelImpl> hostChannel = new AtomicReference<>();
-        AtomicReference<SocketChannelImpl> controllerChannel = new AtomicReference<>();
+        AtomicReference<DesktopChannel> hostChannel = new AtomicReference<>();
+        AtomicReference<DesktopChannel> controllerChannel = new AtomicReference<>();
         CountDownLatch connected = new CountDownLatch(2);
 
         host.reset();

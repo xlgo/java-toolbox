@@ -14,6 +14,15 @@ public class DesktopMessage {
     public static final byte TYPE_DRAWING = 0x06;         // 远程画板标注数据 JSON
     public static final byte TYPE_HEARTBEAT = 0x07;       // 心跳包
     public static final byte TYPE_P2P_SIGNAL = 0x08;      // P2P 协商握手
+    /** Host-to-controller session control (consent grant/deny), JSON; see SessionControlMessages. */
+    public static final byte TYPE_SESSION_CONTROL = 0x09;
+    /**
+     * Transport-level frame types of the secure channel. Only these two ever
+     * appear on the wire; every application message above travels encrypted
+     * inside a {@link #TYPE_SECURE_RECORD}.
+     */
+    public static final byte TYPE_SECURE_HANDSHAKE = 0x20;
+    public static final byte TYPE_SECURE_RECORD = 0x21;
 
     private final byte type;
     private final byte[] payload;

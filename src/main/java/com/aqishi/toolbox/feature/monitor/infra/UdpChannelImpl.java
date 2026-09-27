@@ -45,6 +45,7 @@ public class UdpChannelImpl implements DesktopChannel {
     private volatile Consumer<DesktopMessage> messageListener;
     private volatile Runnable closeListener;
     private volatile boolean closed = false;
+    private volatile int maxMessageSize = MAX_MESSAGE_SIZE;
     private Thread receiveThread;
 
     public UdpChannelImpl(DatagramSocket socket, InetSocketAddress peerAddress) {
@@ -111,7 +112,7 @@ public class UdpChannelImpl implements DesktopChannel {
 
         if (length < HEADER_SIZE || ByteBuffer.wrap(data, offset, 4).getInt() != MAGIC) {
             // 兼容旧版单数据报格式：[type][payload]
-            if (length >= 1) {
+            if (length >= 1 && length - 1 <= maxMessageSize) {
                 byte type = data[offset];
                 byte[] payload = Arrays.copyOfRange(data, offset + 1, offset + length);
                 deliver(new DesktopMessage(type, payload));
@@ -131,7 +132,7 @@ public class UdpChannelImpl implements DesktopChannel {
         int fragmentLength = length - HEADER_SIZE;
         if (magic != MAGIC || version != PROTOCOL_VERSION
                 || fragmentCount < 1 || fragmentIndex >= fragmentCount
-                || totalLength < 0 || totalLength > MAX_MESSAGE_SIZE
+                || totalLength < 0 || totalLength > maxMessageSize
                 || fragmentLength < 0 || fragmentLength > MAX_FRAGMENT_PAYLOAD) {
             return;
         }
@@ -331,6 +332,23 @@ public class UdpChannelImpl implements DesktopChannel {
     @Override
     public void setCloseListener(Runnable listener) {
         this.closeListener = listener;
+    }
+
+    @Override
+    public InetSocketAddress remoteAddress() {
+        return peerAddress;
+    }
+
+    /** UDP may lose, duplicate or reorder messages. */
+    @Override
+    public boolean isReliable() {
+        return false;
+    }
+
+    /** Messages announcing a larger total length are discarded before reassembly. */
+    @Override
+    public void setMaxInboundMessageSize(int bytes) {
+        maxMessageSize = Math.max(0, Math.min(bytes, MAX_MESSAGE_SIZE));
     }
 
     private static final class ReassemblyBuffer {

@@ -53,7 +53,10 @@ class ProfileStoreKeyContractTest {
         DatabaseProfile loaded = store.load().get("订单库");
         assertEquals("mysql", loaded.dbType);
         assertEquals("3306", loaded.port);
-        assertEquals("secret", loaded.password);
+        // 密码只进保险库；偏好里只剩 id 与 secretStored 标记。
+        assertNull(loaded.password);
+        assertFalse(node.get("db_profiles", "").contains("secret\""));
+        assertNotNull(loaded.id);
     }
 
     @Test

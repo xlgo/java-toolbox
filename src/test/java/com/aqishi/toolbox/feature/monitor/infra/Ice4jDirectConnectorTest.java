@@ -83,6 +83,60 @@ class Ice4jDirectConnectorTest {
         }
     }
 
+    @Test
+    void secureChannelRunsOverTheSelectedIcePath() throws Exception {
+        Ice4jDirectConnector left = new Ice4jDirectConnector(Collections.emptyList());
+        Ice4jDirectConnector right = new Ice4jDirectConnector(Collections.emptyList());
+        AtomicReference<DesktopChannel> leftRaw = new AtomicReference<>();
+        AtomicReference<DesktopChannel> rightRaw = new AtomicReference<>();
+        CountDownLatch connected = new CountDownLatch(2);
+        try {
+            String leftDescription = left.prepare(true, channel -> {
+                leftRaw.set(channel);
+                connected.countDown();
+            }, () -> { }, ignored -> { });
+            String rightDescription = right.prepare(false, channel -> {
+                rightRaw.set(channel);
+                connected.countDown();
+            }, () -> { }, ignored -> { });
+            left.setRemoteDescription(rightDescription);
+            right.setRemoteDescription(leftDescription);
+            left.startConnectivityChecks();
+            right.startConnectivityChecks();
+            assertTrue(connected.await(15, TimeUnit.SECONDS), "ICE loopback checks did not complete");
+            assertFalse(leftRaw.get().isReliable());
+
+            SecureDesktopChannel controller = SecureDesktopChannel.start(leftRaw.get(),
+                    SecureDesktopChannelTcpTest.config(
+                            com.aqishi.toolbox.feature.monitor.domain.SecureChannelHandshake.Role.CONTROLLER,
+                            null, 10_000));
+            SecureDesktopChannel host = SecureDesktopChannel.start(rightRaw.get(),
+                    SecureDesktopChannelTcpTest.config(
+                            com.aqishi.toolbox.feature.monitor.domain.SecureChannelHandshake.Role.HOST,
+                            null, 10_000));
+            controller.awaitEstablished(12_000);
+            host.awaitEstablished(12_000);
+            assertTrue(controller.getSas().equals(host.getSas()));
+
+            byte[] frame = new byte[200_000];
+            new java.util.Random(5).nextBytes(frame);
+            AtomicReference<byte[]> received = new AtomicReference<>();
+            CountDownLatch delivered = new CountDownLatch(1);
+            controller.setMessageListener(message -> {
+                received.set(message.getPayload());
+                delivered.countDown();
+            });
+            host.send(new DesktopMessage(DesktopMessage.TYPE_SCREEN_FRAME, frame));
+            assertTrue(delivered.await(5, TimeUnit.SECONDS), "encrypted frame not delivered over ICE");
+            assertArrayEquals(frame, received.get());
+        } finally {
+            if (leftRaw.get() != null) leftRaw.get().close();
+            if (rightRaw.get() != null) rightRaw.get().close();
+            left.stop();
+            right.stop();
+        }
+    }
+
     private static void assertDescriptionHasNoRelayCandidate(String description) {
         int colon = description.indexOf(':');
         assertTrue(colon > 0);

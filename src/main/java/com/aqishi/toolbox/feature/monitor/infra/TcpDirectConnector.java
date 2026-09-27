@@ -1,8 +1,11 @@
 package com.aqishi.toolbox.feature.monitor.infra;
 
+import com.aqishi.toolbox.feature.monitor.domain.DesktopChannel;
+import com.aqishi.toolbox.feature.monitor.domain.HandshakeException;
 import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -18,6 +21,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
@@ -27,8 +31,27 @@ import java.util.function.Consumer;
  * <p>被控端监听并发布局域网/公网候选，控制端只负责主动连接，因此不会出现双方
  * 同时建立两条 TCP 连接后选择了不同连接的问题。公网候选仅在端口转发、直连公网
  * 或 NAT 恰好保持 TCP 端口时可用；该实现不会经过信令服务器转发桌面数据。</p>
+ *
+ * <p>Security: a {@link ChannelGate} (the secure channel handshake) runs on every
+ * accepted or connected socket before it is reported as a success. The listener
+ * keeps accepting until one socket passes the gate, so a stray or hostile
+ * connection to a UPnP-exposed port can neither take the session slot nor reach
+ * any application handler. Addresses with repeated failed handshakes are refused
+ * by a {@link HandshakeRateLimiter}; at most {@value #MAX_PENDING_HANDSHAKES}
+ * unauthenticated sockets are served concurrently.</p>
  */
 public class TcpDirectConnector {
+
+    /**
+     * Authenticates a freshly connected raw channel. Runs on a worker thread and
+     * may block (bounded by the handshake timeout). Must return an authenticated
+     * channel or throw; a thrown exception counts as a failed handshake.
+     */
+    public interface ChannelGate {
+        DesktopChannel authenticate(SocketChannelImpl raw) throws Exception;
+    }
+
+    static final int MAX_PENDING_HANDSHAKES = 4;
 
     private static final int CONNECT_TIMEOUT_MS = 700;
     private static final int RETRY_INTERVAL_MS = 800;
@@ -49,7 +72,10 @@ public class TcpDirectConnector {
     private volatile ServerSocket serverSocket;
     private volatile ExecutorService workerExecutor;
     private volatile ScheduledExecutorService scheduler;
-    private volatile Consumer<SocketChannelImpl> successCallback;
+    private final AtomicInteger pendingHandshakes = new AtomicInteger();
+    private volatile ChannelGate channelGate;
+    private volatile HandshakeRateLimiter rateLimiter = new HandshakeRateLimiter();
+    private volatile Consumer<DesktopChannel> successCallback;
     private volatile Runnable failCallback;
     private volatile Consumer<String> logCallback;
     private volatile String lastError = "-";
@@ -64,6 +90,16 @@ public class TcpDirectConnector {
         this.enableUpnp = enableUpnp;
     }
 
+    /** Gate applied to every socket; null reports raw channels (tests, diagnostics). */
+    public void setChannelGate(ChannelGate gate) {
+        this.channelGate = gate;
+    }
+
+    /** Shares one limiter across sessions so a new offer does not reset the counters. */
+    public void setRateLimiter(HandshakeRateLimiter limiter) {
+        this.rateLimiter = limiter == null ? new HandshakeRateLimiter() : limiter;
+    }
+
     public synchronized void reset() {
         stopInternal(null);
         candidates.clear();
@@ -74,13 +110,13 @@ public class TcpDirectConnector {
         lastError = "-";
     }
 
-    public synchronized int startListener(Consumer<SocketChannelImpl> onSuccess,
+    public synchronized int startListener(Consumer<DesktopChannel> onSuccess,
                                           Runnable onFail,
                                           Consumer<String> log) {
         return startListener(onSuccess, onFail, log, Collections.<InetSocketAddress>emptyList());
     }
 
-    public synchronized int startListener(Consumer<SocketChannelImpl> onSuccess,
+    public synchronized int startListener(Consumer<DesktopChannel> onSuccess,
                                           Runnable onFail,
                                           Consumer<String> log,
                                           Collection<InetSocketAddress> stunAddresses) {
@@ -107,18 +143,17 @@ public class TcpDirectConnector {
                 }
             }
 
-            workerExecutor = DaemonThreads.single("tcp-direct-listener");
-            workerExecutor.submit(() -> {
-                try {
-                    Socket socket = listener.accept();
-                    configure(socket);
-                    complete(socket, "接受入站连接");
-                } catch (IOException e) {
-                    if (active.get() && !completed.get()) {
-                        lastError = e.getClass().getSimpleName() + ": " + e.getMessage();
-                    }
-                }
-            });
+            ExecutorService workers = new ThreadPoolExecutor(
+                    1 + MAX_PENDING_HANDSHAKES,
+                    1 + MAX_PENDING_HANDSHAKES,
+                    0L,
+                    TimeUnit.MILLISECONDS,
+                    new ArrayBlockingQueue<>(MAX_PENDING_HANDSHAKES),
+                    DaemonThreads.factory("tcp-direct-listener"),
+                    new ThreadPoolExecutor.AbortPolicy());
+            workerExecutor = workers;
+            pendingHandshakes.set(0);
+            workers.submit(() -> acceptLoop(listener, workers));
             startTimeout();
             return listener.getLocalPort();
         } catch (IOException e) {
@@ -129,7 +164,7 @@ public class TcpDirectConnector {
         }
     }
 
-    public synchronized void startConnector(Consumer<SocketChannelImpl> onSuccess,
+    public synchronized void startConnector(Consumer<DesktopChannel> onSuccess,
                                             Runnable onFail,
                                             Consumer<String> log) {
         stopInternal(null);
@@ -199,17 +234,21 @@ public class TcpDirectConnector {
                 Socket socket = new Socket();
                 openSockets.add(socket);
                 connectAttempts.incrementAndGet();
+                boolean retryable = true;
                 try {
                     socket.connect(candidate, CONNECT_TIMEOUT_MS);
                     configure(socket);
-                    complete(socket, "主动连接 " + candidate);
+                    retryable = authenticateAndComplete(socket, "outbound " + candidate, false);
                 } catch (IOException e) {
                     connectErrors.incrementAndGet();
                     lastError = candidate + " -> " + e.getClass().getSimpleName() + ": " + e.getMessage();
                     closeQuietly(socket);
                 } finally {
                     openSockets.remove(socket);
-                    if (generation == lifecycleGeneration.get()) {
+                    // A definitive handshake verdict (wrong password, other version)
+                    // stays in inFlight: retrying would only burn the peer's
+                    // failed-handshake budget for this address.
+                    if (generation == lifecycleGeneration.get() && retryable) {
                         inFlight.remove(candidate);
                     }
                 }
@@ -221,8 +260,92 @@ public class TcpDirectConnector {
         }
     }
 
-    private void complete(Socket selected, String mode) {
+    private void acceptLoop(ServerSocket listener, ExecutorService workers) {
+        while (active.get() && !completed.get() && !listener.isClosed()) {
+            Socket socket;
+            try {
+                socket = listener.accept();
+            } catch (IOException e) {
+                if (active.get() && !completed.get()) {
+                    lastError = e.getClass().getSimpleName() + ": " + e.getMessage();
+                }
+                return;
+            }
+            InetAddress address = socket.getInetAddress();
+            if (!rateLimiter.allow(address)) {
+                log("Refusing TCP connection from " + address + ": too many failed handshakes");
+                closeQuietly(socket);
+                continue;
+            }
+            if (pendingHandshakes.incrementAndGet() > MAX_PENDING_HANDSHAKES) {
+                pendingHandshakes.decrementAndGet();
+                log("Refusing TCP connection from " + address + ": too many pending handshakes");
+                closeQuietly(socket);
+                continue;
+            }
+            openSockets.add(socket);
+            try {
+                workers.submit(() -> {
+                    try {
+                        configure(socket);
+                        authenticateAndComplete(socket, "inbound " + socket.getRemoteSocketAddress(), true);
+                    } catch (IOException e) {
+                        openSockets.remove(socket);
+                        closeQuietly(socket);
+                    } finally {
+                        pendingHandshakes.decrementAndGet();
+                    }
+                });
+            } catch (RejectedExecutionException e) {
+                pendingHandshakes.decrementAndGet();
+                openSockets.remove(socket);
+                closeQuietly(socket);
+            }
+        }
+    }
+
+    /**
+     * Runs the gate on a connected socket and completes the session if it passes.
+     *
+     * @return false if the handshake failed for a reason that retrying cannot fix
+     */
+    private boolean authenticateAndComplete(Socket socket, String mode, boolean inbound) throws IOException {
+        if (completed.get()) {
+            closeQuietly(socket);
+            return true;
+        }
+        SocketChannelImpl raw = new SocketChannelImpl(socket);
+        ChannelGate gate = channelGate;
+        DesktopChannel channel;
+        try {
+            channel = gate == null ? raw : gate.authenticate(raw);
+        } catch (Exception e) {
+            raw.close();
+            openSockets.remove(socket);
+            lastError = mode + " -> handshake " + e.getMessage();
+            if (inbound && rateLimiter.recordFailure(socket.getInetAddress())) {
+                log("Blocking " + socket.getInetAddress() + " after repeated failed handshakes");
+            }
+            log("TCP handshake failed (" + mode + "): " + e.getMessage());
+            return !(e instanceof HandshakeException && ((HandshakeException) e).getReason().isUserActionable());
+        }
+        if (channel == null) {
+            raw.close();
+            openSockets.remove(socket);
+            return true;
+        }
+        complete(socket, channel, mode);
+        return true;
+    }
+
+    private void log(String message) {
+        Consumer<String> log = logCallback;
+        if (log != null) log.accept(message);
+    }
+
+    private void complete(Socket selected, DesktopChannel channel, String mode) {
         if (!completed.compareAndSet(false, true)) {
+            channel.close();
             closeQuietly(selected);
             return;
         }
@@ -236,26 +359,15 @@ public class TcpDirectConnector {
         closePortMapping();
         closeOtherSockets(selected);
         shutdownExecutors();
-        try {
-            SocketChannelImpl channel = new SocketChannelImpl(selected);
-            Consumer<String> log = logCallback;
-            if (log != null) {
-                log.accept("TCP 直连成功 (" + mode + "): local=" + selected.getLocalSocketAddress()
-                        + ", remote=" + selected.getRemoteSocketAddress());
-            }
-            Consumer<SocketChannelImpl> callback = successCallback;
-            clearCallbacks();
-            if (callback != null) callback.accept(channel);
-            else channel.close();
-        } catch (IOException e) {
-            closeQuietly(selected);
-            lastError = e.getClass().getSimpleName() + ": " + e.getMessage();
-            Runnable callback = failCallback;
-            Consumer<String> log = logCallback;
-            stopInternal(null);
-            if (log != null) log.accept("TCP 数据通道初始化失败: " + lastError);
-            if (callback != null) callback.run();
-        }
+        // shutdownNow() above interrupted this worker; the success callback
+        // must not inherit that interrupt.
+        Thread.interrupted();
+        log("TCP direct connection established (" + mode + "): local=" + selected.getLocalSocketAddress()
+                + ", remote=" + selected.getRemoteSocketAddress());
+        Consumer<DesktopChannel> callback = successCallback;
+        clearCallbacks();
+        if (callback != null) callback.accept(channel);
+        else channel.close();
     }
 
     private synchronized void startTimeout() {

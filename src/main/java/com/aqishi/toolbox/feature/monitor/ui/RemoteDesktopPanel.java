@@ -42,20 +42,63 @@ import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageOutputStream;
 import com.aqishi.toolbox.feature.monitor.domain.DesktopChannel;
 import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
+import com.aqishi.toolbox.feature.monitor.domain.HandshakeException;
+import com.aqishi.toolbox.feature.monitor.domain.HostConsent;
+import com.aqishi.toolbox.feature.monitor.domain.HostSessionAccess;
+import com.aqishi.toolbox.feature.monitor.domain.RemotePermissions;
 import com.aqishi.toolbox.feature.monitor.domain.RemoteSessionIds;
+import com.aqishi.toolbox.feature.monitor.domain.SecureChannelHandshake;
+import com.aqishi.toolbox.feature.monitor.domain.SecureSessionConfig;
+import com.aqishi.toolbox.feature.monitor.domain.SessionControlMessages;
 import com.aqishi.toolbox.feature.monitor.infra.DesktopSignalClient;
 import com.aqishi.toolbox.feature.monitor.infra.DesktopSignalServer;
+import com.aqishi.toolbox.feature.monitor.infra.HandshakeRateLimiter;
 import com.aqishi.toolbox.feature.monitor.infra.Ice4jDirectConnector;
 import com.aqishi.toolbox.feature.monitor.infra.P2PConnector;
-import com.aqishi.toolbox.feature.monitor.infra.SocketChannelImpl;
+import com.aqishi.toolbox.feature.monitor.infra.SecureDesktopChannel;
 import com.aqishi.toolbox.feature.monitor.infra.TcpDirectConnector;
 
 /**
  * P2P 远程桌面工具面板 (完全支持 WebRTC ICE, Offer, Answer 信令协商)。
+ *
+ * <h2>Message flow before the security hardening (protocol /6)</h2>
+ * <ol>
+ *   <li>Both ends join a signaling group with a random ID; the controller sends an ICE
+ *   offer to the host ID, the host answers (or answers the bare version marker when its
+ *   ICE setup failed, meaning "go straight to TCP").</li>
+ *   <li>ICE UDP succeeds, or after 25 s both ends run bidirectional TCP: each listens
+ *   (optionally exposed through UPnP/NAT-PMP) and connects to the other's candidates;
+ *   the first socket wins.</li>
+ *   <li>The host immediately pushes plaintext JPEG frames and executes every inbound
+ *   CONTROL_EVENT, DRAWING, CMD_REQUEST and FILE_TRANSFER message from whoever reached
+ *   the socket first. A new offer silently replaced the running session.</li>
+ * </ol>
+ *
+ * <h2>Current flow (protocol /7)</h2>
+ * <ol>
+ *   <li>Signaling as above, plus: an offer/answer from another protocol version is
+ *   reported as incompatible (no fallback), and a host with a live session answers
+ *   {@link #BUSY_ANSWER} instead of dropping it.</li>
+ *   <li>Every transport (ICE, TCP in both directions) is wrapped in a
+ *   {@link SecureDesktopChannel}: X25519 + HKDF + AES-256-GCM, session IDs and the
+ *   optional access password bound into the key schedule. TCP sockets are only
+ *   reported after that handshake passed; failures are rate-limited per address.</li>
+ *   <li>Both ends display the SAS. The host shows {@link RemoteConsentDialog}
+ *   (default deny, auto-deny after {@value #CONSENT_TIMEOUT_SECONDS} s); until then and
+ *   afterwards {@link HostSessionAccess} filters every inbound message by the granted
+ *   permissions. Screen frames start only after a grant, which the host sends (and
+ *   repeats, for UDP) as an encrypted session-control message.</li>
+ * </ol>
  */
 public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwner {
 
     private static final String NEGOTIATION_VERSION = Ice4jDirectConnector.PROTOCOL;
+    /** Answer sent instead of an ICE description while a session is active. */
+    static final String BUSY_ANSWER = "java-toolbox-busy";
+    static final int CONSENT_TIMEOUT_SECONDS = 60;
+    private static final long GRANT_REPEAT_MS = 2_000L;
+    /** The controller sends a heartbeat every 5 s; silence this long ends the session. */
+    private static final long PEER_SILENCE_TIMEOUT_MS = 30_000L;
 
     private final ObjectMapper mapper = Json.mapper();
 
@@ -74,11 +117,13 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
     private JTextField targetIdField;
     private JButton startControlBtn;
     private JTextArea controlLogArea;
+    private JPasswordField controlPasswordField;
 
     // 2. 被控端组件
     private JToggleButton allowBeControlledBtn;
     private JLabel hostStatusLabel;
     private JTextArea hostLogArea;
+    private JPasswordField hostPasswordField;
 
     // 3. 信令服务组件
     private JTextField localPortField;
@@ -102,8 +147,18 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
     private RemoteControlWindow activeControlWindow;
 
     // 被控端连接缓存
-    private DesktopChannel activeHostChannel;
-    private ScheduledExecutorService screenPushScheduler;
+    private volatile SecureDesktopChannel activeHostChannel;
+    private volatile HostSessionAccess hostAccess;
+    private volatile SecureSessionConfig hostSessionConfig;
+    private volatile SecureSessionConfig controlSessionConfig;
+    private final Object hostSessionLock = new Object();
+    private final HandshakeRateLimiter hostHandshakeLimiter = new HandshakeRateLimiter();
+    private final Map<String, String> hostPeerNames = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicBoolean controlFailureShown =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    /** Host consent prompt; replaceable so the flow can run without Swing dialogs. */
+    private HostConsent.Strategy consentStrategy;
+    private volatile ScheduledExecutorService screenPushScheduler;
     private Robot robot;
     private final Dimension hostScreenSize = Toolkit.getDefaultToolkit().getScreenSize();
 
@@ -137,6 +192,9 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         this.controlTcpListenerConnector = new TcpDirectConnector();
         this.hostTcpConnector = new TcpDirectConnector();
         this.hostTcpOutboundConnector = new TcpDirectConnector();
+        this.hostTcpConnector.setRateLimiter(hostHandshakeLimiter);
+        this.hostTcpOutboundConnector.setRateLimiter(hostHandshakeLimiter);
+        this.consentStrategy = new RemoteConsentDialog(null, CONSENT_TIMEOUT_SECONDS);
     }
 
     @Override
@@ -154,6 +212,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         mainTabs.addTab(I18n.get("remote_desktop.server_tab"), buildServerTab());
 
         root.add(mainTabs, BorderLayout.CENTER);
+        consentStrategy = new RemoteConsentDialog(root, CONSENT_TIMEOUT_SECONDS);
 
         setupConnectionListeners();
 
@@ -258,12 +317,20 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                         @Override
                         public void onAnswerReceived(String fromId, String sdp) {
                             appendLog(controlLogArea, I18n.get("remote_desktop.control_log_negotiating"));
+                            if (BUSY_ANSWER.equals(sdp)) {
+                                controlIceConnector.stop();
+                                showControlError(I18n.get("tool.remotedesktop.control_host_busy"));
+                                return;
+                            }
                             if (!Ice4jDirectConnector.isDescription(sdp)) {
-                                appendLog(controlLogArea, "警告：被控端协议版本不一致，对端="
-                                        + sdp + "，本端=" + NEGOTIATION_VERSION
-                                        + "。请确认双方都使用同一个最新 jar。");
-                                controlIceConnector.failSession("被控端未返回 " + NEGOTIATION_VERSION
-                                        + " ICE 描述");
+                                if (NEGOTIATION_VERSION.equals(sdp)) {
+                                    // Same version, but the host could not set up ICE: go TCP.
+                                    controlIceConnector.failSession("host sent no ICE description");
+                                    return;
+                                }
+                                controlIceConnector.stop();
+                                showControlError(I18n.get("tool.remotedesktop.incompatible_version",
+                                        describePeerVersion(sdp), NEGOTIATION_VERSION));
                                 return;
                             }
                             new Thread(() -> {
@@ -333,6 +400,9 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
 
         targetIdField = Fields.text("");
         targetIdField.putClientProperty("JTextField.placeholderText", I18n.get("remote_desktop.target_id_placeholder"));
+        controlPasswordField = new JPasswordField();
+        controlPasswordField.putClientProperty("JTextField.placeholderText",
+                I18n.get("tool.remotedesktop.access_password_optional"));
 
         startControlBtn = Buttons.primary(I18n.get("remote_desktop.start_control_btn"));
         startControlBtn.setEnabled(false);
@@ -343,6 +413,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         FormGrid form = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_SM);
         form.row(I18n.get("remote_desktop.online_peers"), peerSelectBox);
         form.row(I18n.get("remote_desktop.target_id"), targetIdField, startControlBtn);
+        form.row(I18n.get("tool.remotedesktop.access_password"), controlPasswordField);
 
         Card config = Card.plain();
         config.setContent(form);
@@ -375,6 +446,17 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
             controlTcpConnector.reset();
             controlTcpListenerConnector.reset();
             appendLog(controlLogArea, I18n.get("remote_desktop.control_log_connecting", targetId));
+            SecureSessionConfig previous = controlSessionConfig;
+            if (previous != null) previous.destroy();
+            char[] password = controlPasswordField.getPassword();
+            SecureSessionConfig sessionConfig = new SecureSessionConfig(SecureChannelHandshake.Role.CONTROLLER,
+                    signalClient.getClientId(), targetId, password);
+            java.util.Arrays.fill(password, '\0');
+            controlSessionConfig = sessionConfig;
+            controlFailureShown.set(false);
+            TcpDirectConnector.ChannelGate controlGate = secureGate(sessionConfig, this::onControlHandshakeFailure);
+            controlTcpConnector.setChannelGate(controlGate);
+            controlTcpListenerConnector.setChannelGate(controlGate);
 
             new Thread(() -> {
                 try {
@@ -386,7 +468,14 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                             controlTcpConnector.stop();
                             controlTcpListenerConnector.stop();
                             appendLog(controlLogArea, I18n.get("remote_desktop.control_log_p2p_success"));
-                            startControlWindow(udpChannel, targetId);
+                            secureAsync(udpChannel, sessionConfig,
+                                    secure -> startControlWindow(secure, targetId),
+                                    error -> {
+                                        onControlHandshakeFailure(error);
+                                        if (!error.getReason().isUserActionable()) {
+                                            startControlTcpFallback(targetId, panel);
+                                        }
+                                    });
                         },
                         () -> {
                             appendLog(controlLogArea,
@@ -424,8 +513,21 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         bar.left(allowBeControlledBtn);
         bar.left(hostStatusLabel);
 
+        hostPasswordField = new JPasswordField();
+        hostPasswordField.putClientProperty("JTextField.placeholderText",
+                I18n.get("tool.remotedesktop.access_password_optional"));
+        FormGrid passwordForm = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
+        passwordForm.row(I18n.get("tool.remotedesktop.access_password"), hostPasswordField);
+        JLabel passwordHint = new JLabel(I18n.get("tool.remotedesktop.access_password_hint"));
+        passwordHint.setForeground(Tokens.mutedForeground());
+        passwordForm.fullRow(passwordHint);
+        JPanel switchContent = new JPanel(new BorderLayout(0, Tokens.SPACE_SM));
+        switchContent.setOpaque(false);
+        switchContent.add(bar, BorderLayout.NORTH);
+        switchContent.add(passwordForm, BorderLayout.CENTER);
+
         Card switchCard = Card.titled(I18n.get("remote_desktop.host_switch_border"));
-        switchCard.setContent(bar);
+        switchCard.setContent(switchContent);
         panel.add(switchCard, BorderLayout.NORTH);
 
         hostLogArea = logArea();
@@ -459,7 +561,14 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
 
             hostSignalClient.setListener(new DesktopSignalClient.DesktopSignalListener() {
                 @Override
-                public void onUserListReceived(List<Map<String, String>> users) {}
+                public void onUserListReceived(List<Map<String, String>> users) {
+                    // Names are signaling claims; shown in the consent dialog as unverified.
+                    hostPeerNames.clear();
+                    for (Map<String, String> user : users) {
+                        String id = user.get("id");
+                        if (id != null) hostPeerNames.put(id, String.valueOf(user.get("name")));
+                    }
+                }
 
                 @Override
                 public void onPeerMessage(String fromId, byte[] rawData) {
@@ -469,18 +578,32 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                 @Override
                 public void onOfferReceived(String fromId, String sdp) {
                     appendLog(hostLogArea, I18n.get("remote_desktop.host_log_connect_req", fromId));
+                    if (activeHostChannel != null) {
+                        // A second controller must not replace (or tear down) a live session.
+                        appendLog(hostLogArea, I18n.get("tool.remotedesktop.host_log_busy", fromId));
+                        hostSignalClient.sendAnswer(fromId, BUSY_ANSWER);
+                        return;
+                    }
                     stopHostSession();
                     hostTcpConnector.reset();
                     hostTcpOutboundConnector.reset();
                     if (!Ice4jDirectConnector.isDescription(sdp)) {
-                        appendLog(hostLogArea, "警告：控制端协议版本不一致，对端="
-                                + sdp + "，本端=" + NEGOTIATION_VERSION
-                                + "。请确认双方都使用同一个最新 jar。");
-                        // 让新版控制端立即结束 UDP 协商并与本端同步进入 TCP 直连。
+                        appendLog(hostLogArea, I18n.get("tool.remotedesktop.incompatible_version",
+                                describePeerVersion(sdp), NEGOTIATION_VERSION));
+                        // Our marker makes an older controller log its own version mismatch.
+                        // No TCP fallback: an old peer would talk plaintext.
                         hostSignalClient.sendAnswer(fromId, NEGOTIATION_VERSION);
-                        startHostTcpFallback(fromId);
                         return;
                     }
+                    char[] password = hostPasswordField == null ? new char[0] : hostPasswordField.getPassword();
+                    SecureSessionConfig config = new SecureSessionConfig(SecureChannelHandshake.Role.HOST,
+                            fromId, hostSignalClient.getClientId(), password);
+                    java.util.Arrays.fill(password, '\0');
+                    hostSessionConfig = config;
+                    TcpDirectConnector.ChannelGate hostGate = secureGate(config,
+                            error -> appendLog(hostLogArea, describeHandshakeFailure(error)));
+                    hostTcpConnector.setChannelGate(hostGate);
+                    hostTcpOutboundConnector.setChannelGate(hostGate);
 
                     new Thread(() -> {
                         try {
@@ -491,7 +614,15 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                                     hostTcpOutboundConnector.stop();
                                     appendLog(hostLogArea,
                                             I18n.get("remote_desktop.host_log_p2p_connected"));
-                                    setupHostChannel(udpChannel);
+                                    secureAsync(udpChannel, config,
+                                            secure -> onHostSecureChannel(secure, fromId),
+                                            error -> {
+                                                appendLog(hostLogArea, describeHandshakeFailure(error));
+                                                if (!error.getReason().isUserActionable()
+                                                        && activeHostChannel == null) {
+                                                    startHostTcpFallback(fromId);
+                                                }
+                                            });
                                 },
                                 () -> {
                                     appendLog(hostLogArea,
@@ -554,22 +685,93 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         }
     }
 
-    private void setupHostChannel(DesktopChannel channel) {
-        activeHostChannel = channel;
-        activeHostChannel.setMessageListener(this::handleHostReceivedMessage);
-        activeHostChannel.setCloseListener(() -> {
+    /**
+     * Takes over an authenticated channel and asks the host user for consent.
+     * Nothing reaches the input/file/terminal handlers until
+     * {@link HostSessionAccess} has a grant, and only what the grant allows.
+     */
+    private void onHostSecureChannel(DesktopChannel channel, String controllerId) {
+        if (!(channel instanceof SecureDesktopChannel)) {
+            channel.close();
+            return;
+        }
+        SecureDesktopChannel secure = (SecureDesktopChannel) channel;
+        HostSessionAccess access = new HostSessionAccess(this::handleHostReceivedMessage);
+        synchronized (hostSessionLock) {
+            if (activeHostChannel != null) {
+                appendLog(hostLogArea, I18n.get("tool.remotedesktop.host_log_busy", controllerId));
+                secure.close();
+                return;
+            }
+            activeHostChannel = secure;
+            hostAccess = access;
+        }
+        SecureSessionConfig config = hostSessionConfig;
+        if (config != null) config.destroy(); // the password is not needed once authenticated
+        secure.setMessageListener(access);
+        secure.setCloseListener(() -> {
             appendLog(hostLogArea, I18n.get("remote_desktop.host_log_channel_closed"));
+            if (activeHostChannel == secure) stopHostSession();
+        });
+        if (secure.isClosed()) {
             stopHostSession();
-        });
+            return;
+        }
+        java.net.InetSocketAddress remote = secure.remoteAddress();
+        appendLog(hostLogArea, I18n.get("tool.remotedesktop.host_log_secure_ready",
+                secure.getStatusDescription(), secure.getSas()));
+        String name = hostPeerNames.getOrDefault(controllerId, "?");
+        HostConsent.Request request = new HostConsent.Request(name, controllerId,
+                remote == null ? "-" : remote.getAddress().getHostAddress() + ":" + remote.getPort(),
+                secure.getSas(), secure.getStatusDescription(), secure.isPasswordUsed());
+        access.requestConsent(consentStrategy, request, CONSENT_TIMEOUT_SECONDS * 1000L)
+                .thenAcceptAsync(outcome -> onHostConsentDecided(secure, access, outcome, remote));
+    }
 
-        screenPushScheduler = Executors.newSingleThreadScheduledExecutor();
-        screenPushScheduler.scheduleAtFixedRate(this::pushScreenFrame, 0, 75, TimeUnit.MILLISECONDS);
+    private void onHostConsentDecided(SecureDesktopChannel secure, HostSessionAccess access,
+                                      HostSessionAccess.Outcome outcome,
+                                      java.net.InetSocketAddress remote) {
+        if (activeHostChannel != secure || hostAccess != access) return;
+        if (outcome == HostSessionAccess.Outcome.GRANTED) {
+            RemotePermissions granted = access.granted();
+            if (remote != null) hostHandshakeLimiter.recordSuccess(remote.getAddress());
+            appendLog(hostLogArea, I18n.get("tool.remotedesktop.host_log_granted", granted.toString()));
+            secure.send(SessionControlMessages.grant(granted));
+            startHostStreaming(secure, access);
+            return;
+        }
+        if (outcome == HostSessionAccess.Outcome.CLOSED) return;
+        String reason = outcome == HostSessionAccess.Outcome.TIMED_OUT
+                ? SessionControlMessages.REASON_TIMEOUT : SessionControlMessages.REASON_DENIED;
+        appendLog(hostLogArea, I18n.get("tool.remotedesktop.host_log_denied", reason));
+        // UDP may drop a single record; the duplicates are harmless.
+        int copies = secure.isReliable() ? 1 : 3;
+        for (int i = 0; i < copies; i++) secure.send(SessionControlMessages.deny(reason));
+        stopHostSession();
+    }
 
-        SwingUtilities.invokeLater(() -> {
-            overlayWindow = new TransparentOverlayWindow();
-        });
-
-        appendLog(hostLogArea, I18n.get("remote_desktop.host_log_channel_ready", channel.getStatusDescription()));
+    private void startHostStreaming(SecureDesktopChannel secure, HostSessionAccess access) {
+        ScheduledExecutorService pusher = Executors.newSingleThreadScheduledExecutor(
+                com.aqishi.toolbox.infra.concurrency.DaemonThreads.factory("remote-desktop-push"));
+        screenPushScheduler = pusher;
+        pusher.scheduleAtFixedRate(this::pushScreenFrame, 0, 75, TimeUnit.MILLISECONDS);
+        // Repeat the grant so a controller on lossy UDP still learns it.
+        pusher.scheduleAtFixedRate(() -> {
+            if (hostAccess != access) return;
+            if (secure.millisSinceLastReceive() > PEER_SILENCE_TIMEOUT_MS) {
+                appendLog(hostLogArea, "No authenticated data from the controller for "
+                        + PEER_SILENCE_TIMEOUT_MS / 1000 + " s; ending the session");
+                stopHostSession();
+                return;
+            }
+            secure.send(SessionControlMessages.grant(access.granted()));
+        }, GRANT_REPEAT_MS, GRANT_REPEAT_MS, TimeUnit.MILLISECONDS);
+        if (access.granted().has(RemotePermissions.Permission.CONTROL)) {
+            SwingUtilities.invokeLater(() -> {
+                if (hostAccess == access && overlayWindow == null) overlayWindow = new TransparentOverlayWindow();
+            });
+        }
+        appendLog(hostLogArea, I18n.get("remote_desktop.host_log_channel_ready", secure.getStatusDescription()));
     }
 
     private void startControlTcpFallback(String targetId, Component parent) {
@@ -577,7 +779,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                 new java.util.concurrent.atomic.AtomicBoolean(false);
         java.util.concurrent.atomic.AtomicInteger failedPaths =
                 new java.util.concurrent.atomic.AtomicInteger(0);
-        Consumer<SocketChannelImpl> connected = tcpChannel -> {
+        Consumer<DesktopChannel> connected = tcpChannel -> {
             if (!selected.compareAndSet(false, true)) {
                 tcpChannel.close();
                 return;
@@ -639,7 +841,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                 new java.util.concurrent.atomic.AtomicBoolean(false);
         java.util.concurrent.atomic.AtomicInteger failedPaths =
                 new java.util.concurrent.atomic.AtomicInteger(0);
-        Consumer<SocketChannelImpl> connected = tcpChannel -> {
+        Consumer<DesktopChannel> connected = tcpChannel -> {
             if (!selected.compareAndSet(false, true)) {
                 tcpChannel.close();
                 return;
@@ -648,7 +850,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
             hostTcpOutboundConnector.stop();
             hostIceConnector.stop();
             appendLog(hostLogArea, "TCP 直连成功，已切换到 P2P TCP 数据通道。");
-            setupHostChannel(tcpChannel);
+            onHostSecureChannel(tcpChannel, controllerId);
         };
         Runnable failed = () -> {
             if (failedPaths.incrementAndGet() < 2 || selected.get()) return;
@@ -704,7 +906,10 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
     private byte[] lastFrameBytes = null;
 
     private void pushScreenFrame() {
-        if (activeHostChannel == null || robot == null) return;
+        HostSessionAccess access = hostAccess;
+        DesktopChannel channel = activeHostChannel;
+        if (channel == null || robot == null || access == null
+                || !access.granted().has(RemotePermissions.Permission.VIEW)) return;
         try {
             BufferedImage screenImg = robot.createScreenCapture(new Rectangle(hostScreenSize));
             BufferedImage pushImg = screenImg;
@@ -724,7 +929,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
             }
 
             lastFrameBytes = imgBytes;
-            activeHostChannel.send(new DesktopMessage(DesktopMessage.TYPE_SCREEN_FRAME, imgBytes));
+            channel.send(new DesktopMessage(DesktopMessage.TYPE_SCREEN_FRAME, imgBytes));
         } catch (Exception ignored) {
         }
     }
@@ -929,9 +1134,19 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
     }
 
     private void stopHostSession() {
-        if (screenPushScheduler != null) {
-            screenPushScheduler.shutdownNow();
-            screenPushScheduler = null;
+        HostSessionAccess access = hostAccess;
+        hostAccess = null;
+        if (access != null) {
+            // Revoke first so nothing queued behind this call can still act.
+            access.close();
+        }
+        SecureSessionConfig config = hostSessionConfig;
+        hostSessionConfig = null;
+        if (config != null) config.destroy();
+        ScheduledExecutorService pusher = screenPushScheduler;
+        screenPushScheduler = null;
+        if (pusher != null) {
+            pusher.shutdownNow();
         }
 
         if (overlayWindow != null) {
@@ -954,8 +1169,11 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         hostTcpConnector.stop();
         hostTcpOutboundConnector.stop();
 
-        DesktopChannel channel = activeHostChannel;
-        activeHostChannel = null;
+        DesktopChannel channel;
+        synchronized (hostSessionLock) {
+            channel = activeHostChannel;
+            activeHostChannel = null;
+        }
         if (channel != null) {
             channel.close();
         }
@@ -1068,12 +1286,109 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
     }
 
     private void startControlWindow(DesktopChannel channel, String peerId) {
-        if (channel == null) return;
+        if (!(channel instanceof SecureDesktopChannel)) {
+            // Never drive a session over an unauthenticated transport.
+            if (channel != null) channel.close();
+            return;
+        }
+        String sas = ((SecureDesktopChannel) channel).getSas();
+        appendLog(controlLogArea, I18n.get("tool.remotedesktop.control_log_secure_ready", sas));
+        SecureSessionConfig config = controlSessionConfig;
+        if (config != null) config.destroy();
         SwingUtilities.invokeLater(() -> {
             activeControlChannel = channel;
-            activeControlWindow = new RemoteControlWindow(channel, peerId);
+            activeControlWindow = new RemoteControlWindow(channel, peerId, sas);
             activeControlWindow.setVisible(true);
         });
+    }
+
+    /** Wraps a raw transport and reports the outcome asynchronously (off the transport thread). */
+    private void secureAsync(DesktopChannel raw, SecureSessionConfig config,
+                             Consumer<SecureDesktopChannel> onReady,
+                             Consumer<HandshakeException> onFailure) {
+        java.net.InetSocketAddress remote = raw.remoteAddress();
+        java.net.InetAddress address = remote == null ? null : remote.getAddress();
+        boolean host = config.role() == SecureChannelHandshake.Role.HOST;
+        if (host && !hostHandshakeLimiter.allow(address)) {
+            appendLog(hostLogArea, "Refusing " + remote + ": too many failed handshakes");
+            raw.close();
+            return;
+        }
+        SecureDesktopChannel.start(raw, config).handshakeFuture().whenCompleteAsync((secure, error) -> {
+            if (error == null) {
+                onReady.accept(secure);
+                return;
+            }
+            HandshakeException failure = unwrapHandshake(error);
+            if (host && failure.getReason() != HandshakeException.Reason.CLOSED) {
+                hostHandshakeLimiter.recordFailure(address);
+            }
+            onFailure.accept(failure);
+        });
+    }
+
+    /** TCP gate: blocks the connector worker until the secure handshake passed. */
+    private static TcpDirectConnector.ChannelGate secureGate(SecureSessionConfig config,
+                                                             Consumer<HandshakeException> onFailure) {
+        return raw -> {
+            try {
+                return SecureDesktopChannel.establish(raw, config);
+            } catch (HandshakeException e) {
+                onFailure.accept(e);
+                throw e;
+            }
+        };
+    }
+
+    private static HandshakeException unwrapHandshake(Throwable error) {
+        Throwable cause = error;
+        while (cause instanceof java.util.concurrent.CompletionException && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        return cause instanceof HandshakeException
+                ? (HandshakeException) cause
+                : new HandshakeException(HandshakeException.Reason.PROTOCOL_ERROR, String.valueOf(cause));
+    }
+
+    private void onControlHandshakeFailure(HandshakeException error) {
+        String message = describeHandshakeFailure(error);
+        appendLog(controlLogArea, message);
+        if (error.getReason().isUserActionable()) {
+            // Retrying cannot fix a wrong password or a version mismatch.
+            controlTcpConnector.stop();
+            controlTcpListenerConnector.stop();
+            controlIceConnector.stop();
+            showControlError(message);
+        }
+    }
+
+    private void showControlError(String message) {
+        appendLog(controlLogArea, message);
+        if (!controlFailureShown.compareAndSet(false, true)) return;
+        SwingUtilities.invokeLater(() -> UIUtils.error(controlLogArea, message,
+                I18n.get("remote_desktop.prompt_title")));
+    }
+
+    static String describeHandshakeFailure(HandshakeException error) {
+        String reasonKey;
+        switch (error.getReason()) {
+            case INCOMPATIBLE_VERSION: reasonKey = "tool.remotedesktop.reason_version"; break;
+            case AUTH_FAILED: reasonKey = "tool.remotedesktop.reason_auth"; break;
+            case PASSWORD_REQUIRED: reasonKey = "tool.remotedesktop.reason_password_required"; break;
+            case TIMEOUT: reasonKey = "tool.remotedesktop.reason_timeout"; break;
+            case TOO_LARGE: reasonKey = "tool.remotedesktop.reason_too_large"; break;
+            case CLOSED: reasonKey = "tool.remotedesktop.reason_closed"; break;
+            default: reasonKey = "tool.remotedesktop.reason_protocol"; break;
+        }
+        return I18n.get("tool.remotedesktop.handshake_failed", I18n.get(reasonKey)) + " [" + error.getMessage() + "]";
+    }
+
+    /** Extracts the version marker from a foreign offer/answer for the error message. */
+    static String describePeerVersion(String description) {
+        if (description == null || description.isEmpty()) return "?";
+        int colon = description.indexOf(':');
+        String marker = colon > 0 ? description.substring(0, colon) : description;
+        return marker.length() > 48 ? marker.substring(0, 48) : marker;
     }
 
     private static byte[] compressImageToJpeg(BufferedImage img, float quality) throws IOException {
@@ -1107,6 +1422,9 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
      */
     @Override
     public void closeResources() {
+        SecureSessionConfig controlConfig = controlSessionConfig;
+        controlSessionConfig = null;
+        if (controlConfig != null) controlConfig.destroy();
         DesktopChannel controlChannel = activeControlChannel;
         activeControlChannel = null;
         if (controlChannel != null) {

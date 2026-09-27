@@ -17,7 +17,10 @@ import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.infra.database.DatabaseConnectionFactory;
 import com.aqishi.toolbox.infra.database.JdbcConnectionResource;
 import com.aqishi.toolbox.infra.database.DatabaseProfileStore;
+import com.aqishi.toolbox.infra.secrets.ProfileSecretManager;
+import com.aqishi.toolbox.infra.secrets.SecretStore;
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.secrets.ProfileSecretUi;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -57,9 +60,12 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
     private JButton delProfileBtn;
-    private final Map<String, DatabaseProfile> profiles = new LinkedHashMap<>();
     private final DatabaseProfileStore profileStore = new DatabaseProfileStore(
             java.util.prefs.Preferences.userNodeForPackage(DatabasePanel.class));
+    /** Owns the live profile map; passwords live in the vault, never in preferences. */
+    private final ProfileSecretManager<DatabaseProfile> secretManager;
+    private final ProfileSecretUi<DatabaseProfile> secretUi;
+    private final Map<String, DatabaseProfile> profiles;
     private boolean ignoreProfileEvents = false;
     private boolean ignoreUrlUpdate = false;
 
@@ -140,7 +146,21 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     private JTextArea consoleOutput;
 
     public DatabasePanel() {
+        this(SecretStore.disabled());
+    }
+
+    /** @param secrets vault-backed store for saved passwords; {@link SecretStore#disabled()} keeps none */
+    public DatabasePanel(SecretStore secrets) {
         super(ToolCatalog.DATABASE_CONNECTOR);
+        secretManager = new ProfileSecretManager<>(DatabaseProfileStore.SECRET_NAMESPACE,
+                profileStore, secrets, SwingUtilities::invokeLater);
+        profiles = secretManager.profiles();
+        secretUi = new ProfileSecretUi<>(secretManager, this::getView);
+    }
+
+    private DatabaseProfile selectedProfile() {
+        Object name = profileCombo == null ? null : profileCombo.getSelectedItem();
+        return name == null ? null : profiles.get(name.toString());
     }
 
     @Override
@@ -169,7 +189,9 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
             dbTypeCombo.setSelectedIndex(0);
         }
 
-        return root;
+        // 保险库锁定时清掉自动填入的密码，解锁后再补上；已建立的连接不受影响。
+        secretUi.bind(passField, this::selectedProfile, "password");
+        return secretUi.wrap(root);
     }
 
     /**
@@ -619,6 +641,10 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void testConnection() {
+        secretUi.ensureField(passField, selectedProfile(), "password", this::testConnectionNow);
+    }
+
+    private void testConnectionNow() {
         String url = urlField.getText().trim();
         String user = userField.getText().trim();
         String pwd = new String(passField.getPassword());
@@ -669,6 +695,10 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void connect() {
+        secretUi.ensureField(passField, selectedProfile(), "password", this::connectNow);
+    }
+
+    private void connectNow() {
         String url = urlField.getText().trim();
         String user = userField.getText().trim();
         String pwd = new String(passField.getPassword());
@@ -1578,10 +1608,12 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                 urlField.getText().trim(),
                 jarPathField.getText().trim()
         );
-        profiles.put(name, p);
-        saveProfilesToPrefs();
-        refreshProfilesCombo(name);
-        UIUtils.info(getView(), "配置 '" + name + "' 保存成功！");
+        final String savedName = name;
+        // 密码交给保险库（锁定时会询问解锁或不保存密码），偏好里只留 secretStored 标记。
+        secretUi.save(savedName, p, outcome -> {
+            refreshProfilesCombo(savedName);
+            UIUtils.info(getView(), "配置 '" + savedName + "' 保存成功！");
+        });
     }
 
     private void deleteProfile() {
@@ -1589,8 +1621,11 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         if (name == null) return;
         boolean opt = UIUtils.confirm(getView(), "确定要删除配置 '" + name + "' 吗？", "确认删除");
         if (opt) {
-            profiles.remove(name);
-            saveProfilesToPrefs();
+            try {
+                secretManager.delete(name);
+            } catch (Exception ex) {
+                Errors.log("保存数据库连接配置失败", ex);
+            }
             refreshProfilesCombo(null);
             UIUtils.info(getView(), "配置已删除。");
         }
@@ -1598,19 +1633,10 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
 
     private void loadProfilesFromPrefs() {
         try {
-            profiles.clear();
-            profiles.putAll(profileStore.load());
+            secretManager.ensureLoaded();
             refreshProfilesCombo(null);
         } catch (Exception ex) {
             Errors.log("加载数据库连接配置失败", ex);
-        }
-    }
-
-    private void saveProfilesToPrefs() {
-        try {
-            profileStore.save(profiles);
-        } catch (Exception ex) {
-            Errors.log("保存数据库连接配置失败", ex);
         }
     }
 
@@ -1649,7 +1675,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
             portField.setText(p.port);
             databaseField.setText(p.database);
             userField.setText(p.username);
-            passField.setText(p.password);
+            secretUi.fill(passField, p, "password");
             driverClassField.setText(p.driverClass);
             urlField.setText(p.url);
             jarPathField.setText(p.jarPath);

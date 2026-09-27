@@ -2,7 +2,10 @@ package com.aqishi.toolbox.vault;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -131,6 +134,69 @@ public final class VaultService implements AutoCloseable {
             repository.save(currentOpened(), candidate);
             publishSaved(candidate);
         });
+    }
+
+    /**
+     * Atomically applies puts and removals to the connection-secret section in
+     * one verified vault write. Keys are opaque to the vault; values are never
+     * logged and never appear in exception messages.
+     *
+     * <p>Fails with {@link VaultErrorCode#READ_ONLY} when locked and with
+     * {@link VaultErrorCode#BUSY} while another vault operation runs; callers
+     * that write in the background retry the latter.</p>
+     */
+    public CompletableFuture<Void> updateConnectionSecrets(
+            Map<String, String> puts, Collection<String> removals) {
+        final Map<String, String> putCopy = new LinkedHashMap<>(
+                puts == null ? Collections.<String, String>emptyMap() : puts);
+        final List<String> removeCopy = new ArrayList<>(
+                removals == null ? Collections.<String>emptyList() : removals);
+        for (Map.Entry<String, String> entry : putCopy.entrySet()) {
+            if (entry.getKey() == null || entry.getKey().isEmpty() || entry.getValue() == null) {
+                return failed(new VaultException(VaultErrorCode.INVALID_ENVELOPE,
+                        "Connection secret key or value is missing", false));
+            }
+        }
+        return runUnlockedSave(() -> {
+            VaultData candidate = currentSnapshot();
+            Map<String, String> secrets = candidate.copyConnectionSecrets();
+            for (String key : removeCopy) {
+                if (key != null) secrets.remove(key);
+            }
+            secrets.putAll(putCopy);
+            candidate.setConnectionSecrets(secrets);
+            repository.save(currentOpened(), candidate);
+            publishSaved(candidate);
+        });
+    }
+
+    /**
+     * Returns one connection secret, or {@code null} when it is absent or the
+     * vault is not open. A save in progress keeps the last committed snapshot
+     * readable so a connect that races a background write still finds it.
+     */
+    public String getConnectionSecret(String key) {
+        if (key == null) return null;
+        synchronized (mutex) {
+            if (snapshot == null
+                    || (state != VaultState.UNLOCKED && state != VaultState.SAVING)) {
+                return null;
+            }
+            lastActivityMillis = clock.currentTimeMillis();
+            return snapshot.connectionSecret(key);
+        }
+    }
+
+    /** Keys of every stored connection secret; empty while locked. */
+    public List<String> getConnectionSecretKeys() {
+        synchronized (mutex) {
+            if (snapshot == null
+                    || (state != VaultState.UNLOCKED && state != VaultState.SAVING)) {
+                return Collections.emptyList();
+            }
+            return Collections.unmodifiableList(
+                    new ArrayList<>(snapshot.copyConnectionSecrets().keySet()));
+        }
     }
 
     public CompletableFuture<Void> changePassword(
@@ -263,6 +329,12 @@ public final class VaultService implements AutoCloseable {
 
     private CompletableFuture<Void> runUnlockedSave(Operation operation) {
         synchronized (mutex) {
+            // Another save in flight is a transient collision, not a lock: report BUSY so
+            // background writers (connection secrets) can retry instead of giving up.
+            if (state == VaultState.SAVING && opened != null) {
+                return failed(new VaultException(VaultErrorCode.BUSY,
+                        "Another vault operation is active", true));
+            }
             if (state != VaultState.UNLOCKED || opened == null) {
                 return failed(new VaultException(VaultErrorCode.READ_ONLY,
                         "Vault is locked", true));

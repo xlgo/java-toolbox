@@ -1,6 +1,11 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
 import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.util.I18n;
+import com.aqishi.toolbox.infra.secrets.SecretPrompter;
+import com.aqishi.toolbox.infra.secrets.SecretStore;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
+import com.aqishi.toolbox.ui.secrets.SwingSecretPrompter;
 
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
@@ -88,7 +93,7 @@ public class SshConfigDialog extends JDialog {
         // 密码认证面板
         passwordPanel = new JPanel(new BorderLayout(4, 4));
         passwordField = Fields.password();
-        passwordField.setText(SshSecurityUtils.decrypt(config.getEncryptedPassword()));
+        passwordField.setText(config.resolvedPassword());
         // CardLayout 的另一页包含私钥文本区，若直接放到 CENTER，JTextField 会被拉伸成大块空白。
         passwordPanel.add(passwordField, BorderLayout.NORTH);
 
@@ -116,7 +121,7 @@ public class SshConfigDialog extends JDialog {
 
         JPanel passphraseBox = new JPanel(new BorderLayout(4, 4));
         passphraseField = Fields.password();
-        passphraseField.setText(SshSecurityUtils.decrypt(config.getEncryptedPassphrase()));
+        passphraseField.setText(config.resolvedPassphrase());
         passphraseBox.add(new JLabel("私钥口令(Passphrase): "), BorderLayout.WEST);
         passphraseBox.add(passphraseField, BorderLayout.CENTER);
 
@@ -296,8 +301,51 @@ public class SshConfigDialog extends JDialog {
         this.config.setAutoReconnect(autoReconnectCheck.isSelected());
         this.config.setRemarks(remarksArea.getText());
 
+        if (!prepareCredentialStorage()) return;
         this.saved = true;
         dispose();
+    }
+
+    /**
+     * Decides where typed credentials go. With a vault they are only ever stored there:
+     * an unlocked vault takes them when the caller saves; a locked one is unlocked first or
+     * the server is saved without them. Returns false while waiting or when cancelled.
+     */
+    private boolean prepareCredentialStorage() {
+        SecretStore store = SshConfigStore.getInstance().secretStore();
+        SecretStore.Status status = store.status();
+        if (status == SecretStore.Status.DISABLED) return true;
+        if (!config.hasLocalSecrets()) {
+            // Nothing typed: keep a vault copy only if it could not be shown (vault locked).
+            if (status == SecretStore.Status.UNLOCKED) config.setSecretStored(false);
+            return true;
+        }
+        if (status == SecretStore.Status.UNLOCKED) return true;
+        SecretPrompter.Answer answer = new SwingSecretPrompter(() -> this)
+                .askBeforeSave(config.toString(), status);
+        switch (answer.kind()) {
+            case UNLOCK:
+                setEnabled(false);
+                store.unlock(answer.value()).whenComplete((ignored, error) ->
+                        SwingUtilities.invokeLater(() -> {
+                            setEnabled(true);
+                            if (error != null) {
+                                UIUtils.error(this, I18n.get("secrets.unlock.failed"));
+                                return;
+                            }
+                            this.saved = true;
+                            dispose();
+                        }));
+                return false;
+            case SKIP_SECRET:
+                config.clearLocalSecrets();
+                config.setSecretStored(false);
+                config.applyVaultSecrets(null);
+                return true;
+            default:
+                answer.wipe();
+                return false;
+        }
     }
 
     public boolean isSaved() {

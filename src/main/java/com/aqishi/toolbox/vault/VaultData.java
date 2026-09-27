@@ -3,10 +3,23 @@ package com.aqishi.toolbox.vault;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
-/** Versioned plaintext payload that is encrypted as one vault unit. */
+/**
+ * Versioned plaintext payload that is encrypted as one vault unit.
+ *
+ * <p>Schema history: version 1 held password and TOTP accounts; version 2 adds
+ * {@code connectionSecrets}, an opaque key/value section used by connection
+ * tools (database, Redis, Kafka, Kubernetes, SSH) so their saved passwords no
+ * longer live in plaintext preferences. Version 1 payloads are upgraded in
+ * memory by {@link #upgradeLegacySchema()} and written back as version 2 on the
+ * next save.</p>
+ */
 public class VaultData {
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
+    /** Oldest payload schema that {@link #upgradeLegacySchema()} still accepts. */
+    public static final int MIN_SUPPORTED_SCHEMA_VERSION = 1;
     public static final int MAX_RECORDS = 10_000;
     public static final int MAX_TEXT_LENGTH = 4_096;
     public static final int MAX_PASSWORD_LENGTH = 1024 * 1024;
@@ -14,6 +27,7 @@ public class VaultData {
     private int schemaVersion = SCHEMA_VERSION;
     private List<PasswordAccount> passwordAccounts = new ArrayList<>();
     private List<TotpAccount> totpAccounts = new ArrayList<>();
+    private TreeMap<String, String> connectionSecrets = new TreeMap<>();
 
     public VaultData() {
     }
@@ -42,6 +56,35 @@ public class VaultData {
         this.totpAccounts = copyTotps(totpAccounts);
     }
 
+    public Map<String, String> getConnectionSecrets() {
+        return copyConnectionSecrets();
+    }
+
+    public void setConnectionSecrets(Map<String, String> connectionSecrets) {
+        this.connectionSecrets = copySecrets(connectionSecrets);
+    }
+
+    /** Single-entry lookup without copying the whole section. */
+    public String connectionSecret(String key) {
+        return key == null || connectionSecrets == null ? null : connectionSecrets.get(key);
+    }
+
+    public Map<String, String> copyConnectionSecrets() {
+        return copySecrets(connectionSecrets);
+    }
+
+    /**
+     * Brings an older payload up to {@link #SCHEMA_VERSION}. Version 1 had no
+     * connection secrets, so it simply gains an empty section. Unknown or
+     * future versions are left untouched so {@link #validate()} rejects them.
+     */
+    public void upgradeLegacySchema() {
+        if (schemaVersion >= MIN_SUPPORTED_SCHEMA_VERSION && schemaVersion < SCHEMA_VERSION) {
+            if (connectionSecrets == null) connectionSecrets = new TreeMap<>();
+            schemaVersion = SCHEMA_VERSION;
+        }
+    }
+
     public List<PasswordAccount> copyPasswordAccounts() {
         return copyPasswords(passwordAccounts);
     }
@@ -55,6 +98,7 @@ public class VaultData {
         copy.schemaVersion = schemaVersion;
         copy.passwordAccounts = copyPasswords(passwordAccounts);
         copy.totpAccounts = copyTotps(totpAccounts);
+        copy.connectionSecrets = copySecrets(connectionSecrets);
         return copy;
     }
 
@@ -68,7 +112,8 @@ public class VaultData {
                     "Invalid vault data schema version");
         }
         if (passwordAccounts == null || passwordAccounts.size() > MAX_RECORDS
-                || totpAccounts == null || totpAccounts.size() > MAX_RECORDS) {
+                || totpAccounts == null || totpAccounts.size() > MAX_RECORDS
+                || connectionSecrets == null || connectionSecrets.size() > MAX_RECORDS) {
             throw failure(VaultErrorCode.INVALID_ENVELOPE,
                     "Vault record count is invalid");
         }
@@ -95,6 +140,27 @@ public class VaultData {
             requireTextLimit(account.getSecret(), MAX_TEXT_LENGTH);
             requireTextLimit(account.getIssuer(), MAX_TEXT_LENGTH);
         }
+
+        for (Map.Entry<String, String> entry : connectionSecrets.entrySet()) {
+            if (entry.getKey() == null || entry.getKey().isEmpty() || entry.getValue() == null) {
+                throw failure(VaultErrorCode.INVALID_ENVELOPE,
+                        "Connection secret is malformed");
+            }
+            requireTextLimit(entry.getKey(), MAX_TEXT_LENGTH);
+            requirePasswordLimit(entry.getValue());
+        }
+    }
+
+    private static TreeMap<String, String> copySecrets(Map<String, String> source) {
+        TreeMap<String, String> copy = new TreeMap<>();
+        if (source == null || source.isEmpty()) {
+            return copy;
+        }
+        for (Map.Entry<String, String> entry : source.entrySet()) {
+            // TreeMap rejects null keys; keep the entry so validate() reports it instead.
+            copy.put(entry.getKey() == null ? "" : entry.getKey(), entry.getValue());
+        }
+        return copy;
     }
 
     private static List<PasswordAccount> copyPasswords(List<PasswordAccount> source) {

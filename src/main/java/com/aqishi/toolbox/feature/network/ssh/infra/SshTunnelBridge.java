@@ -1,14 +1,12 @@
 package com.aqishi.toolbox.feature.network.ssh.infra;
 
-import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshHostKeyPrompt;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
 
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
-import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
 
 /**
  * 统一 SSH 隧道桥接调度器：为 Redis, 数据库, Kafka 等工具提供内网代理访问
@@ -18,6 +16,16 @@ public final class SshTunnelBridge {
     private static final Map<String, SshSessionInstance> activeSessions = new ConcurrentHashMap<>();
     private static final Map<String, SharedBridge> activeBridges = new ConcurrentHashMap<>();
     private static final Set<SshSessionInstance> bridgeOwnedSessions = ConcurrentHashMap.newKeySet();
+
+    /**
+     * 隧道自建 SSH 会话时使用的主机指纹确认方式。
+     *
+     * <p>早先隧道会话一律用 {@link SshHostKeyPrompt#denyAll()}：只通过数据库 / Redis / Kafka
+     * 等工具走隧道、从没在 SSH 终端里连过这台主机的用户，首次连接必然失败，也没有机会确认指纹。
+     * 现在由界面层在启动时注入与 SSH 终端相同的确认对话框；默认仍是拒绝，
+     * 没有界面可问时宁可失败，也不静默信任未知主机。已记录的主机密钥变更照样被 known_hosts 拒绝。</p>
+     */
+    private static volatile SshHostKeyPrompt hostKeyPrompt = SshHostKeyPrompt.denyAll();
 
     private SshTunnelBridge() {
     }
@@ -74,6 +82,15 @@ public final class SshTunnelBridge {
             leases++;
             return true;
         }
+    }
+
+    /** 注入隧道会话的主机指纹确认方式；传 null 恢复为一律拒绝。 */
+    public static void setHostKeyPrompt(SshHostKeyPrompt prompt) {
+        hostKeyPrompt = prompt != null ? prompt : SshHostKeyPrompt.denyAll();
+    }
+
+    static SshHostKeyPrompt hostKeyPrompt() {
+        return hostKeyPrompt;
     }
 
     public static void register(SshSessionInstance session) {
@@ -158,7 +175,7 @@ public final class SshTunnelBridge {
         SshSessionInstance session = activeSessions.get(sshConfig.getId());
         boolean createdSession = false;
         if (session == null) {
-            SshSessionInstance candidate = new SshSessionInstance(sshConfig);
+            SshSessionInstance candidate = new SshSessionInstance(sshConfig, hostKeyPrompt);
             activeSessions.put(sshConfig.getId(), candidate);
             bridgeOwnedSessions.add(candidate);
             session = candidate;

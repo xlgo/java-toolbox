@@ -22,9 +22,17 @@ import java.util.List;
 import java.util.Map;
 import com.aqishi.toolbox.feature.monitor.domain.DesktopChannel;
 import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
+import com.aqishi.toolbox.feature.monitor.domain.RemotePermissions;
+import com.aqishi.toolbox.feature.monitor.domain.RemotePermissions.Permission;
+import com.aqishi.toolbox.feature.monitor.domain.SessionControlMessages;
 
 /**
  * 控制端的远程桌面视口窗口。
+ *
+ * <p>Opened once the secure channel is established. Until the host grants
+ * consent it only shows the SAS for the user to compare; afterwards the
+ * toolbar and input forwarding follow the granted permissions. This is
+ * convenience only: the host enforces the grant on its own side.</p>
  */
 public class RemoteControlWindow extends JFrame {
 
@@ -32,6 +40,17 @@ public class RemoteControlWindow extends JFrame {
     private final String peerId;
     private final ObjectMapper mapper = Json.mapper();
     private final java.util.concurrent.atomic.AtomicBoolean windowClosed = new java.util.concurrent.atomic.AtomicBoolean(false);
+    /** How long to wait for the host user's decision before giving up. */
+    private static final int CONSENT_WAIT_MS = 90_000;
+
+    private final String sas;
+    private volatile RemotePermissions granted = RemotePermissions.none();
+    private JButton fileTransferButton;
+    private JButton terminalButton;
+    private JToggleButton drawButton;
+    private Timer consentWaitTimer;
+    /** Keeps the host's liveness check satisfied (UDP has no close notification). */
+    private Timer heartbeatTimer;
 
     private BufferedImage currentFrame;
     private ScreenPanel screenPanel;
@@ -46,10 +65,11 @@ public class RemoteControlWindow extends JFrame {
     private Point lastDrawPoint = null;
     private final List<DrawingStroke> localStrokes = new ArrayList<>();
 
-    public RemoteControlWindow(DesktopChannel channel, String peerId) {
+    public RemoteControlWindow(DesktopChannel channel, String peerId, String sas) {
         super(I18n.get("remote_desktop.window_title", peerId));
         this.channel = channel;
         this.peerId = peerId;
+        this.sas = sas == null ? "-" : sas;
 
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setSize(1024, 768);
@@ -66,6 +86,20 @@ public class RemoteControlWindow extends JFrame {
                 closeAndDispose();
             }
         });
+
+        consentWaitTimer = new Timer(CONSENT_WAIT_MS, e -> {
+            if (!granted.isGranted() && windowClosed.compareAndSet(false, true)) {
+                UIUtils.warn(this, I18n.get("tool.remotedesktop.control_consent_no_answer"),
+                        I18n.get("remote_desktop.ft_title"));
+                closeAndDispose();
+            }
+        });
+        consentWaitTimer.setRepeats(false);
+        consentWaitTimer.start();
+
+        heartbeatTimer = new Timer(5_000, e ->
+                channel.send(new DesktopMessage(DesktopMessage.TYPE_HEARTBEAT, new byte[0])));
+        heartbeatTimer.start();
     }
 
     private void initComponents() {
@@ -191,6 +225,10 @@ public class RemoteControlWindow extends JFrame {
         statusLbl.setForeground(channel.isP2P() ? new Color(75, 181, 67) : new Color(255, 140, 0));
         statusLbl.setFont(new Font(Font.DIALOG, Font.BOLD, 12));
         floatToolbarWindow.add(statusLbl);
+        JLabel sasLbl = new JLabel(I18n.get("tool.remotedesktop.sas_label", sas));
+        sasLbl.setForeground(Color.WHITE);
+        sasLbl.setFont(new Font(Font.DIALOG, Font.BOLD, 12));
+        floatToolbarWindow.add(sasLbl);
         floatToolbarWindow.add(new JLabel("|"));
 
         JButton ssBtn = createToolbarButton(I18n.get("remote_desktop.toolbar_ss"));
@@ -202,6 +240,10 @@ public class RemoteControlWindow extends JFrame {
 
         JButton clearBtn = createToolbarButton(I18n.get("remote_desktop.toolbar_clear"));
         clearBtn.setEnabled(false);
+        fileTransferButton = ftBtn;
+        terminalButton = cmdBtn;
+        drawButton = drawBtn;
+        applyPermissions();
 
         JButton disconnectBtn = createToolbarButton(I18n.get("remote_desktop.toolbar_disconnect"));
 
@@ -293,6 +335,7 @@ public class RemoteControlWindow extends JFrame {
     }
 
     private void sendControlEvent(String type, String action, int keyCode, int mouseBtn, double rx, double ry) {
+        if (!granted.has(Permission.CONTROL)) return;
         try {
             Map<String, Object> event = new HashMap<>();
             event.put("type", type);
@@ -310,6 +353,7 @@ public class RemoteControlWindow extends JFrame {
     }
 
     private void sendDrawingStroke(double x1, double y1, double x2, double y2) {
+        if (!granted.has(Permission.CONTROL)) return;
         try {
             Map<String, Object> stroke = new HashMap<>();
             stroke.put("action", "draw");
@@ -356,8 +400,49 @@ public class RemoteControlWindow extends JFrame {
         }
     }
 
+    /** Enables the toolbar actions the host granted (runs on the EDT). */
+    private void applyPermissions() {
+        RemotePermissions current = granted;
+        if (fileTransferButton != null) fileTransferButton.setEnabled(current.has(Permission.FILES));
+        if (terminalButton != null) terminalButton.setEnabled(current.has(Permission.TERMINAL));
+        if (drawButton != null) {
+            drawButton.setEnabled(current.has(Permission.CONTROL));
+            if (!current.has(Permission.CONTROL) && drawButton.isSelected()) {
+                drawButton.doClick();
+            }
+        }
+        if (screenPanel != null) screenPanel.repaint();
+    }
+
+    private void onSessionControl(DesktopMessage msg) {
+        SessionControlMessages.Control control = SessionControlMessages.parse(msg);
+        if (control == null) return;
+        if (control.isGranted()) {
+            boolean changed = !control.permissions().equals(granted);
+            granted = control.permissions();
+            if (changed) SwingUtilities.invokeLater(() -> {
+                if (consentWaitTimer != null) consentWaitTimer.stop();
+        if (heartbeatTimer != null) heartbeatTimer.stop();
+                applyPermissions();
+            });
+            return;
+        }
+        granted = RemotePermissions.none();
+        if (!windowClosed.compareAndSet(false, true)) return;
+        String key = SessionControlMessages.REASON_TIMEOUT.equals(control.reason())
+                ? "tool.remotedesktop.control_denied_timeout"
+                : "tool.remotedesktop.control_denied";
+        SwingUtilities.invokeLater(() -> {
+            UIUtils.warn(this, I18n.get(key), I18n.get("remote_desktop.ft_title"));
+            closeAndDispose();
+        });
+    }
+
     private void dispatchMessage(DesktopMessage msg) {
         switch (msg.getType()) {
+            case DesktopMessage.TYPE_SESSION_CONTROL:
+                onSessionControl(msg);
+                break;
             case DesktopMessage.TYPE_SCREEN_FRAME:
                 try {
                     ByteArrayInputStream bais = new ByteArrayInputStream(msg.getPayload());
@@ -391,6 +476,7 @@ public class RemoteControlWindow extends JFrame {
 
     private void closeAndDispose() {
         windowClosed.set(true);
+        if (consentWaitTimer != null) consentWaitTimer.stop();
         if (floatToolbarWindow != null) {
             floatToolbarWindow.dispose();
         }
@@ -414,7 +500,11 @@ public class RemoteControlWindow extends JFrame {
             super.paintComponent(g);
             if (currentFrame == null) {
                 g.setColor(Color.WHITE);
-                g.drawString(I18n.get("remote_desktop.window_waiting"), getWidth() / 2 - 80, getHeight() / 2);
+                String waiting = granted.isGranted()
+                        ? I18n.get("remote_desktop.window_waiting")
+                        : I18n.get("tool.remotedesktop.control_waiting_consent", sas);
+                int width = g.getFontMetrics().stringWidth(waiting);
+                g.drawString(waiting, Math.max(8, (getWidth() - width) / 2), getHeight() / 2);
                 return;
             }
 

@@ -15,7 +15,10 @@ import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.infra.kubernetes.KubeconfigParser;
 import com.aqishi.toolbox.infra.kubernetes.KubernetesTls;
 import com.aqishi.toolbox.infra.kubernetes.KubeconfigStore;
+import com.aqishi.toolbox.infra.secrets.ProfileSecretManager;
+import com.aqishi.toolbox.infra.secrets.SecretStore;
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.secrets.ProfileSecretUi;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -128,9 +131,14 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
     private final KubernetesResourceApplyService resourceApplyService = new KubernetesResourceApplyService();
     /** Pod 文件传输的在途资源登记表：应用关闭时统一取消，见 closeResources()。 */
     private final TransferRegistry transfers = new TransferRegistry();
-    private final Map<String, KubernetesProfile> profiles = new LinkedHashMap<>();
     private final KubeconfigStore profileStore = new KubeconfigStore(
             java.util.prefs.Preferences.userNodeForPackage(K8sManagerPanel.class));
+    /** Owns the live profile map; bearer tokens and client keys live in the vault. */
+    private final ProfileSecretManager<KubernetesProfile> secretManager;
+    private final ProfileSecretUi<KubernetesProfile> secretUi;
+    private final Map<String, KubernetesProfile> profiles;
+    /** True while {@link #activeClientKey} came from the vault and must go when it locks. */
+    private boolean clientKeyFromVault;
     private final KubeconfigParser kubeconfigParser = new KubeconfigParser();
     private final ObjectMapper mapper = Json.mapper();
     private boolean ignoreProfileEvents = false;
@@ -140,9 +148,46 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
     }
 
     public K8sManagerPanel(KubernetesServiceFactory kubernetesServiceFactory) {
+        this(kubernetesServiceFactory, SecretStore.disabled());
+    }
+
+    /** @param secrets vault-backed store for tokens and client keys; {@link SecretStore#disabled()} keeps none */
+    public K8sManagerPanel(KubernetesServiceFactory kubernetesServiceFactory, SecretStore secrets) {
         super(ToolCatalog.K8S_MANAGER);
         this.kubernetesServiceFactory = java.util.Objects.requireNonNull(
                 kubernetesServiceFactory, "kubernetesServiceFactory");
+        secretManager = new ProfileSecretManager<>(KubeconfigStore.SECRET_NAMESPACE,
+                profileStore, secrets, SwingUtilities::invokeLater);
+        profiles = secretManager.profiles();
+        secretUi = new ProfileSecretUi<>(secretManager, this::getView);
+        secretManager.addListener(new ProfileSecretManager.Listener() {
+            @Override
+            public void onSecretsLocked() {
+                // The live connection keeps its socket factory; only the cached key goes.
+                if (clientKeyFromVault) {
+                    activeClientKey = null;
+                    clientKeyFromVault = false;
+                }
+            }
+
+            @Override
+            public void onSecretsUnlocked() {
+                KubernetesProfile selected = selectedProfile();
+                if (selected != null && activeClientKey == null) applyClientKey(selected);
+            }
+        });
+    }
+
+    private KubernetesProfile selectedProfile() {
+        Object name = profileCombo == null ? null : profileCombo.getSelectedItem();
+        return name == null ? null : profiles.get(name.toString());
+    }
+
+    /** Client key of {@code p} as known right now (vault, legacy plaintext or none). */
+    private void applyClientKey(KubernetesProfile p) {
+        String key = secretManager.knownSecrets(p).get("clientKeyData");
+        activeClientKey = key;
+        clientKeyFromVault = key != null && !p.plaintextPending;
     }
 
     @Override
@@ -178,7 +223,8 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
         toggleState(false);
         loadProfilesFromPrefs();
 
-        return root;
+        secretUi.bind(tokenField, this::selectedProfile, "token");
+        return secretUi.wrap(root);
     }
 
     /**
@@ -543,10 +589,10 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
             if (selected != null && profiles.containsKey(selected)) {
                 KubernetesProfile p = profiles.get(selected);
                 serverField.setText(p.serverUrl);
-                tokenField.setText(p.token);
+                secretUi.fill(tokenField, p, "token");
                 skipTlsCheck.setSelected(p.skipTls);
                 activeClientCert = p.clientCertData;
-                activeClientKey = p.clientKeyData;
+                applyClientKey(p);
                 activeCaCert = p.caCertData;
                 refreshCaCertLabel();
             }
@@ -566,9 +612,12 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
                     activeClientKey,
                     activeCaCert
             );
-            profiles.put(name, p);
-            saveProfilesToPrefs();
-            refreshProfilesCombo(name);
+            final String savedName = name;
+            secretUi.save(savedName, p, outcome -> {
+                clientKeyFromVault = outcome == ProfileSecretManager.SaveOutcome.SAVED_WITH_SECRET
+                        && activeClientKey != null;
+                refreshProfilesCombo(savedName);
+            });
         });
 
         // Profile Delete
@@ -580,8 +629,11 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
             }
             boolean opt = UIUtils.confirm(null, "确认删除配置 \"" + selected + "\"?", "提示");
             if (opt) {
-                profiles.remove(selected);
-                saveProfilesToPrefs();
+                try {
+                    secretManager.delete(selected);
+                } catch (Exception ex) {
+                    Errors.log("保存 K8s 连接配置失败", ex);
+                }
                 refreshProfilesCombo(null);
             }
         });
@@ -681,6 +733,29 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
     }
 
     private void connectCluster() {
+        KubernetesProfile selected = selectedProfile();
+        // A client certificate without its key means the key is still in the locked vault.
+        boolean missingKey = selected != null && activeClientKey == null
+                && selected.clientCertData != null && !selected.clientCertData.isEmpty();
+        boolean missingToken = tokenField.getPassword().length == 0;
+        if (selected == null || !secretManager.needsUnlock(selected) || (!missingKey && !missingToken)) {
+            if (selected != null && activeClientKey == null) applyClientKey(selected);
+            connectClusterNow();
+            return;
+        }
+        secretUi.withSecrets(selected, true, resolution -> {
+            String token = resolution.field("token");
+            if (token != null && tokenField.getPassword().length == 0) tokenField.setText(token);
+            String key = resolution.field("clientKeyData");
+            if (key != null) {
+                activeClientKey = key;
+                clientKeyFromVault = true;
+            }
+            connectClusterNow();
+        });
+    }
+
+    private void connectClusterNow() {
         activeServerUrl = serverField.getText().trim();
         activeToken = new String(tokenField.getPassword());
         activeSkipTls = skipTlsCheck.isSelected();
@@ -1109,9 +1184,13 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
             count++;
         }
         p.name = finalName;
-        profiles.put(p.name, p);
-        saveProfilesToPrefs();
-        refreshProfilesCombo(p.name);
+        final String savedName = finalName;
+        // Imported tokens / client keys go to the vault, never into preferences.
+        secretUi.save(savedName, p, outcome -> {
+            clientKeyFromVault = outcome == ProfileSecretManager.SaveOutcome.SAVED_WITH_SECRET
+                    && activeClientKey != null;
+            refreshProfilesCombo(savedName);
+        });
     }
 
     private KubernetesProfile parseKubeconfig(String yamlText, File baseDir, String sourceName) throws Exception {
@@ -1207,18 +1286,10 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
         dialog.setVisible(true);
     }
 
-    private void saveProfilesToPrefs() {
-        try {
-            profileStore.save(profiles);
-        } catch (Exception ex) {
-            Errors.log("保存 K8s 连接配置失败", ex);
-        }
-    }
 
     private void loadProfilesFromPrefs() {
         try {
-            profiles.clear();
-            profiles.putAll(profileStore.load());
+            secretManager.ensureLoaded();
             refreshProfilesCombo(null);
         } catch (Exception ex) {
             Errors.log("加载 K8s 连接配置失败", ex);
@@ -1236,7 +1307,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
             KubernetesProfile p = profiles.get(selectName);
             if (p != null) {
                 activeClientCert = p.clientCertData;
-                activeClientKey = p.clientKeyData;
+                applyClientKey(p);
                 activeCaCert = p.caCertData;
                 refreshCaCertLabel();
             }
@@ -1246,10 +1317,10 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
             KubernetesProfile p = profiles.get(first);
             if (p != null) {
                 serverField.setText(p.serverUrl);
-                tokenField.setText(p.token);
+                secretUi.fill(tokenField, p, "token");
                 skipTlsCheck.setSelected(p.skipTls);
                 activeClientCert = p.clientCertData;
-                activeClientKey = p.clientKeyData;
+                applyClientKey(p);
                 activeCaCert = p.caCertData;
                 refreshCaCertLabel();
             }

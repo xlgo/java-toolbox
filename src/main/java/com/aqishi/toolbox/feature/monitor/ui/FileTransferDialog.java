@@ -27,6 +27,11 @@ import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
  */
 public class FileTransferDialog extends JDialog {
 
+    /** Chunk size used by the sender; receivers only accept chunks inside the declared file. */
+    static final int CHUNK_SIZE = 64 * 1024;
+    /** Upper bound on simultaneously open incoming files per session. */
+    static final int MAX_CONCURRENT_RECEIVES = 16;
+
     private final DesktopChannel channel;
     private final ObjectMapper mapper = Json.mapper();
     private final Map<String, TransferTask> activeTasks = new ConcurrentHashMap<>();
@@ -124,6 +129,11 @@ public class FileTransferDialog extends JDialog {
                     String fileName = ReceivedFileNames.sanitize((String) msg.get("fileName"));
                     Number fileSizeNum = (Number) msg.get("fileSize");
                     long fileSize = fileSizeNum.longValue();
+                    if (fileSize < 0 || fileId == null || fileId.length() != 36
+                            || receivers.size() >= MAX_CONCURRENT_RECEIVES || receivers.containsKey(fileId)) {
+                        log.accept("Rejected incoming file request (invalid id/size or too many transfers)");
+                        return;
+                    }
 
                     log.accept(I18n.get("remote_desktop.ft_peer_req", fileName, FormatUtils.bytes(fileSize)));
 
@@ -182,6 +192,9 @@ public class FileTransferDialog extends JDialog {
 
                 FileReceiver receiver = receivers.get(fileId);
                 if (receiver != null) {
+                    if (chunkSize < 0 || chunkSize > data.length - 49) {
+                        throw new IOException("chunk length exceeds message");
+                    }
                     receiver.writeChunk(chunkIndex, data, 49, chunkSize);
                 }
             } catch (Exception e) {
@@ -370,7 +383,12 @@ public class FileTransferDialog extends JDialog {
         }
 
         synchronized void writeChunk(long index, byte[] data, int offset, int length) throws IOException {
-            long pos = index * 64 * 1024;
+            if (raf == null) throw new IOException("receiver closed");
+            if (index < 0 || length > CHUNK_SIZE || index > (fileSize - length) / CHUNK_SIZE) {
+                throw new IOException("chunk outside the declared file size");
+            }
+            long pos = index * CHUNK_SIZE;
+            if (pos + length > fileSize) throw new IOException("chunk outside the declared file size");
             raf.seek(pos);
             raf.write(data, offset, length);
         }

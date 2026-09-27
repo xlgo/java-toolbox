@@ -3,6 +3,7 @@ package com.aqishi.toolbox.ui;
 import com.aqishi.toolbox.catalog.ToolboxContext;
 import com.aqishi.toolbox.catalog.ToolRegistry;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshTunnelBridge;
+import com.aqishi.toolbox.feature.network.ssh.ui.SshHostKeyPrompts;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -80,6 +81,8 @@ public class MainFrame extends JFrame {
         this.vaultService = java.util.Objects.requireNonNull(vaultService, "vaultService");
         this.secureClipboard = java.util.Objects.requireNonNull(secureClipboard, "secureClipboard");
         createTools();
+        // 数据库 / Redis / Kafka 等工具经 SSH 隧道首次连接新主机时，与 SSH 终端一样弹出指纹确认
+        SshTunnelBridge.setHostKeyPrompt(SshHostKeyPrompts.dialogs(this));
         navigationModel = new ToolNavigationModel(java.util.Arrays.asList(tools));
 
         try {
@@ -166,6 +169,7 @@ public class MainFrame extends JFrame {
             }
         }
         SshTunnelBridge.shutdown();
+        SshTunnelBridge.setHostKeyPrompt(null);
     }
 
     private void takeScreenshot(String path) {

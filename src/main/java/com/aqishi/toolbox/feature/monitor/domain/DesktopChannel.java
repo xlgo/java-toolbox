@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.monitor.domain;
 
+import java.net.InetSocketAddress;
 import java.util.function.Consumer;
 
 /**
@@ -25,4 +26,25 @@ public interface DesktopChannel {
 
     /** 设置通道关闭的回调 */
     void setCloseListener(Runnable listener);
+
+    /** Remote transport address, or null if unknown. */
+    default InetSocketAddress remoteAddress() {
+        return null;
+    }
+
+    /**
+     * Whether messages arrive exactly once and in order (TCP). Unreliable
+     * transports (UDP) make the secure channel retransmit handshake flights
+     * and use a replay window instead of strict record ordering.
+     */
+    default boolean isReliable() {
+        return true;
+    }
+
+    /**
+     * Caps the size of a single inbound message; larger frames close the
+     * channel. The secure channel keeps this small until authentication.
+     */
+    default void setMaxInboundMessageSize(int bytes) {
+    }
 }

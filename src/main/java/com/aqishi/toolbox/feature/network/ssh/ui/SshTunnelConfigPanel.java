@@ -150,11 +150,11 @@ public class SshTunnelConfigPanel extends JPanel {
             authTypeCombo.setSelectedIndex(1);
             authCardLayout.show(authCardPanel, "KEY");
             privateKeyField.setText(config.getKeyPath() == null ? "" : config.getKeyPath());
-            passphraseField.setText(SshSecurityUtils.decrypt(config.getEncryptedPassphrase()));
+            passphraseField.setText(config.resolvedPassphrase());
         } else {
             authTypeCombo.setSelectedIndex(0);
             authCardLayout.show(authCardPanel, "PASSWORD");
-            sshPasswordField.setText(SshSecurityUtils.decrypt(config.getEncryptedPassword()));
+            sshPasswordField.setText(config.resolvedPassword());
         }
     }
 }

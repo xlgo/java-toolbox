@@ -329,7 +329,9 @@ public final class VaultRepository implements AutoCloseable {
                         || !root.has("passwordAccounts")
                         || !root.get("passwordAccounts").isArray()
                         || !root.has("totpAccounts")
-                        || !root.get("totpAccounts").isArray()) {
+                        || !root.get("totpAccounts").isArray()
+                        || (root.has("connectionSecrets")
+                                && !root.get("connectionSecrets").isObject())) {
                     throw new VaultException(
                             VaultErrorCode.INVALID_ENVELOPE,
                             "Vault data is missing required collections", false);
@@ -338,6 +340,9 @@ public final class VaultRepository implements AutoCloseable {
             } catch (IOException error) {
                 throw readFailure("Unable to parse vault data", false, error);
             }
+            // Schema 1 files predate connection secrets; they open with an empty
+            // section and are written back as the current schema on the next save.
+            data.upgradeLegacySchema();
             data.validate();
             return data;
         } finally {

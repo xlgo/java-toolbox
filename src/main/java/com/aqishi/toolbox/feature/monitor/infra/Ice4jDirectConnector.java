@@ -48,7 +48,14 @@ import com.aqishi.toolbox.feature.monitor.domain.DesktopMessage;
  */
 public final class Ice4jDirectConnector {
 
-    public static final String PROTOCOL = "java-toolbox-ice4j/6";
+    /**
+     * Signaling protocol marker. Version 7 introduced the encrypted, consent-gated
+     * data channel ({@link SecureDesktopChannel}); older peers see a version
+     * mismatch in their offer/answer handling instead of an unprotected session.
+     */
+    public static final String PROTOCOL = "java-toolbox-ice4j/7";
+    /** Prefix shared by every version of the marker, used to detect other versions. */
+    public static final String PROTOCOL_FAMILY = "java-toolbox-ice4j/";
     private static final String DESCRIPTION_PREFIX = PROTOCOL + ":";
     private static final String STREAM_NAME = "desktop";
     private static final int CHECK_TIMEOUT_SECONDS = 25;
@@ -715,6 +722,21 @@ public final class Ice4jDirectConnector {
         @Override
         public void close() {
             delegate.close();
+        }
+
+        @Override
+        public InetSocketAddress remoteAddress() {
+            return delegate.remoteAddress();
+        }
+
+        @Override
+        public boolean isReliable() {
+            return delegate.isReliable();
+        }
+
+        @Override
+        public void setMaxInboundMessageSize(int bytes) {
+            delegate.setMaxInboundMessageSize(bytes);
         }
     }
 }

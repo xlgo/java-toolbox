@@ -2,7 +2,7 @@
 # 重新生成（注意引号，PowerShell 下不加会被拆参）：
 #   mvn "-Dtest=I18nHardcodedTextTest" "-Di18n.baseline.write=true" test
 # 这些数字只应随国际化推进而下降。
-# 当前：131 个文件，待迁移 3550 条，另有数据语料 445 条（不需要国际化）。
+# 当前：131 个文件，待迁移 3536 条，另有数据语料 445 条（不需要国际化）。
 com/aqishi/toolbox/Main.java=8
 com/aqishi/toolbox/catalog/ToolCatalog.java=287
 com/aqishi/toolbox/feature/cloud/application/KubernetesResourceApplyService.java=10
@@ -63,13 +63,13 @@ com/aqishi/toolbox/feature/monitor/infra/DesktopSignalServer.java=12
 com/aqishi/toolbox/feature/monitor/infra/Ice4jDirectConnector.java=19
 com/aqishi/toolbox/feature/monitor/infra/NatPmpPortMapper.java=9
 com/aqishi/toolbox/feature/monitor/infra/P2PConnector.java=31
-com/aqishi/toolbox/feature/monitor/infra/SocketChannelImpl.java=3
-com/aqishi/toolbox/feature/monitor/infra/TcpDirectConnector.java=9
+com/aqishi/toolbox/feature/monitor/infra/SocketChannelImpl.java=1
+com/aqishi/toolbox/feature/monitor/infra/TcpDirectConnector.java=5
 com/aqishi/toolbox/feature/monitor/infra/UdpChannelImpl.java=2
 com/aqishi/toolbox/feature/monitor/infra/UpnpPortMapper.java=20
 com/aqishi/toolbox/feature/monitor/ui/FileTransferDialog.java=2
 com/aqishi/toolbox/feature/monitor/ui/RemoteControlWindow.java=5
-com/aqishi/toolbox/feature/monitor/ui/RemoteDesktopPanel.java=40
+com/aqishi/toolbox/feature/monitor/ui/RemoteDesktopPanel.java=32
 com/aqishi/toolbox/feature/monitor/ui/RemoteTerminalDialog.java=1
 com/aqishi/toolbox/feature/monitor/ui/TransparentOverlayWindow.java=1
 com/aqishi/toolbox/feature/monitor/ui/VideoMonitorPanel.java=40

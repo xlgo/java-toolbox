@@ -17,6 +17,7 @@ import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.aqishi.toolbox.feature.monitor.domain.IceProbeCodec;
@@ -233,7 +234,10 @@ class UdpChannelImplTest {
             assertEquals(1, connector.getExactCandidateCount());
 
             finishStun.countDown();
-            starter.join(2000);
+            // STUN 结束后还要枚举网卡、建立监听；全量测试并发跑时 2 秒不够（JDK 17 上撞到过），
+            // 放宽等待并断言线程确实结束，测的仍是"STUN 期间到达的候选不丢"
+            starter.join(10_000);
+            assertFalse(starter.isAlive(), "host listener did not finish starting");
             assertNotNull(localPort.get());
             assertTrue(localPort.get() > 0);
 

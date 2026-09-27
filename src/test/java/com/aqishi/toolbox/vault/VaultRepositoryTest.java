@@ -98,7 +98,8 @@ class VaultRepositoryTest {
         byte[] dataJson = mapper.writeValueAsBytes(data);
         JsonNode dataTree = mapper.readTree(dataJson);
 
-        assertEquals(setOf("schemaVersion", "passwordAccounts", "totpAccounts"),
+        assertEquals(setOf("schemaVersion", "passwordAccounts", "totpAccounts",
+                        "connectionSecrets"),
                 fieldNames(dataTree));
         assertEquals(VaultData.SCHEMA_VERSION, dataTree.get("schemaVersion").asInt());
         JsonNode password = dataTree.get("passwordAccounts").get(0);

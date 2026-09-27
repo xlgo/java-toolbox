@@ -59,7 +59,7 @@
 | 生成 | UUID 生成 | 批量生成、去横线、大写、一键复制 |
 | 生成 | 密码生成器 | 基于 SecureRandom 的离线强密码生成与实时强度评估 |
 | 生成 | 二维码工具 | 支持文本/URL 生成二维码（自定义颜色/尺寸/导出）、图片识别解码 |
-| 生成 | 账号密码管理 | 与 TOTP 共用安全保险库和主密码，支持检索、增删改、隐藏与安全复制 |
+| 生成 | 账号密码管理 | 与 TOTP 共用安全保险库和主密码，支持检索、增删改、隐藏与安全复制；数据库、Redis、Kafka、K8s、SSH 的连接密码同样存入保险库，不再明文写入本地配置，旧版明文密码在首次解锁后自动迁移 |
 | 生成 | 动态验证码 (TOTP) | 与密码管理共用锁定会话，支持密钥/链接导入、自适应账号展示与安全复制 |
 | 生成 | 随机测试数据生成 | 批量生成模拟测试数据，包含百家姓姓名、手机号、电子邮箱、地址、身份证号与银行卡号 |
 | 生成 | DDL 转 Java 实体 | 解析 MySQL / PostgreSQL / Oracle / SQL Server 建表语句（含 COMMENT、COMMENT ON、复合主键），生成 Lombok / 普通 JavaBean / Record 实体，可选 JPA（jakarta / javax）或 MyBatis-Plus 注解与 MyBatis resultMap，支持批量保存为文件 |
@@ -77,7 +77,7 @@
 | 运维 | 端口与进程 | 查看端口占用及对应进程（Windows netstat / tasklist，macOS lsof，Linux ss），按端口、范围或进程过滤，查看命令行，确认后结束进程或进程树；检查端口是否空闲，权限不足时给出提示 |
 | 运维 | JAR / Class 分析 | 解析 class 文件（编译版本、预览特性、字段与方法签名），分析 JAR / WAR / Spring Boot fat jar 的 MANIFEST、Maven 坐标、最低 Java 版本与内嵌依赖；在目录中搜索类所在的 jar，检测重复类并区分内容是否一致 |
 | 监控 | 视频监控 | 视频监控面板，支持多路画面分屏布局、格子合并拆分与设备树管理 |
-| 监控 | 远程桌面 | 纯 P2P 远程控制桌面，优先采用 ice4j 完整 ICE 状态机进行 UDP 双向打洞（多 STUN、triggered check、peer-reflexive candidate、角色冲突处理与候选对提名），失败后尝试带 UPnP/NAT-PMP 的 TCP 直连；不配置 TURN，信令服务器不转发桌面数据 |
+| 监控 | 远程桌面 | 纯 P2P 远程控制桌面，优先采用 ice4j 完整 ICE 状态机进行 UDP 双向打洞（多 STUN、triggered check、peer-reflexive candidate、角色冲突处理与候选对提名），失败后尝试带 UPnP/NAT-PMP 的 TCP 直连；不配置 TURN，信令服务器不转发桌面数据。所有数据通道经 X25519 密钥交换与 AES-256-GCM 加密；被控端须确认授权并核对两端一致的 6 位校验码，查看、控制、文件传输、终端分项授予，可设访问密码 |
 | 其它 | 微信群发与通讯录 | 微信群发，以及自适应读取微信 SQLite 通讯录（展示昵称、备注、微信号、头像，支持 Excel 导出、一键追加群发、头像批量下载） |
 | 其它 | 微信导出工具脚本 | `tools/wechat_export.py`：基于 Windows UIAutomation 的微信 UI 自动化导出工具，附带可视化悬浮控制面板（暂停/继续/停止）、自动重试与坐标防失焦校验 |
 

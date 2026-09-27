@@ -11,7 +11,10 @@ import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.infra.redis.RedisClient;
 import com.aqishi.toolbox.infra.redis.RedisResource;
 import com.aqishi.toolbox.infra.redis.RedisProfileStore;
+import com.aqishi.toolbox.infra.secrets.ProfileSecretManager;
+import com.aqishi.toolbox.infra.secrets.SecretStore;
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.secrets.ProfileSecretUi;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -41,9 +44,12 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
     private JButton delProfileBtn;
-    private final Map<String, RedisProfile> profiles = new LinkedHashMap<>();
     private final RedisProfileStore profileStore = new RedisProfileStore(
             java.util.prefs.Preferences.userNodeForPackage(RedisPanel.class));
+    /** Owns the live profile map; passwords live in the vault, never in preferences. */
+    private final ProfileSecretManager<RedisProfile> secretManager;
+    private final ProfileSecretUi<RedisProfile> secretUi;
+    private final Map<String, RedisProfile> profiles;
     private boolean ignoreProfileEvents = false;
     private JTextField hostField;
     private JTextField portField;
@@ -133,7 +139,21 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
     private final RedisValueWriter valueWriter = new RedisValueWriter();
 
     public RedisPanel() {
+        this(SecretStore.disabled());
+    }
+
+    /** @param secrets vault-backed store for saved passwords; {@link SecretStore#disabled()} keeps none */
+    public RedisPanel(SecretStore secrets) {
         super(ToolCatalog.REDIS_MANAGEMENT);
+        secretManager = new ProfileSecretManager<>(RedisProfileStore.SECRET_NAMESPACE,
+                profileStore, secrets, SwingUtilities::invokeLater);
+        profiles = secretManager.profiles();
+        secretUi = new ProfileSecretUi<>(secretManager, this::getView);
+    }
+
+    private RedisProfile selectedProfile() {
+        Object name = profileCombo == null ? null : profileCombo.getSelectedItem();
+        return name == null ? null : profiles.get(name.toString());
     }
 
     @Override
@@ -148,7 +168,8 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
         toggleState(false);
         initActions(runCmdBtn);
 
-        return root;
+        secretUi.bind(passField, this::selectedProfile, "password");
+        return secretUi.wrap(root);
     }
 
     /** 标签页内容容器：比 page() 更薄的一层内边距，免得和外层页边距叠加过厚 */
@@ -553,7 +574,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
                 RedisProfile p = profiles.get(selectedName);
                 hostField.setText(p.host);
                 portField.setText(String.valueOf(p.port));
-                passField.setText(p.password);
+                secretUi.fill(passField, p, "password");
                 dbCombo.setSelectedItem(p.db);
             }
         });
@@ -578,9 +599,8 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
                 new String(passField.getPassword()),
                 (Integer) dbCombo.getSelectedItem()
             );
-            profiles.put(name, p);
-            saveProfilesToPrefs();
-            refreshProfilesCombo(name);
+            final String savedName = name;
+            secretUi.save(savedName, p, outcome -> refreshProfilesCombo(savedName));
         });
 
         delProfileBtn.addActionListener(e -> {
@@ -591,8 +611,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
             }
             boolean opt = UIUtils.confirm(null, "确定要删除配置 \"" + selectedName + "\" 吗？", "提示");
             if (opt) {
-                profiles.remove(selectedName);
-                saveProfilesToPrefs();
+                deleteProfile(selectedName);
                 refreshProfilesCombo(null);
             }
         });
@@ -762,6 +781,10 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void connectRedis() {
+        secretUi.ensureField(passField, selectedProfile(), "password", this::connectRedisNow);
+    }
+
+    private void connectRedisNow() {
         connHost = hostField.getText().trim();
         try {
             connPort = Integer.parseInt(portField.getText().trim());
@@ -1347,9 +1370,9 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
         }
     }
 
-    private void saveProfilesToPrefs() {
+    private void deleteProfile(String name) {
         try {
-            profileStore.save(profiles);
+            secretManager.delete(name);
         } catch (Exception ex) {
             Errors.log("保存 Redis 连接配置失败", ex);
         }
@@ -1357,8 +1380,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
 
     private void loadProfilesFromPrefs() {
         try {
-            profiles.clear();
-            profiles.putAll(profileStore.load());
+            secretManager.ensureLoaded();
             refreshProfilesCombo(null);
         } catch (Exception ex) {
             Errors.log("加载 Redis 连接配置失败", ex);
@@ -1379,7 +1401,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
             RedisProfile p = profiles.get(first);
             hostField.setText(p.host);
             portField.setText(String.valueOf(p.port));
-            passField.setText(p.password);
+            secretUi.fill(passField, p, "password");
             dbCombo.setSelectedItem(p.db);
         }
         ignoreProfileEvents = false;

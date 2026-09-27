@@ -55,7 +55,7 @@ import com.aqishi.toolbox.feature.generation.ui.QrCodePanel;
 import com.aqishi.toolbox.feature.data.ui.RedisPanel;
 import com.aqishi.toolbox.feature.codec.ui.RegexPanel;
 import com.aqishi.toolbox.feature.codec.ui.SqlPanel;
-import com.aqishi.toolbox.feature.network.ui.SshClientPanel;
+import com.aqishi.toolbox.feature.network.ui.VaultAwareSshClientPanel;
 import com.aqishi.toolbox.feature.codec.ui.StringToolPanel;
 import com.aqishi.toolbox.feature.network.ui.SubnetPanel;
 import com.aqishi.toolbox.feature.codec.ui.TextDiffPanel;
@@ -66,6 +66,7 @@ import com.aqishi.toolbox.feature.codec.ui.XmlPanel;
 import com.aqishi.toolbox.feature.data.ui.ZooKeeperPanel;
 import com.aqishi.toolbox.feature.monitor.ui.RemoteDesktopPanel;
 import com.aqishi.toolbox.feature.monitor.ui.VideoMonitorPanel;
+import com.aqishi.toolbox.infra.secrets.VaultSecretStore;
 import com.aqishi.toolbox.ui.ToolPanel;
 
 import java.util.ArrayList;
@@ -157,15 +158,21 @@ public final class ToolRegistry {
         factories.put("subnet.calc", context -> new SubnetPanel());
         factories.put("port.scanner", context -> new PortScannerPanel());
         factories.put("net.diagnostics", context -> new NetDiagnosticsPanel());
-        factories.put("ssh", context -> new SshClientPanel());
-        factories.put("database.connector", context -> new DatabasePanel());
-        factories.put("redis.management", context -> new RedisPanel());
-        factories.put("kafka.connector", context -> new KafkaPanel());
+        // SSH 凭据与其他连接工具一样进保险库；安装到共享的 SshConfigStore，隧道也能用。
+        factories.put("ssh", context -> new VaultAwareSshClientPanel(
+                VaultSecretStore.of(context.getVaultService())));
+        factories.put("database.connector", context -> new DatabasePanel(
+                VaultSecretStore.of(context.getVaultService())));
+        factories.put("redis.management", context -> new RedisPanel(
+                VaultSecretStore.of(context.getVaultService())));
+        factories.put("kafka.connector", context -> new KafkaPanel(
+                VaultSecretStore.of(context.getVaultService())));
         factories.put("zookeeper.management", context -> new ZooKeeperPanel());
         factories.put("docker.convert", context -> new DockerComposePanel());
         factories.put("k8s.deployment", context -> new K8sPanel());
         factories.put("k8s.manager", context -> new K8sManagerPanel(
-                context.getKubernetesServiceFactory()));
+                context.getKubernetesServiceFactory(),
+                VaultSecretStore.of(context.getVaultService())));
         factories.put("chmod.calc", context -> new ChmodPanel());
         factories.put("cron.parser", context -> new CronPanel());
         factories.put("hosts.manager", context -> new HostsManagerPanel());

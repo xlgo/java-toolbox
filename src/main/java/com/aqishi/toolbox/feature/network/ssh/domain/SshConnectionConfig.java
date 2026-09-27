@@ -3,6 +3,8 @@ package com.aqishi.toolbox.feature.network.ssh.domain;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -74,6 +76,24 @@ public class SshConnectionConfig implements Cloneable {
     private int keepAliveSec = 30;
     private boolean autoReconnect = true;
     private String remarks;
+
+    /**
+     * True when password / passphrase / key text are kept in the vault. The JSON file then
+     * holds none of them; they are loaded into the {@code vault*} runtime fields while the
+     * vault is unlocked and dropped again when it locks.
+     */
+    private boolean secretStored;
+    @JsonIgnore
+    private transient String vaultPassword;
+    @JsonIgnore
+    private transient String vaultPassphrase;
+    @JsonIgnore
+    private transient String vaultKeyContent;
+
+    /** Secret field names used for the vault entry. */
+    public static final String SECRET_PASSWORD = "password";
+    public static final String SECRET_PASSPHRASE = "passphrase";
+    public static final String SECRET_KEY_CONTENT = "keyContent";
 
     public SshConnectionConfig() {
         this.id = UUID.randomUUID().toString();
@@ -162,7 +182,79 @@ public class SshConnectionConfig implements Cloneable {
 
     @JsonIgnore
     public String getKeyContent() {
-        return SshSecurityUtils.decrypt(encryptedKeyContent);
+        if (encryptedKeyContent != null && !encryptedKeyContent.isEmpty()) {
+            return SshSecurityUtils.decrypt(encryptedKeyContent);
+        }
+        return vaultKeyContent == null ? "" : vaultKeyContent;
+    }
+
+    /** Password to authenticate with: a locally entered value wins over the vault copy. */
+    public String resolvedPassword() {
+        if (encryptedPassword != null && !encryptedPassword.isEmpty()) {
+            return SshSecurityUtils.decrypt(encryptedPassword);
+        }
+        return vaultPassword == null ? "" : vaultPassword;
+    }
+
+    /** Key passphrase to use: a locally entered value wins over the vault copy. */
+    public String resolvedPassphrase() {
+        if (encryptedPassphrase != null && !encryptedPassphrase.isEmpty()) {
+            return SshSecurityUtils.decrypt(encryptedPassphrase);
+        }
+        return vaultPassphrase == null ? "" : vaultPassphrase;
+    }
+
+    public boolean isSecretStored() {
+        return secretStored;
+    }
+
+    public void setSecretStored(boolean secretStored) {
+        this.secretStored = secretStored;
+    }
+
+    /** Secrets still held in the (machine-key obfuscated) local form, awaiting the vault. */
+    public boolean hasLocalSecrets() {
+        return notEmpty(encryptedPassword) || notEmpty(encryptedPassphrase)
+                || notEmpty(encryptedKeyContent);
+    }
+
+    /** Decrypted local secrets by vault field name; empty values are omitted. */
+    public Map<String, String> localSecretFields() {
+        Map<String, String> fields = new HashMap<>();
+        put(fields, SECRET_PASSWORD, notEmpty(encryptedPassword) ? SshSecurityUtils.decrypt(encryptedPassword) : null);
+        put(fields, SECRET_PASSPHRASE, notEmpty(encryptedPassphrase) ? SshSecurityUtils.decrypt(encryptedPassphrase) : null);
+        put(fields, SECRET_KEY_CONTENT, notEmpty(encryptedKeyContent) ? SshSecurityUtils.decrypt(encryptedKeyContent) : null);
+        return fields;
+    }
+
+    public void clearLocalSecrets() {
+        encryptedPassword = "";
+        encryptedPassphrase = "";
+        encryptedKeyContent = "";
+    }
+
+    /** Installs vault values for this session; {@code null} drops them (vault locked). */
+    public void applyVaultSecrets(Map<String, String> fields) {
+        vaultPassword = fields == null ? null : fields.get(SECRET_PASSWORD);
+        vaultPassphrase = fields == null ? null : fields.get(SECRET_PASSPHRASE);
+        vaultKeyContent = fields == null ? null : fields.get(SECRET_KEY_CONTENT);
+    }
+
+    public boolean hasVaultSecretsLoaded() {
+        return vaultPassword != null || vaultPassphrase != null || vaultKeyContent != null;
+    }
+
+    /** The field a password typed for this session only belongs to. */
+    public String primarySecretField() {
+        return getAuthType() == AuthType.PRIVATE_KEY ? SECRET_PASSPHRASE : SECRET_PASSWORD;
+    }
+
+    private static boolean notEmpty(String value) {
+        return value != null && !value.isEmpty();
+    }
+
+    private static void put(Map<String, String> fields, String key, String value) {
+        if (value != null && !value.isEmpty()) fields.put(key, value);
     }
 
     @JsonIgnore
@@ -265,6 +357,10 @@ public class SshConnectionConfig implements Cloneable {
             copy.keepAliveSec = this.keepAliveSec;
             copy.autoReconnect = this.autoReconnect;
             copy.remarks = this.remarks;
+            copy.secretStored = this.secretStored;
+            copy.vaultPassword = this.vaultPassword;
+            copy.vaultPassphrase = this.vaultPassphrase;
+            copy.vaultKeyContent = this.vaultKeyContent;
         }
         if (this.tunnels != null) {
             copy.tunnels = new java.util.ArrayList<>();

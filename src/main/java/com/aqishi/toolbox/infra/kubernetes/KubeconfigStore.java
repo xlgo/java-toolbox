@@ -1,7 +1,8 @@
 package com.aqishi.toolbox.infra.kubernetes;
 
 import com.aqishi.toolbox.domain.KubernetesProfile;
-import com.aqishi.toolbox.infra.config.JsonPreferencesStore;
+import com.aqishi.toolbox.infra.secrets.ProfileSecretManager;
+import com.aqishi.toolbox.infra.secrets.SecretProfileRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 
 import java.util.LinkedHashMap;
@@ -15,21 +16,29 @@ import java.util.prefs.Preferences;
  * Persistence boundary for cluster profiles. It retains the legacy preference
  * key and JSON field names so existing imported kubeconfig profiles keep
  * working after the panel refactor.
+ *
+ * <p>Bearer tokens and client private keys (including those imported from a
+ * kubeconfig) are not written here; they live in the vault under
+ * {@link #SECRET_NAMESPACE}. See {@link SecretProfileRepository}.</p>
  */
-public final class KubeconfigStore {
+public final class KubeconfigStore implements ProfileSecretManager.ProfileRepository<KubernetesProfile> {
 
+    /** Vault namespace for token / client-key secrets. */
+    public static final String SECRET_NAMESPACE = "k8s";
     private static final String KEY = "k8s_manager_profiles";
-    private final JsonPreferencesStore<KubernetesProfile> store;
+    private final SecretProfileRepository<KubernetesProfile> store;
 
     public KubeconfigStore(Preferences preferences) {
-        this.store = new JsonPreferencesStore<>(preferences, KEY,
+        this.store = new SecretProfileRepository<>(preferences, KEY,
                 new TypeReference<LinkedHashMap<String, KubernetesProfile>>() { });
     }
 
+    @Override
     public LinkedHashMap<String, KubernetesProfile> load() {
         return store.load();
     }
 
+    @Override
     public void save(Map<String, KubernetesProfile> profiles) {
         store.save(profiles);
     }

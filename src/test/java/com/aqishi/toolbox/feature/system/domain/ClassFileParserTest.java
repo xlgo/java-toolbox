@@ -26,10 +26,15 @@ class ClassFileParserTest {
     @ParameterizedTest
     @CsvSource({"8,52", "11,55", "17,61", "21,65"})
     void parsesMajorVersionForRelease(int release, int expectedMajor) throws Exception {
-        byte[] bytes = ClassFixtures.compileOne(temp, release, "demo/Plain.java",
+        // CI 跑在 JDK 17 上，它的 javac 不认识 --release 21。运行时不够新时按能编译的最高版本编译，
+        // 再把 class 头的主版本号改成目标值：常量池格式各版本一致，版本映射照样被覆盖到。
+        int compileRelease = Math.min(release, Runtime.version().feature());
+        byte[] bytes = ClassFixtures.compileOne(temp, compileRelease, "demo/Plain.java",
                 "package demo; public class Plain implements java.io.Serializable, Runnable {"
                         + " private static final long ID = 1L; protected double ratio;"
                         + " public void run() {} public static String join(int a, String[] b) { return null; } }");
+        bytes[6] = (byte) (expectedMajor >>> 8);
+        bytes[7] = (byte) expectedMajor;
         ClassFileInfo info = parser.parse(bytes);
 
         assertEquals(expectedMajor, info.majorVersion());

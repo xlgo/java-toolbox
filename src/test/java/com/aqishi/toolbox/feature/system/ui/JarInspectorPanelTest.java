@@ -41,7 +41,7 @@ class JarInspectorPanelTest {
 
     @Test
     void showsClassJarAndSearchResults() throws Exception {
-        byte[] classBytes = ClassFixtures.compileOne(temp, 21, "demo/Svc.java",
+        byte[] classBytes = ClassFixtures.compileOne(temp, 17, "demo/Svc.java",
                 "package demo; public class Svc { private int count; public String call(int a, String b) { return b; } }");
         ClassFileInfo info = new ClassFileParser().parse(classBytes);
 
@@ -64,7 +64,7 @@ class JarInspectorPanelTest {
             assertEquals(1, view.fieldRows());
             assertEquals(2, view.methodRows(), "constructor and call");
             assertTrue(view.summaryText().contains("demo.Svc"));
-            assertTrue(view.summaryText().contains("Java 21"));
+            assertTrue(view.summaryText().contains("Java 17"));
 
             JarTab jarTab = panel.jarTab();
             jarTab.applyReport(report, jar);

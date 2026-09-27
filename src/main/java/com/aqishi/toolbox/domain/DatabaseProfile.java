@@ -67,12 +67,16 @@ public class DatabaseProfile implements SecretBearing {
     public Map<String, String> secretFields() {
         Map<String, String> fields = new HashMap<>();
         if (password != null && !password.isEmpty()) fields.put("password", password);
+        // 写在 JDBC URL 里的密码（?password=、user:pass@ 等）同样是密钥，否则会随 URL 明文落盘
+        fields.putAll(JdbcUrlSecrets.split(url).secrets());
         return fields;
     }
 
     @Override
     public void applySecretFields(Map<String, String> fields) {
         password = fields == null ? null : fields.get("password");
+        String masked = JdbcUrlSecrets.split(url).maskedUrl();
+        url = fields == null ? masked : JdbcUrlSecrets.restore(masked, fields);
     }
 
     @Override

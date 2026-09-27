@@ -57,6 +57,30 @@ class PlaintextMigrationTest {
         return manager;
     }
 
+    /** 回归：写在 JDBC URL 里的密码曾随 URL 明文落盘；解锁后应与连接密码一起迁入保险库。 */
+    @Test
+    void passwordsInsideJdbcUrlsMoveToTheVaultToo() throws Exception {
+        vault.service().create("master".toCharArray()).get();
+        vault.service().lock();
+        prefs.put("db_profiles", "{\"reports\":{\"name\":\"reports\",\"dbType\":\"Custom\","
+                + "\"host\":\"\",\"port\":\"\",\"database\":\"\",\"username\":\"\",\"driverClass\":\"x\","
+                + "\"url\":\"jdbc:sqlserver://db:1433;user=sa;password=url-secret;encrypt=true\",\"jarPath\":\"\"}}");
+
+        ProfileSecretManager<DatabaseProfile> manager = dbManager(store);
+        DatabaseProfile reports = manager.profiles().get("reports");
+        assertEquals(1, manager.plaintextCount(), "a URL-only password counts as unencrypted");
+
+        vault.service().unlock("master".toCharArray()).get();
+
+        assertEquals(0, manager.plaintextCount());
+        String stored = prefs.get("db_profiles", "");
+        assertFalse(stored.contains("url-secret"), stored);
+        assertTrue(stored.contains("password={{vault:password}}"), stored);
+        assertEquals("url-secret", manager.knownSecrets(reports).get("url:password"));
+        assertEquals("jdbc:sqlserver://db:1433;user=sa;password=url-secret;encrypt=true",
+                com.aqishi.toolbox.domain.JdbcUrlSecrets.restore(reports.url, manager.knownSecrets(reports)));
+    }
+
     @Test
     void plaintextStaysUsableUntilUnlockThenMovesAndIsStripped() throws Exception {
         vault.service().create("master".toCharArray()).get();

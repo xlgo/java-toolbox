@@ -188,7 +188,8 @@ public final class ToolRegistry {
         factories.put("port.process", context -> new PortProcessPanel());
         factories.put("jar.inspector", context -> new JarInspectorPanel());
         factories.put("data.generator", context -> new DataGeneratorPanel());
-        factories.put("qrcode", context -> new QrCodePanel());
+        factories.put("qrcode", context -> new QrCodePanel(
+                VaultSecretStore.of(context.getVaultService())));
         factories.put("color.convert", context -> new ColorPanel());
         factories.put("ddl.entity", context -> new DdlEntityPanel());
         factories.put("id.toolkit", context -> new IdToolkitPanel());

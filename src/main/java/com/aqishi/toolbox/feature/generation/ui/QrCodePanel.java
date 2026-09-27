@@ -1,5 +1,8 @@
 package com.aqishi.toolbox.feature.generation.ui;
 
+import com.aqishi.toolbox.util.I18n;
+import com.aqishi.toolbox.infra.secrets.VaultTokenSetting;
+import com.aqishi.toolbox.infra.secrets.SecretStore;
 import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.feature.generation.application.ReplicateQrClient;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
@@ -55,9 +58,58 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
     private JTextField negativePromptField;
     private JPasswordField apiTokenField;
     private JButton generateAiBtn;
+    /** Replicate token 存保险库；旧版写在偏好里的明文只读，解锁后迁走。 */
+    private final VaultTokenSetting apiToken;
+    /** 从保险库填进输入框的那份值：锁定时只清掉它，不动用户自己输入的内容。 */
+    private String tokenFilledFromVault;
+    private JLabel tokenHint;
+    private final SecretStore.Listener tokenVaultListener = status -> SwingUtilities.invokeLater(this::onVaultStatus);
 
     public QrCodePanel() {
+        this(SecretStore.disabled());
+    }
+
+    /** @param secrets 保存 API token 的保险库；{@link SecretStore#disabled()} 时不保存 */
+    public QrCodePanel(SecretStore secrets) {
         super(ToolCatalog.QRCODE);
+        apiToken = new VaultTokenSetting(secrets, prefs, "replicate_api_token", "replicate", "api-token");
+        secrets.addListener(tokenVaultListener);
+    }
+
+    private void onVaultStatus() {
+        if (apiTokenField == null) return;
+        if (apiToken.persistent()) {
+            apiToken.migrate().whenComplete((moved, error) -> {
+                if (error != null) Errors.ignored("Replicate token migration failed; will retry on next unlock", error);
+                SwingUtilities.invokeLater(this::refreshTokenHint);
+            });
+            if (apiTokenField.getPassword().length == 0) {
+                String stored = apiToken.current();
+                apiTokenField.setText(stored);
+                tokenFilledFromVault = stored.isEmpty() ? null : stored;
+            }
+        } else if (tokenFilledFromVault != null
+                && tokenFilledFromVault.equals(new String(apiTokenField.getPassword()))) {
+            apiTokenField.setText("");
+            tokenFilledFromVault = null;
+        }
+        refreshTokenHint();
+    }
+
+    private void refreshTokenHint() {
+        if (tokenHint == null) return;
+        SecretStore.Status status = apiToken.store().status();
+        String key;
+        if (status == SecretStore.Status.UNLOCKED) {
+            key = "tool.qrcode.token.inVault";
+        } else if (apiToken.hasLegacyPlaintext()) {
+            key = "tool.qrcode.token.legacy";
+        } else if (status == SecretStore.Status.LOCKED) {
+            key = "tool.qrcode.token.sessionOnly";
+        } else {
+            key = "tool.qrcode.token.noVault";
+        }
+        tokenHint.setText(I18n.get(key));
     }
 
     @Override
@@ -286,7 +338,9 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
         formGrid.add(negativePromptField);
 
         formGrid.add(new JLabel("Replicate API Token:"));
-        apiTokenField = new JPasswordField(prefs.get("replicate_api_token", ""));
+        String initialToken = apiToken.current();
+        apiTokenField = new JPasswordField(initialToken);
+        tokenFilledFromVault = apiToken.persistent() && !initialToken.isEmpty() ? initialToken : null;
         formGrid.add(apiTokenField);
 
         panel.add(formGrid, BorderLayout.NORTH);
@@ -301,6 +355,10 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
         panel.add(tipArea, BorderLayout.CENTER);
 
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        tokenHint = new JLabel();
+        tokenHint.setForeground(Color.GRAY);
+        refreshTokenHint();
+        btnPanel.add(tokenHint);
         generateAiBtn = new JButton("生成 AI 艺术二维码");
         generateAiBtn.setFont(generateAiBtn.getFont().deriveFont(Font.BOLD));
         generateAiBtn.addActionListener(e -> generateAiQrCode());
@@ -316,7 +374,11 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
             UIUtils.error(getView(), "请提供 Replicate API Token");
             return;
         }
-        prefs.put("replicate_api_token", token);
+        // 只进保险库；保险库未解锁时本次有效，不再把 token 明文写进偏好
+        apiToken.remember(token).whenComplete((ignored, error) -> {
+            if (error != null) Errors.ignored("Unable to save the Replicate token to the vault", error);
+            SwingUtilities.invokeLater(this::refreshTokenHint);
+        });
         
         String text = inputContentArea.getText().trim();
         if (text.isEmpty()) {
@@ -550,6 +612,7 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
     /** 取消进行中的云端生成任务并关闭它的线程；可重复调用。 */
     @Override
     public void closeResources() {
+        apiToken.store().removeListener(tokenVaultListener);
         cancelAiJob();
         DaemonThreads.shutdownQuietly(aiExecutor);
     }

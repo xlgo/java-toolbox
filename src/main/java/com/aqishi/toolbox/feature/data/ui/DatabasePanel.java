@@ -21,6 +21,8 @@ import com.aqishi.toolbox.infra.secrets.ProfileSecretManager;
 import com.aqishi.toolbox.infra.secrets.SecretStore;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.secrets.ProfileSecretUi;
+import com.aqishi.toolbox.domain.JdbcUrlSecrets;
+import com.aqishi.toolbox.infra.secrets.ProfileSecretManager;
 import com.aqishi.toolbox.ui.kit.ActionBar;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -156,6 +158,69 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                 profileStore, secrets, SwingUtilities::invokeLater);
         profiles = secretManager.profiles();
         secretUi = new ProfileSecretUi<>(secretManager, this::getView);
+        secretManager.addListener(urlVaultListener);
+    }
+
+    /**
+     * URL 输入框里由保险库填回的密码：锁定时换回占位符，解锁时再填回。
+     * 只处理"从保险库填进来的那一份"，用户自己改过的 URL 不动。
+     */
+    private String urlFilledFromVault;
+    /** 当前连接实际使用的 URL（已还原密码），切换 PostgreSQL 库时据此重连。 */
+    private volatile String activeUrl;
+
+    private final ProfileSecretManager.Listener urlVaultListener = new ProfileSecretManager.Listener() {
+        @Override
+        public void onSecretsLocked() {
+            if (urlField != null && urlFilledFromVault != null && urlFilledFromVault.equals(urlField.getText())) {
+                urlField.setText(JdbcUrlSecrets.split(urlFilledFromVault).maskedUrl());
+            }
+            urlFilledFromVault = null;
+        }
+
+        @Override
+        public void onSecretsUnlocked() {
+            DatabaseProfile p = selectedProfile();
+            if (urlField != null && p != null && JdbcUrlSecrets.hasPlaceholders(urlField.getText())) {
+                fillUrl(p);
+            }
+        }
+    };
+
+    private void fillUrl(DatabaseProfile p) {
+        String shown = JdbcUrlSecrets.restore(p.url, secretManager.knownSecrets(p));
+        urlField.setText(shown);
+        urlFilledFromVault = shown != null && !shown.equals(p.url) ? shown : null;
+    }
+
+    /**
+     * 拿到可直接交给驱动的 URL：占位符先用已知密钥还原，还原不了就请用户解锁保险库；
+     * 仍有占位符时报错并放弃，绝不把 {@code {{vault:...}}} 当成密码发给数据库。
+     */
+    private void withResolvedUrl(java.util.function.Consumer<String> action) {
+        String raw = urlField.getText().trim();
+        if (!JdbcUrlSecrets.hasPlaceholders(raw)) {
+            action.accept(raw);
+            return;
+        }
+        DatabaseProfile p = selectedProfile();
+        String known = p == null ? raw : JdbcUrlSecrets.restore(raw, secretManager.knownSecrets(p));
+        if (!JdbcUrlSecrets.hasPlaceholders(known)) {
+            action.accept(known);
+            return;
+        }
+        if (p == null) {
+            UIUtils.error(getView(), I18n.get("tool.database.url.vaultLocked"));
+            return;
+        }
+        secretUi.withSecrets(p, false, resolution -> {
+            String resolved = JdbcUrlSecrets.restore(raw, resolution.fields());
+            if (JdbcUrlSecrets.hasPlaceholders(resolved)) {
+                UIUtils.error(getView(), I18n.get("tool.database.url.vaultLocked"));
+                return;
+            }
+            action.accept(resolved);
+        });
     }
 
     private DatabaseProfile selectedProfile() {
@@ -578,7 +643,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
 
     private void consoleLog(String msg) {
         SwingUtilities.invokeLater(() -> {
-            consoleOutput.append(msg + "\n\n");
+            consoleOutput.append(JdbcUrlSecrets.redact(msg) + "\n\n");
             consoleOutput.setCaretPosition(consoleOutput.getDocument().getLength());
         });
     }
@@ -645,7 +710,10 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void testConnectionNow() {
-        String url = urlField.getText().trim();
+        withResolvedUrl(this::testConnectionWith);
+    }
+
+    private void testConnectionWith(String url) {
         String user = userField.getText().trim();
         String pwd = new String(passField.getPassword());
         String driverClass = driverClassField.getText().trim();
@@ -679,7 +747,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                     UIUtils.info(getView(), "连接测试成功！");
                     consoleLog("连接测试成功。");
                 } else {
-                    UIUtils.error(getView(), "连接测试失败：\n" + error);
+                    UIUtils.error(getView(), "连接测试失败：\n" + JdbcUrlSecrets.redact(error));
                     consoleLog("连接测试失败：" + error);
                 }
             }
@@ -699,7 +767,10 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void connectNow() {
-        String url = urlField.getText().trim();
+        withResolvedUrl(this::connectWith);
+    }
+
+    private void connectWith(String url) {
         String user = userField.getText().trim();
         String pwd = new String(passField.getPassword());
         String driverClass = driverClassField.getText().trim();
@@ -722,6 +793,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                 try {
                     connectionResource = get();
                     connection = connectionResource.connection();
+                    activeUrl = url;
                     isConnected = true;
                     metadataService = new DatabaseMetadataService(() -> connection,
                             DatabasePanel.this::consoleLog);
@@ -761,6 +833,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void disconnect() {
+        activeUrl = null;
         JdbcConnectionResource resource = connectionResource;
         connectionResource = null;
         connection = null;
@@ -906,7 +979,8 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
             protected Void doInBackground() throws Exception {
                 if ("PostgreSQL".equals(dbType)) {
                     // PostgreSQL does not support switching catalogs inside session; must reconnect!
-                    String currentUrl = urlField.getText().trim();
+                    String shownUrl = urlField.getText().trim();
+                    String currentUrl = activeUrl != null ? activeUrl : shownUrl;
                     String newUrl = currentUrl.replaceAll("(?i)(postgresql://[^/]+/)([^?#/]+)", "$1" + dbName);
                     
                     consoleLog("PostgreSQL 需要重新建立物理连接。新 URL: " + newUrl);
@@ -922,7 +996,10 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                     connectionResource = createConnection(newUrl, user, pwd, driverClass, jarPath);
                     connection = connectionResource.connection();
                     
-                    SwingUtilities.invokeLater(() -> urlField.setText(newUrl));
+                    activeUrl = newUrl;
+                    String display = JdbcUrlSecrets.hasPlaceholders(shownUrl)
+                            ? JdbcUrlSecrets.split(newUrl).maskedUrl() : newUrl;
+                    SwingUtilities.invokeLater(() -> urlField.setText(display));
                 } else {
                     // 其余类型（MySQL、Oracle、自定义驱动）在同一连接上切换 catalog
                     connection.setCatalog(dbName);
@@ -1576,6 +1653,8 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
      */
     @Override
     public void closeResources() {
+        activeUrl = null;
+        secretManager.removeListener(urlVaultListener);
         JdbcConnectionResource resource = connectionResource;
         connectionResource = null;
         connection = null;
@@ -1592,6 +1671,11 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void saveProfile() {
+        // URL 仍是占位符（保险库锁着）时先还原：否则保存会用空值覆盖保险库里的 URL 密码
+        withResolvedUrl(this::saveProfileWith);
+    }
+
+    private void saveProfileWith(String resolvedUrl) {
         String name = UIUtils.input(getView(), "请输入要保存的配置名称:", "");
         if (name == null || name.trim().isEmpty()) return;
         name = name.trim();
@@ -1605,7 +1689,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                 userField.getText().trim(),
                 new String(passField.getPassword()),
                 driverClassField.getText().trim(),
-                urlField.getText().trim(),
+                resolvedUrl,
                 jarPathField.getText().trim()
         );
         final String savedName = name;
@@ -1677,7 +1761,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
             userField.setText(p.username);
             secretUi.fill(passField, p, "password");
             driverClassField.setText(p.driverClass);
-            urlField.setText(p.url);
+            fillUrl(p);
             jarPathField.setText(p.jarPath);
 
             String type = p.dbType;

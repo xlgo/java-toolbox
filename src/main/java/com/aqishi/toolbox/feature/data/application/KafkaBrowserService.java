@@ -157,15 +157,15 @@ public final class KafkaBrowserService {
      */
     public List<ConsumerRecord<byte[], byte[]>> fetchMessages(String topic, Integer partition,
                                                               boolean fromBeginning, int limit,
-                                                              Collection<String> tunnelBrokerHosts)
+                                                              KafkaTunnelSupport.Routing tunnelRouting)
             throws Exception {
         List<ConsumerRecord<byte[], byte[]>> list = new ArrayList<>();
         Properties props = KafkaClientProperties.consumerProperties(bootstrapServers,
                 "java-toolbox-temp-group-" + UUID.randomUUID(), customProperties);
 
         try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(props)) {
-            if (tunnelBrokerHosts != null && !tunnelBrokerHosts.isEmpty()) {
-                KafkaTunnelSupport.configure(consumer, tunnelBrokerHosts);
+            if (tunnelRouting != null) {
+                KafkaTunnelSupport.configure(consumer, tunnelRouting);
             }
             List<TopicPartition> partitions = new ArrayList<>();
             if (partition == null) {
@@ -221,11 +221,11 @@ public final class KafkaBrowserService {
 
     /** 发布一条字符串消息，头文本按 {@code key=value}/{@code key: value} 逐行解析。 */
     public RecordMetadata produce(String topic, String key, String headersText, String value,
-                                  Collection<String> tunnelBrokerHosts) throws Exception {
+                                  KafkaTunnelSupport.Routing tunnelRouting) throws Exception {
         Properties props = KafkaClientProperties.producerProperties(bootstrapServers, customProperties);
         try (KafkaProducer<String, String> producer = new KafkaProducer<>(props)) {
-            if (tunnelBrokerHosts != null && !tunnelBrokerHosts.isEmpty()) {
-                KafkaTunnelSupport.configure(producer, tunnelBrokerHosts);
+            if (tunnelRouting != null) {
+                KafkaTunnelSupport.configure(producer, tunnelRouting);
             }
             ProducerRecord<String, String> record =
                     new ProducerRecord<>(topic, key == null || key.isEmpty() ? null : key, value);

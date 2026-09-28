@@ -62,6 +62,15 @@ public class SshTunnelConfig implements Cloneable {
     private transient int preferredLocalPort = 0;
     private transient Status status = Status.STOPPED;
     private transient String errorMessage;
+    /** Local address the forward listens on; only bridge tunnels use anything but 127.0.0.1. */
+    private transient String bindAddress = DEFAULT_BIND_ADDRESS;
+    /**
+     * When positive, the forward must listen on exactly this local port and fails instead of
+     * falling back to another one (Kafka broker routes depend on the advertised port).
+     */
+    private transient int requiredLocalPort = 0;
+
+    public static final String DEFAULT_BIND_ADDRESS = "127.0.0.1";
 
     public SshTunnelConfig() {
         this.id = UUID.randomUUID().toString();
@@ -164,9 +173,67 @@ public class SshTunnelConfig implements Cloneable {
     }
 
     @JsonIgnore
+    public String getBindAddress() {
+        return bindAddress == null || bindAddress.trim().isEmpty()
+                ? DEFAULT_BIND_ADDRESS : bindAddress.trim();
+    }
+
+    @JsonIgnore
+    public void setBindAddress(String bindAddress) {
+        this.bindAddress = bindAddress;
+    }
+
+    @JsonIgnore
+    public int getRequiredLocalPort() {
+        return requiredLocalPort;
+    }
+
+    @JsonIgnore
+    public void setRequiredLocalPort(int requiredLocalPort) {
+        this.requiredLocalPort = Math.max(0, requiredLocalPort);
+    }
+
+    /** True when both forward to the same remote target, i.e. a running forward stays valid. */
+    public boolean sameForwarding(SshTunnelConfig other) {
+        return other != null && getRemoteHost().equalsIgnoreCase(other.getRemoteHost())
+                && getRemotePort() == other.getRemotePort();
+    }
+
+    /** True when every persisted field (except the ID) is equal. */
+    public boolean sameDefinition(SshTunnelConfig other) {
+        return sameForwarding(other)
+                && java.util.Objects.equals(name, other.name)
+                && autoStart == other.autoStart
+                && getBrowserScheme() == other.getBrowserScheme()
+                && getBrowserPath().equals(other.getBrowserPath());
+    }
+
+    /**
+     * Takes over the persisted fields of {@code definition}; the ID and the runtime state
+     * (status, local port) stay, so an edit never silently detaches a live forward.
+     */
+    public void applyDefinition(SshTunnelConfig definition) {
+        if (definition == null || definition == this) return;
+        name = definition.name;
+        remoteHost = definition.remoteHost;
+        remotePort = definition.remotePort;
+        autoStart = definition.autoStart;
+        browserScheme = definition.browserScheme;
+        browserPath = definition.browserPath;
+    }
+
+    /** Same ID and persisted fields, fresh runtime state. */
+    public SshTunnelConfig copyDefinition() {
+        SshTunnelConfig copy = new SshTunnelConfig();
+        copy.id = id;
+        copy.applyDefinition(this);
+        return copy;
+    }
+
+    @JsonIgnore
     public String getLocalConnectionString() {
         if (status == Status.RUNNING && assignedLocalPort > 0) {
-            return "127.0.0.1:" + assignedLocalPort;
+            return getBindAddress() + ":" + assignedLocalPort;
         }
         return "-";
     }
@@ -189,7 +256,7 @@ public class SshTunnelConfig implements Cloneable {
         }
         String path = getBrowserPath();
         if (!path.startsWith("/")) path = "/" + path;
-        return scheme + "://127.0.0.1:" + assignedLocalPort + path;
+        return scheme + "://" + getBindAddress() + ":" + assignedLocalPort + path;
     }
 
     @Override

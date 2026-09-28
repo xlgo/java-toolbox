@@ -26,6 +26,21 @@ public class CloudflareDnsProvider {
     private static final ObjectMapper mapper = Json.mapper();
     private static final Map<String, String> zoneCache = new ConcurrentHashMap<>();
 
+    /** The static API bound to one token, as a {@link DnsProvider} for {@link ChallengeProvisioners#dnsApi}. */
+    public static DnsProvider forToken(String apiToken) {
+        return new DnsProvider() {
+            @Override
+            public String addTxtRecord(String domain, String recordName, String recordValue) throws Exception {
+                return CloudflareDnsProvider.addTxtRecord(apiToken, domain, recordName, recordValue);
+            }
+
+            @Override
+            public void deleteTxtRecord(String domain, String recordId) throws Exception {
+                CloudflareDnsProvider.deleteTxtRecord(apiToken, domain, recordId);
+            }
+        };
+    }
+
     /**
      * 根据域名获取对应的 Cloudflare Zone ID (支持自动向上向上追溯主域名)
      */

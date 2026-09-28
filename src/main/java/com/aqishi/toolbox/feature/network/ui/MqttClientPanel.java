@@ -1,34 +1,32 @@
 package com.aqishi.toolbox.feature.network.ui;
 
 import com.aqishi.toolbox.catalog.ToolCatalog;
+import com.aqishi.toolbox.feature.network.application.BoundedLogBuffer;
+import com.aqishi.toolbox.feature.network.application.MqttLogEntry;
+import com.aqishi.toolbox.feature.network.application.MqttSession;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.Json;
 import com.aqishi.toolbox.util.UIUtils;
-import com.aqishi.toolbox.infra.messaging.MqttResource;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
-import org.eclipse.paho.client.mqttv3.MqttCallback;
-import org.eclipse.paho.client.mqttv3.MqttClient;
-import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
-import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
-import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.awt.datatransfer.StringSelection;
 import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.UUID;
 
 /**
- * MQTT v3.1 / v3.1.1 客户端测试工具
+ * MQTT v3.1 / v3.1.1 client tool.
+ *
+ * <p>All blocking broker work happens on {@link MqttSession}'s own daemon thread;
+ * the panel only prepares parameters on the EDT and applies the results the
+ * session posts back to the EDT. The message log is fed through a bounded,
+ * batched buffer so a busy topic cannot grow the table without limit.</p>
  */
 public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
 
@@ -56,17 +54,34 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
     private JButton pubBtn;
     private JButton formatJsonBtn;
 
-    private DefaultTableModel msgTableModel;
+    private MqttMessageTableModel msgTableModel;
     private JTable msgTable;
     private JTextArea msgDetailArea;
+    private JLabel logStatsLabel;
 
-    private MqttClient mqttClient;
-    private MqttResource mqttResource;
-    private final SimpleDateFormat dateFormat = new SimpleDateFormat("HH:mm:ss.SSS");
+    private State currentState = State.DISCONNECTED;
+
+    private final MqttSession session;
+    private final BoundedLogBuffer<MqttLogEntry> logBuffer = new BoundedLogBuffer<>();
+    private final Timer logFlushTimer;
+    private boolean publishInFlight;
+    private boolean subscribeInFlight;
+    private boolean lastCleanSession = true;
+    private JButton unsubBtn;
     private static final ObjectMapper jsonMapper = Json.prettyMapper();
 
     public MqttClientPanel() {
+        this(null);
+    }
+
+    /** Test seam: {@code factory == null} uses real Paho clients. */
+    MqttClientPanel(MqttSession.ClientFactory factory) {
         super(ToolCatalog.MQTT_CLIENT);
+        this.session = factory == null
+                ? new MqttSession(new PanelListener(), SwingUtilities::invokeLater)
+                : new MqttSession(new PanelListener(), SwingUtilities::invokeLater, factory);
+        this.logFlushTimer = new Timer(100, e -> flushLog());
+        this.logFlushTimer.setCoalesce(true);
     }
 
     @Override
@@ -92,6 +107,8 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
 
         mainPanel.add(mainSplit, BorderLayout.CENTER);
 
+        applyState(State.DISCONNECTED);
+        logFlushTimer.start();
         return mainPanel;
     }
 
@@ -102,14 +119,14 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
 
         // Line 1: Broker URL & Controls
         JPanel row1 = new JPanel(new BorderLayout(8, 0));
-        row1.add(new JLabel("Broker 地址:"), BorderLayout.WEST);
+        row1.add(new JLabel(I18n.get("tool.mqtt.broker")), BorderLayout.WEST);
 
         brokerUrlField = new JTextField("tcp://broker.emqx.io:1883");
         brokerUrlField.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         row1.add(brokerUrlField, BorderLayout.CENTER);
 
         JPanel presetBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        presetBar.add(new JLabel("预设:"));
+        presetBar.add(new JLabel(I18n.get("tool.mqtt.preset")));
         JComboBox<String> presetCombo = new JComboBox<>(new String[]{
                 "tcp://broker.emqx.io:1883",
                 "tcp://test.mosquitto.org:1883",
@@ -118,18 +135,18 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         presetCombo.addActionListener(e -> brokerUrlField.setText((String) presetCombo.getSelectedItem()));
         presetBar.add(presetCombo);
 
-        statusLabel = new JLabel("未连接", SwingConstants.CENTER);
+        statusLabel = new JLabel(I18n.get("tool.mqtt.status.disconnected"), SwingConstants.CENTER);
         statusLabel.setOpaque(true);
         statusLabel.setBackground(Color.LIGHT_GRAY);
         statusLabel.setForeground(Color.BLACK);
         statusLabel.setBorder(new EmptyBorder(3, 10, 3, 10));
         presetBar.add(statusLabel);
 
-        connectBtn = new JButton("连接");
+        connectBtn = new JButton(I18n.get("tool.mqtt.btn.connect"));
         connectBtn.setFont(connectBtn.getFont().deriveFont(Font.BOLD));
         connectBtn.addActionListener(e -> doConnect());
 
-        disconnectBtn = new JButton("断开");
+        disconnectBtn = new JButton(I18n.get("tool.mqtt.btn.disconnect"));
         disconnectBtn.setEnabled(false);
         disconnectBtn.addActionListener(e -> doDisconnect());
 
@@ -141,23 +158,23 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
 
         // Line 2: Advanced Auth & Options
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
-        row2.add(new JLabel("Client ID:"));
+        row2.add(new JLabel(I18n.get("tool.mqtt.clientId")));
         clientIdField = new JTextField("toolbox-" + UUID.randomUUID().toString().substring(0, 8), 14);
         row2.add(clientIdField);
 
-        row2.add(new JLabel("用户名:"));
+        row2.add(new JLabel(I18n.get("tool.mqtt.username")));
         usernameField = new JTextField("", 8);
         row2.add(usernameField);
 
-        row2.add(new JLabel("密码:"));
+        row2.add(new JLabel(I18n.get("tool.mqtt.password")));
         passwordField = new JPasswordField("", 8);
         row2.add(passwordField);
 
-        row2.add(new JLabel("KeepAlive(s):"));
+        row2.add(new JLabel(I18n.get("tool.mqtt.keepAlive")));
         keepAliveSpinner = new JSpinner(new SpinnerNumberModel(60, 5, 3600, 5));
         row2.add(keepAliveSpinner);
 
-        cleanSessionCheckBox = new JCheckBox("Clean Session", true);
+        cleanSessionCheckBox = new JCheckBox(I18n.get("tool.mqtt.cleanSession"), true);
         row2.add(cleanSessionCheckBox);
 
         card.add(row2, BorderLayout.SOUTH);
@@ -169,7 +186,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         card.setLayout(new BorderLayout(0, 6));
         card.setBorder(new EmptyBorder(10, 12, 10, 12));
 
-        JLabel title = new JLabel("📥 订阅主题 (Subscribe)");
+        JLabel title = new JLabel(I18n.get("tool.mqtt.sub.title"));
         title.setFont(title.getFont().deriveFont(Font.BOLD));
         card.add(title, BorderLayout.NORTH);
 
@@ -183,15 +200,20 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         subQosCombo = new JComboBox<>(new Integer[]{0, 1, 2});
         rightControls.add(subQosCombo);
 
-        subBtn = new JButton("添加订阅");
+        subBtn = new JButton(I18n.get("tool.mqtt.sub.btn"));
         subBtn.addActionListener(e -> doSubscribe());
         rightControls.add(subBtn);
+
+        unsubBtn = new JButton(I18n.get("tool.mqtt.sub.unsubscribe"));
+        unsubBtn.addActionListener(e -> doUnsubscribe());
+        rightControls.add(unsubBtn);
 
         subBar.add(rightControls, BorderLayout.EAST);
         card.add(subBar, BorderLayout.CENTER);
 
         // Table for active subscriptions
-        subTableModel = new DefaultTableModel(new Object[]{"Topic", "QoS", "状态"}, 0) {
+        subTableModel = new DefaultTableModel(new Object[]{
+                "Topic", "QoS", I18n.get("tool.mqtt.sub.col.status")}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -215,7 +237,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         card.setBorder(new EmptyBorder(10, 12, 10, 12));
 
         JPanel topRow = new JPanel(new BorderLayout(6, 0));
-        JLabel title = new JLabel("📤 发布消息 (Publish)");
+        JLabel title = new JLabel(I18n.get("tool.mqtt.pub.title"));
         title.setFont(title.getFont().deriveFont(Font.BOLD));
         topRow.add(title, BorderLayout.WEST);
 
@@ -229,7 +251,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         pubQosCombo = new JComboBox<>(new Integer[]{0, 1, 2});
         pubOpts.add(pubQosCombo);
 
-        retainCheckBox = new JCheckBox("Retain");
+        retainCheckBox = new JCheckBox(I18n.get("tool.mqtt.pub.retain"));
         pubOpts.add(retainCheckBox);
 
         topRow.add(pubOpts, BorderLayout.CENTER);
@@ -241,11 +263,11 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         card.add(payloadScroll, BorderLayout.CENTER);
 
         JPanel bottomRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        formatJsonBtn = new JButton("格式化 JSON");
+        formatJsonBtn = new JButton(I18n.get("tool.mqtt.pub.format"));
         formatJsonBtn.addActionListener(e -> formatPubPayload());
         bottomRow.add(formatJsonBtn);
 
-        pubBtn = new JButton("发送消息");
+        pubBtn = new JButton(I18n.get("tool.mqtt.pub.send"));
         pubBtn.setFont(pubBtn.getFont().deriveFont(Font.BOLD));
         pubBtn.addActionListener(e -> doPublish());
         bottomRow.add(pubBtn);
@@ -260,26 +282,26 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         card.setBorder(new EmptyBorder(10, 12, 10, 12));
 
         JPanel headerPanel = new JPanel(new BorderLayout());
-        JLabel title = new JLabel("📋 消息通信日志 (Message Log)");
+        JLabel title = new JLabel(I18n.get("tool.mqtt.log.title"));
         title.setFont(title.getFont().deriveFont(Font.BOLD));
         headerPanel.add(title, BorderLayout.WEST);
 
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        JButton copyBtn = new JButton("复制详情");
+        logStatsLabel = new JLabel();
+        btnPanel.add(logStatsLabel);
+
+        JButton copyBtn = new JButton(I18n.get("tool.mqtt.log.copy"));
         copyBtn.addActionListener(e -> {
             String text = msgDetailArea.getText();
             if (text != null && !text.isEmpty()) {
                 UIUtils.copyToClipboard(text);
-                UIUtils.info(getView(), "详情内容已复制到剪贴板");
+                UIUtils.info(getView(), I18n.get("tool.mqtt.log.copied"));
             }
         });
         btnPanel.add(copyBtn);
 
-        JButton clearBtn = new JButton("清空日志");
-        clearBtn.addActionListener(e -> {
-            msgTableModel.setRowCount(0);
-            msgDetailArea.setText("");
-        });
+        JButton clearBtn = new JButton(I18n.get("tool.mqtt.log.clear"));
+        clearBtn.addActionListener(e -> clearLog());
         btnPanel.add(clearBtn);
         headerPanel.add(btnPanel, BorderLayout.EAST);
 
@@ -289,12 +311,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         JSplitPane msgSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         msgSplit.setResizeWeight(0.65);
 
-        msgTableModel = new DefaultTableModel(new Object[]{"方向", "时间", "Topic", "QoS", "Retain", "Payload"}, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
+        msgTableModel = new MqttMessageTableModel();
         msgTable = new JTable(msgTableModel);
         msgTable.setRowHeight(22);
         msgTable.getColumnModel().getColumn(0).setPreferredWidth(60);
@@ -307,15 +324,8 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         msgTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 int row = msgTable.getSelectedRow();
-                if (row >= 0) {
-                    String payload = (String) msgTableModel.getValueAt(row, 5);
-                    try {
-                        Object jsonObj = jsonMapper.readValue(payload, Object.class);
-                        msgDetailArea.setText(jsonMapper.writeValueAsString(jsonObj));
-                    } catch (Exception ex) {
-                        msgDetailArea.setText(payload);
-                    }
-                    msgDetailArea.setCaretPosition(0);
+                if (row >= 0 && row < msgTableModel.getRowCount()) {
+                    showDetail(msgTableModel.entryAt(row).payload());
                 }
             }
         });
@@ -330,152 +340,111 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         msgSplit.setBottomComponent(detailScroll);
 
         card.add(msgSplit, BorderLayout.CENTER);
+        updateLogStats();
         return card;
     }
 
-    private synchronized void doConnect() {
-        String brokerUrl = brokerUrlField.getText().trim();
-        String clientId = clientIdField.getText().trim();
+    private void showDetail(String payload) {
+        try {
+            Object jsonObj = jsonMapper.readValue(payload, Object.class);
+            msgDetailArea.setText(jsonMapper.writeValueAsString(jsonObj));
+        } catch (Exception ex) {
+            msgDetailArea.setText(payload);
+        }
+        msgDetailArea.setCaretPosition(0);
+    }
 
+    private void doConnect() {
+        String brokerUrl = brokerUrlField.getText().trim();
         if (brokerUrl.isEmpty()) {
-            UIUtils.error(getView(), "请输入 Broker 地址！");
+            UIUtils.error(getView(), I18n.get("tool.mqtt.err.noBroker"));
             return;
         }
 
-        closeMqttResource();
-        try {
-            MemoryPersistence persistence = new MemoryPersistence();
-            mqttClient = new MqttClient(brokerUrl, clientId, persistence);
-            mqttResource = new MqttResource(mqttClient);
+        // Everything the io thread needs is captured here, on the EDT.
+        MqttSession.Settings settings = new MqttSession.Settings(
+                brokerUrl,
+                clientIdField.getText().trim(),
+                usernameField.getText().trim(),
+                passwordField.getPassword(),
+                (Integer) keepAliveSpinner.getValue(),
+                cleanSessionCheckBox.isSelected());
+        lastCleanSession = settings.cleanSession();
 
-            MqttConnectOptions options = new MqttConnectOptions();
-            options.setCleanSession(cleanSessionCheckBox.isSelected());
-            options.setKeepAliveInterval((Integer) keepAliveSpinner.getValue());
-            options.setConnectionTimeout(10);
-
-            String user = usernameField.getText().trim();
-            if (!user.isEmpty()) {
-                options.setUserName(user);
-                options.setPassword(passwordField.getPassword());
-            }
-
-            mqttClient.setCallback(new MqttCallback() {
-                @Override
-                public void connectionLost(Throwable cause) {
-                    SwingUtilities.invokeLater(() -> {
-                        updateStatus(false, "连接断开");
-                        appendLog("System", "-", 0, false, "连接已断开: " + (cause != null ? cause.getMessage() : "未知"));
-                    });
-                }
-
-                @Override
-                public void messageArrived(String topic, MqttMessage message) {
-                    SwingUtilities.invokeLater(() -> {
-                        String payload = new String(message.getPayload(), StandardCharsets.UTF_8);
-                        appendLog("📥 接收", topic, message.getQos(), message.isRetained(), payload);
-                    });
-                }
-
-                @Override
-                public void deliveryComplete(IMqttDeliveryToken token) {
-                }
-            });
-
-            connectBtn.setEnabled(false);
-            statusLabel.setText("连接中...");
-            statusLabel.setBackground(Color.ORANGE);
-
-            new Thread(() -> {
-                try {
-                    mqttClient.connect(options);
-                    SwingUtilities.invokeLater(() -> {
-                        updateStatus(true, "已连接");
-                        appendLog("System", "-", 0, false, "成功连接至 " + brokerUrl);
-                    });
-                } catch (Exception ex) {
-                    SwingUtilities.invokeLater(() -> {
-                        updateStatus(false, "未连接");
-                        connectBtn.setEnabled(true);
-                        UIUtils.error(getView(), "连接失败: " + ex.getMessage(), "连接错误");
-                    });
-                }
-            }).start();
-
-        } catch (Exception ex) {
-            updateStatus(false, "未连接");
-            connectBtn.setEnabled(true);
-            UIUtils.error(getView(), "客户端创建失败: " + ex.getMessage());
-        }
+        applyState(State.CONNECTING);
+        appendLog(MqttLogEntry.system("-", I18n.get("tool.mqtt.log.connecting", brokerUrl)));
+        session.connect(settings);
     }
 
-    private synchronized void doDisconnect() {
-        closeMqttResource();
-        updateStatus(false, "未连接");
-        appendLog("System", "-", 0, false, "手动已断开连接");
+    private void doDisconnect() {
+        session.disconnect();
+        applyState(State.DISCONNECTED);
+        markSubscriptions(I18n.get("tool.mqtt.sub.col.inactive"));
+        appendLog(MqttLogEntry.system("-", I18n.get("tool.mqtt.log.manualDisconnect")));
     }
 
     /** Releases the MQTT client without updating Swing controls during exit. */
     @Override
-    public synchronized void closeResources() {
-        closeMqttResource();
-    }
-
-    private void closeMqttResource() {
-        MqttResource resource = mqttResource;
-        mqttResource = null;
-        mqttClient = null;
-        if (resource != null) resource.close();
+    public void closeResources() {
+        stopLogFlushTimer();
+        session.close();
     }
 
     private void doSubscribe() {
-        if (mqttClient == null || !mqttClient.isConnected()) {
-            UIUtils.warn(getView(), "请先连接 MQTT Broker！", "提示");
+        if (!isConnected()) {
+            UIUtils.warn(getView(), I18n.get("tool.mqtt.warn.noConnection"), I18n.get("tool.mqtt.tip"));
             return;
         }
 
         String topic = subTopicField.getText().trim();
-        int qos = (Integer) subQosCombo.getSelectedItem();
-
         if (topic.isEmpty()) {
-            UIUtils.error(getView(), "请输入要订阅的主题！");
+            UIUtils.error(getView(), I18n.get("tool.mqtt.err.noSubTopic"));
             return;
         }
+        int qos = (Integer) subQosCombo.getSelectedItem();
 
-        try {
-            mqttClient.subscribe(topic, qos);
-            subTableModel.addRow(new Object[]{topic, qos, "已订阅"});
-            appendLog("System", topic, qos, false, "已订阅主题: " + topic + " (QoS " + qos + ")");
-        } catch (MqttException ex) {
-            UIUtils.error(getView(), "订阅失败: " + ex.getMessage());
+        subscribeInFlight = true;
+        updateActionButtons();
+        session.subscribe(topic, qos);
+    }
+
+    private void doUnsubscribe() {
+        int row = subTable.getSelectedRow();
+        if (row < 0) {
+            return;
+        }
+        String topic = String.valueOf(subTableModel.getValueAt(row, 0));
+        subTableModel.removeRow(row);
+        if (isConnected()) {
+            session.unsubscribe(topic);
+        }
+    }
+
+    /** Rewrites the status column of every subscription row. */
+    private void markSubscriptions(String status) {
+        for (int i = 0; i < subTableModel.getRowCount(); i++) {
+            subTableModel.setValueAt(status, i, 2);
         }
     }
 
     private void doPublish() {
-        if (mqttClient == null || !mqttClient.isConnected()) {
-            UIUtils.warn(getView(), "请先连接 MQTT Broker！", "提示");
+        if (!isConnected()) {
+            UIUtils.warn(getView(), I18n.get("tool.mqtt.warn.noConnection"), I18n.get("tool.mqtt.tip"));
             return;
         }
 
         String topic = pubTopicField.getText().trim();
+        if (topic.isEmpty()) {
+            UIUtils.error(getView(), I18n.get("tool.mqtt.err.noPubTopic"));
+            return;
+        }
         int qos = (Integer) pubQosCombo.getSelectedItem();
         boolean retain = retainCheckBox.isSelected();
         String payloadStr = pubPayloadArea.getText();
 
-        if (topic.isEmpty()) {
-            UIUtils.error(getView(), "请输入发布目标主题！");
-            return;
-        }
-
-        try {
-            MqttMessage message = new MqttMessage(payloadStr.getBytes(StandardCharsets.UTF_8));
-            message.setQos(qos);
-            message.setRetained(retain);
-
-            mqttClient.publish(topic, message);
-            appendLog("📤 发送", topic, qos, retain, payloadStr);
-        } catch (MqttException ex) {
-            UIUtils.error(getView(), "发送失败: " + ex.getMessage());
-        }
+        publishInFlight = true;
+        updateActionButtons();
+        session.publish(topic, payloadStr.getBytes(StandardCharsets.UTF_8), qos, retain, payloadStr);
     }
 
     private void formatPubPayload() {
@@ -485,32 +454,241 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
                 Object jsonObj = jsonMapper.readValue(text, Object.class);
                 pubPayloadArea.setText(jsonMapper.writeValueAsString(jsonObj));
             } catch (Exception ex) {
-                UIUtils.error(getView(), "格式化失败: " + ex.getMessage(), "JSON 语法错误");
+                UIUtils.error(getView(), I18n.get("tool.mqtt.err.formatFailed", ex.getMessage()),
+                        I18n.get("tool.mqtt.title.jsonError"));
             }
         }
     }
 
-    private void updateStatus(boolean connected, String text) {
-        statusLabel.setText(text);
-        statusLabel.setBackground(connected ? new Color(46, 125, 50) : Color.LIGHT_GRAY);
-        statusLabel.setForeground(connected ? Color.WHITE : Color.BLACK);
-
-        connectBtn.setEnabled(!connected);
-        disconnectBtn.setEnabled(connected);
-
-        brokerUrlField.setEnabled(!connected);
-        clientIdField.setEnabled(!connected);
-        usernameField.setEnabled(!connected);
-        passwordField.setEnabled(!connected);
-        keepAliveSpinner.setEnabled(!connected);
-        cleanSessionCheckBox.setEnabled(!connected);
+    private boolean isConnected() {
+        return currentState == State.CONNECTED;
     }
 
-    private void appendLog(String direction, String topic, int qos, boolean retain, String payload) {
-        String timeStr = dateFormat.format(new Date());
-        msgTableModel.addRow(new Object[]{direction, timeStr, topic, qos, retain ? "是" : "否", payload});
+    private enum State { DISCONNECTED, CONNECTING, CONNECTED, LOST }
 
-        // 自动滚动到最新一行
-        msgTable.scrollRectToVisible(msgTable.getCellRect(msgTableModel.getRowCount() - 1, 0, true));
+    private void applyState(State state) {
+        currentState = state;
+        boolean connected = state == State.CONNECTED;
+        boolean editable = state == State.DISCONNECTED || state == State.LOST;
+        switch (state) {
+            case CONNECTED -> {
+                statusLabel.setText(I18n.get("tool.mqtt.status.connected"));
+                statusLabel.setBackground(new Color(46, 125, 50));
+                statusLabel.setForeground(Color.WHITE);
+            }
+            case CONNECTING -> {
+                statusLabel.setText(I18n.get("tool.mqtt.status.connecting"));
+                statusLabel.setBackground(Color.ORANGE);
+                statusLabel.setForeground(Color.BLACK);
+            }
+            case LOST -> {
+                statusLabel.setText(I18n.get("tool.mqtt.status.lost"));
+                statusLabel.setBackground(Color.LIGHT_GRAY);
+                statusLabel.setForeground(Color.BLACK);
+            }
+            default -> {
+                statusLabel.setText(I18n.get("tool.mqtt.status.disconnected"));
+                statusLabel.setBackground(Color.LIGHT_GRAY);
+                statusLabel.setForeground(Color.BLACK);
+            }
+        }
+
+        publishInFlight = false;
+        subscribeInFlight = false;
+        updateActionButtons();
+
+        brokerUrlField.setEnabled(editable);
+        clientIdField.setEnabled(editable);
+        usernameField.setEnabled(editable);
+        passwordField.setEnabled(editable);
+        keepAliveSpinner.setEnabled(editable);
+        cleanSessionCheckBox.setEnabled(editable);
+    }
+
+    private void updateActionButtons() {
+        boolean connecting = State.CONNECTING == currentState;
+        boolean connected = isConnected();
+        connectBtn.setEnabled(!connected && !connecting);
+        // While connecting the user may still cancel: the attempt is abandoned,
+        // not interrupted, and its late result is discarded.
+        disconnectBtn.setEnabled(connected || connecting);
+        pubBtn.setEnabled(connected && !publishInFlight);
+        subBtn.setEnabled(connected && !subscribeInFlight);
+    }
+
+    private void flushLog() {
+        BoundedLogBuffer.Flush<MqttLogEntry> flush = logBuffer.drain();
+        if (flush.isEmpty()) {
+            return;
+        }
+        int lastBefore = msgTableModel.getRowCount() - 1;
+        boolean followTail = msgTable.getSelectionModel().isSelectionEmpty()
+                || msgTable.getSelectedRow() == lastBefore;
+
+        msgTableModel.apply(flush);
+        if (followTail && msgTableModel.getRowCount() > 0) {
+            int last = msgTableModel.getRowCount() - 1;
+            msgTable.scrollRectToVisible(msgTable.getCellRect(last, 0, true));
+        }
+        if (flush.evictedCount() > 0 || flush.droppedCount() > 0) {
+            updateLogStats();
+        }
+    }
+
+    private void clearLog() {
+        logBuffer.clear();
+        msgTableModel.clear();
+        msgDetailArea.setText("");
+        updateLogStats();
+    }
+
+    private void updateLogStats() {
+        if (logStatsLabel == null) {
+            return;
+        }
+        String text = I18n.get("tool.mqtt.log.stats",
+                logBuffer.retainedSize() + logBuffer.pendingSize(), logBuffer.maxRetained());
+        long trimmed = logBuffer.trimmedTotal();
+        long dropped = logBuffer.droppedTotal();
+        if (trimmed > 0 || dropped > 0) {
+            text = text + "  " + I18n.get("tool.mqtt.log.trimmed", trimmed, dropped);
+        }
+        logStatsLabel.setText(text);
+    }
+
+    private void appendLog(MqttLogEntry entry) {
+        logBuffer.offer(entry);
+    }
+
+    private void stopLogFlushTimer() {
+        logFlushTimer.stop();
+    }
+
+    /** Session callbacks. State events arrive on the EDT; log events on network threads. */
+    private final class PanelListener implements MqttSession.Listener {
+        @Override
+        public void onConnected(String brokerUrl) {
+            applyState(State.CONNECTED);
+            if (lastCleanSession) {
+                subTableModel.setRowCount(0);
+            } else {
+                // The broker resumes a persistent session together with its subscriptions.
+                markSubscriptions(I18n.get("tool.mqtt.sub.col.subscribed"));
+            }
+            appendLog(MqttLogEntry.system("-", I18n.get("tool.mqtt.log.connected", brokerUrl)));
+        }
+
+        @Override
+        public void onConnectionLost(String reason) {
+            applyState(State.LOST);
+            markSubscriptions(I18n.get("tool.mqtt.sub.col.inactive"));
+            String detail = reason == null || reason.isEmpty() ? I18n.get("tool.mqtt.log.unknown") : reason;
+            appendLog(MqttLogEntry.system("-", I18n.get("tool.mqtt.log.connectionLost", detail)));
+        }
+
+        @Override
+        public void onSubscribed(String topic, int qos) {
+            subscribeInFlight = false;
+            updateActionButtons();
+            subTableModel.addRow(new Object[]{topic, qos, I18n.get("tool.mqtt.sub.col.subscribed")});
+            appendLog(MqttLogEntry.system(topic, I18n.get("tool.mqtt.log.subscribed", topic, qos)));
+        }
+
+        @Override
+        public void onUnsubscribed(String topic) {
+            appendLog(MqttLogEntry.system(topic, I18n.get("tool.mqtt.log.unsubscribed", topic)));
+        }
+
+        @Override
+        public void onPublished(String topic, int qos, boolean retain, String payload) {
+            publishInFlight = false;
+            updateActionButtons();
+            appendLog(MqttLogEntry.of(MqttLogEntry.Direction.SENT, topic, qos, retain, payload));
+        }
+
+        @Override
+        public void onFailed(MqttSession.Operation operation, String message) {
+            if (operation == MqttSession.Operation.CONNECT) {
+                applyState(State.DISCONNECTED);
+                UIUtils.error(getView(), I18n.get("tool.mqtt.err.connectFailed", message),
+                        I18n.get("tool.mqtt.title.connectError"));
+                return;
+            }
+            if (operation == MqttSession.Operation.SUBSCRIBE) {
+                subscribeInFlight = false;
+                updateActionButtons();
+                UIUtils.error(getView(), I18n.get("tool.mqtt.err.subscribeFailed", message));
+                return;
+            }
+            if (operation == MqttSession.Operation.PUBLISH) {
+                publishInFlight = false;
+                updateActionButtons();
+                UIUtils.error(getView(), I18n.get("tool.mqtt.err.publishFailed", message));
+                return;
+            }
+            UIUtils.error(getView(), I18n.get("tool.mqtt.err.operationFailed", message));
+        }
+
+        @Override
+        public void onMessage(String topic, MqttMessage message) {
+            String payload = new String(message.getPayload(), StandardCharsets.UTF_8);
+            appendLog(MqttLogEntry.of(MqttLogEntry.Direction.RECEIVED, topic,
+                    message.getQos(), message.isRetained(), payload));
+        }
+    }
+
+    // ---- test seams (package-private, EDT only) ----
+
+    String stateForTest() {
+        return currentState.name();
+    }
+
+    void clickConnectForTest() {
+        connectBtn.doClick();
+    }
+
+    void clickDisconnectForTest() {
+        disconnectBtn.doClick();
+    }
+
+    void clickPublishForTest() {
+        pubBtn.doClick();
+    }
+
+    boolean publishEnabledForTest() {
+        return pubBtn.isEnabled();
+    }
+
+    void flushLogForTest() {
+        flushLog();
+    }
+
+    int logRowsForTest() {
+        return msgTableModel.getRowCount();
+    }
+
+    MqttMessageTableModel logModelForTest() {
+        return msgTableModel;
+    }
+
+    long logTrimmedForTest() {
+        return logBuffer.trimmedTotal();
+    }
+
+    String logStatsForTest() {
+        return logStatsLabel.getText();
+    }
+
+    boolean logTimerRunningForTest() {
+        return logFlushTimer.isRunning();
+    }
+
+    MqttSession sessionForTest() {
+        return session;
+    }
+
+    /** Feeds the log the way the Paho callback thread does. Thread-safe. */
+    void offerLogForTest(MqttLogEntry entry) {
+        appendLog(entry);
     }
 }

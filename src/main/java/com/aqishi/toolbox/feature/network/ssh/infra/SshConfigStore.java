@@ -20,6 +20,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
 
 /**
  * SSH 服务器连接配置持久化存储
@@ -358,27 +359,71 @@ public class SshConfigStore {
         return null;
     }
 
+    /**
+     * Registers a new or edited server.
+     *
+     * <p>An existing server (same ID) is updated <em>in place</em>: its connection fields are
+     * copied into the stored instance instead of replacing it. Session tabs, tunnel panels and
+     * bridge sessions hold that instance, so they keep working on — and saving — the current
+     * data. Replacing the object used to leave them on a detached copy whose tunnel edits were
+     * silently never written again.</p>
+     *
+     * <p>Tunnels of an existing server are never touched here: an edit dialog carries a
+     * snapshot of them taken when it opened. Tunnel definitions are saved through
+     * {@link #saveTunnels(SshConnectionConfig)}. A new server is stored with its tunnels.</p>
+     */
     public synchronized void addOrUpdate(SshConnectionConfig config) {
         if (config == null) return;
-        int idx = -1;
-        for (int i = 0; i < configs.size(); i++) {
-            if (configs.get(i).getId().equals(config.getId())) {
-                idx = i;
-                break;
-            }
-        }
-        SshConnectionConfig previous = idx >= 0 ? configs.get(idx) : null;
-        if (idx >= 0) {
-            configs.set(idx, config);
-        } else {
+        SshConnectionConfig existing = findById(config.getId());
+        boolean wasSecretStored = existing != null && existing.isSecretStored();
+        SshConnectionConfig target;
+        if (existing == null) {
             configs.add(config);
+            target = config;
+        } else {
+            if (existing != config) existing.copyConnectionFrom(config);
+            target = existing;
         }
         save();
-        if (previous != null && previous.isSecretStored() && !config.isSecretStored()) {
-            forgetVaultSecret(config.getId());
+        if (wasSecretStored && !target.isSecretStored()) {
+            forgetVaultSecret(target.getId());
         }
         // New credentials typed while the vault is open go straight into it.
-        if (config.hasLocalSecrets()) migrateLocalSecrets();
+        if (target.hasLocalSecrets()) migrateLocalSecrets();
+    }
+
+    /**
+     * Persists the tunnel definitions of a server immediately; connection fields are left as
+     * they are in the store. {@code config} may be the stored instance or a copy with the same
+     * ID: a tunnel whose ID is already stored keeps its stored instance (and so its runtime
+     * state) and takes over the edited fields. A deleted server is not recreated.
+     */
+    public synchronized void saveTunnels(SshConnectionConfig config) {
+        if (config == null) return;
+        SshConnectionConfig stored = findById(config.getId());
+        if (stored == null) return;
+        if (stored != config) {
+            List<SshTunnelConfig> current = stored.getTunnels();
+            List<SshTunnelConfig> next = new ArrayList<>();
+            for (SshTunnelConfig definition : config.getTunnels()) {
+                if (definition == null) continue;
+                SshTunnelConfig kept = null;
+                for (SshTunnelConfig candidate : current) {
+                    if (candidate.getId() != null && candidate.getId().equals(definition.getId())) {
+                        kept = candidate;
+                        break;
+                    }
+                }
+                if (kept != null) {
+                    kept.applyDefinition(definition);
+                    next.add(kept);
+                } else {
+                    next.add(definition);
+                }
+            }
+            stored.setTunnels(next);
+        }
+        save();
     }
 
     public synchronized boolean delete(String id) {

@@ -5,7 +5,14 @@ import com.aqishi.toolbox.feature.security.domain.CertUtils;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.feature.security.infra.acme.AcmeChallengeHelper;
 import com.aqishi.toolbox.feature.security.infra.acme.AcmeClient;
+import com.aqishi.toolbox.feature.security.infra.acme.AcmeException;
+import com.aqishi.toolbox.feature.security.infra.acme.AcmeIssuance;
+import com.aqishi.toolbox.feature.security.infra.acme.AcmePoller;
+import com.aqishi.toolbox.feature.security.infra.acme.AcmeProblem;
+import com.aqishi.toolbox.feature.security.infra.acme.ChallengeProvisioner;
+import com.aqishi.toolbox.feature.security.infra.acme.ChallengeProvisioners;
 import com.aqishi.toolbox.feature.security.infra.acme.CloudflareDnsProvider;
+import com.aqishi.toolbox.feature.security.infra.acme.DnsTxtLookup;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -27,7 +34,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.*;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 证书管理面板：根证书创建、证书签发、证书解析、免费证书自动申请。
@@ -73,6 +80,8 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
 
     private JButton step1Btn;
     private JButton step2Btn;
+    /** Cancels a running validation, or abandons a prepared order (and removes its records). */
+    private JButton acmeCancelBtn;
     private javax.swing.Timer step2Timer;
     private int step2CountdownSeconds;
 
@@ -86,7 +95,10 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
     private AcmeClient.AcmeOrder currentOrder;
     private List<AcmeClient.AcmeChallenge> currentChallenges;
     private List<String> currentDomainList;
-    private Map<AcmeClient.AcmeChallenge, String> cfRecordIds = new ConcurrentHashMap<>();
+    /** Prepared order whose provisioned records/files still have to be cleaned up; {@code null} when none. */
+    private volatile AcmeIssuance currentIssuance;
+    private final AtomicBoolean acmeCancelRequested = new AtomicBoolean();
+    private volatile Thread acmeWorker;
 
     public CertPanel() {
         super(ToolCatalog.CERT_MANAGEMENT);
@@ -405,22 +417,25 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
         configBody.add(Layouts.columns(Tokens.SPACE_XL, caCol, domainCol), BorderLayout.NORTH);
         configBody.add(httpForm, BorderLayout.SOUTH);
 
-        step1Btn = Buttons.primary("1. 初始化 & 提交申请");
+        step1Btn = Buttons.primary(I18n.get("tool.cert.acme.step1"));
         // 先按倒计时文案定宽再换回正式文案，否则计时中的 "(15s)" 会把按钮文字挤掉
-        step2Btn = Buttons.primary("2. 确认部署并开始验证 (15s)");
-        step2Btn.setText("2. 确认部署并开始验证");
-        JButton clearAcmeBtn = Buttons.ghost("清空");
+        step2Btn = Buttons.primary(I18n.get("tool.cert.acme.step2.counting", 15));
+        step2Btn.setText(I18n.get("tool.cert.acme.step2"));
+        acmeCancelBtn = Buttons.ghost(I18n.get("tool.cert.acme.cancel"));
+        acmeCancelBtn.setEnabled(false);
+        acmeCancelBtn.setToolTipText(I18n.get("tool.cert.acme.cancel.tip"));
+        JButton clearAcmeBtn = Buttons.ghost(I18n.get("tool.cert.acme.clear"));
         step2Btn.setEnabled(false);
+
+        Card step2Card = Card.titled(I18n.get("tool.cert.acme.step2.card"));
+        step2Card.setContent(Fields.caption(I18n.get("tool.cert.acme.step2.hint")));
+        step2Card.addHeaderAction(acmeCancelBtn);
+        step2Card.addHeaderAction(step2Btn);
 
         Card step1Card = Card.titled("第 1 步：自动化申请配置",
                 "填好 CA、域名与验证方式后提交，随后按日志里的指引完成域名验证部署");
         step1Card.setContent(configBody);
         step1Card.addHeaderAction(step1Btn);
-
-        Card step2Card = Card.titled("第 2 步：确认部署并开始验证");
-        step2Card.setContent(Fields.caption(
-                "验证记录部署生效后再点右侧按钮，CA 才会来校验并签发；倒计时结束前按钮不可点。"));
-        step2Card.addHeaderAction(step2Btn);
 
         // ===== 日志：铺满型卡片吃掉剩余空间，整个流程都靠它反馈 =====
         acmeLogArea = Fields.output(10, 60);
@@ -503,45 +518,52 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
 
         step1Btn.addActionListener(e -> {
             step1Btn.setEnabled(false);
+            stopStep2Countdown();
+            acmeCancelBtn.setEnabled(false);
             new Thread(() -> {
                 try {
                     boolean ok = doAcmeStep1();
                     SwingUtilities.invokeLater(() -> {
                         step1Btn.setEnabled(true);
                         if (ok) {
+                            acmeCancelBtn.setEnabled(true);
                             startStep2Countdown();
                         }
                     });
                 } catch (Exception ex) {
                     SwingUtilities.invokeLater(() -> step1Btn.setEnabled(true));
                 }
-            }).start();
+            }, "acme-step1").start();
         });
 
         step2Btn.addActionListener(e -> {
-            if (step2Timer != null && step2Timer.isRunning()) {
-                step2Timer.stop();
-            }
-            step2Btn.setEnabled(false);
-            step2Btn.setText("2. 确认部署并开始验证");
-            new Thread(() -> {
+            stopStep2Countdown();
+            step1Btn.setEnabled(false);
+            acmeCancelBtn.setEnabled(true);
+            acmeCancelRequested.set(false);
+            Thread worker = new Thread(() -> {
                 try {
                     doAcmeStep2();
                 } finally {
-                    SwingUtilities.invokeLater(() -> step2Btn.setEnabled(true));
+                    acmeWorker = null;
+                    // 订单已用完（成功、失败或取消都一样），需重新从第 1 步开始
+                    SwingUtilities.invokeLater(() -> {
+                        step1Btn.setEnabled(true);
+                        acmeCancelBtn.setEnabled(false);
+                    });
                 }
-            }).start();
+            }, "acme-step2");
+            acmeWorker = worker;
+            worker.start();
         });
 
+        acmeCancelBtn.addActionListener(e -> requestAcmeCancel());
+
         clearAcmeBtn.addActionListener(e -> {
-            if (step2Timer != null && step2Timer.isRunning()) {
-                step2Timer.stop();
-            }
             acmeLogArea.setText("");
             acmeCertOut.setText("");
             acmeKeyOut.setText("");
-            step2Btn.setEnabled(false);
-            step2Btn.setText("2. 确认部署并开始验证");
+            requestAcmeCancel();
         });
 
         return p;
@@ -594,19 +616,50 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
         }
         step2CountdownSeconds = 15;
         step2Btn.setEnabled(false);
-        step2Btn.setText("2. 确认部署并开始验证 (15s)");
+        step2Btn.setText(I18n.get("tool.cert.acme.step2.counting", step2CountdownSeconds));
 
         step2Timer = new javax.swing.Timer(1000, e -> {
             step2CountdownSeconds--;
             if (step2CountdownSeconds > 0) {
-                step2Btn.setText("2. 确认部署并开始验证 (" + step2CountdownSeconds + "s)");
+                step2Btn.setText(I18n.get("tool.cert.acme.step2.counting", step2CountdownSeconds));
             } else {
                 step2Timer.stop();
                 step2Btn.setEnabled(true);
-                step2Btn.setText("2. 确认部署并开始验证");
+                step2Btn.setText(I18n.get("tool.cert.acme.step2"));
             }
         });
         step2Timer.start();
+    }
+
+    /** Stops the countdown and leaves step 2 disabled (EDT only). */
+    private void stopStep2Countdown() {
+        if (step2Timer != null && step2Timer.isRunning()) {
+            step2Timer.stop();
+        }
+        step2Btn.setEnabled(false);
+        step2Btn.setText(I18n.get("tool.cert.acme.step2"));
+    }
+
+    /**
+     * Cancel button / clear: stops a running step 2 (the worker cleans up itself), or
+     * abandons a prepared order and removes its TXT records / challenge files in the background.
+     */
+    private void requestAcmeCancel() {
+        stopStep2Countdown();
+        acmeCancelBtn.setEnabled(false);
+        acmeCancelRequested.set(true);
+        Thread worker = acmeWorker;
+        if (worker != null && worker.isAlive()) {
+            appendAcmeLog(I18n.get("tool.cert.acme.log.cancelling"));
+            worker.interrupt();
+            return;
+        }
+        AcmeIssuance abandoned = currentIssuance;
+        currentIssuance = null;
+        if (abandoned != null && abandoned.isOpen()) {
+            appendAcmeLog(I18n.get("tool.cert.acme.log.abandoned"));
+            new Thread(abandoned::cleanup, "acme-cleanup").start();
+        }
     }
 
     // ================================================================
@@ -625,7 +678,12 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
             acmeLogArea.setText("");
             acmeCertOut.setText("");
             acmeKeyOut.setText("");
-            cfRecordIds.clear();
+            // A previous order that was never validated still owns TXT records / files: remove them first.
+            AcmeIssuance previous = currentIssuance;
+            currentIssuance = null;
+            if (previous != null) {
+                previous.cleanup();
+            }
 
             String directoryUrl;
             int caIdx = acmeCaCombo.getSelectedIndex();
@@ -668,72 +726,66 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
             int challengeTypeIdx = acmeChallengeCombo.getSelectedIndex();
             String preferType = (challengeTypeIdx == 0 || challengeTypeIdx == 1) ? "dns-01" : "http-01";
 
-            currentChallenges = currentAcmeClient.getChallenges(currentAccountKeyPair, currentOrder, preferType);
-
-            appendAcmeLog("\n=======================================================");
-            appendAcmeLog("📋 域名验证部署指引:");
-            appendAcmeLog("=======================================================");
-
-            if (challengeTypeIdx == 0) { // DNS-01 自动验证
+            ChallengeProvisioner provisioner;
+            if (challengeTypeIdx == 0) {
                 String cfToken = acmeCfTokenField.getText().trim();
                 if (cfToken.isEmpty()) {
-                    appendAcmeLog("❌ 错误：未填写 Cloudflare API Token！");
+                    appendAcmeLog(I18n.get("tool.cert.acme.error.noToken"));
                     return false;
                 }
-
-                appendAcmeLog("正在通过 Cloudflare API 自动添加 DNS TXT 解析记录...");
-                for (AcmeClient.AcmeChallenge ch : currentChallenges) {
-                    appendAcmeLog("正在为域名 [" + ch.domain + "] 添加记录: " + ch.dnsTxtRecordName);
-                    String recordId = CloudflareDnsProvider.addTxtRecord(cfToken, ch.domain, ch.dnsTxtRecordName, ch.dnsTxtRecordValue);
-                    cfRecordIds.put(ch, recordId);
-                    appendAcmeLog("  ✅ 成功解析添加！Record ID: " + recordId);
-                }
-                appendAcmeLog("\n💡 Cloudflare API 解析记录已添加完毕！倒计时 15s 待全球 DNS 生效后即可点击第 2 步。");
-
-            } else if (challengeTypeIdx == 1) { // DNS-01 手动验证
-                for (AcmeClient.AcmeChallenge ch : currentChallenges) {
-                    appendAcmeLog("【域名】: " + ch.domain);
-                    appendAcmeLog("  请前往您的 DNS 域名服务商后台，添加一条 TXT 解析记录：");
-                    appendAcmeLog("  主机记录 : " + ch.dnsTxtRecordName);
-                    appendAcmeLog("  记录值   : " + ch.dnsTxtRecordValue);
-                    appendAcmeLog("-------------------------------------------------------");
-                }
-                appendAcmeLog("💡 提示：添加 TXT 记录后请等待倒计时生效，然后点击第 2 步。");
-
-            } else if (challengeTypeIdx == 2) { // HTTP-01 内置服务
+                appendAcmeLog(I18n.get("tool.cert.acme.log.dnsAdd"));
+                provisioner = ChallengeProvisioners.dnsApi(CloudflareDnsProvider.forToken(cfToken),
+                        DnsTxtLookup.system(), AcmePoller.propagationDefaults());
+            } else if (challengeTypeIdx == 1) {
+                provisioner = ChallengeProvisioners.manualDns(DnsTxtLookup.system(), AcmePoller.propagationDefaults());
+            } else if (challengeTypeIdx == 2) {
                 int port = Integer.parseInt(acmeHttpPortField.getText().trim());
-                appendAcmeLog("启动本地内置 HTTP-01 验证服务 (Port: " + port + ")...");
-                AcmeChallengeHelper.startHttpServer(port);
-                for (AcmeClient.AcmeChallenge ch : currentChallenges) {
-                    AcmeChallengeHelper.registerToken(ch.token, ch.keyAuthorization);
-                    appendAcmeLog("已挂载路径: http://" + ch.domain + "/.well-known/acme-challenge/" + ch.token);
-                }
-                appendAcmeLog("💡 内置 HTTP 服务已启动，待倒计时结束后点击第 2 步。");
+                appendAcmeLog(I18n.get("tool.cert.acme.log.httpServer", String.valueOf(port)));
+                provisioner = ChallengeProvisioners.builtinHttp(port);
+            } else {
+                provisioner = ChallengeProvisioners.webRoot(acmeWebDirField.getText().trim());
+            }
 
-            } else if (challengeTypeIdx == 3) { // HTTP-01 目录写入
-                String webDir = acmeWebDirField.getText().trim();
+            AcmeIssuance issuance = new AcmeIssuance(currentAcmeClient, currentAccountKeyPair,
+                    provisioner, this::appendAcmeLog);
+            currentIssuance = issuance;
+            try {
+                currentChallenges = issuance.prepare(currentOrder, preferType);
+            } catch (Exception ex) {
+                currentIssuance = null;
+                throw ex;
+            }
+
+            if (challengeTypeIdx == 1) { // 手动验证：这里才拿得到 CA 给出的 TXT 值
+                appendAcmeLog("\n=======================================================");
+                appendAcmeLog(I18n.get("tool.cert.acme.log.manualHeader"));
+                appendAcmeLog("=======================================================");
                 for (AcmeClient.AcmeChallenge ch : currentChallenges) {
-                    File file = AcmeChallengeHelper.writeChallengeToFile(webDir, ch.token, ch.keyAuthorization);
-                    appendAcmeLog("已向本地 Web 目录写入 Challenge 文件: " + file.getAbsolutePath());
+                    appendAcmeLog(I18n.get("tool.cert.acme.log.manualDomain", ch.domain));
+                    appendAcmeLog(I18n.get("tool.cert.acme.log.manualHost", ch.dnsTxtRecordName));
+                    appendAcmeLog(I18n.get("tool.cert.acme.log.manualValue", ch.dnsTxtRecordValue));
                 }
-                appendAcmeLog("💡 文件写入完成，待倒计时结束后点击第 2 步。");
+                appendAcmeLog(I18n.get("tool.cert.acme.log.manualHint"));
+            } else {
+                appendAcmeLog(I18n.get("tool.cert.acme.log.step1Done"));
             }
 
             return true;
         } catch (Exception ex) {
-            appendAcmeLog("\n❌ 初始化申请失败: " + ex.getMessage());
+            appendAcmeLog("\n" + I18n.get("tool.cert.acme.error.step1", describeAcmeError(ex)));
             return false;
         }
     }
 
     private void doAcmeStep2() {
+        AcmeIssuance issuance = currentIssuance;
+        if (issuance == null) {
+            appendAcmeLog(I18n.get("tool.cert.acme.error.noOrder"));
+            return;
+        }
         try {
-            appendAcmeLog("\n=== 步骤 2: 开始向 CA 发起验证并签发证书 ===");
-            for (AcmeClient.AcmeChallenge ch : currentChallenges) {
-                currentAcmeClient.triggerChallenge(currentAccountKeyPair, ch);
-            }
-
-            String certPemChain = currentAcmeClient.finalizeOrder(currentAccountKeyPair, currentDomainKeyPair, currentDomainList, currentOrder);
+            appendAcmeLog("\n" + I18n.get("tool.cert.acme.log.step2Start"));
+            String certPemChain = issuance.complete(currentDomainKeyPair, currentDomainList, acmeCancelRequested::get);
 
             String domainKeyPem = CertUtils.toPemPrivateKey(currentDomainKeyPair.getPrivate());
 
@@ -742,27 +794,62 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
                 acmeKeyOut.setText(domainKeyPem);
             });
 
-            appendAcmeLog("\n🎉🎉 恭喜！免费 SSL 证书已成功签发！旁边的证书与私钥可以保存使用。");
+            appendAcmeLog("\n" + I18n.get("tool.cert.acme.log.issued"));
         } catch (Exception ex) {
-            appendAcmeLog("\n❌ 验证或签发失败: " + ex.getMessage());
-        } finally {
-            AcmeChallengeHelper.stopHttpServer();
-            AcmeChallengeHelper.clearTokens();
-
-            if (!cfRecordIds.isEmpty()) {
-                String cfToken = acmeCfTokenField.getText().trim();
-                appendAcmeLog("\n🧹 正在通过 Cloudflare API 清理临时生成的 TXT 验证记录...");
-                for (Map.Entry<AcmeClient.AcmeChallenge, String> entry : cfRecordIds.entrySet()) {
-                    try {
-                        CloudflareDnsProvider.deleteTxtRecord(cfToken, entry.getKey().domain, entry.getValue());
-                        appendAcmeLog("  ✓ 已清理域名 [" + entry.getKey().domain + "] 的 TXT 记录 (" + entry.getValue() + ")");
-                    } catch (Exception ex) {
-                        appendAcmeLog("  ⚠️ 清理 TXT 记录失败: " + ex.getMessage());
-                    }
-                }
-                cfRecordIds.clear();
+            if (ex instanceof AcmeException ae && ae.reason() == AcmeException.Reason.CANCELLED) {
+                appendAcmeLog("\n" + I18n.get("tool.cert.acme.error.cancelled"));
+            } else {
+                appendAcmeLog("\n" + I18n.get("tool.cert.acme.error.step2", describeAcmeError(ex)));
             }
+        } finally {
+            // 订单已终结（成功 / 失败 / 取消）：清理已在内部完成，这里只重置状态
+            currentIssuance = null;
         }
+    }
+
+    /**
+     * Localized, readable text for an ACME failure. ACME problem types map to
+     * {@code tool.cert.acme.problem.<type>}; the server detail is always appended in brackets.
+     */
+    static String describeAcmeError(Throwable error) {
+        if (!(error instanceof AcmeException acme)) {
+            String message = error.getMessage();
+            return message == null || message.isEmpty() ? error.getClass().getSimpleName() : message;
+        }
+        AcmeProblem problem = acme.problem();
+        String cause = problem == null ? " [" + acme.getMessage() + "]" : ": " + describeProblem(acme, problem);
+        switch (acme.reason()) {
+            case SERVER_PROBLEM:
+                return describeProblem(acme, problem);
+            case AUTHORIZATION_INVALID:
+                return I18n.get("tool.cert.acme.problem.authzInvalid", acme.subject()) + cause;
+            case ORDER_INVALID:
+                return I18n.get("tool.cert.acme.problem.orderInvalid") + cause;
+            case TIMEOUT:
+                return I18n.get("tool.cert.acme.problem.timeout") + cause;
+            case CANCELLED:
+                return I18n.get("tool.cert.acme.problem.cancelled");
+            case CHALLENGE_UNAVAILABLE:
+                return I18n.get("tool.cert.acme.problem.challengeUnavailable", acme.subject());
+            case PROTOCOL:
+                return I18n.get("tool.cert.acme.problem.protocol") + cause;
+            default:
+                return acme.getMessage();
+        }
+    }
+
+    private static String describeProblem(AcmeException acme, AcmeProblem problem) {
+        if (problem == null) {
+            return acme.getMessage();
+        }
+        String key = "tool.cert.acme.problem." + problem.shortType();
+        String localized = problem.isAcmeError() ? I18n.get(key) : key;
+        StringBuilder text = new StringBuilder(localized.equals(key) ? problem.shortType() : localized);
+        if (problem.is("rateLimited") && acme.retryAfter() != null) {
+            text.append(' ').append(I18n.get("tool.cert.acme.problem.retryAfter",
+                    String.valueOf(acme.retryAfter().getSeconds())));
+        }
+        return text.append(" [").append(problem.describe()).append(']').toString();
     }
 
     // ================================================================
@@ -1006,6 +1093,18 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
         step2Timer = null;
         if (timer != null && timer.isRunning()) {
             timer.stop();
+        }
+        // A running validation stops at its next poll and cleans up itself; a prepared but
+        // never validated order still owns DNS records / challenge files, so remove them.
+        acmeCancelRequested.set(true);
+        Thread worker = acmeWorker;
+        if (worker != null) {
+            worker.interrupt();
+        }
+        AcmeIssuance abandoned = currentIssuance;
+        currentIssuance = null;
+        if (abandoned != null && (worker == null || !worker.isAlive())) {
+            new Thread(abandoned::cleanup, "acme-cleanup").start();
         }
         try {
             AcmeChallengeHelper.stopHttpServer();

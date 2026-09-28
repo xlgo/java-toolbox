@@ -22,6 +22,8 @@ import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshTunnelBridge;
 import com.aqishi.toolbox.feature.network.ssh.infra.KafkaTunnelSupport;
+import com.aqishi.toolbox.feature.network.ssh.infra.KafkaBrokerTunnels;
+import com.aqishi.toolbox.feature.network.ssh.domain.KafkaBrokerTunnelPlan;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.infra.kafka.KafkaClient;
 import com.aqishi.toolbox.infra.messaging.KafkaResource;
@@ -34,6 +36,7 @@ import com.aqishi.toolbox.ui.kit.FormGrid;
 import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 
 import org.apache.kafka.clients.admin.*;
@@ -104,8 +107,13 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     private final KafkaClient kafkaClient = new KafkaClient();
     private String activeBootstrapServers = "";
     private Properties activeCustomProperties = new Properties();
+    /** Bootstrap forwards of the current SSH connection (127.0.0.1, ephemeral ports). */
     private volatile List<SshTunnelBridge.BridgeResult> activeSshBridges = new ArrayList<>();
-    private volatile Set<String> activeSshBrokerHosts = Collections.emptySet();
+    private volatile Set<String> activeSshBootstrapHosts = Collections.emptySet();
+    /** One forward per advertised broker, opened once the cluster metadata is known. */
+    private volatile KafkaBrokerTunnels brokerTunnels;
+    /** Broker host to local address mapping installed on every client of the connection. */
+    private volatile KafkaTunnelSupport.Routing activeSshRouting;
 
     // Left Workspace: Topics & Consumer Groups JTabbedPane
     private JTabbedPane leftTabbedPane;
@@ -1231,109 +1239,130 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         }
     }
 
+    /**
+     * Establishes the SSH forwards of a Kafka connection and returns the address the client
+     * uses to bootstrap.
+     *
+     * <p>Only the bootstrap servers are forwarded here, each on 127.0.0.1 as before. The
+     * brokers advertised in Metadata are reached through their own forwards, which are only
+     * possible once that metadata is known; see {@link #openBrokerTunnels}.</p>
+     */
     private String resolveBootstrapServers(String rawServers) throws Exception {
         List<RemoteEndpoint> endpoints = RemoteEndpoint.parseList(rawServers, DEFAULT_KAFKA_PORT);
-        if (useSshCheck != null && useSshCheck.isSelected()) {
-            SshConnectionConfig sshCfg = (SshConnectionConfig) sshCombo.getSelectedItem();
-            if (sshCfg == null) {
-                throw new IllegalArgumentException("请选择用于隧道的 SSH 服务器配置");
+        if (useSshCheck == null || !useSshCheck.isSelected()) {
+            StringBuilder normalized = new StringBuilder();
+            for (RemoteEndpoint endpoint : endpoints) {
+                if (normalized.length() > 0) normalized.append(',');
+                normalized.append(endpoint.format());
             }
-            StringBuilder resolved = new StringBuilder();
-            List<SshTunnelBridge.BridgeResult> bridges = new ArrayList<>();
-            try {
-                for (RemoteEndpoint endpoint : endpoints) {
-                    SshTunnelBridge.BridgeResult bridge = SshTunnelBridge.bridge(
-                            sshCfg.getId(), endpoint.getHost(), endpoint.getPort());
-                    bridges.add(bridge);
-                    if (resolved.length() > 0) resolved.append(',');
-                    resolved.append(bridge.getLocalHost()).append(':').append(bridge.getLocalPort());
-                }
-            } catch (Exception error) {
-                for (SshTunnelBridge.BridgeResult bridge : bridges) bridge.close();
-                throw error;
+            return normalized.toString();
+        }
+        SshConnectionConfig sshCfg = (SshConnectionConfig) sshCombo.getSelectedItem();
+        if (sshCfg == null) {
+            throw new IllegalArgumentException("请选择用于隧道的 SSH 服务器配置");
+        }
+        if (endpoints.isEmpty()) throw new IllegalArgumentException("Kafka Bootstrap Servers 格式不正确");
+
+        StringBuilder resolved = new StringBuilder();
+        List<SshTunnelBridge.BridgeResult> bridges = new ArrayList<>();
+        try {
+            for (RemoteEndpoint endpoint : endpoints) {
+                SshTunnelBridge.BridgeResult bridge = SshTunnelBridge.bridgeEphemeral(
+                        sshCfg.getId(), endpoint.getHost(), endpoint.getPort());
+                bridges.add(bridge);
+                if (resolved.length() > 0) resolved.append(',');
+                resolved.append(bridge.getLocalHost()).append(':').append(bridge.getLocalPort());
             }
-            if (resolved.length() == 0) throw new IllegalArgumentException("Kafka Bootstrap Servers 格式不正确");
-            activeSshBridges = bridges;
-            return resolved.toString();
+        } catch (Exception error) {
+            for (SshTunnelBridge.BridgeResult bridge : bridges) bridge.close();
+            throw error;
         }
-        StringBuilder normalized = new StringBuilder();
-        for (RemoteEndpoint endpoint : endpoints) {
-            if (normalized.length() > 0) normalized.append(',');
-            normalized.append(endpoint.format());
+        activeSshBridges = bridges;
+        activeSshBootstrapHosts = localBootstrapHosts(bridges);
+        return resolved.toString();
+    }
+
+    private static Set<String> localBootstrapHosts(List<SshTunnelBridge.BridgeResult> bridges) {
+        Set<String> hosts = new LinkedHashSet<>();
+        for (SshTunnelBridge.BridgeResult bridge : bridges) {
+            if (bridge != null && bridge.getLocalPort() > 0) hosts.add(bridge.getLocalHost());
         }
-        return normalized.toString();
+        return hosts;
     }
 
     private static Properties kafkaProperties(String bootstrapServers, Properties custom) {
         return KafkaClientProperties.withDefaults(bootstrapServers, custom);
     }
 
-    /** 当前连接启用 SSH 隧道时返回 broker 主机集合，否则返回 null。 */
-    private Set<String> tunnelBrokerHosts() {
-        return (useSshCheck != null && useSshCheck.isSelected()) ? activeSshBrokerHosts : null;
+    /**
+     * Routing installed on every Kafka client of the current connection, or null when it was
+     * made without SSH. Deliberately independent of the SSH check box: unticking it while
+     * connected must not let new consumers resolve advertised brokers on their own.
+     */
+    private KafkaTunnelSupport.Routing tunnelRouting() {
+        return activeSshRouting;
     }
 
     /**
-     * Kafka clients use the broker addresses returned in metadata after the bootstrap connection.
-     * Install a resolver before metadata work, then refresh it with the actual broker hosts.
+     * Opens one forward per advertised broker once the cluster metadata is known.
+     *
+     * <p>Each distinct advertised {@code host:port} gets its own local address and the
+     * advertised port, because a Kafka client always dials the advertised port and only the
+     * host name of an address can be rewritten from inside the client. Two brokers that share
+     * a port on different hosts therefore stay distinguishable. When that is impossible — a
+     * platform whose loopback has a single address, or a local port already taken — the
+     * connection fails with an explanation instead of talking to the wrong broker.</p>
      */
-    private void verifySshBrokerMetadata(AdminClient client, String rawServers,
-                                         Properties clientProperties) throws Exception {
-        if (useSshCheck == null || !useSshCheck.isSelected()) return;
+    private void openBrokerTunnels(Object metadataSource, Properties clientProperties)
+            throws Exception {
+        SshConnectionConfig sshCfg = (SshConnectionConfig) sshCombo.getSelectedItem();
+        if (sshCfg == null) {
+            throw new IllegalStateException(I18n.get("tool.kafka.tunnel.noSshConfig"));
+        }
+        if (activeSshBridges.isEmpty()) {
+            throw new IllegalStateException(I18n.get("tool.kafka.tunnel.notEstablished"));
+        }
+
+        List<KafkaBrokerTunnelPlan.Endpoint> advertised;
+        try {
+            advertised = KafkaTunnelSupport.awaitAdvertisedBrokers(metadataSource, Duration.ofSeconds(20));
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw interrupted;
+        }
+        if (advertised.isEmpty()) {
+            // No readable metadata on the admin client: ask a broker through a bootstrap
+            // forward, which answers about the whole cluster as well.
+            try {
+                advertised = advertisedBrokersThroughBootstrap(clientProperties);
+            } catch (Exception error) {
+                if (!isKafkaNodeAssignmentTimeout(error)) throw error;
+                throw new IllegalStateException(I18n.get("tool.kafka.tunnel.noBrokers"), error);
+            }
+        }
+        if (advertised.isEmpty()) {
+            throw new IllegalStateException(I18n.get("tool.kafka.tunnel.noBrokers"));
+        }
 
         try {
-            List<SshTunnelBridge.BridgeResult> bridges = activeSshBridges;
-            if (bridges.isEmpty()) {
-                throw new IllegalStateException("Kafka SSH 隧道未建立");
-            }
-
-            List<String> bootstrapHosts = endpointHosts(rawServers);
-            // Configure the main AdminClient before its background network
-            // thread can attempt an advertised broker address.
-            KafkaTunnelSupport.configure(client, bootstrapHosts);
-
-            Collection<Node> nodes = readMetadataBrokers(clientProperties, bootstrapHosts);
-            if (nodes.isEmpty()) return;
-
-            Set<Integer> localPorts = new LinkedHashSet<>();
-            for (SshTunnelBridge.BridgeResult bridge : bridges) {
-                if (bridge != null && bridge.getLocalPort() > 0) {
-                    localPorts.add(bridge.getLocalPort());
-                }
-            }
-            List<String> mismatchedPorts = new ArrayList<>();
-            Set<String> brokerHosts = new LinkedHashSet<>();
-            for (Node node : nodes) {
-                brokerHosts.add(node.host());
-                if (!localPorts.contains(node.port())) {
-                    mismatchedPorts.add(node.host() + ":" + node.port());
-                }
-            }
-            if (!mismatchedPorts.isEmpty()) {
-                throw new IllegalStateException("Kafka 返回的 Broker 端口与本地 SSH 隧道端口不一致: "
-                        + String.join(", ", mismatchedPorts)
-                        + "。请释放本地对应端口，或让 Kafka advertised.listeners 使用与隧道相同的端口。");
-            }
-
-            activeSshBrokerHosts = KafkaTunnelSupport.normalizeHosts(brokerHosts);
-            // The metadata response has now revealed the advertised host names.
-            // Update existing NetworkClient node states before the first real request.
-            KafkaTunnelSupport.configure(client, activeSshBrokerHosts);
-        } catch (Exception error) {
-            if (isKafkaNodeAssignmentTimeout(error)) {
-                throw new IllegalStateException("SSH 隧道可能已建立，但 Kafka Broker 元数据未能通过隧道返回。请确认 SSH 服务端允许 AllowTcpForwarding yes、远程 Kafka 地址和端口正确；如果 Kafka 使用了 advertised.listeners，请将其设置为 SSH 服务器可访问的地址。", error);
-            }
-            throw error;
+            brokerTunnels = KafkaBrokerTunnels.open(advertised,
+                    KafkaTunnelSupport.supportsMultipleLoopbackAddresses(),
+                    KafkaTunnelSupport::isBindable,
+                    (host, port, address, localPort) -> SshTunnelBridge.bridgeExact(
+                            sshCfg.getId(), host, port, address, localPort),
+                    activeSshBootstrapHosts);
+        } catch (KafkaBrokerTunnelPlan.PlanningException planning) {
+            throw new IllegalStateException(explainPlanningProblem(planning));
         }
+        activeSshRouting = brokerTunnels.routing();
     }
 
     /**
-     * Reads the normal Metadata response through a short-lived consumer.
-     * Brokers older than 2.8 do not implement the DescribeCluster API, so using
-     * it here would turn a useful broker address into an avoidable timeout.
+     * Reads the advertised brokers with a short-lived consumer whose only reachable
+     * addresses are the local bootstrap forwards.
      */
-    private static Collection<Node> readMetadataBrokers(Properties clientProperties,
-                                                         Collection<String> bootstrapHosts) throws Exception {
+    private List<KafkaBrokerTunnelPlan.Endpoint> advertisedBrokersThroughBootstrap(
+            Properties clientProperties) throws Exception {
         Properties props = new Properties();
         if (clientProperties != null) props.putAll(clientProperties);
         props.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
@@ -1341,30 +1370,39 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         props.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
                 ByteArrayDeserializer.class.getName());
         props.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-
-        Map<String, Node> nodes = new LinkedHashMap<>();
         try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(props)) {
-            KafkaTunnelSupport.configure(consumer, bootstrapHosts);
+            KafkaTunnelSupport.configure(consumer,
+                    KafkaTunnelSupport.Routing.bootstrapOnly(activeSshBootstrapHosts));
             Map<String, List<PartitionInfo>> topics = consumer.listTopics(Duration.ofSeconds(15));
-            for (List<PartitionInfo> partitions : topics.values()) {
-                for (PartitionInfo partition : partitions) {
-                    Node leader = partition.leader();
-                    if (leader != null) nodes.put(leader.host() + ":" + leader.port(), leader);
-                    for (Node replica : partition.replicas()) {
-                        if (replica != null) nodes.put(replica.host() + ":" + replica.port(), replica);
-                    }
+            return KafkaTunnelSupport.endpointsOf(leaderNodes(topics));
+        }
+    }
+
+    private static Set<Node> leaderNodes(Map<String, List<PartitionInfo>> topics) {
+        Set<Node> nodes = new LinkedHashSet<>();
+        for (List<PartitionInfo> partitions : topics.values()) {
+            for (PartitionInfo partition : partitions) {
+                Node leader = partition.leader();
+                if (leader != null) nodes.add(leader);
+                for (Node replica : partition.replicas()) {
+                    if (replica != null) nodes.add(replica);
                 }
             }
         }
-        return nodes.values();
+        return nodes;
     }
 
-    private static List<String> endpointHosts(String rawServers) {
-        List<String> hosts = new ArrayList<>();
-        for (RemoteEndpoint endpoint : RemoteEndpoint.parseList(rawServers, DEFAULT_KAFKA_PORT)) {
-            hosts.add(endpoint.getHost());
+    /** Turns an impossible mapping into the fix the user can apply. */
+    private static String explainPlanningProblem(KafkaBrokerTunnelPlan.PlanningException problem) {
+        List<String> endpoints = new ArrayList<>();
+        for (KafkaBrokerTunnelPlan.Endpoint endpoint : problem.endpoints()) {
+            endpoints.add(endpoint.toString());
         }
-        return hosts;
+        String brokers = String.join(", ", endpoints);
+        if (problem.problem() == KafkaBrokerTunnelPlan.Problem.DUPLICATE_PORT) {
+            return I18n.get("tool.kafka.tunnel.duplicatePort", brokers);
+        }
+        return I18n.get("tool.kafka.tunnel.portInUse", brokers);
     }
 
     private static boolean isKafkaNodeAssignmentTimeout(Throwable error) {
@@ -1379,31 +1417,29 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         return false;
     }
 
-    private static boolean hostsEquivalent(String left, String right) {
-        if (left == null || right == null) return false;
-        if (left.equalsIgnoreCase(right)) return true;
-        try {
-            java.net.InetAddress leftAddress = java.net.InetAddress.getByName(left);
-            java.net.InetAddress rightAddress = java.net.InetAddress.getByName(right);
-            return leftAddress.equals(rightAddress)
-                    || (leftAddress.isLoopbackAddress() && rightAddress.isLoopbackAddress());
-        } catch (Exception ignored) {
-            return false;
+    /**
+     * Kafka clients use the broker addresses returned in metadata after the bootstrap
+     * connection, so the routing must be installed before any broker connection is attempted.
+     * A connection without SSH builds no routing and keeps the default resolution.
+     */
+    private void verifySshBrokerMetadata(AdminClient client, Properties clientProperties)
+            throws Exception {
+        if (useSshCheck == null || !useSshCheck.isSelected()) {
+            activeSshRouting = null;
+            return;
         }
+        // Until the broker forwards exist, only the bootstrap forwards may be dialled; an
+        // advertised name such as localhost:9092 must not reach a local process instead.
+        KafkaTunnelSupport.configure(client,
+                KafkaTunnelSupport.Routing.bootstrapOnly(activeSshBootstrapHosts));
+        openBrokerTunnels(client, clientProperties);
+        // The admin client existed before the broker addresses were known.
+        KafkaTunnelSupport.configure(client, activeSshRouting);
     }
 
-    private static boolean isLoopbackHost(String host) {
-        if (host == null || host.trim().isEmpty()) return false;
-        try {
-            return java.net.InetAddress.getByName(host.trim()).isLoopbackAddress();
-        } catch (Exception ignored) {
-            return "localhost".equalsIgnoreCase(host.trim());
-        }
-    }
-
-    private void verifyAndListTopics(AdminClient client, String rawServers,
-                                     Properties clientProperties) throws Exception {
-        verifySshBrokerMetadata(client, rawServers, clientProperties);
+    private void verifyAndListTopics(AdminClient client, Properties clientProperties)
+            throws Exception {
+        verifySshBrokerMetadata(client, clientProperties);
         try {
             client.listTopics().names().get();
         } catch (Exception error) {
@@ -1440,9 +1476,13 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void releaseSshBridges() {
+        KafkaBrokerTunnels perBroker = brokerTunnels;
+        brokerTunnels = null;
+        if (perBroker != null) perBroker.close();
         List<SshTunnelBridge.BridgeResult> bridges = activeSshBridges;
         activeSshBridges = new ArrayList<>();
-        activeSshBrokerHosts = Collections.emptySet();
+        activeSshRouting = null;
+        activeSshBootstrapHosts = Collections.emptySet();
         for (SshTunnelBridge.BridgeResult bridge : bridges) {
             if (bridge != null) bridge.close();
         }
@@ -1470,7 +1510,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
 
                 KafkaResource resource = kafkaClient.connect(props);
                 try {
-                    verifyAndListTopics(kafkaClient.adminClient(resource), servers, props);
+                    verifyAndListTopics(kafkaClient.adminClient(resource), props);
                 } finally {
                     resource.close();
                 }
@@ -1526,7 +1566,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                 Properties props = kafkaProperties(resolvedServers, custom);
                 KafkaResource resource = kafkaClient.connect(props);
                 try {
-                    verifyAndListTopics(kafkaClient.adminClient(resource), servers, props);
+                    verifyAndListTopics(kafkaClient.adminClient(resource), props);
                 } catch (Exception error) {
                     resource.close();
                     throw error;
@@ -1790,7 +1830,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
             @Override
             protected List<ConsumerRecord<byte[], byte[]>> doInBackground() throws Exception {
                 return browserService.fetchMessages(topic, partition, fromBeginning, limit,
-                        tunnelBrokerHosts());
+                        tunnelRouting());
             }
 
             @Override
@@ -1857,7 +1897,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         new SwingWorker<RecordMetadata, Void>() {
             @Override
             protected RecordMetadata doInBackground() throws Exception {
-                return browserService.produce(topic, key, headersTxt, val, tunnelBrokerHosts());
+                return browserService.produce(topic, key, headersTxt, val, tunnelRouting());
             }
 
             @Override

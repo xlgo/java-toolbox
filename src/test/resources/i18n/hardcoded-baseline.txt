@@ -2,7 +2,7 @@
 # 重新生成（注意引号，PowerShell 下不加会被拆参）：
 #   mvn "-Dtest=I18nHardcodedTextTest" "-Di18n.baseline.write=true" test
 # 这些数字只应随国际化推进而下降。
-# 当前：131 个文件，待迁移 3554 条，另有数据语料 445 条（不需要国际化）。
+# 当前：128 个文件，待迁移 3400 条，另有数据语料 445 条（不需要国际化）。
 com/aqishi/toolbox/Main.java=8
 com/aqishi/toolbox/catalog/ToolCatalog.java=305
 com/aqishi/toolbox/feature/cloud/application/KubernetesResourceApplyService.java=10
@@ -45,7 +45,7 @@ com/aqishi/toolbox/feature/data/domain/JdbcUrlSupport.java=1
 com/aqishi/toolbox/feature/data/domain/KafkaMessageFormat.java=2
 com/aqishi/toolbox/feature/data/domain/SqlTextSupport.java=1
 com/aqishi/toolbox/feature/data/ui/DatabasePanel.java=103
-com/aqishi/toolbox/feature/data/ui/KafkaPanel.java=184
+com/aqishi/toolbox/feature/data/ui/KafkaPanel.java=180
 com/aqishi/toolbox/feature/data/ui/RedisPanel.java=100
 com/aqishi/toolbox/feature/data/ui/ZooKeeperPanel.java=50
 com/aqishi/toolbox/feature/diagram/ui/BpmnPanel.java=111
@@ -72,7 +72,7 @@ com/aqishi/toolbox/feature/monitor/ui/RemoteControlWindow.java=5
 com/aqishi/toolbox/feature/monitor/ui/RemoteDesktopPanel.java=32
 com/aqishi/toolbox/feature/monitor/ui/RemoteTerminalDialog.java=1
 com/aqishi/toolbox/feature/monitor/ui/TransparentOverlayWindow.java=1
-com/aqishi/toolbox/feature/monitor/ui/VideoMonitorPanel.java=40
+com/aqishi/toolbox/feature/monitor/ui/VideoMonitorPanel.java=33
 com/aqishi/toolbox/feature/network/domain/OpenApiService.java=26
 com/aqishi/toolbox/feature/network/ssh/domain/RemoteEndpoint.java=10
 com/aqishi/toolbox/feature/network/ssh/domain/SshConnectionConfig.java=6
@@ -90,12 +90,10 @@ com/aqishi/toolbox/feature/network/ssh/ui/SshTunnelConfigPanel.java=11
 com/aqishi/toolbox/feature/network/ssh/ui/SshTunnelDialog.java=18
 com/aqishi/toolbox/feature/network/ssh/ui/SshTunnelPanel.java=47
 com/aqishi/toolbox/feature/network/ui/HttpTestPanel.java=31
-com/aqishi/toolbox/feature/network/ui/MqttClientPanel.java=49
 com/aqishi/toolbox/feature/network/ui/OpenApiPanel.java=41
 com/aqishi/toolbox/feature/network/ui/PortScannerPanel.java=42
 com/aqishi/toolbox/feature/network/ui/SshClientPanel.java=22
 com/aqishi/toolbox/feature/network/ui/SubnetPanel.java=17
-com/aqishi/toolbox/feature/network/ui/WebSocketClientPanel.java=37
 com/aqishi/toolbox/feature/security/domain/BatchDigestService.java=1
 com/aqishi/toolbox/feature/security/domain/CertInspectorService.java=18
 com/aqishi/toolbox/feature/security/domain/CertUtils.java=26
@@ -104,13 +102,12 @@ com/aqishi/toolbox/feature/security/domain/SM2Utils.java=9
 com/aqishi/toolbox/feature/security/domain/SM4Utils.java=4
 com/aqishi/toolbox/feature/security/domain/SymmetricUtils.java=7
 com/aqishi/toolbox/feature/security/infra/acme/AcmeChallengeHelper.java=1
-com/aqishi/toolbox/feature/security/infra/acme/AcmeClient.java=21
 com/aqishi/toolbox/feature/security/infra/acme/CloudflareDnsProvider.java=5
 com/aqishi/toolbox/feature/security/ui/AccountManagerPanel.java=36
 com/aqishi/toolbox/feature/security/ui/AsymmetricPanel.java=51
 com/aqishi/toolbox/feature/security/ui/BatchDigestPanel.java=60
 com/aqishi/toolbox/feature/security/ui/CertInspectorPanel.java=76
-com/aqishi/toolbox/feature/security/ui/CertPanel.java=131
+com/aqishi/toolbox/feature/security/ui/CertPanel.java=95
 com/aqishi/toolbox/feature/security/ui/CryptoPanel.java=10
 com/aqishi/toolbox/feature/security/ui/JwtPanel.java=37
 com/aqishi/toolbox/feature/security/ui/TotpPanel.java=25

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * SSH 服务器连接配置模型
@@ -308,15 +309,71 @@ public class SshConnectionConfig implements Cloneable {
         this.autoReconnect = autoReconnect;
     }
 
-    private java.util.List<SshTunnelConfig> tunnels = new java.util.ArrayList<>();
+    /**
+     * Tunnel definitions. A copy-on-write list: the Swing tunnel panel edits it while the
+     * session lifecycle thread iterates it to restore or pause tunnels.
+     */
+    private java.util.List<SshTunnelConfig> tunnels = new CopyOnWriteArrayList<>();
 
     public java.util.List<SshTunnelConfig> getTunnels() {
-        if (tunnels == null) tunnels = new java.util.ArrayList<>();
+        if (tunnels == null) tunnels = new CopyOnWriteArrayList<>();
         return tunnels;
     }
 
     public void setTunnels(java.util.List<SshTunnelConfig> tunnels) {
-        this.tunnels = tunnels;
+        CopyOnWriteArrayList<SshTunnelConfig> copy = new CopyOnWriteArrayList<>();
+        if (tunnels != null) {
+            for (SshTunnelConfig tunnel : tunnels) {
+                if (tunnel != null) copy.add(tunnel);
+            }
+        }
+        this.tunnels = copy;
+    }
+
+    /**
+     * Takes over every connection field of {@code source} (including credentials, the vault
+     * flag and credentials loaded from the vault for this session) but neither the ID nor
+     * the tunnels: those belong to the stored instance being updated.
+     */
+    public void copyConnectionFrom(SshConnectionConfig source) {
+        if (source == null || source == this) return;
+        name = source.name;
+        group = source.group;
+        host = source.host;
+        port = source.port;
+        username = source.username;
+        authType = source.authType;
+        encryptedPassword = source.encryptedPassword;
+        keySource = source.keySource;
+        keyPath = source.keyPath;
+        encryptedKeyContent = source.encryptedKeyContent;
+        encryptedPassphrase = source.encryptedPassphrase;
+        connectTimeoutMs = source.connectTimeoutMs;
+        keepAliveSec = source.keepAliveSec;
+        autoReconnect = source.autoReconnect;
+        remarks = source.remarks;
+        secretStored = source.secretStored;
+        vaultPassword = source.vaultPassword;
+        vaultPassphrase = source.vaultPassphrase;
+        vaultKeyContent = source.vaultKeyContent;
+    }
+
+    /**
+     * A copy for "duplicate server": new server ID, and tunnels with new IDs and no runtime
+     * state, so the copy never shares tunnel identities or a running local port with the
+     * original.
+     */
+    public SshConnectionConfig duplicate() {
+        SshConnectionConfig copy = clone();
+        copy.id = UUID.randomUUID().toString();
+        CopyOnWriteArrayList<SshTunnelConfig> fresh = new CopyOnWriteArrayList<>();
+        for (SshTunnelConfig tunnel : getTunnels()) {
+            SshTunnelConfig definition = tunnel.copyDefinition();
+            definition.setId(UUID.randomUUID().toString());
+            fresh.add(definition);
+        }
+        copy.tunnels = fresh;
+        return copy;
     }
 
     public String getRemarks() {
@@ -362,8 +419,8 @@ public class SshConnectionConfig implements Cloneable {
             copy.vaultPassphrase = this.vaultPassphrase;
             copy.vaultKeyContent = this.vaultKeyContent;
         }
+        copy.tunnels = new CopyOnWriteArrayList<>();
         if (this.tunnels != null) {
-            copy.tunnels = new java.util.ArrayList<>();
             for (SshTunnelConfig t : this.tunnels) {
                 copy.tunnels.add(t.clone());
             }

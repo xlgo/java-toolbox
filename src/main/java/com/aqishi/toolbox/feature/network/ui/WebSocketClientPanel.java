@@ -1,29 +1,40 @@
 package com.aqishi.toolbox.feature.network.ui;
 
 import com.aqishi.toolbox.catalog.ToolCatalog;
+import com.aqishi.toolbox.feature.network.application.BoundedLogBuffer;
+import com.aqishi.toolbox.feature.network.application.HeartbeatScheduler;
+import com.aqishi.toolbox.feature.network.application.WebSocketSession;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
-import com.aqishi.toolbox.infra.network.WebSocketResource;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
-import org.java_websocket.client.WebSocketClient;
-import org.java_websocket.handshake.ServerHandshake;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.awt.datatransfer.StringSelection;
 import java.net.URI;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * WebSocket / 长连接测试客户端面板
+ * WebSocket / long-connection test client.
+ *
+ * <p>All connection, send and close work runs on a {@link WebSocketSession}
+ * daemon thread; the panel only reacts to session events posted back to the EDT.
+ * The heartbeat follows the connection lifecycle, so a reconnect always restarts
+ * it exactly once. The debug log is bounded and flushed in batches.</p>
  */
 public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOwner {
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final DateTimeFormatter LOG_TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
 
     private JTextField urlField;
     private JButton connectBtn;
@@ -35,18 +46,26 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
 
     private JTextArea sendTextArea;
     private JTextArea logTextArea;
+    private JLabel logStatsLabel;
+    private volatile BoundedTextLog log;
 
     private JCheckBox heartbeatCheckBox;
     private JSpinner heartbeatIntervalSpinner;
     private JTextField heartbeatPayloadField;
-    private Timer heartbeatTimer;
 
-    private WebSocketClient webSocketClient;
-    private WebSocketResource webSocketResource;
-    private final SimpleDateFormat dateFormat = new SimpleDateFormat("HH:mm:ss.SSS");
+    private final WebSocketSession session;
+    private State currentState = State.DISCONNECTED;
 
     public WebSocketClientPanel() {
+        this(null);
+    }
+
+    /** Test seam: {@code ticker == null} uses a real daemon heartbeat thread. */
+    WebSocketClientPanel(HeartbeatScheduler.Ticker ticker) {
         super(ToolCatalog.WEBSOCKET_CLIENT);
+        this.session = ticker == null
+                ? new WebSocketSession(new PanelListener(), SwingUtilities::invokeLater)
+                : new WebSocketSession(new PanelListener(), SwingUtilities::invokeLater, ticker);
     }
 
     @Override
@@ -60,28 +79,28 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
         topCard.setBorder(new EmptyBorder(12, 16, 12, 16));
 
         JPanel urlPanel = new JPanel(new BorderLayout(8, 0));
-        urlPanel.add(new JLabel("WebSocket 地址 (ws:// 或 wss://): "), BorderLayout.WEST);
+        urlPanel.add(new JLabel(I18n.get("tool.websocket.url")), BorderLayout.WEST);
 
         urlField = new JTextField("wss://echo.websocket.events");
         urlField.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         urlPanel.add(urlField, BorderLayout.CENTER);
 
         JPanel connControlBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        statusLabel = new JLabel("未连接", SwingConstants.CENTER);
+        statusLabel = new JLabel(I18n.get("tool.websocket.status.disconnected"), SwingConstants.CENTER);
         statusLabel.setOpaque(true);
         statusLabel.setBackground(Color.LIGHT_GRAY);
         statusLabel.setForeground(Color.BLACK);
         statusLabel.setBorder(new EmptyBorder(4, 12, 4, 12));
 
-        connectBtn = new JButton("建立连接");
+        connectBtn = new JButton(I18n.get("tool.websocket.btn.connect"));
         connectBtn.setFont(connectBtn.getFont().deriveFont(Font.BOLD));
         connectBtn.addActionListener(e -> connectWebSocket());
 
-        disconnectBtn = new JButton("断开连接");
+        disconnectBtn = new JButton(I18n.get("tool.websocket.btn.disconnect"));
         disconnectBtn.setEnabled(false);
         disconnectBtn.addActionListener(e -> disconnectWebSocket());
 
-        connControlBar.add(new JLabel("公共预设:"));
+        connControlBar.add(new JLabel(I18n.get("tool.websocket.preset")));
         JComboBox<String> presetCombo = new JComboBox<>(new String[]{
                 "wss://echo.websocket.events",
                 "wss://socketsbay.com/wss/v2/1/demo/",
@@ -110,7 +129,7 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
         headersCard.setLayout(new BorderLayout(0, 6));
         headersCard.setBorder(new EmptyBorder(8, 8, 8, 8));
 
-        headersCard.add(new JLabel("握手 Request Headers:"), BorderLayout.NORTH);
+        headersCard.add(new JLabel(I18n.get("tool.websocket.headers")), BorderLayout.NORTH);
         String[] headerCols = {"Header Name", "Header Value"};
         headersTableModel = new DefaultTableModel(headerCols, 0);
         headersTable = new JTable(headersTableModel);
@@ -118,10 +137,10 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
         headersTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
 
         JPanel headerBtnBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        JButton addHeaderBtn = new JButton("+ 请求头");
+        JButton addHeaderBtn = new JButton(I18n.get("tool.websocket.headers.add"));
         addHeaderBtn.addActionListener(e -> headersTableModel.addRow(new Object[]{"Authorization", "Bearer token"}));
 
-        JButton delHeaderBtn = new JButton("- 删除");
+        JButton delHeaderBtn = new JButton(I18n.get("tool.websocket.headers.remove"));
         delHeaderBtn.addActionListener(e -> {
             int row = headersTable.getSelectedRow();
             if (row >= 0) headersTableModel.removeRow(row);
@@ -138,15 +157,15 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
         sendCard.setLayout(new BorderLayout(0, 8));
         sendCard.setBorder(new EmptyBorder(8, 8, 8, 8));
 
-        sendCard.add(new JLabel("发送文本消息 (Text / JSON):"), BorderLayout.NORTH);
+        sendCard.add(new JLabel(I18n.get("tool.websocket.send.title")), BorderLayout.NORTH);
         sendTextArea = new JTextArea("{\n  \"action\": \"ping\",\n  \"data\": \"Hello WebSocket\"\n}");
         sendTextArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
 
         JPanel sendToolBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        JButton formatJsonBtn = new JButton("格式化 JSON");
+        JButton formatJsonBtn = new JButton(I18n.get("tool.websocket.send.format"));
         formatJsonBtn.addActionListener(e -> formatSendTextJson());
 
-        JButton sendMsgBtn = new JButton("发送消息");
+        JButton sendMsgBtn = new JButton(I18n.get("tool.websocket.send.btn"));
         sendMsgBtn.setFont(sendMsgBtn.getFont().deriveFont(Font.BOLD));
         sendMsgBtn.addActionListener(e -> sendTextMessage());
 
@@ -160,16 +179,33 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
         Card heartbeatCard = Card.plain();
         heartbeatCard.setLayout(new FlowLayout(FlowLayout.LEFT, 8, 4));
 
-        heartbeatCheckBox = new JCheckBox("开启定时心跳包");
+        heartbeatCheckBox = new JCheckBox(I18n.get("tool.websocket.heartbeat.enable"));
         heartbeatIntervalSpinner = new JSpinner(new SpinnerNumberModel(5, 1, 60, 1));
         heartbeatPayloadField = new JTextField("ping", 8);
 
-        heartbeatCheckBox.addActionListener(e -> toggleHeartbeatTimer());
+        heartbeatCheckBox.addActionListener(e -> applyHeartbeatSettings(true));
+        heartbeatIntervalSpinner.addChangeListener(e -> applyHeartbeatSettings(false));
+        heartbeatPayloadField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                applyHeartbeatSettings(false);
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                applyHeartbeatSettings(false);
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                applyHeartbeatSettings(false);
+            }
+        });
 
         heartbeatCard.add(heartbeatCheckBox);
-        heartbeatCard.add(new JLabel("间隔 (秒):"));
+        heartbeatCard.add(new JLabel(I18n.get("tool.websocket.heartbeat.interval")));
         heartbeatCard.add(heartbeatIntervalSpinner);
-        heartbeatCard.add(new JLabel("内容:"));
+        heartbeatCard.add(new JLabel(I18n.get("tool.websocket.heartbeat.payload")));
         heartbeatCard.add(heartbeatPayloadField);
 
         leftPanel.add(headersCard, BorderLayout.NORTH);
@@ -182,18 +218,20 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
         rightCard.setBorder(new EmptyBorder(8, 8, 8, 8));
 
         JPanel logHeader = new JPanel(new BorderLayout());
-        logHeader.add(new JLabel("调试日志与消息流 (Message Stream Log):"), BorderLayout.WEST);
+        logHeader.add(new JLabel(I18n.get("tool.websocket.log.title")), BorderLayout.WEST);
 
         JPanel logActionBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        JButton clearLogBtn = new JButton("清空日志");
-        clearLogBtn.addActionListener(e -> logTextArea.setText(""));
+        JButton clearLogBtn = new JButton(I18n.get("tool.websocket.log.clear"));
+        clearLogBtn.addActionListener(e -> log.clear());
 
-        JButton copyLogBtn = new JButton("复制日志");
+        JButton copyLogBtn = new JButton(I18n.get("tool.websocket.log.copy"));
         copyLogBtn.addActionListener(e -> {
             UIUtils.copyToClipboard(logTextArea.getText());
-            UIUtils.info(getView(), "已复制日志到剪贴板");
+            UIUtils.info(getView(), I18n.get("tool.websocket.log.copied"));
         });
 
+        logStatsLabel = new JLabel();
+        logActionBtns.add(logStatsLabel);
         logActionBtns.add(clearLogBtn);
         logActionBtns.add(copyLogBtn);
         logHeader.add(logActionBtns, BorderLayout.EAST);
@@ -201,6 +239,8 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
         logTextArea = new JTextArea();
         logTextArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         logTextArea.setEditable(false);
+        log = new BoundedTextLog(logTextArea, BoundedLogBuffer.DEFAULT_MAX_RETAINED, l -> updateLogStats());
+        updateLogStats();
 
         rightCard.add(logHeader, BorderLayout.NORTH);
         rightCard.add(new JScrollPane(logTextArea), BorderLayout.CENTER);
@@ -211,166 +251,205 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
         mainPanel.add(topCard, BorderLayout.NORTH);
         mainPanel.add(mainSplit, BorderLayout.CENTER);
 
+        applyState(State.DISCONNECTED);
+        log.start();
         return mainPanel;
     }
+
+    private enum State { DISCONNECTED, CONNECTING, CONNECTED }
 
     private void connectWebSocket() {
         String urlStr = urlField.getText().trim();
         if (urlStr.isEmpty()) {
-            UIUtils.warn(getView(), "请输入有效的 WebSocket URL", "警告");
+            UIUtils.warn(getView(), I18n.get("tool.websocket.warn.noUrl"), I18n.get("tool.websocket.warn.title"));
             return;
         }
-
+        URI uri;
         try {
-            closeResources();
-            URI uri = new URI(urlStr);
-            Map<String, String> headers = new HashMap<>();
-            for (int i = 0; i < headersTableModel.getRowCount(); i++) {
-                String k = String.valueOf(headersTableModel.getValueAt(i, 0)).trim();
-                String v = String.valueOf(headersTableModel.getValueAt(i, 1)).trim();
-                if (!k.isEmpty()) headers.put(k, v);
+            uri = new URI(urlStr);
+            if (uri.getScheme() == null || uri.getHost() == null) {
+                throw new IllegalArgumentException(urlStr);
             }
-
-            statusLabel.setText("正在连接...");
-            statusLabel.setBackground(Color.ORANGE);
-            connectBtn.setEnabled(false);
-
-            appendLog("[SYSTEM]", "正在尝试连接到 " + uri);
-
-            webSocketClient = new WebSocketClient(uri, headers) {
-                @Override
-                public void onOpen(ServerHandshake handshakedata) {
-                    SwingUtilities.invokeLater(() -> {
-                        statusLabel.setText("已建立连接");
-                        statusLabel.setBackground(new Color(40, 167, 69));
-                        statusLabel.setForeground(Color.WHITE);
-                        connectBtn.setEnabled(false);
-                        disconnectBtn.setEnabled(true);
-                        appendLog("[CONNECTED]", "WebSocket 连接握手成功！HTTP Status: " + handshakedata.getHttpStatus());
-                    });
-                }
-
-                @Override
-                public void onMessage(String message) {
-                    SwingUtilities.invokeLater(() -> appendLog("[RECV]", message));
-                }
-
-                @Override
-                public void onClose(int code, String reason, boolean remote) {
-                    SwingUtilities.invokeLater(() -> {
-                        statusLabel.setText("已断开");
-                        statusLabel.setBackground(Color.LIGHT_GRAY);
-                        statusLabel.setForeground(Color.BLACK);
-                        connectBtn.setEnabled(true);
-                        disconnectBtn.setEnabled(false);
-                        appendLog("[CLOSED]", "连接已关闭 (code: " + code + ", reason: " + reason + ")");
-                        stopHeartbeatTimer();
-                    });
-                }
-
-                @Override
-                public void onError(Exception ex) {
-                    SwingUtilities.invokeLater(() -> appendLog("[ERROR]", "发生异常: " + ex.getMessage()));
-                }
-            };
-            webSocketResource = new WebSocketResource(webSocketClient);
-
-            webSocketClient.connect();
         } catch (Exception e) {
-            closeResources();
-            statusLabel.setText("连接失败");
-            statusLabel.setBackground(Color.RED);
-            connectBtn.setEnabled(true);
-            appendLog("[ERROR]", "创建连接失败: " + e.getMessage());
+            applyState(State.DISCONNECTED);
+            appendLog("[ERROR]", I18n.get("tool.websocket.log.createFailed", e.getMessage()));
+            return;
         }
+        Map<String, String> headers = new HashMap<>();
+        for (int i = 0; i < headersTableModel.getRowCount(); i++) {
+            String k = String.valueOf(headersTableModel.getValueAt(i, 0)).trim();
+            String v = String.valueOf(headersTableModel.getValueAt(i, 1)).trim();
+            if (!k.isEmpty()) headers.put(k, v);
+        }
+
+        applyHeartbeatSettings(false);
+        applyState(State.CONNECTING);
+        appendLog("[SYSTEM]", I18n.get("tool.websocket.log.connecting", uri));
+        session.connect(uri, headers);
     }
 
     private void disconnectWebSocket() {
-        WebSocketResource resource = webSocketResource;
-        webSocketResource = null;
-        if (resource != null) {
-            try {
-                resource.close();
-            } catch (Exception e) {
-                appendLog("[ERROR]", "关闭连接异常: " + e.getMessage());
-            }
-        } else if (webSocketClient != null) {
-            webSocketClient.close();
-        }
+        // The session drops every late event of this socket, so the panel settles its own state.
+        session.disconnect();
+        applyState(State.DISCONNECTED);
+        appendLog("[CLOSED]", I18n.get("tool.websocket.log.closedByUser"));
     }
 
-    /** Releases the socket and heartbeat timer without relying on visible UI. */
+    /** Releases the socket, heartbeat and log timer without relying on visible UI. */
     @Override
     public void closeResources() {
-        if (heartbeatTimer != null) {
-            heartbeatTimer.stop();
-            heartbeatTimer = null;
+        BoundedTextLog l = log;
+        if (l != null) {
+            l.stop();
         }
-        WebSocketResource resource = webSocketResource;
-        webSocketResource = null;
-        if (resource != null) resource.close();
-        else if (webSocketClient != null) webSocketClient.close();
+        session.close();
     }
 
     private void sendTextMessage() {
-        if (webSocketClient == null || !webSocketClient.isOpen()) {
-            UIUtils.warn(getView(), "请先建立 WebSocket 连接后再发送消息！", "提示");
+        if (currentState != State.CONNECTED) {
+            UIUtils.warn(getView(), I18n.get("tool.websocket.warn.notConnected"), I18n.get("tool.websocket.tip"));
             return;
         }
-
         String msg = sendTextArea.getText();
         if (msg.isEmpty()) return;
+        session.send(msg);
+    }
 
-        try {
-            webSocketClient.send(msg);
-            appendLog("[SENT]", msg);
-        } catch (Exception e) {
-            appendLog("[ERROR]", "发送消息失败: " + e.getMessage());
+    /**
+     * Pushes the heartbeat controls into the session. The session keeps the
+     * setting across reconnects and runs the timer only while connected.
+     */
+    private void applyHeartbeatSettings(boolean announce) {
+        boolean enabled = heartbeatCheckBox.isSelected();
+        int intervalSec = (Integer) heartbeatIntervalSpinner.getValue();
+        session.configureHeartbeat(enabled, intervalSec * 1000L, heartbeatPayloadField.getText());
+        if (announce) {
+            appendLog("[SYSTEM]", enabled
+                    ? I18n.get("tool.websocket.log.heartbeatOn", intervalSec)
+                    : I18n.get("tool.websocket.log.heartbeatOff"));
         }
     }
 
-    private void toggleHeartbeatTimer() {
-        if (heartbeatCheckBox.isSelected()) {
-            int intervalSec = (Integer) heartbeatIntervalSpinner.getValue();
-            if (heartbeatTimer != null) heartbeatTimer.stop();
-
-            heartbeatTimer = new Timer(intervalSec * 1000, e -> {
-                if (webSocketClient != null && webSocketClient.isOpen()) {
-                    String payload = heartbeatPayloadField.getText();
-                    webSocketClient.send(payload);
-                    appendLog("[HEARTBEAT]", payload);
-                }
-            });
-            heartbeatTimer.start();
-            appendLog("[SYSTEM]", "已开启定时心跳，间隔 " + intervalSec + " 秒");
-        } else {
-            stopHeartbeatTimer();
+    private void applyState(State state) {
+        currentState = state;
+        switch (state) {
+            case CONNECTED -> {
+                statusLabel.setText(I18n.get("tool.websocket.status.connected"));
+                statusLabel.setBackground(new Color(40, 167, 69));
+                statusLabel.setForeground(Color.WHITE);
+            }
+            case CONNECTING -> {
+                statusLabel.setText(I18n.get("tool.websocket.status.connecting"));
+                statusLabel.setBackground(Color.ORANGE);
+                statusLabel.setForeground(Color.BLACK);
+            }
+            default -> {
+                statusLabel.setText(I18n.get("tool.websocket.status.disconnected"));
+                statusLabel.setBackground(Color.LIGHT_GRAY);
+                statusLabel.setForeground(Color.BLACK);
+            }
         }
+        connectBtn.setEnabled(state == State.DISCONNECTED);
+        disconnectBtn.setEnabled(state != State.DISCONNECTED);
     }
 
-    private void stopHeartbeatTimer() {
-        if (heartbeatTimer != null) {
-            heartbeatTimer.stop();
-            heartbeatTimer = null;
-            appendLog("[SYSTEM]", "已停止定时心跳");
-        }
-    }
-
+    /** Thread-safe: only queues the line; the log timer renders it on the EDT. */
     private void appendLog(String tag, String text) {
-        String timestamp = dateFormat.format(new Date());
-        logTextArea.append(String.format("%s %s %s\n", timestamp, tag, text));
-        logTextArea.setCaretPosition(logTextArea.getDocument().getLength());
+        BoundedTextLog l = log;
+        if (l != null) {
+            l.append(LOG_TIME.format(LocalTime.now()) + " " + tag + " " + text);
+        }
+    }
+
+    private void updateLogStats() {
+        BoundedTextLog l = log;
+        if (l == null || logStatsLabel == null) {
+            return;
+        }
+        String text = "";
+        if (l.trimmedTotal() > 0 || l.droppedTotal() > 0) {
+            text = I18n.get("tool.websocket.log.trimmed", l.trimmedTotal(), l.droppedTotal(), l.maxLines());
+        }
+        logStatsLabel.setText(text);
     }
 
     private void formatSendTextJson() {
         String input = sendTextArea.getText().trim();
         if (input.isEmpty()) return;
         try {
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            Object obj = mapper.readValue(input, Object.class);
-            sendTextArea.setText(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(obj));
+            Object obj = JSON.readValue(input, Object.class);
+            sendTextArea.setText(JSON.writerWithDefaultPrettyPrinter().writeValueAsString(obj));
         } catch (Exception e) {
-            UIUtils.info(getView(), "JSON 格式化失败: " + e.getMessage());
+            UIUtils.info(getView(), I18n.get("tool.websocket.err.formatFailed", e.getMessage()));
         }
+    }
+
+    /** Session callbacks: state events arrive on the EDT, log events on socket threads. */
+    private final class PanelListener implements WebSocketSession.Listener {
+        @Override
+        public void onOpen(int httpStatus) {
+            applyState(State.CONNECTED);
+            appendLog("[CONNECTED]", I18n.get("tool.websocket.log.opened", httpStatus));
+        }
+
+        @Override
+        public void onClose(int code, String reason, boolean remote) {
+            applyState(State.DISCONNECTED);
+            appendLog("[CLOSED]", I18n.get("tool.websocket.log.closed", code, reason));
+        }
+
+        @Override
+        public void onError(String message) {
+            appendLog("[ERROR]", I18n.get("tool.websocket.log.error", message));
+        }
+
+        @Override
+        public void onMessage(String text) {
+            appendLog("[RECV]", text);
+        }
+
+        @Override
+        public void onSent(String text) {
+            appendLog("[SENT]", text);
+        }
+
+        @Override
+        public void onHeartbeat(String payload) {
+            appendLog("[HEARTBEAT]", payload);
+        }
+    }
+
+    // ---- test seams (package-private, EDT only) ----
+
+    String stateForTest() {
+        return currentState.name();
+    }
+
+    void setUrlForTest(String url) {
+        urlField.setText(url);
+    }
+
+    void setHeartbeatForTest(boolean enabled, int intervalSec, String payload) {
+        heartbeatIntervalSpinner.setValue(intervalSec);
+        heartbeatPayloadField.setText(payload);
+        if (heartbeatCheckBox.isSelected() != enabled) {
+            heartbeatCheckBox.doClick();
+        }
+    }
+
+    void clickConnectForTest() {
+        connectBtn.doClick();
+    }
+
+    void clickDisconnectForTest() {
+        disconnectBtn.doClick();
+    }
+
+    WebSocketSession sessionForTest() {
+        return session;
+    }
+
+    BoundedTextLog logForTest() {
+        return log;
     }
 }

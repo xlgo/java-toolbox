@@ -104,6 +104,20 @@ public class SshSessionInstance implements AutoCloseable {
         });
     }
 
+    /**
+     * A session that only verifies that a (possibly unsaved) configuration can log in. It
+     * neither registers itself for tunnel bridges — which would take over the entry of a
+     * live session of the same server — nor starts the configuration's tunnels.
+     */
+    public static SshSessionInstance forConnectionTest(SshConnectionConfig config,
+                                                       SshHostKeyPrompt hostKeyPrompt) {
+        SshSessionInstance instance = new SshSessionInstance(config, hostKeyPrompt);
+        instance.probeOnly = true;
+        return instance;
+    }
+
+    private volatile boolean probeOnly;
+
     private String safeHost() {
         String host = config.getHost();
         return host == null || host.trim().isEmpty() ? "session" : host.trim();
@@ -228,9 +242,9 @@ public class SshSessionInstance implements AutoCloseable {
                 System.err.println("SFTP 通道打开失败: " + sftpError.getMessage());
             }
 
-            SshTunnelBridge.register(this);
+            if (!probeOnly) SshTunnelBridge.register(this);
             setStatus(Status.CONNECTED, "已成功连接到服务器");
-            restoreTunnels();
+            if (!probeOnly) restoreTunnels();
             scheduleConnectionMonitor();
             reconnectDelayMs = 2_000L;
             return true;
@@ -299,34 +313,47 @@ public class SshSessionInstance implements AutoCloseable {
     public synchronized boolean startTunnel(SshTunnelConfig tunnel) {
         if (tunnel == null) return false;
         ensureManaged(tunnel);
-        if (session == null || !session.isConnected()) {
+        PortForwarder forwarder = portForwarder();
+        if (!forwarder.isConnected()) {
             tunnel.setAssignedLocalPort(0);
             tunnel.setStatus(SshTunnelConfig.Status.PAUSED);
             tunnel.setErrorMessage("SSH 会话未连接");
             return false;
         }
+        String bind = tunnel.getBindAddress();
         try {
-            int preferredLocalPort = tunnel.getAssignedLocalPort() > 0
+            int required = tunnel.getRequiredLocalPort();
+            int preferredLocalPort = required > 0 ? required
+                    : tunnel.getAssignedLocalPort() > 0
                     ? tunnel.getAssignedLocalPort() : tunnel.getPreferredLocalPort();
             if (tunnel.getAssignedLocalPort() > 0) {
                 try {
-                    session.delPortForwardingL(tunnel.getAssignedLocalPort());
+                    forwarder.unbind(bind, tunnel.getAssignedLocalPort());
                 } catch (Exception ignored) {
                     // It may already have been removed by a lost session.
                 }
             }
             int localPort;
-            if (preferredLocalPort > 0) {
+            if (required > 0) {
+                // No fallback: a different port would route the client somewhere else.
+                localPort = forwarder.bind(bind, required,
+                        tunnel.getRemoteHost(), tunnel.getRemotePort());
+                if (localPort != required) {
+                    forwarder.unbind(bind, localPort);
+                    throw new IllegalStateException(I18n.get("tool.ssh.tunnel.portMismatch",
+                            bind + ":" + required, String.valueOf(localPort)));
+                }
+            } else if (preferredLocalPort > 0) {
                 try {
-                    localPort = session.setPortForwardingL(preferredLocalPort,
+                    localPort = forwarder.bind(bind, preferredLocalPort,
                             tunnel.getRemoteHost(), tunnel.getRemotePort());
                 } catch (Exception preferredPortError) {
                     // A competing local process may have claimed the old port during recovery.
-                    localPort = session.setPortForwardingL(0,
+                    localPort = forwarder.bind(bind, 0,
                             tunnel.getRemoteHost(), tunnel.getRemotePort());
                 }
             } else {
-                localPort = session.setPortForwardingL(0,
+                localPort = forwarder.bind(bind, 0,
                         tunnel.getRemoteHost(), tunnel.getRemotePort());
             }
             if (localPort <= 0) throw new IllegalStateException("SSH 未返回有效本地端口");
@@ -378,9 +405,10 @@ public class SshSessionInstance implements AutoCloseable {
 
     public synchronized boolean stopTunnel(SshTunnelConfig tunnel) {
         if (tunnel == null) return false;
-        if (tunnel.getAssignedLocalPort() > 0 && session != null && session.isConnected()) {
+        PortForwarder forwarder = portForwarder();
+        if (tunnel.getAssignedLocalPort() > 0 && forwarder.isConnected()) {
             try {
-                session.delPortForwardingL(tunnel.getAssignedLocalPort());
+                forwarder.unbind(tunnel.getBindAddress(), tunnel.getAssignedLocalPort());
             } catch (Exception ignored) {
             }
         }
@@ -396,6 +424,100 @@ public class SshSessionInstance implements AutoCloseable {
         if (tunnel == null) return;
         stopTunnel(tunnel);
         if (!config.getTunnels().contains(tunnel)) managedTunnels.remove(tunnel);
+    }
+
+    /** Result of {@link #updateTunnel}: what happened to the live forward. */
+    public enum TunnelChange {
+        /** Nothing differs from the stored definition. */
+        UNCHANGED,
+        /** Definition updated; the forward (if any) was left running untouched. */
+        UPDATED,
+        /** The remote target changed while running; the forward was rebound on its local port. */
+        RESTARTED,
+        /** The remote target changed but rebinding failed; see the tunnel's error message. */
+        RESTART_FAILED
+    }
+
+    /** Adds a persisted tunnel definition to this server (it is not started). */
+    public synchronized void addTunnel(SshTunnelConfig tunnel) {
+        if (tunnel == null) return;
+        for (SshTunnelConfig existing : config.getTunnels()) {
+            if (existing == tunnel || existing.getId() != null
+                    && existing.getId().equals(tunnel.getId())) {
+                return;
+            }
+        }
+        config.getTunnels().add(tunnel);
+    }
+
+    /**
+     * Applies an edited definition to a live tunnel of this session. Only a change of the
+     * remote target restarts a running forward — rebinding the same local port, so clients
+     * keep their address; renames, auto-start or browser settings never interrupt it. A
+     * paused tunnel simply comes back with the new target when SSH reconnects.
+     */
+    public synchronized TunnelChange updateTunnel(SshTunnelConfig live, SshTunnelConfig edited) {
+        if (live == null || edited == null || live.sameDefinition(edited)) {
+            return TunnelChange.UNCHANGED;
+        }
+        boolean forwardingChanged = !live.sameForwarding(edited);
+        live.applyDefinition(edited);
+        if (!forwardingChanged || live.getStatus() != SshTunnelConfig.Status.RUNNING) {
+            return TunnelChange.UPDATED;
+        }
+        return startTunnel(live) ? TunnelChange.RESTARTED : TunnelChange.RESTART_FAILED;
+    }
+
+    /** Stops a tunnel and removes its definition from this server. */
+    public synchronized void removeTunnel(SshTunnelConfig tunnel) {
+        if (tunnel == null) return;
+        stopTunnel(tunnel);
+        config.getTunnels().removeIf(existing -> existing == tunnel
+                || existing.getId() != null && existing.getId().equals(tunnel.getId()));
+        managedTunnels.remove(tunnel);
+    }
+
+    /**
+     * Local port forwarding primitives. The default implementation delegates to the JSch
+     * session; tests substitute a fake to exercise tunnel bookkeeping without an SSH server.
+     */
+    interface PortForwarder {
+        boolean isConnected();
+
+        int bind(String bindAddress, int localPort, String remoteHost, int remotePort) throws Exception;
+
+        void unbind(String bindAddress, int localPort) throws Exception;
+    }
+
+    private final PortForwarder jschForwarder = new PortForwarder() {
+        @Override
+        public boolean isConnected() {
+            Session current = session;
+            return current != null && current.isConnected();
+        }
+
+        @Override
+        public int bind(String bindAddress, int localPort, String remoteHost, int remotePort)
+                throws Exception {
+            return session.setPortForwardingL(bindAddress, localPort, remoteHost, remotePort);
+        }
+
+        @Override
+        public void unbind(String bindAddress, int localPort) throws Exception {
+            session.delPortForwardingL(bindAddress, localPort);
+        }
+    };
+
+    private volatile PortForwarder forwarderOverride;
+
+    /** Test seam: routes port forwarding through {@code forwarder} instead of JSch. */
+    void usePortForwarder(PortForwarder forwarder) {
+        this.forwarderOverride = forwarder;
+    }
+
+    private PortForwarder portForwarder() {
+        PortForwarder override = forwarderOverride;
+        return override != null ? override : jschForwarder;
     }
 
     private void ensureManaged(SshTunnelConfig tunnel) {

@@ -249,8 +249,7 @@ public class SshClientPanel extends ToolPanel implements ManagedResourceOwner {
     private void cloneSelectedServer() {
         SshConnectionConfig cfg = getSelectedConfig();
         if (cfg != null) {
-            SshConnectionConfig cloned = cfg.clone();
-            cloned.setId(java.util.UUID.randomUUID().toString());
+            SshConnectionConfig cloned = cfg.duplicate();
             cloned.setName(cfg.getName() + " (副本)");
             openConfigDialog(cloned);
         }

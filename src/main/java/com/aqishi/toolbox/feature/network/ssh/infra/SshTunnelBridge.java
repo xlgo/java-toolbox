@@ -30,7 +30,7 @@ public final class SshTunnelBridge {
     private SshTunnelBridge() {
     }
 
-    public static class BridgeResult {
+    public static class BridgeResult implements AutoCloseable {
         private final SharedBridge bridge;
         private boolean closed;
 
@@ -39,7 +39,8 @@ public final class SshTunnelBridge {
         }
 
         public String getLocalHost() {
-            return "127.0.0.1";
+            SshTunnelConfig tunnel = bridge.tunnelConfig;
+            return tunnel == null ? SshTunnelConfig.DEFAULT_BIND_ADDRESS : tunnel.getBindAddress();
         }
 
         public int getLocalPort() {
@@ -56,6 +57,7 @@ public final class SshTunnelBridge {
             return bridge.tunnelConfig;
         }
 
+        @Override
         public synchronized void close() {
             if (closed) return;
             closed = true;
@@ -126,9 +128,38 @@ public final class SshTunnelBridge {
     }
 
     /**
-     * 通过指定的 SSH 服务器节点，为目标远程主机和端口建立本地隧道桥接
+     * 通过指定的 SSH 服务器节点，为目标远程主机和端口建立本地隧道桥接。
+     * 本地端口优先与远程端口相同，被占用时自动改用其他端口。
      */
     public static synchronized BridgeResult bridge(String sshConfigId, String remoteHost, int remotePort) throws Exception {
+        return bridge(sshConfigId, remoteHost, remotePort, remotePort,
+                SshTunnelConfig.DEFAULT_BIND_ADDRESS, false);
+    }
+
+    /** Like {@link #bridge(String, String, int)} but on a system-assigned local port of 127.0.0.1. */
+    public static synchronized BridgeResult bridgeEphemeral(String sshConfigId, String remoteHost,
+                                                            int remotePort) throws Exception {
+        return bridge(sshConfigId, remoteHost, remotePort, 0,
+                SshTunnelConfig.DEFAULT_BIND_ADDRESS, false);
+    }
+
+    /**
+     * Forwards exactly {@code bindAddress:localPort}; fails instead of choosing another port.
+     * Used for Kafka broker routes, where the client dials the advertised port and a moved
+     * forward would reach nothing — or another broker.
+     */
+    public static synchronized BridgeResult bridgeExact(String sshConfigId, String remoteHost,
+                                                        int remotePort, String bindAddress,
+                                                        int localPort) throws Exception {
+        if (localPort < 1 || localPort > 65535) {
+            throw new IllegalArgumentException("local port out of range: " + localPort);
+        }
+        return bridge(sshConfigId, remoteHost, remotePort, localPort, bindAddress, true);
+    }
+
+    private static BridgeResult bridge(String sshConfigId, String remoteHost, int remotePort,
+                                       int preferredLocalPort, String bindAddress,
+                                       boolean exactPort) throws Exception {
         if (sshConfigId == null || sshConfigId.trim().isEmpty()) {
             throw new IllegalArgumentException("请选择用于隧道的 SSH 服务器配置");
         }
@@ -139,13 +170,18 @@ public final class SshTunnelBridge {
             throw new IllegalArgumentException("远程服务端口超出范围: " + remotePort);
         }
         remoteHost = remoteHost.trim();
+        String bind = bindAddress == null || bindAddress.trim().isEmpty()
+                ? SshTunnelConfig.DEFAULT_BIND_ADDRESS : bindAddress.trim();
 
         SshConnectionConfig sshConfig = SshConfigStore.getInstance().findById(sshConfigId);
         if (sshConfig == null) {
             throw new IllegalArgumentException("找不到指定的 SSH 服务器配置 (ID: " + sshConfigId + ")");
         }
 
-        String cacheKey = sshConfig.getId() + "\u0000" + remoteHost + "\u0000" + remotePort;
+        // Bridges with different local requirements must not be shared: a Kafka broker route
+        // on 127.0.0.2:9092 is a different forward than a bootstrap one on an ephemeral port.
+        String cacheKey = sshConfig.getId() + "\u0000" + remoteHost + "\u0000" + remotePort
+                + "\u0000" + bind + "\u0000" + preferredLocalPort + (exactPort ? "!" : "");
         SharedBridge cached = activeBridges.get(cacheKey);
         if (cached != null && cached.acquire()) {
             try {
@@ -195,10 +231,11 @@ public final class SshTunnelBridge {
             tunnel.setName("BridgeTo-" + remoteHost + ":" + remotePort);
             tunnel.setRemoteHost(remoteHost);
             tunnel.setRemotePort(remotePort);
-            // Kafka commonly advertises the service port in its broker
-            // metadata. Prefer the same local port when available; the
-            // normal automatic fallback still handles local port conflicts.
-            tunnel.setPreferredLocalPort(remotePort);
+            tunnel.setBindAddress(bind);
+            // A Kafka broker route is only correct when the local port equals the advertised
+            // one, so those forwards are never moved to another port.
+            if (exactPort) tunnel.setRequiredLocalPort(preferredLocalPort);
+            else tunnel.setPreferredLocalPort(preferredLocalPort);
             // A bridge is an active service connection and should be restored after SSH recovery.
             tunnel.setAutoStart(true);
 

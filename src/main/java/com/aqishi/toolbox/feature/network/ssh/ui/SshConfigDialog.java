@@ -244,8 +244,8 @@ public class SshConfigDialog extends JDialog {
         loadingDialog.setLocationRelativeTo(this);
 
         new Thread(() -> {
-            SshSessionInstance session =
-                    new SshSessionInstance(cfg, SshHostKeyPrompts.dialogs(SshConfigDialog.this));
+            SshSessionInstance session = SshSessionInstance.forConnectionTest(
+                    cfg, SshHostKeyPrompts.dialogs(SshConfigDialog.this));
             boolean ok;
             try {
                 ok = session.connectSync();

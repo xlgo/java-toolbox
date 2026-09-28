@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
@@ -42,7 +43,7 @@ public class SshTunnelPanel extends JPanel {
         // 1. 顶部说明与快捷工具栏
         JPanel topPanel = new JPanel(new BorderLayout(6, 6));
 
-        JLabel infoLabel = new JLabel("💡 开启服务连接时，系统会自动在 127.0.0.1 分配本地端口，无需手动设置端口映射。");
+        JLabel infoLabel = new JLabel("💡 开启服务连接时，系统会自动在本地回环地址分配端口，无需手动设置端口映射。");
         infoLabel.setFont(Tokens.fontCaption());
         infoLabel.setForeground(Tokens.mutedForeground());
 
@@ -233,7 +234,7 @@ public class SshTunnelPanel extends JPanel {
         SshTunnelConfig tunnel = getSelectedTunnel();
         if (tunnel != null) {
             if (ensureTunnelReady(tunnel)) {
-                statusHintLabel.setText("服务连接已开启：127.0.0.1:" + tunnel.getAssignedLocalPort());
+                statusHintLabel.setText("服务连接已开启：" + tunnel.getLocalConnectionString());
             }
         } else {
             UIUtils.info(this, "请选择要开启的远程服务隧道");
@@ -298,7 +299,7 @@ public class SshTunnelPanel extends JPanel {
         SshTunnelConfig tunnel = getSelectedTunnel();
         if (tunnel != null) {
             if (tunnel.getStatus() == SshTunnelConfig.Status.RUNNING && tunnel.getAssignedLocalPort() > 0) {
-                String addr = "127.0.0.1:" + tunnel.getAssignedLocalPort();
+                String addr = tunnel.getLocalConnectionString();
                 UIUtils.copyToClipboard(addr);
                 statusHintLabel.setText("已复制本地访问地址: " + addr);
                 UIUtils.info(this, "已复制本地服务地址: " + addr, "成功");
@@ -314,14 +315,16 @@ public class SshTunnelPanel extends JPanel {
         dialog.setVisible(true);
         if (dialog.isSaved()) {
             SshTunnelConfig newTunnel = dialog.getConfig();
-            connectionConfig.getTunnels().add(newTunnel);
-            SshConfigStore.getInstance().save();
+            sessionInstance.addTunnel(newTunnel);
+            // Saved right away: the definition must survive an application restart even when
+            // the SSH configuration dialog is never opened again.
+            SshConfigStore.getInstance().saveTunnels(connectionConfig);
             refreshTable();
 
             if (sessionInstance.isConnected()) {
                 boolean ok = ensureTunnelReady(newTunnel);
                 statusHintLabel.setText(ok
-                        ? "服务连接已开启：127.0.0.1:" + newTunnel.getAssignedLocalPort()
+                        ? "服务连接已开启：" + newTunnel.getLocalConnectionString()
                         : "开启失败：" + newTunnel.getErrorMessage());
             }
         }
@@ -334,20 +337,29 @@ public class SshTunnelPanel extends JPanel {
             SshTunnelDialog dialog = new SshTunnelDialog(owner, tunnel);
             dialog.setVisible(true);
             if (dialog.isSaved()) {
-                boolean wasRunning = tunnel.getStatus() == SshTunnelConfig.Status.RUNNING;
-                if (wasRunning) sessionInstance.stopTunnel(tunnel);
                 SshTunnelConfig updated = dialog.getConfig();
-                tunnel.setName(updated.getName());
-                tunnel.setRemoteHost(updated.getRemoteHost());
-                tunnel.setRemotePort(updated.getRemotePort());
-                tunnel.setAutoStart(updated.isAutoStart());
-                tunnel.setBrowserScheme(updated.getBrowserScheme());
-                tunnel.setBrowserPath(updated.getBrowserPath());
-
-                SshConfigStore.getInstance().save();
+                SshSessionInstance.TunnelChange change = sessionInstance.updateTunnel(tunnel, updated);
+                // Saved before anything else so a failed restart never loses the edit.
+                SshConfigStore.getInstance().saveTunnels(connectionConfig);
                 refreshTable();
-                if (wasRunning && sessionInstance.isConnected()) {
-                    ensureTunnelReady(tunnel);
+                switch (change) {
+                    case RESTARTED:
+                        statusHintLabel.setText(I18n.get("tool.ssh.tunnel.restarted",
+                                tunnel.getLocalConnectionString()));
+                        break;
+                    case RESTART_FAILED:
+                        String reason = tunnel.getErrorMessage() == null ? "" : tunnel.getErrorMessage();
+                        statusHintLabel.setText(I18n.get("tool.ssh.tunnel.restartFailed", reason));
+                        UIUtils.error(this, I18n.get("tool.ssh.tunnel.restartFailed", reason));
+                        break;
+                    case UPDATED:
+                        statusHintLabel.setText(tunnel.getStatus() == SshTunnelConfig.Status.RUNNING
+                                ? I18n.get("tool.ssh.tunnel.savedKeptRunning")
+                                : I18n.get("tool.ssh.tunnel.saved"));
+                        break;
+                    default:
+                        statusHintLabel.setText(I18n.get("tool.ssh.tunnel.unchanged"));
+                        break;
                 }
             }
         }
@@ -358,9 +370,8 @@ public class SshTunnelPanel extends JPanel {
         if (tunnel != null) {
             boolean confirm = UIUtils.confirm(this, "确定删除服务隧道 \"" + tunnel.getName() + "\" ?", "确认");
             if (confirm) {
-                sessionInstance.stopTunnel(tunnel);
-                connectionConfig.getTunnels().remove(tunnel);
-                SshConfigStore.getInstance().save();
+                sessionInstance.removeTunnel(tunnel);
+                SshConfigStore.getInstance().saveTunnels(connectionConfig);
                 refreshTable();
             }
         }

@@ -202,7 +202,8 @@ public final class ToolRegistry {
         factories.put("bpmn.designer", context -> new BpmnPanel());
         factories.put("mermaid", context -> new MermaidPanel());
         factories.put("flowchart", context -> new FlowchartPanel());
-        factories.put("video.monitor", context -> new VideoMonitorPanel());
+        factories.put("video.monitor", context -> new VideoMonitorPanel(
+                VaultSecretStore.of(context.getVaultService())));
         factories.put("remote_desktop", context -> new RemoteDesktopPanel());
         return new ToolRegistry(ToolCatalog.categories(), ToolCatalog.descriptors(), factories);
     }

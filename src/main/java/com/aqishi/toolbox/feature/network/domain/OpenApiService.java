@@ -1,5 +1,6 @@
 package com.aqishi.toolbox.feature.network.domain;
 
+import com.aqishi.toolbox.util.ShellQuote;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
@@ -206,11 +207,15 @@ public class OpenApiService {
 
                         // Parameters (合并公共参数与方法特有参数)
                         List<OpenApiSpec.Parameter> epParams = new ArrayList<>(commonParams);
-                        epParams.addAll(extractParameters(methodNode.path("parameters"), root));
+                        for (OpenApiSpec.Parameter parameter : extractParameters(methodNode.path("parameters"), root)) {
+                            epParams.removeIf(existing -> existing.getName().equals(parameter.getName())
+                                    && existing.getIn().equals(parameter.getIn()));
+                            epParams.add(parameter);
+                        }
                         ep.setParameters(epParams);
 
                         // RequestBody (OpenAPI 3)
-                        JsonNode reqBody = methodNode.path("requestBody");
+                        JsonNode reqBody = OpenApiExamples.dereference(methodNode.path("requestBody"), root);
                         if (reqBody.isObject()) {
                             JsonNode contentNode = reqBody.path("content");
                             if (contentNode.isObject()) {
@@ -219,7 +224,9 @@ public class OpenApiService {
                                     Map.Entry<String, JsonNode> mt = mediaTypes.next();
                                     ep.setRequestContentType(mt.getKey());
                                     JsonNode schema = mt.getValue().path("schema");
-                                    ep.setRequestBodyExample(generateExampleFromSchema(schema, root));
+                                    ep.setRequestBodyExample(mt.getValue().has("example")
+                                            ? mt.getValue().get("example").toPrettyString()
+                                            : generateExampleFromSchema(schema, root));
                                 }
                             }
                         } else {
@@ -347,7 +354,14 @@ public class OpenApiService {
 
         String requestUrl = buildRequestUrl(baseUrl, endpoint.getPath(), pathParams, queryParams);
         StringBuilder curl = new StringBuilder("curl -X ").append(method)
-                .append(' ').append(shellDoubleQuote(requestUrl));
+                .append(' ').append(ShellQuote.single(requestUrl));
+        Map<String, String> effectiveHeaders = new LinkedHashMap<>();
+        if (headers != null) effectiveHeaders.putAll(headers);
+        if (body != null && !body.isEmpty() && endpoint.getRequestContentType() != null
+                && effectiveHeaders.keySet().stream().noneMatch("Content-Type"::equalsIgnoreCase)) {
+            effectiveHeaders.put("Content-Type", endpoint.getRequestContentType());
+        }
+        headers = effectiveHeaders;
         if (headers != null) {
             for (Map.Entry<String, String> entry : headers.entrySet()) {
                 String headerName = entry.getKey() == null ? "" : entry.getKey();
@@ -358,11 +372,11 @@ public class OpenApiService {
                 if (containsLineBreak(headerName) || containsLineBreak(headerValue)) {
                     throw new IllegalArgumentException("HTTP 请求头不能包含换行符");
                 }
-                curl.append(" \\\n  -H ").append(shellDoubleQuote(headerName + ": " + headerValue));
+                curl.append(" \\\n  -H ").append(ShellQuote.single(headerName + ": " + headerValue));
             }
         }
         if (body != null && !body.trim().isEmpty() && !"GET".equalsIgnoreCase(method)) {
-            curl.append(" \\\n  -d ").append(shellDoubleQuote(body));
+            curl.append(" \\\n  --data-raw ").append(ShellQuote.single(body));
         }
         return curl.toString();
     }
@@ -480,47 +494,13 @@ public class OpenApiService {
         return value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0;
     }
 
-    private String shellDoubleQuote(String value) {
-        String safeValue = value == null ? "" : value;
-        StringBuilder quoted = new StringBuilder(safeValue.length() + 2).append('"');
-        for (int index = 0; index < safeValue.length(); index++) {
-            char character = safeValue.charAt(index);
-            switch (character) {
-                case '\\':
-                    quoted.append("\\\\");
-                    break;
-                case '"':
-                    quoted.append("\\\"");
-                    break;
-                case '$':
-                    quoted.append("\\$");
-                    break;
-                case '`':
-                    quoted.append("\\`");
-                    break;
-                case '!':
-                    quoted.append("\\!");
-                    break;
-                case '\r':
-                    quoted.append(character);
-                    break;
-                case '\n':
-                    quoted.append(character);
-                    break;
-                default:
-                    quoted.append(character);
-            }
-        }
-        return quoted.append('"').toString();
-    }
-
     private List<OpenApiSpec.Parameter> extractParameters(JsonNode paramsNode, JsonNode root) {
         List<OpenApiSpec.Parameter> list = new ArrayList<>();
         if (!paramsNode.isArray()) return list;
 
         for (JsonNode p : paramsNode) {
             if (p.has("$ref")) {
-                p = resolveRef(p.path("$ref").asText(""), root);
+                p = OpenApiExamples.dereference(p, root);
             }
             if (p == null || !p.isObject()) continue;
 
@@ -535,84 +515,15 @@ public class OpenApiService {
             if (example.isEmpty()) {
                 example = schema.path("example").asText("");
             }
+            if ("body".equalsIgnoreCase(in) && example.isEmpty()) {
+                example = generateExampleFromSchema(schema, root);
+            }
             list.add(new OpenApiSpec.Parameter(name, in, required, type, desc, example));
         }
         return list;
     }
 
     private String generateExampleFromSchema(JsonNode schema, JsonNode root) {
-        if (schema == null || schema.isMissingNode()) return "{}";
-        if (schema.has("$ref")) {
-            schema = resolveRef(schema.path("$ref").asText(""), root);
-        }
-        if (schema == null || schema.isMissingNode()) return "{}";
-
-        String type = schema.path("type").asText("object");
-        if ("object".equalsIgnoreCase(type) || schema.has("properties")) {
-            StringBuilder sb = new StringBuilder("{\n");
-            JsonNode props = schema.path("properties");
-            if (props.isObject()) {
-                Iterator<Map.Entry<String, JsonNode>> it = props.fields();
-                boolean first = true;
-                while (it.hasNext()) {
-                    Map.Entry<String, JsonNode> prop = it.next();
-                    if (!first) sb.append(",\n");
-                    sb.append("  \"").append(prop.getKey()).append("\": ");
-                    sb.append(generateSampleValue(prop.getValue(), root, "  "));
-                    first = false;
-                }
-            }
-            sb.append("\n}");
-            return sb.toString();
-        } else if ("array".equalsIgnoreCase(type)) {
-            JsonNode items = schema.path("items");
-            return "[\n  " + generateSampleValue(items, root, "  ") + "\n]";
-        }
-        return generateSampleValue(schema, root, "");
-    }
-
-    private String generateSampleValue(JsonNode node, JsonNode root, String indent) {
-        if (node == null || node.isMissingNode()) return "\"value\"";
-        if (node.has("$ref")) {
-            node = resolveRef(node.path("$ref").asText(""), root);
-        }
-        if (node == null) return "\"value\"";
-
-        if (node.has("example")) {
-            JsonNode ex = node.get("example");
-            return ex.isTextual() ? "\"" + ex.asText() + "\"" : ex.toString();
-        }
-
-        String type = node.path("type").asText("string");
-        switch (type.toLowerCase(Locale.ROOT)) {
-            case "integer":
-            case "int":
-                return "1";
-            case "number":
-            case "float":
-            case "double":
-                return "10.5";
-            case "boolean":
-                return "true";
-            case "array":
-                JsonNode items = node.path("items");
-                return "[" + generateSampleValue(items, root, indent) + "]";
-            case "object":
-                return "{}";
-            case "string":
-            default:
-                return "\"sample\"";
-        }
-    }
-
-    private JsonNode resolveRef(String ref, JsonNode root) {
-        if (ref == null || !ref.startsWith("#/")) return null;
-        String[] parts = ref.substring(2).split("/");
-        JsonNode current = root;
-        for (String p : parts) {
-            if (current == null) return null;
-            current = current.path(p);
-        }
-        return current;
+        return OpenApiExamples.generate(schema, root);
     }
 }

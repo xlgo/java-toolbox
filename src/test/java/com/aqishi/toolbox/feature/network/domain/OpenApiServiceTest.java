@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.network.domain;
 
 import org.junit.jupiter.api.Test;
+import com.aqishi.toolbox.util.ShellQuote;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -96,8 +97,8 @@ class OpenApiServiceTest {
         assertNotNull(curl);
         assertTrue(curl.contains("curl -X POST"));
         assertTrue(curl.contains("https://api.test.com/orders/1001?notify=true"));
-        assertTrue(curl.contains("-H \"Authorization: Bearer token123\""));
-        assertTrue(curl.contains("-d \"{\\\"status\\\": \\\"paid\\\"}\""));
+        assertTrue(ShellQuote.split(curl).contains("Authorization: Bearer token123"));
+        assertEquals(body, ShellQuote.split(curl).get(ShellQuote.split(curl).indexOf("--data-raw") + 1));
     }
 
     @Test
@@ -135,8 +136,8 @@ class OpenApiServiceTest {
                 Collections.<String, String>emptyMap(), Collections.<String, String>emptyMap(),
                 headers, "{\"note\":\"it's $safe\"}");
 
-        assertTrue(curl.contains("-H \"X-Note: O'Reilly \\$HOME\""));
-        assertTrue(curl.contains("-d \"{\\\"note\\\":\\\"it's \\$safe\\\"}\""));
+        assertTrue(ShellQuote.split(curl).contains("X-Note: O'Reilly $HOME"));
+        assertEquals("{\"note\":\"it's $safe\"}", ShellQuote.split(curl).get(ShellQuote.split(curl).indexOf("--data-raw") + 1));
     }
 
     @Test
@@ -149,7 +150,7 @@ class OpenApiServiceTest {
                 Collections.<String, String>emptyMap(), Collections.<String, String>emptyMap(),
                 Collections.<String, String>emptyMap(), "{\n  \"status\": \"paid\"\n}");
 
-        assertTrue(curl.contains("{\n  \\\"status\\\": \\\"paid\\\"\n}"));
+        assertEquals("{\n  \"status\": \"paid\"\n}", ShellQuote.split(curl).get(ShellQuote.split(curl).indexOf("--data-raw") + 1));
     }
 
     @Test

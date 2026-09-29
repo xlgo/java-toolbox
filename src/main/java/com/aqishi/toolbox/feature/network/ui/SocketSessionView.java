@@ -216,7 +216,7 @@ final class SocketSessionView extends JPanel {
             try {
                 created.open();
                 SwingUtilities.invokeLater(() -> {
-                    if (session == created && state == UiState.CONNECTING) {
+                    if (session == created && state == UiState.CONNECTING && created.isOpen()) {
                         applyState(UiState.OPEN);
                     }
                 });
@@ -331,9 +331,12 @@ final class SocketSessionView extends JPanel {
         SocketSession current = session;
         switch (event.getType()) {
             case CONNECTED:
-                if (state == UiState.RECONNECTING || state == UiState.OPEN) {
+                if (current != null && current.isOpen()) {
                     applyState(UiState.OPEN);
                 }
+                break;
+            case RECONNECTING:
+                if (current != null && !current.isClosed()) applyState(UiState.RECONNECTING);
                 break;
             case DISCONNECTED:
                 if (current == null || current.isClosed()) {
@@ -403,6 +406,7 @@ final class SocketSessionView extends JPanel {
 
         @Override
         public void onEvent(SocketEvent event) {
+            if (gen != generation) return;
             switch (event.getType()) {
                 case RECEIVED:
                 case SENT:

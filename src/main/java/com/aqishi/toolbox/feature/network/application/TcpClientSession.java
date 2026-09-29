@@ -66,7 +66,7 @@ public final class TcpClientSession implements SocketSession {
     private final SocketSessionListener listener;
     private final SocketStats stats = new SocketStats();
     private final Object lock = new Object();
-    private SocketConnection connection;
+    private volatile SocketConnection connection;
     private boolean opened;
     private volatile boolean closed;
     private volatile boolean manualClose;
@@ -100,6 +100,13 @@ public final class TcpClientSession implements SocketSession {
         try {
             pair = connectSocket();
         } catch (IOException error) {
+            if (options.autoReconnect && !closed) {
+                SocketError code = error instanceof SocketOpenException
+                        ? ((SocketOpenException) error).getError() : SocketError.CONNECT_FAILED;
+                listener.onEvent(SocketEvent.error(code, null, error.getMessage()));
+                startReconnect();
+                return;
+            }
             closed = true;
             throw error;
         }
@@ -169,9 +176,10 @@ public final class TcpClientSession implements SocketSession {
                 return;
             }
             connection = created;
+            // Publish connection state before the reader can report data or an immediate EOF.
+            listener.onEvent(SocketEvent.connected(created.local(), created.remote()));
+            created.start();
         }
-        created.start();
-        listener.onEvent(SocketEvent.connected(created.local(), created.remote()));
     }
 
     @Override
@@ -273,15 +281,17 @@ public final class TcpClientSession implements SocketSession {
         }
         listener.onEvent(SocketEvent.disconnected(reason, detail));
         if (reconnect) {
-            Thread thread = DaemonThreads.factory(THREAD_PREFIX + "-tcp-client-reconnect")
+            startReconnect();
+        }
+    }
+
+    /** Shared by initial connection failures and established connections that drop. */
+    private void startReconnect() {
+        synchronized (lock) {
+            if (closed || reconnectThread != null) return;
+            reconnectThread = DaemonThreads.factory(THREAD_PREFIX + "-tcp-client-reconnect")
                     .newThread(this::reconnectLoop);
-            synchronized (lock) {
-                if (closed) {
-                    return;
-                }
-                reconnectThread = thread;
-            }
-            thread.start();
+            reconnectThread.start();
         }
     }
 

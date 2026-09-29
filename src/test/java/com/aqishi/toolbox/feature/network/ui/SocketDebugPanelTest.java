@@ -124,6 +124,40 @@ class SocketDebugPanelTest {
     }
 
     @Test
+    void initialRetryKeepsTabActiveAndConnectsWhenServerStarts() throws Exception {
+        int port;
+        try (var probe = new java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1"))) {
+            port = probe.getLocalPort();
+        }
+        AtomicReference<SocketSessionView> ref = new AtomicReference<>();
+        onEdt(() -> {
+            panel.getView();
+            SocketSessionView view = panel.viewForTest(0);
+            ref.set(view);
+            view.formForTest().hostField.setText("127.0.0.1");
+            view.formForTest().portSpinner.setValue(port);
+            view.formForTest().reconnectCheck.setSelected(true);
+            view.toggle();
+        });
+        var view = ref.get();
+        awaitEdt("initial retry", () -> {
+            view.logForTest().flush();
+            return view.logForTest().textForTest().contains("127.0.0.1:" + port);
+        });
+        onEdt(() -> {
+            assertFalse(view.isIdleForTest());
+            assertFalse(view.isOpenForTest());
+        });
+        try (TcpServerSession server = new TcpServerSession(new TcpServerSession.Options()
+                .bindHost("127.0.0.1").port(port), event -> { })) {
+            server.open();
+            awaitEdt("connected after retry", view::isOpenForTest);
+            onEdt(view::toggle);
+            awaitEdt("cancelled", view::isIdleForTest);
+        }
+    }
+
+    @Test
     void serverTabListsClientsAndReceivesData() throws Exception {
         AtomicReference<SocketSessionView> ref = new AtomicReference<>();
         onEdt(() -> {

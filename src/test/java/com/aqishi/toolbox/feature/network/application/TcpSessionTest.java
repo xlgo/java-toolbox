@@ -247,6 +247,61 @@ class TcpSessionTest {
     }
 
     @Test
+    void retriesInitialFailureUntilServerStarts() throws Exception {
+        int port;
+        try (ServerSocket probe = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
+            port = probe.getLocalPort();
+        }
+        EventRecorder events = new EventRecorder();
+        TcpClientSession client = client(events, new TcpClientSession.Options().port(port)
+                .autoReconnect(true).reconnectInitialMillis(50).reconnectMaxMillis(100));
+        events.await(SocketEvent.Type.RECONNECTING);
+        assertFalse(client.isClosed());
+        assertFalse(client.isOpen());
+        EventRecorder serverEvents = new EventRecorder();
+        server(serverEvents, new TcpServerSession.Options().port(port).echo(true));
+        events.await(SocketEvent.Type.CONNECTED);
+        client.send(b("started later"));
+        events.awaitReceived(0, "started later");
+    }
+
+    @Test
+    void initialRetryCanBeCancelledWithoutLeakingThreads() throws Exception {
+        int port;
+        try (ServerSocket probe = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
+            port = probe.getLocalPort();
+        }
+        EventRecorder events = new EventRecorder();
+        TcpClientSession client = client(events, new TcpClientSession.Options().port(port)
+                .autoReconnect(true).reconnectInitialMillis(60_000));
+        events.await(SocketEvent.Type.RECONNECTING);
+        client.close();
+        assertTrue(client.isClosed());
+        assertTrue(EventRecorder.awaitNoSessionThreads(3000));
+        assertEquals(0, events.count(e -> e.getType() == SocketEvent.Type.CONNECTED));
+    }
+
+    @Test
+    void connectedEventAlwaysPrecedesImmediatePeerDisconnect() throws Exception {
+        try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
+            EventRecorder events = new EventRecorder();
+            TcpClientSession client = new TcpClientSession(new TcpClientSession.Options()
+                    .port(server.getLocalPort()), event -> {
+                events.onEvent(event);
+                // Runs synchronously during publication, before readers should start.
+                if (event.getType() == SocketEvent.Type.CONNECTED) {
+                    try { server.accept().close(); } catch (IOException e) { throw new RuntimeException(e); }
+                }
+            });
+            sessions.add(client);
+            client.open();
+            events.await(SocketEvent.Type.DISCONNECTED);
+            assertEquals(SocketEvent.Type.CONNECTED, events.snapshot().get(0).getType());
+            assertTrue(client.isClosed());
+        }
+    }
+
+    @Test
     void serverSplitsFramesByDelimiter() throws Exception {
         EventRecorder serverEvents = new EventRecorder();
         TcpServerSession server = server(serverEvents, new TcpServerSession.Options().port(0)

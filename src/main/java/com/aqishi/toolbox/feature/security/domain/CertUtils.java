@@ -58,13 +58,13 @@ public class CertUtils {
 
     public static CertResult createRootCA(int keyAlgIndex, String cn, String o, String ou,
                                            String l, String st, String c, int years) throws Exception {
+        Date notBefore = new Date();
+        Date notAfter = expiry(notBefore, years);
         KeyPair keyPair = generateKeyPair(keyAlgIndex);
         String sigAlg = signatureAlgorithmFor(keyPair.getPrivate());
 
         X500Name issuerName = buildX500Name(cn, o, ou, l, st, c);
 
-        Date notBefore = new Date();
-        Date notAfter = new Date(System.currentTimeMillis() + (long) years * 365 * 24 * 3600 * 1000);
         BigInteger serial = randomSerial();
 
         // 使用 X500Principal 构造，兼容 JDK X.509
@@ -98,6 +98,7 @@ public class CertUtils {
 
         X509Certificate caCert = parseCertFromPem(caCertPem);
         PrivateKey caKey = parseCaPrivateKey(caKeyPem, caCert);
+        validateIssuer(caCert, caKey);
 
         int idx = indexOfKeyAlg(keyAlgLabel);
         if (idx < 0) throw new IllegalArgumentException("不支持的密钥算法: " + keyAlgLabel);
@@ -125,6 +126,7 @@ public class CertUtils {
             String sanDns, int years) throws Exception {
         X509Certificate caCert = parseCertFromPem(caCertPem);
         PrivateKey caKey = parseCaPrivateKey(caKeyPem, caCert);
+        validateIssuer(caCert, caKey);
 
         KeyPair signKeys = GmCrypto.generateKeyPair();
         KeyPair encKeys = GmCrypto.generateKeyPair();
@@ -154,7 +156,8 @@ public class CertUtils {
         X500Principal subjectPrincipal = new X500Principal(subjectName.toString());
 
         Date notBefore = new Date();
-        Date notAfter = new Date(System.currentTimeMillis() + (long) years * 365 * 24 * 3600 * 1000);
+        // A leaf cannot remain usable after its issuer expires.
+        Date notAfter = new Date(Math.min(expiry(notBefore, years).getTime(), caCert.getNotAfter().getTime()));
         BigInteger serial = randomSerial();
 
         // 叶子证书的颁发者是 CA 的"主体"。早先误用了 CA 的颁发者：自签根证书两者相同所以碰巧能用，
@@ -218,6 +221,43 @@ public class CertUtils {
         }
 
         return sign(builder, sigAlg, caKey);
+    }
+
+    private static Date expiry(Date start, int years) {
+        try {
+            if (years < 1) throw new ArithmeticException("Non-positive lifetime");
+            return new Date(Math.addExact(start.getTime(), Math.multiplyExact((long) years, 365L * 24 * 3600 * 1000)));
+        } catch (ArithmeticException invalid) {
+            throw new IllegalArgumentException(I18n.get("tool.cert.error.lifetime"), invalid);
+        }
+    }
+
+    /** Validate signing authority and key possession before generating any leaf key material. */
+    private static void validateIssuer(X509Certificate certificate, PrivateKey key) throws Exception {
+        try {
+            certificate.checkValidity();
+        } catch (java.security.cert.CertificateException invalid) {
+            throw new IllegalArgumentException(I18n.get("tool.cert.error.issuerValidity"), invalid);
+        }
+        boolean[] usage = certificate.getKeyUsage();
+        if (certificate.getBasicConstraints() < 0 || (usage != null && (usage.length <= 5 || !usage[5]))) {
+            throw new IllegalArgumentException(I18n.get("tool.cert.error.issuerNotCa"));
+        }
+        try {
+            String algorithm = signatureAlgorithmFor(key);
+            Signature signature = GmCrypto.isSm2(key)
+                    ? Signature.getInstance(algorithm, GmCrypto.provider()) : Signature.getInstance(algorithm);
+            byte[] challenge = new byte[32];
+            new SecureRandom().nextBytes(challenge);
+            signature.initSign(key);
+            signature.update(challenge);
+            byte[] proof = signature.sign();
+            signature.initVerify(certificate.getPublicKey());
+            signature.update(challenge);
+            if (!signature.verify(proof)) throw new SignatureException("Issuer key mismatch");
+        } catch (GeneralSecurityException mismatch) {
+            throw new IllegalArgumentException(I18n.get("tool.cert.error.issuerKeyMismatch"), mismatch);
+        }
     }
 
     /** 签名并转换为 JCA 证书；SM2 私钥与涉及 SM2 的证书交给 BouncyCastle。 */

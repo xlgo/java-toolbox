@@ -4,6 +4,7 @@ import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.catalog.ToolDescriptor;
 import com.aqishi.toolbox.util.JsonFormatter;
 import com.aqishi.toolbox.feature.network.domain.OpenApiSpec;
+import com.aqishi.toolbox.feature.network.application.OpenApiRequestExecutor;
 import com.aqishi.toolbox.feature.network.domain.OpenApiService;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -15,18 +16,12 @@ import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
@@ -36,7 +31,7 @@ import java.util.List;
  * OpenAPI / Swagger 接口工作台。
  * 支持 OpenAPI 3.x / Swagger 2.0 规范解析、分组导航、参数调试与 cURL 导出。
  */
-public class OpenApiPanel extends ToolPanel {
+public class OpenApiPanel extends ToolPanel implements ManagedResourceOwner {
 
     private final OpenApiService service;
     private OpenApiSpec currentSpec;
@@ -56,6 +51,17 @@ public class OpenApiPanel extends ToolPanel {
     private JLabel methodLabel;
     private JTextField pathField;
     private JButton sendBtn;
+    private JButton cancelBtn;
+    private SwingWorker<String[], Void> requestWorker;
+
+    @Override
+    public void closeResources() {
+        Runnable close = () -> {
+            if (requestWorker != null) requestWorker.cancel(true);
+        };
+        if (SwingUtilities.isEventDispatchThread()) close.run();
+        else SwingUtilities.invokeLater(close);
+    }
     private JButton copyCurlBtn;
 
     // 参数表格 (Type, Name, Required, Value, Description)
@@ -186,6 +192,11 @@ public class OpenApiPanel extends ToolPanel {
 
         sendBtn = Buttons.primary(I18n.get("tool.openapi.btn.send", "发送请求"));
         sendBtn.addActionListener(e -> sendApiRequest());
+        cancelBtn = Buttons.secondary(I18n.get("tool.openapi.btn.cancel"));
+        cancelBtn.setEnabled(false);
+        cancelBtn.addActionListener(e -> {
+            if (requestWorker != null) requestWorker.cancel(true);
+        });
 
         copyCurlBtn = Buttons.secondary(I18n.get("tool.openapi.btn.curl", "复制 cURL"));
         copyCurlBtn.addActionListener(e -> copyCurl());
@@ -198,6 +209,7 @@ public class OpenApiPanel extends ToolPanel {
         JPanel addressRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, Tokens.SPACE_SM, 0));
         addressRight.setOpaque(false);
         addressRight.add(sendBtn);
+        addressRight.add(cancelBtn);
         addressRight.add(copyCurlBtn);
 
         addressBar.add(addressLeft, BorderLayout.WEST);
@@ -399,6 +411,7 @@ public class OpenApiPanel extends ToolPanel {
         OpenApiSpec.ApiEndpoint ep = endpointList.getSelectedValue();
         if (ep == null) return;
 
+        if (paramsTable.isEditing() && !paramsTable.getCellEditor().stopCellEditing()) return;
         String baseUrl = (String) serverCombo.getSelectedItem();
         Map<String, String> pathParams = new LinkedHashMap<>();
         Map<String, String> queryParams = new LinkedHashMap<>();
@@ -420,71 +433,41 @@ public class OpenApiPanel extends ToolPanel {
 
         String body = requestBodyArea.getText();
         if (body != null && !body.trim().isEmpty()) {
-            headers.put("Content-Type", ep.getRequestContentType() != null ? ep.getRequestContentType() : "application/json");
+            if (headers.keySet().stream().noneMatch("Content-Type"::equalsIgnoreCase)) {
+                headers.put("Content-Type", ep.getRequestContentType() != null ? ep.getRequestContentType() : "application/json");
+            }
         }
 
         sendBtn.setEnabled(false);
-        statusLabel.setText("正在发送请求中...");
+        cancelBtn.setEnabled(true);
+        statusLabel.setText(I18n.get("tool.openapi.status.sending"));
         long start = System.currentTimeMillis();
 
-        new SwingWorker<String[], Void>() {
+        requestWorker = new SwingWorker<String[], Void>() {
             @Override
             protected String[] doInBackground() throws Exception {
                 String fullUrl = service.buildRequestUrl(baseUrl, ep.getPath(), pathParams, queryParams);
-                HttpURLConnection conn = null;
-                try {
-                    URL url = URI.create(fullUrl).toURL();
-                    conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod(ep.getMethod());
-                    conn.setConnectTimeout(10000);
-                    conn.setReadTimeout(15000);
-
-                    for (Map.Entry<String, String> h : headers.entrySet()) {
-                        conn.setRequestProperty(h.getKey(), h.getValue());
-                    }
-
-                    if (!"GET".equalsIgnoreCase(ep.getMethod()) && body != null && !body.trim().isEmpty()) {
-                        conn.setDoOutput(true);
-                        try (OutputStream os = conn.getOutputStream()) {
-                            os.write(body.getBytes(StandardCharsets.UTF_8));
-                            os.flush();
-                        }
-                    }
-
-                    int code = conn.getResponseCode();
-                    InputStream is = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
-                    StringBuilder respSb = new StringBuilder();
-                    if (is != null) {
-                        try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-                            String line;
-                            while ((line = reader.readLine()) != null) {
-                                respSb.append(line).append("\n");
-                            }
-                        }
-                    }
-
-                    StringBuilder headSb = new StringBuilder();
-                    for (Map.Entry<String, List<String>> header : conn.getHeaderFields().entrySet()) {
-                        if (header.getKey() != null) {
-                            headSb.append(header.getKey()).append(": ").append(String.join(", ", header.getValue())).append("\n");
-                        }
-                    }
-                    return new String[]{String.valueOf(code), respSb.toString(), headSb.toString()};
-                } finally {
-                    if (conn != null) {
-                        conn.disconnect();
-                    }
-                }
+                var response = new OpenApiRequestExecutor().execute(fullUrl, ep.getMethod(), headers, body);
+                StringBuilder responseHeaders = new StringBuilder();
+                response.headers().forEach((name, values) -> responseHeaders.append(name).append(": ")
+                        .append(String.join(", ", values)).append("\n"));
+                return new String[]{String.valueOf(response.status()), response.body(), responseHeaders.toString()};
             }
 
             @Override
             protected void done() {
                 sendBtn.setEnabled(true);
+                cancelBtn.setEnabled(false);
+                requestWorker = null;
+                if (isCancelled()) {
+                    statusLabel.setText(I18n.get("tool.openapi.status.cancelled"));
+                    return;
+                }
                 long cost = System.currentTimeMillis() - start;
                 try {
                     String[] result = get();
                     int code = Integer.parseInt(result[0]);
-                    statusLabel.setText(String.format("状态码: %d | 耗时: %d ms", code, cost));
+                    statusLabel.setText(I18n.get("tool.openapi.status.response", code, cost));
                     if (code >= 200 && code < 300) {
                         statusLabel.setForeground(Tokens.accent());
                     } else {
@@ -499,16 +482,18 @@ public class OpenApiPanel extends ToolPanel {
                     responseBodyArea.setText(prettyBody);
                     responseHeadersArea.setText(result[2]);
                 } catch (Exception ex) {
-                    statusLabel.setText("请求失败: " + ex.getMessage());
+                    statusLabel.setText(I18n.get("tool.openapi.status.failed", Errors.describeRoot(ex)));
                     statusLabel.setForeground(Tokens.danger());
                 }
             }
-        }.execute();
+        };
+        requestWorker.execute();
     }
 
     private void copyCurl() {
         OpenApiSpec.ApiEndpoint ep = endpointList.getSelectedValue();
         if (ep == null) return;
+        if (paramsTable.isEditing() && !paramsTable.getCellEditor().stopCellEditing()) return;
         String baseUrl = (String) serverCombo.getSelectedItem();
         Map<String, String> pathParams = new LinkedHashMap<>();
         Map<String, String> queryParams = new LinkedHashMap<>();
@@ -530,7 +515,9 @@ public class OpenApiPanel extends ToolPanel {
 
         String body = requestBodyArea.getText();
         if (body != null && !body.trim().isEmpty()) {
-            headers.put("Content-Type", ep.getRequestContentType() != null ? ep.getRequestContentType() : "application/json");
+            if (headers.keySet().stream().noneMatch("Content-Type"::equalsIgnoreCase)) {
+                headers.put("Content-Type", ep.getRequestContentType() != null ? ep.getRequestContentType() : "application/json");
+            }
         }
 
         String curl = service.buildCurl(baseUrl, ep, pathParams, queryParams, headers, body);

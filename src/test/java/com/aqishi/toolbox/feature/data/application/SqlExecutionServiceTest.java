@@ -181,4 +181,13 @@ class SqlExecutionServiceTest {
         QueryResult result = new SqlExecutionService().execute(connection, "SELECT data FROM t");
         assertEquals("[Binary: 42 bytes]", result.getRows().get(0).get(0));
     }
+
+    @Test
+    void exactLimitIsNotReportedAsTruncated() throws Exception {
+        ResultSet rows = fakeResultSet(List.of("id"), List.of(new Object[]{1}, new Object[]{2}));
+        Statement statement = fakeStatement(Map.of("execute", true, "getResultSet", rows));
+        QueryResult result = new SqlExecutionService(2).execute(fakeConnection(false, statement), "SELECT id FROM t");
+        assertEquals(2, result.getRows().size());
+        assertNull(result.getWarning());
+    }
 }

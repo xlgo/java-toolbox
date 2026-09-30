@@ -88,6 +88,10 @@ public class StatisticsPanel extends ToolPanel {
         });
 
         sort.addActionListener(e -> {
+            if (countSkipped(input.getText()) > 0) {
+                UIUtils.info(root, I18n.get("tool.statistics.sortInvalid"));
+                return;
+            }
             double[] d = parse(input.getText());
             if (d.length == 0) return;
             Arrays.sort(d);
@@ -105,23 +109,28 @@ public class StatisticsPanel extends ToolPanel {
     }
 
     /** 统计被 {@link #parse} 当作非数字而跳过的片段数，结果里要告诉用户，否则 N 会悄悄变少。 */
-    private static int countSkipped(String text) {
+    static int countSkipped(String text) {
         int skipped = 0;
         for (String p : text.split("[,，\\s;；\n]+")) {
             p = p.trim();
             if (p.isEmpty()) continue;
-            try { Double.parseDouble(p); } catch (NumberFormatException notNumber) { skipped++; }
+            try {
+                if (!Double.isFinite(Double.parseDouble(p))) skipped++;
+            } catch (NumberFormatException notNumber) { skipped++; }
         }
         return skipped;
     }
 
-    private static double[] parse(String text) {
+    static double[] parse(String text) {
         String[] parts = text.split("[,，\\s;；\n]+");
         java.util.List<Double> list = new java.util.ArrayList<>();
         for (String p : parts) {
             p = p.trim();
             if (p.isEmpty()) continue;
-            try { list.add(Double.parseDouble(p)); }
+            try {
+                double value = Double.parseDouble(p);
+                if (Double.isFinite(value)) list.add(value);
+            }
             catch (NumberFormatException ignore) { /* 非数字的片段直接跳过 */ }
         }
         double[] r = new double[list.size()];

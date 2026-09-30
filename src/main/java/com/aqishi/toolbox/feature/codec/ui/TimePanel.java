@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
 import com.aqishi.toolbox.catalog.ToolCatalog;
+import com.aqishi.toolbox.feature.codec.domain.TimeConversions;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -10,6 +11,7 @@ import com.aqishi.toolbox.ui.kit.FormGrid;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.util.I18n;
 
 import javax.swing.*;
 import java.awt.*;
@@ -112,10 +114,9 @@ public class TimePanel extends ToolPanel implements ManagedResourceOwner {
                 if (inputStr.isEmpty()) return;
                 long ts = Long.parseLong(inputStr);
                 boolean isMs = unitCombo.getSelectedIndex() == 1;
-                long ms = isMs ? ts : ts * 1000;
                 String selectedTz = getSelectedZoneId(tzCombo);
                 ZoneId zone = ZoneId.of(selectedTz);
-                ZonedDateTime zdt = Instant.ofEpochMilli(ms).atZone(zone);
+                ZonedDateTime zdt = TimeConversions.fromTimestamp(ts, isMs).atZone(zone);
                 String pattern = ((String) fmtCombo.getSelectedItem()).trim();
                 leftResultField.setText(zdt.format(DateTimeFormatter.ofPattern(pattern)));
             } catch (Exception ex) {
@@ -148,8 +149,13 @@ public class TimePanel extends ToolPanel implements ManagedResourceOwner {
 
         JButton setNowBtn = Buttons.secondary("设为当前");
         setNowBtn.addActionListener(e -> {
-            String pattern = ((String) fmtCombo.getSelectedItem()).trim();
-            dateStrInput.setText(LocalDateTime.now().format(DateTimeFormatter.ofPattern(pattern)));
+            try {
+                String pattern = ((String) fmtCombo.getSelectedItem()).trim();
+                ZoneId zone = ZoneId.of(getSelectedZoneId(rightTzCombo));
+                dateStrInput.setText(ZonedDateTime.now(zone).format(DateTimeFormatter.ofPattern(pattern)));
+            } catch (Exception invalid) {
+                UIUtils.error(root, I18n.get("tool.time.error.parse", invalid.getMessage()));
+            }
         });
 
         // 用 ghost 而不是 compact：图标字形在缺字体的环境下会被 32px 的方形按钮截成省略号
@@ -183,13 +189,12 @@ public class TimePanel extends ToolPanel implements ManagedResourceOwner {
                 String pattern = ((String) fmtCombo.getSelectedItem()).trim();
                 String selectedTz = getSelectedZoneId(rightTzCombo);
                 ZoneId zone = ZoneId.of(selectedTz);
-                DateTimeFormatter formatter = DateTimeFormatter.ofPattern(pattern);
-                LocalDateTime ldt = LocalDateTime.parse(inputStr, formatter);
-                long ms = ldt.atZone(zone).toInstant().toEpochMilli();
-                secResultField.setText(String.valueOf(ms / 1000));
+                Instant instant = TimeConversions.parse(inputStr, pattern, zone);
+                long ms = instant.toEpochMilli();
+                secResultField.setText(String.valueOf(instant.getEpochSecond()));
                 msResultField.setText(String.valueOf(ms));
             } catch (Exception ex) {
-                UIUtils.error(root, "解析失败，请检查时间格式串是否与所选格式匹配。");
+                UIUtils.error(root, I18n.get("tool.time.error.parse", ex.getMessage()));
             }
         });
 
@@ -302,19 +307,14 @@ public class TimePanel extends ToolPanel implements ManagedResourceOwner {
         list.add(sysDisplay);
 
         // 常见时区
-        String[][] common = {
-                {"Asia/Shanghai", "+08:00"},
-                {"UTC", "+00:00"},
-                {"GMT", "+00:00"},
-                {"Asia/Tokyo", "+09:00"},
-                {"Europe/London", "+00:00"},
-                {"America/New_York", "-05:00"},
-                {"Europe/Paris", "+01:00"},
-                {"Australia/Sydney", "+10:00"}
+        String[] common = {
+                "Asia/Shanghai", "UTC", "GMT", "Asia/Tokyo", "Europe/London",
+                "America/New_York", "Europe/Paris", "Australia/Sydney"
         };
-        for (String[] entry : common) {
-            String disp = entry[0] + " (UTC" + formatOffsetShort(entry[1]) + ")";
-            if (!entry[0].equals(sysName) && !list.contains(disp)) {
+        for (String entry : common) {
+            String currentOffset = Instant.now().atZone(ZoneId.of(entry)).getOffset().getId();
+            String disp = entry + " (UTC" + formatOffsetShort(currentOffset) + ")";
+            if (!entry.equals(sysName) && !list.contains(disp)) {
                 list.add(disp);
             }
         }

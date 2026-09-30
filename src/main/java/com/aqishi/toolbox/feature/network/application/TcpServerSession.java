@@ -100,6 +100,7 @@ public final class TcpServerSession implements SocketSession {
     public void open() throws IOException {
         ServerSocket server;
         synchronized (lock) {
+            if (closed) throw new SocketOpenException(SocketError.NOT_CONNECTED, "Session already closed", null);
             if (opened) {
                 throw new IllegalStateException("Session already opened");
             }
@@ -117,9 +118,9 @@ public final class TcpServerSession implements SocketSession {
             }
             serverSocket = server;
             acceptThread = DaemonThreads.factory(THREAD_PREFIX + "-tcp-server-accept").newThread(this::acceptLoop);
+            listener.onEvent(SocketEvent.connected(localAddress(), null));
             acceptThread.start();
         }
-        listener.onEvent(SocketEvent.connected(localAddress(), null));
     }
 
     /** 实际监听端口；未打开时为 -1。 */

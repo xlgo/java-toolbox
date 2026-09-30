@@ -74,7 +74,7 @@ public final class SqlExecutionService {
             }
             rows.add(row);
             if (rows.size() >= maxRows) {
-                warning = "数据集超过 " + maxRows + " 行限制，已自动截断。";
+                if (resultSet.next()) warning = "数据集超过 " + maxRows + " 行限制，已自动截断。";
                 break;
             }
         }

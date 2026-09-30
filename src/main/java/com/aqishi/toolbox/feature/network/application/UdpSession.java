@@ -98,6 +98,7 @@ public final class UdpSession implements SocketSession {
     @Override
     public void open() throws IOException {
         synchronized (lock) {
+            if (closed) throw new SocketOpenException(SocketError.NOT_CONNECTED, "Session already closed", null);
             if (opened) {
                 throw new IllegalStateException("Session already opened");
             }
@@ -117,10 +118,10 @@ public final class UdpSession implements SocketSession {
             socket = created;
             receiver = DaemonThreads.factory(THREAD_PREFIX + "-udp-receive").newThread(this::receiveLoop);
             sender = DaemonThreads.factory(THREAD_PREFIX + "-udp-send").newThread(this::sendLoop);
+            listener.onEvent(SocketEvent.connected(localAddress(), null));
             receiver.start();
             sender.start();
         }
-        listener.onEvent(SocketEvent.connected(localAddress(), null));
     }
 
     /**
@@ -310,6 +311,10 @@ public final class UdpSession implements SocketSession {
                     // 连续出错说明套接字已不可用，停止接收以免空转
                     listener.onEvent(SocketEvent.error(SocketError.RECEIVE_FAILED, null, error.getMessage()));
                     continue;
+                }
+                if (!closed) {
+                    listener.onEvent(SocketEvent.error(SocketError.RECEIVE_FAILED, null, error.getMessage()));
+                    close();
                 }
                 return;
             }

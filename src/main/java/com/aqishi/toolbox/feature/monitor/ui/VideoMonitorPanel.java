@@ -100,6 +100,7 @@ public class VideoMonitorPanel extends ToolPanel implements ManagedResourceOwner
         // 布局选择与格子操作都是低频动作，压成一条按首选高度占页首的紧凑卡片，
         // 剩下的纵向空间整块留给画面墙。
         root.add(buildControlCard(), BorderLayout.NORTH);
+        root.add(Fields.caption(I18n.get("tool.videomonitor.previewHint")), BorderLayout.SOUTH);
 
         // 设备树只是「把摄像头分配进格子」的来源：weight 0 让窗口变宽时多出来的宽度全部给画面
         root.add(Layouts.splitHorizontal(
@@ -773,8 +774,9 @@ public class VideoMonitorPanel extends ToolPanel implements ManagedResourceOwner
         }
 
         private void drawCamera(Graphics2D g2, int w, int h, VideoSource source, VideoPlayer player) {
-            boolean live = source.playing() && player != null && player.isPlaying();
-            BufferedImage frame = live ? player.frame() : null;
+            boolean running = source.playing() && player != null && player.isPlaying();
+            BufferedImage frame = running ? player.frame() : null;
+            boolean live = frame != null && frame.getWidth() > 0 && frame.getHeight() > 0;
             if (frame != null && frame.getWidth() > 0 && frame.getHeight() > 0) {
                 // 真实画面：等比缩放后裁切铺满格子
                 double scale = Math.max((double) w / frame.getWidth(), (double) h / frame.getHeight());
@@ -807,9 +809,10 @@ public class VideoMonitorPanel extends ToolPanel implements ManagedResourceOwner
             drawTrunc(g2, source.name(), 30, 20, w - 58);
 
             // 状态角标（右上）：播放中为红色实况，暂停为灰色；凭据未就绪时在地址行说明
-            if (live || !source.credentialsPending()) {
+            if (running || !source.credentialsPending()) {
                 g2.setFont(UIUtils.plainFont().deriveFont(9f));
-                String badge = live ? "● 实况" : I18n.get("tool.videomonitor.paused");
+                String badge = live ? I18n.get("tool.videomonitor.live") : I18n.get(running
+                        ? "tool.videomonitor.preview" : "tool.videomonitor.paused");
                 int bw = Math.max(38, g2.getFontMetrics().stringWidth(badge) + 8);
                 g2.setColor(live ? new Color(210, 55, 55, 220) : new Color(90, 95, 110, 220));
                 g2.fillRoundRect(w - bw - 6, 5, bw, 14, 4, 4);

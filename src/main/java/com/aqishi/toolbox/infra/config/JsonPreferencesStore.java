@@ -73,11 +73,13 @@ public final class JsonPreferencesStore<T> {
         if (main == null || !main.startsWith(CHUNK_MARKER)) {
             return main;
         }
-        String[] parts = main.substring(CHUNK_MARKER.length()).split(":");
+        String[] parts = main.substring(CHUNK_MARKER.length()).split(":", -1);
         try {
+            if (parts.length != 2) throw new IllegalStateException("Invalid chunk marker");
             long generation = Long.parseLong(parts[0]);
             int count = Integer.parseInt(parts[1]);
-            StringBuilder json = new StringBuilder(count * CHUNK_SIZE);
+            if (generation < 0 || count <= 0) throw new IllegalStateException("Invalid chunk generation/count");
+            StringBuilder json = new StringBuilder(CHUNK_SIZE);
             for (int i = 0; i < count; i++) {
                 String chunk = preferences.get(chunkKey(generation, i), null);
                 if (chunk == null) {
@@ -97,22 +99,39 @@ public final class JsonPreferencesStore<T> {
     }
 
     private void writePayload(String json) throws Exception {
+        String oldMain = preferences.get(key, null);
         long previous = currentGeneration();
-        if (json.length() <= CHUNK_SIZE) {
-            preferences.put(key, json);
-        } else {
-            long generation = previous + 1;
-            int count = (json.length() + CHUNK_SIZE - 1) / CHUNK_SIZE;
-            for (int i = 0; i < count; i++) {
-                int start = i * CHUNK_SIZE;
-                preferences.put(chunkKey(generation, i), json.substring(start, Math.min(json.length(), start + CHUNK_SIZE)));
+        try {
+            if (json.length() <= CHUNK_SIZE) {
+                preferences.put(key, json);
+            } else {
+                long generation = Math.addExact(previous, 1);
+                int count = (json.length() + CHUNK_SIZE - 1) / CHUNK_SIZE;
+                for (int i = 0; i < count; i++) {
+                    int start = i * CHUNK_SIZE;
+                    preferences.put(chunkKey(generation, i), json.substring(start, Math.min(json.length(), start + CHUNK_SIZE)));
+                }
+                // Make chunks durable before publishing their marker; retain old chunks until commit succeeds.
+                preferences.flush();
+                preferences.put(key, CHUNK_MARKER + generation + ":" + count);
             }
-            preferences.put(key, CHUNK_MARKER + generation + ":" + count);
+            preferences.flush();
+        } catch (Exception failure) {
+            try {
+                if (oldMain == null) preferences.remove(key);
+                else preferences.put(key, oldMain);
+                preferences.flush();
+            } catch (Exception rollbackFailure) { failure.addSuppressed(rollbackFailure); }
+            throw failure;
         }
         if (previous >= 0) {
-            removeGeneration(previous);
+            try {
+                removeGeneration(previous);
+                preferences.flush();
+            } catch (Exception cleanupFailure) {
+                // The new payload is committed. Stale chunks are harmless and must not turn success into failure.
+            }
         }
-        preferences.flush();
     }
 
     /** Generation referenced by the main key, or -1 when the payload is stored inline. */

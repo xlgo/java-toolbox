@@ -111,4 +111,18 @@ class SocketFrameSplitterTest {
         // 定长模式的上限不会小于帧长
         assertEquals(8, SocketFrameSplitter.Config.fixedLength(8).withMaxFrameSize(2).getMaxFrameSize());
     }
+
+    @Test
+    void idleGapSeparatesFramesEvenIfPollingWasDelayed() {
+        var splitter = new SocketFrameSplitter(SocketFrameSplitter.Config.idleTimeout(50));
+        assertTrue(splitter.feed(b("first"), 100).isEmpty());
+        assertEquals(List.of("first"), strings(splitter.feed(b("second"), 200)));
+        assertEquals(List.of("second"), strings(splitter.poll(250)));
+    }
+
+    @Test
+    void completeDelimitedFrameStillHonorsMaximumSize() {
+        var splitter = new SocketFrameSplitter(SocketFrameSplitter.Config.delimiter(b("\n"), false).withMaxFrameSize(4));
+        assertEquals(List.of("abcd", "efgh", "ij"), strings(splitter.feed(b("abcdefghij\n"), 0)));
+    }
 }

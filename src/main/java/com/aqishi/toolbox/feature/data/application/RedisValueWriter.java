@@ -24,7 +24,7 @@ public final class RedisValueWriter {
      */
     public void save(Jedis jedis, RedisValueEdit edit) {
         String key = edit.key();
-        // PTTL：-1 永不过期，-2 key 不存在，其余为剩余毫秒。只有正数需要在重建后补回。
+        // PTTL：-1 永不过期，-2 key 不存在，其余为剩余毫秒；0 必须补回，不能变成永久键。
         long ttlMillis = jedis.pttl(key);
 
         if (edit.type() == RedisValueEdit.Type.HASH) {
@@ -59,10 +59,10 @@ public final class RedisValueWriter {
                 transaction.discard();
                 throw new IllegalArgumentException("Unsupported Redis type: " + edit.type());
         }
-        if (ttlMillis > 0) {
+        if (ttlMillis >= 0) {
             transaction.pexpire(key, ttlMillis);
         }
-        transaction.exec();
+        execute(transaction);
     }
 
     /**
@@ -81,6 +81,15 @@ public final class RedisValueWriter {
         if (!removed.isEmpty()) {
             transaction.hdel(key, removed.toArray(new String[0]));
         }
-        transaction.exec();
+        execute(transaction);
+    }
+
+    /** Jedis returns individual command errors inside the EXEC result list instead of throwing them. */
+    private static void execute(Transaction transaction) {
+        java.util.List<Object> replies = transaction.exec();
+        if (replies == null) throw new IllegalStateException("Redis transaction was aborted");
+        for (Object reply : replies) {
+            if (reply instanceof RuntimeException error) throw error;
+        }
     }
 }

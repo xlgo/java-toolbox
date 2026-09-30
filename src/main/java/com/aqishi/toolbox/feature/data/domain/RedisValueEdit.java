@@ -113,7 +113,9 @@ public final class RedisValueEdit {
             }
             String rawScore = cell(rows.get(i), 0);
             try {
-                scores.put(member, Double.parseDouble(rawScore == null ? "" : rawScore.trim()));
+                double score = Double.parseDouble(rawScore == null ? "" : rawScore.trim());
+                if (Double.isNaN(score)) throw new NumberFormatException("NaN is not a Redis score");
+                scores.put(member, score);
             } catch (NumberFormatException badScore) {
                 throw new IllegalArgumentException(
                         "Row " + (i + 1) + ": score is not a number: " + rawScore, badScore);

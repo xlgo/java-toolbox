@@ -2,7 +2,7 @@
 # 重新生成（注意引号，PowerShell 下不加会被拆参）：
 #   mvn "-Dtest=I18nHardcodedTextTest" "-Di18n.baseline.write=true" test
 # 这些数字只应随国际化推进而下降。
-# 当前：128 个文件，待迁移 3397 条，另有数据语料 445 条（不需要国际化）。
+# 当前：128 个文件，待迁移 3392 条，另有数据语料 445 条（不需要国际化）。
 com/aqishi/toolbox/Main.java=8
 com/aqishi/toolbox/catalog/ToolCatalog.java=305
 com/aqishi/toolbox/feature/cloud/application/KubernetesResourceApplyService.java=10
@@ -29,7 +29,7 @@ com/aqishi/toolbox/feature/codec/ui/RegexPanel.java=11
 com/aqishi/toolbox/feature/codec/ui/SqlPanel.java=3
 com/aqishi/toolbox/feature/codec/ui/StringToolPanel.java=28
 com/aqishi/toolbox/feature/codec/ui/TextDiffPanel.java=8
-com/aqishi/toolbox/feature/codec/ui/TimePanel.java=27
+com/aqishi/toolbox/feature/codec/ui/TimePanel.java=26
 com/aqishi/toolbox/feature/codec/ui/UrlToolPanel.java=28
 com/aqishi/toolbox/feature/codec/ui/XmlPanel.java=4
 com/aqishi/toolbox/feature/compute/ui/CalculatorPanel.java=5
@@ -72,7 +72,7 @@ com/aqishi/toolbox/feature/monitor/ui/RemoteControlWindow.java=5
 com/aqishi/toolbox/feature/monitor/ui/RemoteDesktopPanel.java=32
 com/aqishi/toolbox/feature/monitor/ui/RemoteTerminalDialog.java=1
 com/aqishi/toolbox/feature/monitor/ui/TransparentOverlayWindow.java=1
-com/aqishi/toolbox/feature/monitor/ui/VideoMonitorPanel.java=33
+com/aqishi/toolbox/feature/monitor/ui/VideoMonitorPanel.java=32
 com/aqishi/toolbox/feature/network/domain/OpenApiService.java=26
 com/aqishi/toolbox/feature/network/ssh/domain/RemoteEndpoint.java=10
 com/aqishi/toolbox/feature/network/ssh/domain/SshConnectionConfig.java=6
@@ -113,7 +113,7 @@ com/aqishi/toolbox/feature/security/ui/JwtPanel.java=37
 com/aqishi/toolbox/feature/security/ui/TotpPanel.java=25
 com/aqishi/toolbox/feature/system/domain/WeChatContactReader.java=36
 com/aqishi/toolbox/feature/system/ui/ChmodPanel.java=22
-com/aqishi/toolbox/feature/system/ui/CronPanel.java=65
+com/aqishi/toolbox/feature/system/ui/CronPanel.java=62
 com/aqishi/toolbox/feature/system/ui/HostsManagerPanel.java=36
 com/aqishi/toolbox/feature/system/ui/WeChatPanel.java=178
 com/aqishi/toolbox/infra/concurrency/DaemonThreads.java=1

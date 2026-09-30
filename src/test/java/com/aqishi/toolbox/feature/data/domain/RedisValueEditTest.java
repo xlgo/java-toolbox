@@ -73,4 +73,10 @@ class RedisValueEditTest {
         assertThrows(IllegalArgumentException.class, () -> RedisValueEdit.string("", "v"));
         assertThrows(IllegalArgumentException.class, () -> RedisValueEdit.string(null, "v"));
     }
+
+    @Test
+    void rejectsNaNScoreBeforeDeletingExistingSortedSet() {
+        assertThrows(IllegalArgumentException.class, () -> RedisValueEdit.zset("rank",
+                java.util.Collections.singletonList(new String[]{"NaN", "member"})));
+    }
 }

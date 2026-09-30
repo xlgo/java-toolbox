@@ -137,9 +137,10 @@ public final class SocketFrameSplitter {
             }
             return frames;
         }
+        // A delayed poll must not merge messages separated by an already elapsed idle gap.
+        List<byte[]> frames = new ArrayList<>(poll(nowMillis));
         append(data, offset, length);
         lastDataAt = nowMillis;
-        List<byte[]> frames = new ArrayList<>();
         switch (config.mode) {
             case DELIMITER:
                 splitDelimited(frames);
@@ -191,6 +192,11 @@ public final class SocketFrameSplitter {
         int i = Math.max(0, scanFrom);
         while (i + delimiter.length <= size) {
             if (matchesAt(i, delimiter)) {
+                // The size limit applies even when a delimiter arrives in the same read.
+                while ((config.keepDelimiter ? i + delimiter.length : i) > config.maxFrameSize) {
+                    frames.add(take(config.maxFrameSize, 0));
+                    i -= config.maxFrameSize;
+                }
                 int frameLength = i + delimiter.length;
                 frames.add(take(frameLength, config.keepDelimiter ? 0 : delimiter.length));
                 i = 0;

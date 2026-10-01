@@ -11,6 +11,13 @@ import java.util.*;
 
 /** Exports the last query snapshot without re-executing SQL. Output is installed only after a complete write. */
 public final class QueryResultExporter {
+    /** Offline generators reuse the same dialect rules as query-result export. */
+    public String sqlText(QueryResult result, String table, Dialect dialect) throws IOException {
+        if(new HashSet<>(result.getColumnNames()).size()!=result.getColumnNames().size())throw new IllegalArgumentException(I18n.get("data.export.duplicateColumns"));
+        ByteArrayOutputStream output=new ByteArrayOutputStream();
+        sql(result,output,new Options(Format.SQL,table,dialect,false));
+        return output.toString(StandardCharsets.UTF_8);
+    }
     public enum Format { CSV, XLSX, JSON, SQL }
     public enum Dialect { STANDARD, MYSQL, POSTGRESQL, SQLSERVER, ORACLE }
     public record Options(Format format, String table, Dialect dialect, boolean csvFormulaGuard) { }
@@ -123,7 +130,7 @@ public final class QueryResultExporter {
             default -> "\""+name.replace("\"","\"\"")+"\"";
         };
     }
-    private static String literal(Object value,Dialect dialect) {
+    public static String literal(Object value,Dialect dialect) {
         if(value==null) return "NULL";
         if(value instanceof Boolean b) return dialect==Dialect.POSTGRESQL || dialect==Dialect.STANDARD ? (b?"TRUE":"FALSE") : (b?"1":"0");
         if(value instanceof Number n && finite(n)) return n.toString();

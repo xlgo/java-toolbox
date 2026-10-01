@@ -185,9 +185,17 @@ public final class ToolCatalog {
     public static final ToolDescriptor REMOTE_DESKTOP = tool("remote_desktop", "monitor",
             "p2p", "desktop", "control", "远程桌面", "远程控制");
 
+    public static final ToolDescriptor STRUCTURED_DIFF = tool("structured.diff", "codec", "JSON YAML structural diff");
+    public static final ToolDescriptor TABLE_SQL = tool("table.sql", "data", "CSV Excel SQL INSERT import");
+    public static final ToolDescriptor JSON_DTO = tool("json.dto", "generation", "JSON Java DTO POJO Record Lombok");
+    public static final ToolDescriptor MYBATIS_SQL = tool("mybatis.sql", "data", "MyBatis Preparing Parameters SQL Log");
+    public static final ToolDescriptor MAVEN_TREE = tool("maven.tree", "system", "Maven Dependency Tree Conflict Exclusion");
+    public static final ToolDescriptor SSE_CLIENT = tool("sse.client", "network", "SSE Server Sent Events EventSource text/event-stream streaming");
+
     private static final List<ToolCategory> CATEGORIES = Collections.unmodifiableList(Arrays.asList(
             SECURITY, CODEC, NETWORK, DATA, CLOUD, SYSTEM, GENERATION, COMPUTE, DIAGRAM, MONITOR));
     private static final List<ToolDescriptor> DESCRIPTORS = Collections.unmodifiableList(Arrays.asList(
+            STRUCTURED_DIFF, TABLE_SQL, JSON_DTO, MYBATIS_SQL, MAVEN_TREE, SSE_CLIENT,
             HASH_CODEC, SYMMETRIC_CRYPTO, ASYMMETRIC_CRYPTO, CERT_MANAGEMENT, ACCOUNT_MANAGER,
             TOTP_AUTHENTICATOR, JWT_CODEC, FILE_BATCH_DIGEST, CERT_INSPECTOR, WEBHOOK_SIGNATURE,
             JWK_TOOL,

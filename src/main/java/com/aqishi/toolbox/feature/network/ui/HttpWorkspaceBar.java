@@ -136,7 +136,7 @@ final class HttpWorkspaceBar extends JPanel implements AutoCloseable {
         if (JOptionPane.showConfirmDialog(this, form, I18n.get("http.workspace.save"), JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
         String label = name.getText().trim();
         if (store.load().requests().stream().anyMatch(r -> r.name().equals(label)) && !confirm("overwrite")) return;
-        Request named = new Request(label, request.method(), request.url(), request.headers(), request.body(), favorite.isSelected());
+        Request named = new Request(label, request.method(), request.url(), request.headers(), request.body(), favorite.isSelected(),request.bodySpec());
         apply.accept(named);
         write(d -> d.save(named));
     }
@@ -212,6 +212,7 @@ final class HttpWorkspaceBar extends JPanel implements AutoCloseable {
     private void preview() {
         Request r = resolve(capture.get(), true);
         JTextArea output = Fields.output(14,65); output.setText(r.method()+" "+r.url()+"\n\n"+r.headers()+"\n\n"+r.body());
+        if(r.bodySpec().mode()!=com.aqishi.toolbox.feature.network.domain.HttpBody.Mode.RAW){output.append("\n"+r.bodySpec().mode()+"\n");for(var p:r.bodySpec().parts())output.append(p.name()+" = "+p.value()+(p.file()?" [file]":"")+"\n");}
         JOptionPane.showMessageDialog(this, new JScrollPane(output), I18n.get("http.workspace.preview"), JOptionPane.PLAIN_MESSAGE);
     }
     private void unlock() {

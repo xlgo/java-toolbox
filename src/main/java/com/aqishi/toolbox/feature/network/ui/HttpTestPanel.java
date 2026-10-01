@@ -42,6 +42,9 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
     private JButton sendBtn;
     private JButton cancelBtn;
     private SwingWorker<ResponseData, Void> requestWorker;
+    private HttpBodyEditor bodyEditor;
+    private final java.util.concurrent.atomic.AtomicLong uploadedBytes=new java.util.concurrent.atomic.AtomicLong();
+    private javax.swing.Timer uploadTimer;
     private JButton browseBtn;
     private JCheckBox useSshCheck;
     private JComboBox<SshConnectionConfig> sshCombo;
@@ -68,6 +71,7 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
             requestName = ""; requestFavorite = false;
             urlField.setText(""); reqHeadersArea.setText(""); reqBodyArea.setText("");
             respBodyArea.setText(""); respHeadersArea.setText(""); copyRespBtn.setEnabled(false);
+            if(bodyEditor!=null)bodyEditor.apply(com.aqishi.toolbox.feature.network.domain.HttpBody.raw());
         });
     };
 
@@ -79,12 +83,13 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
 
     private HttpWorkspace.Request captureRequest() {
         return new HttpWorkspace.Request(requestName, (String) methodBox.getSelectedItem(), urlField.getText(),
-                reqHeadersArea.getText(), reqBodyArea.getText(), requestFavorite);
+                reqHeadersArea.getText(), reqBodyArea.getText(), requestFavorite,bodyEditor==null?com.aqishi.toolbox.feature.network.domain.HttpBody.raw():bodyEditor.snapshot());
     }
     private void applyRequest(HttpWorkspace.Request r) {
         requestName = r.name(); requestFavorite = r.favorite();
         methodBox.setSelectedItem(r.method()); urlField.setText(r.url());
         reqHeadersArea.setText(r.headers()); reqBodyArea.setText(r.body());
+        if(bodyEditor!=null)bodyEditor.apply(r.bodySpec());
     }
 
     @Override
@@ -144,7 +149,8 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
         reqBodyArea = Fields.area(3, 40);
         reqBodyArea.setText("{\n  \"name\": \"toolbox\",\n  \"value\": \"hello\"\n}");
         reqBodyArea.setEnabled(false); // 默认GET，禁用请求体
-        reqTabs.addTab(I18n.get("ui.http.requestBody"), Fields.scroll(reqBodyArea));
+        bodyEditor=new HttpBodyEditor(reqBodyArea);
+        reqTabs.addTab(I18n.get("ui.http.requestBody"), bodyEditor);
 
         JPanel reqBody = Layouts.box(0, Tokens.SPACE_MD);
         reqBody.add(urlRow, BorderLayout.NORTH);
@@ -206,7 +212,9 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void sendRequest() {
-        HttpWorkspace.Request template = captureRequest();
+        final HttpWorkspace.Request template;
+        try { template = captureRequest(); }
+        catch (Exception error) { UIUtils.error(getView(), Errors.describeRoot(error)); return; }
         final HttpWorkspace.Request resolved;
         try { resolved = workspace.resolve(template, false); }
         catch (Exception error) { UIUtils.error(getView(), Errors.describeRoot(error)); return; }
@@ -218,6 +226,10 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
         final java.util.function.UnaryOperator<String> redactError;
         try { redactError = workspace.errorRedactor(); }
         catch (Exception error) { UIUtils.error(getView(), Errors.describeRoot(error)); return; }
+        if(resolved.bodySpec().mode()!=com.aqishi.toolbox.feature.network.domain.HttpBody.Mode.RAW
+                && (resolved.method().equals("GET")||resolved.method().equals("HEAD"))) {
+            UIUtils.error(getView(),I18n.get("upload.method"));return;
+        }
 
         sendBtn.setEnabled(false);
         cancelBtn.setEnabled(true);
@@ -230,6 +242,8 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
         String method = (String) methodBox.getSelectedItem();
         String headersText = resolved.headers();
         String bodyText = resolved.body();
+        uploadedBytes.set(0);
+        uploadTimer=new javax.swing.Timer(200,e->{if(uploadedBytes.get()>0)statusLabel.setText(I18n.get("upload.progress",FormatUtils.bytes(uploadedBytes.get())));});uploadTimer.start();
         workspace.remember(template);
         final boolean sshEnabled = useSshCheck != null && useSshCheck.isSelected();
         final String sshConfigId = sshEnabled && sshCombo.getSelectedItem() != null
@@ -256,7 +270,12 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
                         if (colon > 0) headers.put(line.substring(0, colon).trim(), line.substring(colon + 1).trim());
                         else if (!line.isBlank()) throw new IllegalArgumentException(I18n.get("http.workspace.headerLine"));
                     }
-                    var response = new OpenApiRequestExecutor().execute(requestUrl.toString(), method, headers, bodyText);
+                    boolean hasBody=!"GET".equals(method)&&!"HEAD".equals(method);
+                    var prepared=com.aqishi.toolbox.feature.network.application.HttpBodies.prepare(hasBody?bodyText:"",
+                            hasBody?resolved.bodySpec():com.aqishi.toolbox.feature.network.domain.HttpBody.raw(),uploadedBytes::set);
+                    if(prepared.contentType()!=null){headers.keySet().removeIf("Content-Type"::equalsIgnoreCase);headers.put("Content-Type",prepared.contentType());}
+                    var response = new OpenApiRequestExecutor().executeBody(requestUrl.toString(), method, headers, prepared.publisher(),
+                            java.time.Duration.ofSeconds(resolved.bodySpec().mode()==com.aqishi.toolbox.feature.network.domain.HttpBody.Mode.RAW?15:300));
                     resp.code = response.status(); resp.message = "";
                     StringBuilder responseHeaders = new StringBuilder();
                     response.headers().forEach((key, values) -> responseHeaders.append(key).append(": ").append(String.join(", ", values)).append("\n"));
@@ -313,6 +332,7 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
                     sendBtn.setEnabled(true);
                     cancelBtn.setEnabled(false);
                     requestWorker = null;
+                    if(uploadTimer!=null)uploadTimer.stop();
                     methodBox.setEnabled(true);
                 }
             }
@@ -381,6 +401,7 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
         workspaceSecrets.removeListener(workspaceLockListener);
         SwingWorker<ResponseData, Void> worker = requestWorker;
         if (worker != null) worker.cancel(true);
+        if(uploadTimer!=null)uploadTimer.stop();
         SshConfigStore.getInstance().removeChangeListener(sshConfigListener);
         if (workspace != null) {
             if (SwingUtilities.isEventDispatchThread()) workspace.close();
@@ -418,6 +439,7 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void exportCurl() {
+        if(bodyEditor.snapshot().mode()!=com.aqishi.toolbox.feature.network.domain.HttpBody.Mode.RAW){UIUtils.info(getView(),I18n.get("upload.curlUnsupported"));return;}
         String method = (String) methodBox.getSelectedItem();
         String url = urlField.getText().trim();
         String headersText = reqHeadersArea.getText();
@@ -473,6 +495,7 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
         urlField.setText(url);
         reqHeadersArea.setText(headersSb.toString());
         reqBodyArea.setText(body);
+        bodyEditor.apply(com.aqishi.toolbox.feature.network.domain.HttpBody.raw());
         requestName = ""; requestFavorite = false;
         reqBodyArea.setEnabled(!"GET".equals(method) && !"HEAD".equals(method));
     }

@@ -127,6 +127,12 @@ public final class ToolRegistry {
 
     public static ToolRegistry createDefault() {
         LinkedHashMap<String, Function<ToolboxContext, ToolPanel>> factories = new LinkedHashMap<>();
+        factories.put("structured.diff", context -> new com.aqishi.toolbox.feature.codec.ui.StructuredDiffPanel());
+        factories.put("table.sql", context -> new com.aqishi.toolbox.feature.data.ui.TableSqlPanel());
+        factories.put("json.dto", context -> new com.aqishi.toolbox.feature.generation.ui.JsonDtoPanel());
+        factories.put("mybatis.sql", context -> new com.aqishi.toolbox.feature.data.ui.MyBatisLogPanel());
+        factories.put("maven.tree", context -> new com.aqishi.toolbox.feature.system.ui.MavenDependencyPanel());
+        factories.put("sse.client", context -> new com.aqishi.toolbox.feature.network.ui.SsePanel());
         factories.put("hash.codec", context -> new CryptoPanel());
         factories.put("symmetric.crypto", context -> new SymmetricPanel());
         factories.put("asymmetric.crypto", context -> new AsymmetricPanel());

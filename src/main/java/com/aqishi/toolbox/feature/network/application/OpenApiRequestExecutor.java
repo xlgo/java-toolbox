@@ -35,10 +35,21 @@ public final class OpenApiRequestExecutor {
 
     Response execute(String url, String method, Map<String, String> headers, String body, Duration timeout)
             throws IOException, InterruptedException {
-        var builder = HttpRequest.newBuilder(URI.create(url)).timeout(timeout);
-        headers.forEach(builder::header);
         var publisher = body == null || body.isEmpty() || "GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method)
                 ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body);
+        return executeBody(url,method,headers,publisher,timeout);
+    }
+
+    public Response executeBody(String url,String method,Map<String,String> headers,HttpRequest.BodyPublisher publisher,Duration timeout)
+            throws IOException,InterruptedException {
+        try { return executePublisher(url,method,headers,publisher,timeout); }
+        finally { HttpBodies.release(publisher); }
+    }
+
+    private Response executePublisher(String url,String method,Map<String,String> headers,HttpRequest.BodyPublisher publisher,Duration timeout)
+            throws IOException,InterruptedException {
+        var builder = HttpRequest.newBuilder(URI.create(url)).timeout(timeout);
+        headers.forEach(builder::header);
         var request = builder.method(method, publisher).build();
         var future = ClientHolder.CLIENT.sendAsync(request, info -> new LimitedBody(
                 HttpResponse.BodyHandlers.ofString().apply(info)));

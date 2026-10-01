@@ -23,7 +23,12 @@
 | 工作区导入导出 | 系统与自动化 | 依赖配置契约；先保存工具配置、请求模板和常用输入，并提供版本字段 |
 | HTTP 请求集合与环境变量 | 网络与接口 | [核心已完成] HTTP 客户端支持命名请求、收藏、最近 50 条历史及多环境变量，完整集合加密存入保险库；发送前预览隐藏敏感值。cURL 导入导出沿用原入口；集合批量导入导出及 OpenAPI 共享集合待做 |
 | 数据库结果导出 | 数据与消息 | [已完成] 当前查询快照导出 CSV / XLSX / JSON / SQL INSERT，保留类型并提示截断范围，不重新执行 SQL |
-| CSV / Excel 生成 SQL | 数据与消息 | 复用现有表格解析能力；先提供列映射、NULL/空串区分、方言标识符转义与 INSERT 文件导出，不自动执行生成的 SQL |
+| CSV / Excel 生成 SQL | 数据与消息 | [已完成] CSV/XLS/XLSX 导入、工作表选择、列映射、NULL/空串区分、明确的类型转换与多方言 INSERT 导出，不执行数据库写入 |
+| JSON / YAML 结构化对比 | 编码、转换与文本 | [已完成] 键顺序无关、精确忽略路径、对象数组 ID 对齐、字段级差异和报告复制 |
+| JSON 转 Java DTO | 生成 | [已完成] 多样本类型合并、嵌套 JavaBean/Lombok/Record、Jackson 注解及字段重命名 |
+| HTTP 表单与文件上传 | 网络与接口 | [已完成] RAW/FORM/MULTIPART、同名字段和多文件、流式发送、进度与取消；模式/字段/文件路径跟随加密请求集合保存 |
+| MyBatis SQL 日志还原 | 数据与消息 | [已完成] 单组 Preparing/Parameters 类型转换、SQL 引用/注释识别及参数数量校验；不执行 SQL |
+| Maven 依赖来源分析 | 系统与自动化 | [已完成] 离线文本/JSON 依赖树导入、引入路径、版本/scope/omitted 信息及 exclusion 参考片段 |
 
 ## P1：协议与运维协作
 
@@ -31,6 +36,7 @@
 |---|---|---|
 | GraphQL 客户端 | 网络与接口 | 依赖共享 HTTP 请求模型；先支持 Schema 导入、查询变量和响应树 |
 | gRPC 客户端 | 网络与接口 | 依赖协议资源层；先支持 proto 导入、Unary 调用和元数据配置 |
+| SSE 流式调试 | 网络与接口 | [已完成] GET/POST 流式接收，解析 event/data/id/retry，GET 断线续传、状态显示与取消；有界显示队列 |
 | OAuth2 / OIDC / JWK 工具 | 安全与身份 | [部分完成（当前迭代）] JWK / JWKS 解析、指纹与 PEM 互转、OIDC Discovery 拉取 JWKS、非对称 JWT 验签与声明校验已完成；授权码流程解析待做 |
 | Git 仓库辅助工具 | 系统与自动化 | 依赖外部进程生命周期抽象；先支持状态查看、差异预览和常用命令模板 |
 | Docker / K8s Manifest Diff 与 Port Forward | 云原生与运维 | [部分完成] 通过本机 kubectl 管理 Pod / Service / Deployment 端口转发，可自动分配端口、查看日志和停止；Manifest 结构差异待做 |

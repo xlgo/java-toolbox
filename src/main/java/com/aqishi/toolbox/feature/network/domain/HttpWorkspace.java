@@ -7,13 +7,15 @@ import java.util.regex.*;
 /** Saved templates stay unresolved; environment secrets are substituted only for one send operation. */
 public final class HttpWorkspace {
     private HttpWorkspace() { }
-    public record Request(String name, String method, String url, String headers, String body, boolean favorite) {
+    public record Request(String name, String method, String url, String headers, String body, boolean favorite, HttpBody bodySpec) {
+        public Request(String name,String method,String url,String headers,String body,boolean favorite){this(name,method,url,headers,body,favorite,HttpBody.raw());}
         public Request {
             name = Objects.requireNonNullElse(name, "");
             method = Objects.requireNonNullElse(method, "GET");
             url = Objects.requireNonNullElse(url, "");
             headers = Objects.requireNonNullElse(headers, "");
             body = Objects.requireNonNullElse(body, "");
+            bodySpec=bodySpec==null?HttpBody.raw():bodySpec;
         }
         @Override public String toString() { return (favorite ? "★ " : "") + name; }
     }
@@ -71,7 +73,8 @@ public final class HttpWorkspace {
                 throw new IllegalArgumentException(I18n.get("http.workspace.headerLine"));
         }
         return new Request(request.name(), request.method(), url, expand(request.headers(), vars, redact),
-                expand(request.body(), vars, redact), request.favorite());
+                expand(request.body(), vars, redact), request.favorite(), new HttpBody(request.bodySpec().mode(),request.bodySpec().parts().stream()
+                    .map(p->new HttpBody.Part(expand(p.name(),vars,redact),expand(p.value(),vars,redact),p.file())).toList()));
     }
     private static String expand(String template, Map<String, Variable> variables, boolean redact) {
         Matcher matcher = PLACEHOLDER.matcher(template);

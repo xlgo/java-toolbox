@@ -44,10 +44,16 @@
 | 开发工具 | 文本对比 | 纯 Java 计算两端文本差异，并以彩色高亮显示结果（标记新增与删除行） |
 | 开发工具 | Docker 转换 | 将 `docker run` 运行命令解析并一键转换为 `docker-compose` YAML 声明配置 |
 | 开发工具 | 子网计算器 | 输入 IP/CIDR（如 `192.168.1.1/24`）计算网络地址、广播地址、掩码并展示二进制 |
-| 开发工具 | HTTP 接口测试 | GET / POST / PUT / PATCH / DELETE / HEAD / OPTIONS、自定义请求头与 Body、取消请求；命名请求集合、收藏、最近 50 条历史及多环境变量（`{{baseUrl}}`），完整模板与变量加密存入保险库，发送预览隐藏敏感变量 |
+| 开发工具 | HTTP 接口测试 | GET / POST / PUT / PATCH / DELETE / HEAD / OPTIONS、RAW / URL 编码表单 / multipart 多文件上传、取消和字节进度；请求集合、收藏、最近 50 条历史及多环境变量（`{{baseUrl}}`），完整模板与变量加密存入保险库，发送预览隐藏敏感变量 |
 | 开发工具 | DNS / TLS / HTTP 诊断 | 指定 DNS 服务器查 A/AAAA/CNAME/MX/TXT/NS/SOA/SRV/CAA 与反向 PTR、TLS 握手与证书链体检（协议/套件/SAN/指纹/剩余有效期，校验失败仍可取链查看）、HTTP 分段耗时（解析 / 连接 / 握手 / 首字节 / 传输）与重定向链 |
 | 开发工具 | HTTP 压测 | 类似 ab / wrk 的压测：并发数、总请求数或持续时间、目标 QPS（按计划发送时间计延迟，避免协同遗漏）、预热、超时与响应断言；实时显示 QPS 与 P50 / P99 曲线，结束后给出分位数、状态码与错误分类；支持导入 cURL，压测公网地址前需要确认 |
 | 开发工具 | OpenAPI 工作台 | 导入 OpenAPI 3 / Swagger 2.0 规范，浏览端点、编辑参数、在线调试（含 PATCH、取消请求）与导出 cURL；生成嵌套 JSON 示例、解析本地引用并限制循环引用；响应读取最多 15 秒、8 MiB，按响应字符集解码，重定向直接展示 |
+| 转换 | JSON / YAML 结构化对比 | 忽略对象键顺序、指定精确忽略路径、对象数组按 ID 对齐；按字段路径展示新增/删除/修改，区分缺失与 null |
+| 生成 | JSON 转 Java DTO | 从对象或对象数组生成嵌套 JavaBean / Lombok / Record；合并数组样本推断类型，支持重命名和 Jackson 注解，生成代码可复制保存 |
+| 数据 | 表格转 SQL | 导入 UTF-8 CSV / XLS / XLSX 或粘贴 CSV，选择工作表、映射列名和类型、区分 NULL/空串；保留文本前导零，生成多方言 INSERT 文件 |
+| 数据 | MyBatis SQL 日志还原 | 解析同一组 Preparing/Parameters，按类型转义替换占位符；保留引用/注释中的问号，数量不符或不支持的参数报错，只生成诊断 SQL |
+| 运维 | Maven 依赖来源分析 | 离线导入 dependency:tree 的文本/JSON 输出，查看引入路径、scope、被省略版本和多版本提示，可复制排除片段 |
+| 网络 | SSE 流式调试 | GET/POST 流式事件接收，自定义请求头和 POST Body；显示事件类型、ID、时间和数据，GET 可用 Last-Event-ID 重连，支持停止和清空 |
 | 开发工具 | 回调 Mock | 启动临时 HTTP 服务器接收回调请求，自定义响应状态码与内容，实时回显请求详情 |
 | 开发工具 | 颜色转换 | HEX / RGB / HSL 互转，集成 **JColorChooser 调色板** 与 **一键复制** |
 | 开发工具 | 证书管理 | X.509 证书管理：支持根证书创建、子证书签发、证书解析（RSA / EC / **国密 SM2**，SM2 使用 SM3withSM2 签名与 GM/T 0009 默认用户 ID，可一次签发 TLCP 所需的 SM2 签名 + 加密双证书），以及 **ACME v2 免费证书自动申请**（支持 Let's Encrypt / ZeroSSL，集成 Cloudflare API 自动挂载/清理 TXT 记录、DNS-01/HTTP-01 验证、倒计时保护及一键打包 Zip 导出） |
@@ -228,6 +234,7 @@ tools/wechat_export.py                # 唯一维护的微信 UIAutomation 脚�
 - 📡 [远程桌面 (Remote Desktop) 技术与使用指南](docs/remote_desktop_guide.md)：包含 ICE/STUN 打洞机制、TCP 回退原理及自建信令服务器指导。
 - ☸️ [K8s 集群管理 (K8s Manager) 指南](docs/k8s_manager_guide.md)：涵盖多集群配置导入、Web Terminal、日志流追踪与容器文件传输说明。
 - [常用工作流指南](docs/common-workflows-guide.md)：HTTP 请求集合与环境变量、查询结果导出、TCP 长度分帧和 K8s 端口转发。
+- [开发工具使用指南](docs/developer-utilities-guide.md)：结构化对比、表格转 SQL、JSON 转 DTO、HTTP 上传、MyBatis 日志、Maven 依赖和 SSE 调试。
 - 💬 [微信工具与 UI 自动化导出指南](docs/wechat_tools_guide.md)：说明本地通讯录解析及 Python UIAutomation 悬浮控制面板脚本的使用方法。
 
 ## 自动构建与发布

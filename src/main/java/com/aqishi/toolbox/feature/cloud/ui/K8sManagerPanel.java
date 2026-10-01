@@ -53,6 +53,7 @@ import java.io.IOException;
  * 以及 Pods, Deployments, Services, ConfigMaps, Nodes 的列表展示、查看 YAML、查看日志、修改副本数、删除资源等。
  */
 public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, K8sClusterContext {
+    private final List<K8sPortForwardDialog> portForwardDialogs = new ArrayList<>();
 
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
@@ -383,6 +384,9 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
         body.add(resourceTabs, BorderLayout.CENTER);
 
         Card card = Card.flush("集群资源");
+        JButton forward = Buttons.secondary(I18n.get("k8s.forward.title"));
+        forward.addActionListener(e -> showPortForward());
+        card.addHeaderAction(forward);
         card.addHeaderAction(applyYamlBtn);
         card.setContent(body);
         return card;
@@ -551,6 +555,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
         resourceTabs.setEnabled(connected);
 
         if (!connected) {
+            closePortForwards();
             closeKubernetesService();
             nsCombo.removeAllItems();
             clearAllTables();
@@ -756,6 +761,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
     }
 
     private void connectClusterNow() {
+        closePortForwards();
         activeServerUrl = serverField.getText().trim();
         activeToken = new String(tokenField.getPassword());
         activeSkipTls = skipTlsCheck.isSelected();
@@ -1361,12 +1367,39 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
     /** Releases the HTTP transport used by all non-streaming cluster actions. */
     @Override
     public void closeResources() {
+        if (SwingUtilities.isEventDispatchThread()) closePortForwards();
+        else SwingUtilities.invokeLater(this::closePortForwards);
         transfers.cancelAll();
         closeKubernetesService();
         activeSocketFactory = null;
     }
 
     // ===== K8sClusterContext：供拆出的子对话框读取当前连接参数 =====
+    private void showPortForward() {
+        if (!isConnected) { UIUtils.info(getView(), I18n.get("k8s.forward.connectFirst")); return; }
+        String kind = "pod"; JTable table = podTable;
+        String tab = resourceTabs.getTitleAt(resourceTabs.getSelectedIndex());
+        if (tab.equals("Deployments")) { kind = "deployment"; table = deployTable; }
+        if (tab.equals("Services")) { kind = "service"; table = svcTable; }
+        String ns = getSelectedNamespace(); if (ns.equals("all")) ns = "default";
+        String name = "";
+        if (table.getSelectedRow() >= 0) {
+            int row = table.convertRowIndexToModel(table.getSelectedRow());
+            ns = String.valueOf(table.getModel().getValueAt(row, 0)); name = String.valueOf(table.getModel().getValueAt(row, 1));
+        }
+        try {
+            var credentials = new com.aqishi.toolbox.feature.cloud.application.PortForwardConfig.Credentials(
+                    activeServerUrl, activeToken, activeSkipTls, activeCaCert, activeClientCert, activeClientKey);
+            portForwardDialogs.removeIf(K8sPortForwardDialog::isClosed);
+            K8sPortForwardDialog dialog = new K8sPortForwardDialog(getView(), credentials, ns, kind, name);
+            portForwardDialogs.add(dialog); dialog.show();
+        } catch (Exception error) { UIUtils.error(getView(), Errors.describeRoot(error)); }
+    }
+
+    private void closePortForwards() {
+        for (K8sPortForwardDialog dialog : portForwardDialogs) dialog.close();
+        portForwardDialogs.clear();
+    }
 
     @Override
     public String serverUrl() {

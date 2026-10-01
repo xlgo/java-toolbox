@@ -44,7 +44,7 @@
 | 开发工具 | 文本对比 | 纯 Java 计算两端文本差异，并以彩色高亮显示结果（标记新增与删除行） |
 | 开发工具 | Docker 转换 | 将 `docker run` 运行命令解析并一键转换为 `docker-compose` YAML 声明配置 |
 | 开发工具 | 子网计算器 | 输入 IP/CIDR（如 `192.168.1.1/24`）计算网络地址、广播地址、掩码并展示二进制 |
-| 开发工具 | HTTP 接口测试 | 轻量 HTTP 客户端，支持 GET / POST / PUT / DELETE，自定义请求头、Body 与 Content-Type |
+| 开发工具 | HTTP 接口测试 | GET / POST / PUT / PATCH / DELETE / HEAD / OPTIONS、自定义请求头与 Body、取消请求；命名请求集合、收藏、最近 50 条历史及多环境变量（`{{baseUrl}}`），完整模板与变量加密存入保险库，发送预览隐藏敏感变量 |
 | 开发工具 | DNS / TLS / HTTP 诊断 | 指定 DNS 服务器查 A/AAAA/CNAME/MX/TXT/NS/SOA/SRV/CAA 与反向 PTR、TLS 握手与证书链体检（协议/套件/SAN/指纹/剩余有效期，校验失败仍可取链查看）、HTTP 分段耗时（解析 / 连接 / 握手 / 首字节 / 传输）与重定向链 |
 | 开发工具 | HTTP 压测 | 类似 ab / wrk 的压测：并发数、总请求数或持续时间、目标 QPS（按计划发送时间计延迟，避免协同遗漏）、预热、超时与响应断言；实时显示 QPS 与 P50 / P99 曲线，结束后给出分位数、状态码与错误分类；支持导入 cURL，压测公网地址前需要确认 |
 | 开发工具 | OpenAPI 工作台 | 导入 OpenAPI 3 / Swagger 2.0 规范，浏览端点、编辑参数、在线调试（含 PATCH、取消请求）与导出 cURL；生成嵌套 JSON 示例、解析本地引用并限制循环引用；响应读取最多 15 秒、8 MiB，按响应字符集解码，重定向直接展示 |
@@ -66,15 +66,15 @@
 | 生成 | DDL 转 Java 实体 | 解析 MySQL / PostgreSQL / Oracle / SQL Server 建表语句（含 COMMENT、COMMENT ON、复合主键），生成 Lombok / 普通 JavaBean / Record 实体，可选 JPA（jakarta / javax）或 MyBatis-Plus 注解与 MyBatis resultMap，支持批量保存为文件 |
 | 生成 | 分布式 ID 工具 | 粘贴任意 ID 自动识别并解析时间戳：雪花 ID（Twitter / MyBatis-Plus / Hutool / 百度 UidGenerator / Sonyflake / Discord 预设及自定义位布局）、UUID v1/v3/v4/v5/v6/v7、ULID、MongoDB ObjectId、KSUID；支持批量生成，可视化雪花位布局与容量 |
 | 运维 | SSH 客户端 | 服务器连接管理与分组树展示，支持多会话交互终端与 SFTP 文件传输 |
-| 运维 | 数据库管理 | 多数据库管理客户端（支持 MySQL / PostgreSQL / Oracle / SQLite / H2 等），数据库树形浏览、SQL 执行与结果导出 |
+| 运维 | 数据库管理 | 多数据库管理客户端（支持 MySQL / PostgreSQL / Oracle / SQLite / H2 等），数据库树形浏览、SQL 执行；当前查询快照可导出 CSV / Excel / JSON / SQL INSERT，保留 NULL、数值、日期和二进制，支持 SQL 方言与 CSV 防公式选项 |
 | 运维 | Hosts 环境管理 | 系统 Hosts 文件管理，支持多套 Dev/QA/Staging 环境规则定义、一键开关应用与 DNS 缓存刷新 |
 | 运维 | WebSocket 测试 | WebSocket / 长连接测试客户端，支持 ws/wss 握手请求头配置、消息收发与定时心跳包保活 |
 | 运维 | ZooKeeper 管理 | ZooKeeper 节点树浏览与数据编辑，支持创建 / 删除节点，可选经由 SSH 本地端口转发连接内网集群 |
 | 运维 | Kafka 管理 | 管理 Kafka 集群，浏览主题与消费组，查看 Lag 详情，消息拉取/发布，以及**实时查看主题的订阅消费组与活跃成员分区分配** |
 | 运维 | MQTT 客户端 | MQTT v3.1 / v3.1.1 客户端测试，broker 连接、主题订阅 / 发布与实时消息收发 |
-| 运维 | TCP/UDP 调试 | 网络调试助手：TCP 客户端（可选 TLS、自动重连，首次连接失败也会重试，可随时取消）、TCP 服务端（客户端列表、单发 / 群发 / 断开、回显）、UDP（回复最后发送方、广播、组播），多会话标签页；文本 / HEX 收发、字符集、转义与换行符、自动附加 SUM8 / XOR8 / CRC-8 / CRC-16（Modbus、CCITT）/ CRC-32 校验，定时循环发送、常用消息列表、发送历史与发送文件；接收按分隔符 / 定长 / 空闲超时分帧，带时间戳与收发方向，可保存日志 |
+| 运维 | TCP/UDP 调试 | 网络调试助手：TCP 客户端（可选 TLS、自动重连，首次连接失败也会重试，可随时取消）、TCP 服务端（客户端列表、单发 / 群发 / 断开、回显）、UDP（回复最后发送方、广播、组播），多会话标签页；文本 / HEX 收发、字符集、转义与换行符、自动附加 SUM8 / XOR8 / CRC-8 / CRC-16（Modbus、CCITT）/ CRC-32 校验，定时循环发送、常用消息列表、发送历史与发送文件；接收按分隔符 / 定长 / 空闲超时 / 长度字段分帧（1/2/4 字节、大小端、头部配置和帧长上限），可保存日志 |
 | 运维 | 端口扫描 | 端口扫描与网络连通性诊断，支持预设端口组（Web / DB / 运维）、自定义范围、并发扫描与已知服务识别 |
-| 运维 | K8s 集群管理 | 多集群管理，Kubeconfig 导入与 Namespace 切换，浏览 Pod/Deployment/Service/ConfigMap/Node，日志追踪，Exec 容器终端，以及**容器文件上传与下载** |
+| 运维 | K8s 集群管理 | 多集群管理，Kubeconfig 导入与 Namespace 切换，浏览 Pod/Deployment/Service/ConfigMap/Node，日志追踪，Exec 容器终端，以及**容器文件上传与下载**；通过本机 kubectl 管理 Pod / Service / Deployment 端口转发，自动分配本地端口、查看日志、停止会话 |
 | 运维 | 线程转储分析 | 解析 jstack / jcmd / kill -3 输出（含 JDK 21 JSON 格式与多份转储），按状态统计、死锁检测（监视器与 ReentrantLock）、锁竞争排行、相同栈分组、线程池聚合、热点方法，以及多份转储间的卡死线程对比 |
 | 运维 | GC 日志分析 | 解析 JDK 9+ 统一日志与 JDK 8 格式（G1 / Parallel / Serial / CMS / ZGC 含分代 / Shenandoah / safepoint），统计停顿分位数、吞吐率、分配速率与 Full GC 原因，堆与停顿图表可拖拽缩放，识别堆底持续上涨（疑似泄漏）并给出调优建议 |
 | 运维 | 端口与进程 | 查看端口占用及对应进程（Windows netstat / tasklist，macOS lsof，Linux ss），按端口、范围或进程过滤，查看命令行，确认后结束进程或进程树；检查端口是否空闲，权限不足时给出提示 |
@@ -227,6 +227,7 @@ tools/wechat_export.py                # 唯一维护的微信 UIAutomation 脚�
 
 - 📡 [远程桌面 (Remote Desktop) 技术与使用指南](docs/remote_desktop_guide.md)：包含 ICE/STUN 打洞机制、TCP 回退原理及自建信令服务器指导。
 - ☸️ [K8s 集群管理 (K8s Manager) 指南](docs/k8s_manager_guide.md)：涵盖多集群配置导入、Web Terminal、日志流追踪与容器文件传输说明。
+- [常用工作流指南](docs/common-workflows-guide.md)：HTTP 请求集合与环境变量、查询结果导出、TCP 长度分帧和 K8s 端口转发。
 - 💬 [微信工具与 UI 自动化导出指南](docs/wechat_tools_guide.md)：说明本地通讯录解析及 Python UIAutomation 悬浮控制面板脚本的使用方法。
 
 ## 自动构建与发布

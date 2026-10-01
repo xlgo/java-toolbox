@@ -190,4 +190,19 @@ class SqlExecutionServiceTest {
         assertEquals(2, result.getRows().size());
         assertNull(result.getWarning());
     }
+
+    @Test
+    void snapshotsDecimalTimestampAndLobsForExport() throws Exception {
+        var decimal = new java.math.BigDecimal("12345678901234567890.12345");
+        var timestamp = java.sql.Timestamp.valueOf("2026-10-01 01:02:03.123456789");
+        var clob = new javax.sql.rowset.serial.SerialClob("text value".toCharArray());
+        var blob = new javax.sql.rowset.serial.SerialBlob(new byte[]{0, -1});
+        ResultSet rs = fakeResultSet(List.of("n", "t", "c", "b"), Collections.singletonList(new Object[]{decimal, timestamp, clob, blob}));
+        Statement statement = fakeStatement(Map.of("execute", true, "getResultSet", rs));
+        QueryResult result = new SqlExecutionService().execute(fakeConnection(false, statement), "SELECT n,t,c,b");
+        var row = result.getExportRows().get(0);
+        assertEquals(decimal, row.get(0)); assertEquals(timestamp.toLocalDateTime(), row.get(1));
+        assertEquals("text value", row.get(2)); assertEquals(new QueryResult.Binary("AP8="), row.get(3));
+        assertThrows(java.sql.SQLException.class, clob::length); assertThrows(java.sql.SQLException.class, blob::length);
+    }
 }

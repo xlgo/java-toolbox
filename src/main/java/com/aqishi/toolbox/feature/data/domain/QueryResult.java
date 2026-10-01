@@ -17,6 +17,9 @@ public final class QueryResult {
     private final int updateCount;
     private final long durationMillis;
     private final String warning;
+    private List<List<Object>> exportRows;
+    /** Immutable binary snapshot, independent of the JDBC connection. */
+    public record Binary(String base64) { }
 
     private QueryResult(List<String> columnNames, List<List<Object>> rows,
                         int updateCount, long durationMillis, String warning) {
@@ -29,12 +32,31 @@ public final class QueryResult {
         this.updateCount = updateCount;
         this.durationMillis = durationMillis;
         this.warning = warning;
+        this.exportRows = this.rows;
     }
 
     public static QueryResult rows(List<String> columnNames, List<List<Object>> rows,
                                    long durationMillis, String warning) {
         return new QueryResult(columnNames, rows, -1, durationMillis, warning);
     }
+
+    public static QueryResult typedRows(List<String> names, List<List<Object>> typed, long millis, String warning) {
+        List<List<Object>> display = new ArrayList<>();
+        for (List<Object> row : typed) {
+            List<Object> values = new ArrayList<>();
+            for (Object value : row) values.add(value instanceof Binary b
+                    ? "[Binary: " + java.util.Base64.getDecoder().decode(b.base64()).length + " bytes]"
+                    : value == null ? null : value.toString());
+            display.add(values);
+        }
+        QueryResult result = new QueryResult(names, display, -1, millis, warning);
+        List<List<Object>> copy = new ArrayList<>();
+        for (List<Object> row : typed) copy.add(Collections.unmodifiableList(new ArrayList<>(row)));
+        result.exportRows = Collections.unmodifiableList(copy);
+        return result;
+    }
+
+    public List<List<Object>> getExportRows() { return exportRows; }
 
     public static QueryResult update(int updateCount, long durationMillis) {
         return new QueryResult(Collections.<String>emptyList(),

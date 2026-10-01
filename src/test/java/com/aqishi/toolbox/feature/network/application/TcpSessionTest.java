@@ -324,6 +324,24 @@ class TcpSessionTest {
     }
 
     @Test
+    void lengthFieldFramesAcrossRealConnectionAndRejectsOversizedHeader() throws Exception {
+        EventRecorder serverEvents = new EventRecorder();
+        var config = SocketFrameSplitter.Config.lengthField(new SocketFrameSplitter.LengthField(0, 2, false, 2, false, true), 64);
+        TcpServerSession server = server(serverEvents, new TcpServerSession.Options().port(0).frame(config));
+        EventRecorder clientEvents = new EventRecorder();
+        TcpClientSession client = client(clientEvents, server.actualPort());
+        serverEvents.await(SocketEvent.Type.CLIENT_JOINED);
+        client.send(new byte[]{0});
+        client.send(new byte[]{3, 'a', 'b', 'c', 0, 2, 'd', 'e'});
+        serverEvents.await(e -> serverEvents.count(x -> x.getType() == SocketEvent.Type.RECEIVED) == 2);
+        assertEquals("abcde", serverEvents.received(0));
+        client.send(new byte[]{127, -1});
+        serverEvents.await(SocketEvent.Type.CLIENT_LEFT);
+        clientEvents.await(SocketEvent.Type.DISCONNECTED);
+        assertEquals(0, server.clients().size());
+    }
+
+    @Test
     void closeReleasesAllSessionThreads() throws Exception {
         EventRecorder serverEvents = new EventRecorder();
         TcpServerSession server = server(serverEvents, new TcpServerSession.Options().port(0));

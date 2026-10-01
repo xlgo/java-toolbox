@@ -189,11 +189,17 @@ final class SocketConnection {
                 if (read == 0) {
                     continue;
                 }
+                // The user may have changed framing while read() was blocked with no pending data.
+                if (activeConfig != frameConfig) {
+                    emitRemaining(splitter);
+                    activeConfig = frameConfig;
+                    splitter = new SocketFrameSplitter(activeConfig);
+                }
                 bytesIn.addAndGet(read);
                 callback.onChunk(this, buffer, read);
                 emit(splitter.feed(buffer, 0, read, nowMillis()));
             }
-        } catch (IOException error) {
+        } catch (IOException | IllegalArgumentException error) {
             if (!closed.get()) {
                 emitRemaining(splitter);
                 close(SocketEvent.Reason.IO_ERROR, String.valueOf(error.getMessage()));

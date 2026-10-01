@@ -144,6 +144,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     // Results panel
     private JTabbedPane rightTabbedPane;
     private JTable resultTable;
+    private QueryResult lastQueryResult;
     private JLabel resultStatusLabel;
     private JTextArea consoleOutput;
 
@@ -479,6 +480,9 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         resultStatusLabel.setForeground(Tokens.mutedForeground());
 
         Card card = Card.flush("执行结果");
+        JButton exportResult = Buttons.secondary(I18n.get("data.export.title"));
+        exportResult.addActionListener(e -> QueryExportDialog.show(getView(), lastQueryResult));
+        card.addHeaderAction(exportResult);
         card.setContent(rightTabbedPane);
         card.setFooter(resultStatusLabel);
         return card;
@@ -1609,6 +1613,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                 runBtn.setEnabled(true);
                 try {
                     QueryResult res = get();
+                    lastQueryResult = res;
                     String statusText = "执行成功，耗时: " + res.getDurationMillis() + " ms. ";
                     if (res.isUpdate()) {
                         statusText += "影响行数: " + res.getUpdateCount();

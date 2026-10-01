@@ -138,6 +138,13 @@ final class SocketSessionView extends JPanel {
         Runnable frame = this::applyFrameConfig;
         form.frameCombo.addActionListener(e -> frame.run());
         form.keepDelimiterCheck.addActionListener(e -> frame.run());
+        form.lengthOffset.addChangeListener(e -> frame.run());
+        form.lengthWidth.addActionListener(e -> frame.run());
+        form.lengthOrder.addActionListener(e -> frame.run());
+        form.headerSize.addChangeListener(e -> frame.run());
+        form.frameLimit.addChangeListener(e -> frame.run());
+        form.lengthIncludesHeader.addActionListener(e -> frame.run());
+        form.stripHeader.addActionListener(e -> frame.run());
         form.frameParamField.addActionListener(e -> frame.run());
     }
 

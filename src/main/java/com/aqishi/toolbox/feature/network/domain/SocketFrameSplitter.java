@@ -23,11 +23,22 @@ public final class SocketFrameSplitter {
         /** 每 N 字节一帧。 */
         FIXED_LENGTH,
         /** 连续到达的块合并，直到空闲超过 N 毫秒。 */
-        IDLE_TIMEOUT
+        IDLE_TIMEOUT,
+        /** Unsigned 1/2/4-byte length, with configurable offset, header size and byte order. */
+        LENGTH_FIELD
     }
 
     /** 默认单帧上限：防止对端不发分隔符时缓冲无限增长。 */
     public static final int DEFAULT_MAX_FRAME = 64 * 1024;
+
+    public record LengthField(int offset, int width, boolean littleEndian, int headerBytes,
+                              boolean includesHeader, boolean stripHeader) {
+        public LengthField {
+            if (offset < 0 || (width != 1 && width != 2 && width != 4) || headerBytes < (long) offset + width
+                    || headerBytes > 16 * 1024 * 1024)
+                throw new IllegalArgumentException("Invalid length-field header layout");
+        }
+    }
 
     /** 不可变的分帧配置。 */
     public static final class Config {
@@ -37,16 +48,30 @@ public final class SocketFrameSplitter {
         private final int fixedLength;
         private final long idleMillis;
         private final int maxFrameSize;
+        private final LengthField lengthField;
 
         private Config(Mode mode, byte[] delimiter, boolean keepDelimiter, int fixedLength,
                        long idleMillis, int maxFrameSize) {
+            this(mode, delimiter, keepDelimiter, fixedLength, idleMillis, maxFrameSize, null);
+        }
+        private Config(Mode mode, byte[] delimiter, boolean keepDelimiter, int fixedLength,
+                       long idleMillis, int maxFrameSize, LengthField lengthField) {
             this.mode = mode;
             this.delimiter = delimiter;
             this.keepDelimiter = keepDelimiter;
             this.fixedLength = fixedLength;
             this.idleMillis = idleMillis;
             this.maxFrameSize = maxFrameSize;
+            this.lengthField = lengthField;
         }
+
+        public static Config lengthField(LengthField field, int maxFrameSize) {
+            Objects.requireNonNull(field);
+            if (maxFrameSize < field.headerBytes() || maxFrameSize > 16 * 1024 * 1024)
+                throw new IllegalArgumentException("Frame limit must fit the header and be <= 16 MiB");
+            return new Config(Mode.LENGTH_FIELD, new byte[0], false, 0, 0, maxFrameSize, field);
+        }
+        public LengthField getLengthField() { return lengthField; }
 
         public static Config raw() {
             return new Config(Mode.RAW, new byte[0], false, 0, 0, DEFAULT_MAX_FRAME);
@@ -77,6 +102,7 @@ public final class SocketFrameSplitter {
 
         /** 返回替换了单帧上限的副本；定长模式下上限不会小于帧长。 */
         public Config withMaxFrameSize(int maxFrameSize) {
+            if (mode == Mode.LENGTH_FIELD) return lengthField(lengthField, maxFrameSize);
             if (maxFrameSize < 1) {
                 throw new IllegalArgumentException("max frame size must be >= 1");
             }
@@ -115,6 +141,7 @@ public final class SocketFrameSplitter {
     /** 分隔符搜索的起点，避免每来一块都从头扫描整个缓冲。 */
     private int scanFrom;
     private long lastDataAt;
+    private int expectedLength = -1;
 
     public SocketFrameSplitter(Config config) {
         this.config = Objects.requireNonNull(config, "config");
@@ -126,6 +153,8 @@ public final class SocketFrameSplitter {
 
     /** 喂入一块数据，返回因此完整的帧（可能为空）。 */
     public List<byte[]> feed(byte[] data, int offset, int length, long nowMillis) {
+        Objects.checkFromIndexSize(offset, length, data.length);
+        if (config.mode == Mode.LENGTH_FIELD) return feedLengthField(data, offset, length);
         if (length == 0) {
             return Collections.emptyList();
         }
@@ -154,6 +183,37 @@ public final class SocketFrameSplitter {
                 break;
         }
         enforceMax(frames);
+        return frames;
+    }
+
+    private List<byte[]> feedLengthField(byte[] data, int offset, int length) {
+        List<byte[]> frames = new ArrayList<>();
+        LengthField field = config.lengthField;
+        int end = offset + length;
+        while (offset < end) {
+            // Read only enough to decode the length before trusting the advertised allocation size.
+            int need = expectedLength < 0 ? field.offset() + field.width() : expectedLength;
+            int count = Math.min(end - offset, need - size);
+            append(data, offset, count); offset += count;
+            if (expectedLength < 0 && size == need) {
+                long declared = 0;
+                for (int i = 0; i < field.width(); i++) {
+                    int index = field.offset() + (field.littleEndian() ? field.width() - 1 - i : i);
+                    declared = (declared << 8) | (buffer[index] & 0xffL);
+                }
+                long total = field.includesHeader() ? declared : declared + field.headerBytes();
+                if (total < field.headerBytes() || total > config.maxFrameSize) {
+                    size = 0; expectedLength = -1;
+                    throw new IllegalArgumentException(com.aqishi.toolbox.util.I18n.get("tool.socketdebug.frame.invalidLength", total, config.maxFrameSize));
+                }
+                expectedLength = (int) total;
+            }
+            if (expectedLength >= 0 && size == expectedLength) {
+                byte[] frame = take(expectedLength, 0);
+                frames.add(field.stripHeader() ? Arrays.copyOfRange(frame, field.headerBytes(), frame.length) : frame);
+                expectedLength = -1;
+            }
+        }
         return frames;
     }
 

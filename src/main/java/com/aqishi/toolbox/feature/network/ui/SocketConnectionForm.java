@@ -47,9 +47,17 @@ final class SocketConnectionForm extends JPanel {
     // TCP 分帧
     final JComboBox<String> frameCombo = Fields.combo(new String[]{
             I18n.get("tool.socketdebug.frame.raw"), I18n.get("tool.socketdebug.frame.delimiter"),
-            I18n.get("tool.socketdebug.frame.fixed"), I18n.get("tool.socketdebug.frame.idle")});
+            I18n.get("tool.socketdebug.frame.fixed"), I18n.get("tool.socketdebug.frame.idle"), I18n.get("tool.socketdebug.frame.length")});
     final JTextField frameParamField = Fields.mono("\\n");
     final JCheckBox keepDelimiterCheck = Fields.check(I18n.get("tool.socketdebug.frame.keep"), false);
+    final JSpinner lengthOffset = Fields.spinner(0, 0, 65535, 1);
+    final JComboBox<Integer> lengthWidth = new JComboBox<>(new Integer[]{1, 2, 4});
+    final JComboBox<String> lengthOrder = new JComboBox<>(new String[]{"Big endian", "Little endian"});
+    final JSpinner headerSize = Fields.spinner(2, 1, 65536, 1);
+    final JSpinner frameLimit = Fields.spinner(65536, 1, 16 * 1024 * 1024, 1024);
+    final JCheckBox lengthIncludesHeader = Fields.check(I18n.get("tool.socketdebug.frame.includesHeader"), false);
+    final JCheckBox stripHeader = Fields.check(I18n.get("tool.socketdebug.frame.stripHeader"), false);
+    private JPanel lengthFields;
 
     // UDP
     final JTextField targetHostField = Fields.mono("127.0.0.1");
@@ -125,7 +133,14 @@ final class SocketConnectionForm extends JPanel {
     }
 
     private JPanel frameRow() {
-        return row(label("tool.socketdebug.frame.mode"), frameCombo, frameParamField, keepDelimiterCheck);
+        lengthWidth.setSelectedItem(2);
+        JPanel panel = new JPanel(new java.awt.BorderLayout(0, Tokens.SPACE_XS)); panel.setOpaque(false);
+        panel.add(row(label("tool.socketdebug.frame.mode"), frameCombo, frameParamField, keepDelimiterCheck), java.awt.BorderLayout.NORTH);
+        lengthFields = row(label("tool.socketdebug.frame.offset"), lengthOffset, label("tool.socketdebug.frame.width"), lengthWidth,
+                lengthOrder, label("tool.socketdebug.frame.headerSize"), headerSize, label("tool.socketdebug.frame.limit"), frameLimit,
+                lengthIncludesHeader, stripHeader);
+        panel.add(lengthFields); lengthFields.setVisible(false);
+        return panel;
     }
 
     private static JPanel row(Component... children) {
@@ -145,7 +160,8 @@ final class SocketConnectionForm extends JPanel {
 
     private void syncFrameFields() {
         int mode = frameCombo.getSelectedIndex();
-        frameParamField.setEnabled(mode != 0);
+        frameParamField.setEnabled(mode != 0 && mode != 4);
+        if (lengthFields != null) { lengthFields.setVisible(mode == 4); lengthFields.getParent().revalidate(); }
         keepDelimiterCheck.setEnabled(mode == 1);
         if (mode == 1 && !looksLikeDelimiter(frameParamField.getText())) {
             frameParamField.setText("\\n");
@@ -170,10 +186,15 @@ final class SocketConnectionForm extends JPanel {
                     return SocketFrameSplitter.Config.fixedLength(Integer.parseInt(param.trim()));
                 case 3:
                     return SocketFrameSplitter.Config.idleTimeout(Long.parseLong(param.trim()));
+                case 4:
+                    lengthOffset.commitEdit(); headerSize.commitEdit(); frameLimit.commitEdit();
+                    return SocketFrameSplitter.Config.lengthField(new SocketFrameSplitter.LengthField(
+                            (Integer) lengthOffset.getValue(), (Integer) lengthWidth.getSelectedItem(), lengthOrder.getSelectedIndex() == 1,
+                            (Integer) headerSize.getValue(), lengthIncludesHeader.isSelected(), stripHeader.isSelected()), (Integer) frameLimit.getValue());
                 default:
                     return SocketFrameSplitter.Config.raw();
             }
-        } catch (IllegalArgumentException invalid) {
+        } catch (IllegalArgumentException | java.text.ParseException invalid) {
             throw new IllegalArgumentException(I18n.get("tool.socketdebug.frame.invalid", param), invalid);
         }
     }

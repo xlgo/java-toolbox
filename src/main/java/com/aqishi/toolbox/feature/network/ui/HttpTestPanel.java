@@ -1,6 +1,10 @@
 package com.aqishi.toolbox.feature.network.ui;
 
 import com.aqishi.toolbox.catalog.ToolCatalog;
+import com.aqishi.toolbox.feature.network.domain.HttpWorkspace;
+import com.aqishi.toolbox.feature.network.application.OpenApiRequestExecutor;
+import com.aqishi.toolbox.infra.secrets.SecretStore;
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.feature.network.domain.CurlCommand;
 import com.aqishi.toolbox.util.JsonFormatter;
 import com.aqishi.toolbox.feature.network.ssh.domain.RemoteEndpoint;
@@ -21,11 +25,6 @@ import com.aqishi.toolbox.util.FormatUtils;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -34,13 +33,15 @@ import java.util.Map;
 
 /**
  * 轻量级 HTTP 接口测试面板。
- * 支持 GET, POST, PUT, DELETE 请求，支持自定义请求头和请求体，采用 SwingWorker 异步执行网络请求。
+ * 支持常见 HTTP 方法、请求集合与环境变量，网络请求通过共享执行器异步执行。
  */
 public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
 
     private JComboBox<String> methodBox;
     private JTextField urlField;
     private JButton sendBtn;
+    private JButton cancelBtn;
+    private SwingWorker<ResponseData, Void> requestWorker;
     private JButton browseBtn;
     private JCheckBox useSshCheck;
     private JComboBox<SshConnectionConfig> sshCombo;
@@ -55,8 +56,35 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
     private JButton copyRespBtn;
     private volatile SshTunnelBridge.BridgeResult activeSshBridge;
 
-    public HttpTestPanel() {
+    private final SecretStore workspaceSecrets;
+    private HttpWorkspaceBar workspace;
+    private String requestName = "";
+    private boolean requestFavorite;
+    private final Runnable sshConfigListener = this::refreshSshConfigs;
+    private final SecretStore.Listener workspaceLockListener = state -> {
+        if (state != SecretStore.Status.UNLOCKED) SwingUtilities.invokeLater(() -> {
+            if (workspace == null) return;
+            if (requestWorker != null) requestWorker.cancel(true);
+            requestName = ""; requestFavorite = false;
+            urlField.setText(""); reqHeadersArea.setText(""); reqBodyArea.setText("");
+            respBodyArea.setText(""); respHeadersArea.setText(""); copyRespBtn.setEnabled(false);
+        });
+    };
+
+    public HttpTestPanel() { this(SecretStore.disabled()); }
+    public HttpTestPanel(SecretStore secrets) {
         super(ToolCatalog.HTTP_CLIENT);
+        this.workspaceSecrets = secrets;
+    }
+
+    private HttpWorkspace.Request captureRequest() {
+        return new HttpWorkspace.Request(requestName, (String) methodBox.getSelectedItem(), urlField.getText(),
+                reqHeadersArea.getText(), reqBodyArea.getText(), requestFavorite);
+    }
+    private void applyRequest(HttpWorkspace.Request r) {
+        requestName = r.name(); requestFavorite = r.favorite();
+        methodBox.setSelectedItem(r.method()); urlField.setText(r.url());
+        reqHeadersArea.setText(r.headers()); reqBodyArea.setText(r.body());
     }
 
     @Override
@@ -64,11 +92,14 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
         JPanel root = Layouts.page();
 
         // ===== 顶部：请求配置卡片（方法 / URL / Header / Body 是一次请求的完整描述） =====
-        methodBox = Fields.combo(new String[]{"GET", "POST", "PUT", "DELETE"}, 96);
+        methodBox = Fields.combo(new String[]{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}, 96);
         urlField = Fields.mono("https://httpbin.org/get");
 
         sendBtn = Buttons.primary("发送请求");
         sendBtn.addActionListener(e -> sendRequest());
+        cancelBtn = Buttons.secondary(I18n.get("tool.openapi.btn.cancel"));
+        cancelBtn.setEnabled(false);
+        cancelBtn.addActionListener(e -> { if (requestWorker != null) requestWorker.cancel(true); });
 
         JButton importCurlBtn = Buttons.secondary("导入 cURL");
         importCurlBtn.addActionListener(e -> importCurl());
@@ -92,7 +123,7 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
             sshCombo.setEnabled(useSshCheck.isSelected());
             if (!useSshCheck.isSelected()) releaseSshBridge();
         });
-        SshConfigStore.getInstance().addChangeListener(this::refreshSshConfigs);
+        SshConfigStore.getInstance().addChangeListener(sshConfigListener);
         JPanel sshRow = Layouts.box(Tokens.SPACE_MD, 0);
         sshRow.add(useSshCheck, BorderLayout.WEST);
         sshRow.add(sshCombo, BorderLayout.CENTER);
@@ -118,22 +149,17 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
         requestCard.addHeaderAction(importCurlBtn);
         requestCard.addHeaderAction(exportCurlBtn);
         requestCard.addHeaderAction(browseBtn);
+        requestCard.addHeaderAction(cancelBtn);
         requestCard.addHeaderAction(sendBtn);
 
         methodBox.addActionListener(e -> {
             String method = (String) methodBox.getSelectedItem();
-            boolean hasBody = "POST".equals(method) || "PUT".equals(method);
-            reqBodyArea.setEnabled(hasBody);
-            if (hasBody) {
-                if (urlField.getText().endsWith("/get")) {
-                    urlField.setText(urlField.getText().replace("/get", "/post"));
-                }
-            } else {
-                if (urlField.getText().endsWith("/post")) {
-                    urlField.setText(urlField.getText().replace("/post", "/get"));
-                }
-            }
+            reqBodyArea.setEnabled(!"GET".equals(method) && !"HEAD".equals(method));
         });
+        workspace = new HttpWorkspaceBar(workspaceSecrets, this::captureRequest, this::applyRequest);
+        JPanel requestTop = new JPanel(new BorderLayout(0, Tokens.SPACE_SM));
+        requestTop.setOpaque(false); requestTop.add(urlRow, BorderLayout.NORTH); requestTop.add(workspace, BorderLayout.CENTER);
+        reqBody.add(requestTop, BorderLayout.NORTH);
 
         // ===== 响应卡片：放 CENTER 吸收剩余高度，状态行贴在结果上方 =====
         statusLabel = new JLabel("就绪");
@@ -161,17 +187,26 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
 
         root.add(requestCard, BorderLayout.NORTH);
         root.add(responseCard, BorderLayout.CENTER);
+        workspaceSecrets.addListener(workspaceLockListener);
         return root;
     }
 
     private void sendRequest() {
-        String urlStr = urlField.getText().trim();
+        HttpWorkspace.Request template = captureRequest();
+        final HttpWorkspace.Request resolved;
+        try { resolved = workspace.resolve(template, false); }
+        catch (Exception error) { UIUtils.error(getView(), Errors.describeRoot(error)); return; }
+        String urlStr = resolved.url().trim();
         if (urlStr.isEmpty()) {
             UIUtils.error(getView(), "请输入有效的请求 URL！");
             return;
         }
+        final java.util.function.UnaryOperator<String> redactError;
+        try { redactError = workspace.errorRedactor(); }
+        catch (Exception error) { UIUtils.error(getView(), Errors.describeRoot(error)); return; }
 
         sendBtn.setEnabled(false);
+        cancelBtn.setEnabled(true);
         methodBox.setEnabled(false);
         copyRespBtn.setEnabled(false);
         statusLabel.setText("请求中，请稍候...");
@@ -179,20 +214,20 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
         respHeadersArea.setText("");
 
         String method = (String) methodBox.getSelectedItem();
-        String headersText = reqHeadersArea.getText();
-        String bodyText = reqBodyArea.getText();
+        String headersText = resolved.headers();
+        String bodyText = resolved.body();
+        workspace.remember(template);
         final boolean sshEnabled = useSshCheck != null && useSshCheck.isSelected();
         final String sshConfigId = sshEnabled && sshCombo.getSelectedItem() != null
                 ? ((SshConnectionConfig) sshCombo.getSelectedItem()).getId() : null;
         releaseSshBridge();
 
         // 采用 SwingWorker 异步发起请求，防 GUI 卡死
-        new SwingWorker<ResponseData, Void>() {
+        requestWorker = new SwingWorker<ResponseData, Void>() {
             @Override
             protected ResponseData doInBackground() throws Exception {
                 ResponseData resp = new ResponseData();
                 long start = System.currentTimeMillis();
-                HttpURLConnection conn = null;
                 SshTunnelBridge.BridgeResult requestBridge = null;
                 try {
                     URL url = new URL(urlStr);
@@ -201,69 +236,21 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
                         requestBridge = bridgeForUrl(url, sshConfigId);
                         requestUrl = localUrl(url, requestBridge);
                     }
-                    conn = (HttpURLConnection) requestUrl.openConnection();
-                    conn.setRequestMethod(method);
-                    conn.setConnectTimeout(10000);
-                    conn.setReadTimeout(15000);
-                    conn.setUseCaches(false);
-
-                    // 设置请求头
+                    Map<String, String> headers = new java.util.LinkedHashMap<>();
                     for (String line : headersText.split("\n")) {
                         int colon = line.indexOf(':');
-                        if (colon > 0) {
-                            String key = line.substring(0, colon).trim();
-                            String val = line.substring(colon + 1).trim();
-                            conn.setRequestProperty(key, val);
-                        }
+                        if (colon > 0) headers.put(line.substring(0, colon).trim(), line.substring(colon + 1).trim());
+                        else if (!line.isBlank()) throw new IllegalArgumentException(I18n.get("http.workspace.headerLine"));
                     }
-
-                    // 设置请求体
-                    boolean hasBody = "POST".equals(method) || "PUT".equals(method);
-                    if (hasBody && bodyText != null && !bodyText.trim().isEmpty()) {
-                        conn.setDoOutput(true);
-                        try (OutputStream os = conn.getOutputStream()) {
-                            byte[] input = bodyText.getBytes(StandardCharsets.UTF_8);
-                            os.write(input, 0, input.length);
-                        }
-                    }
-
-                    // 获取响应数据
-                    resp.code = conn.getResponseCode();
-                    resp.message = conn.getResponseMessage();
-
-                    // 组装响应头
-                    StringBuilder sbHeaders = new StringBuilder();
-                    for (Map.Entry<String, List<String>> entry : conn.getHeaderFields().entrySet()) {
-                        if (entry.getKey() != null) {
-                            sbHeaders.append(entry.getKey()).append(": ")
-                                     .append(String.join(", ", entry.getValue())).append("\n");
-                        } else {
-                            sbHeaders.append(String.join(", ", entry.getValue())).append("\n");
-                        }
-                    }
-                    resp.headers = sbHeaders.toString();
-
-                    // 读取响应体
-                    InputStream is = (resp.code >= 400) ? conn.getErrorStream() : conn.getInputStream();
-                    if (is != null) {
-                        StringBuilder sbBody = new StringBuilder();
-                        try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-                            String line;
-                            while ((line = reader.readLine()) != null) {
-                                sbBody.append(line).append("\n");
-                            }
-                        }
-                        resp.body = sbBody.toString();
-                        resp.sizeBytes = resp.body.getBytes(StandardCharsets.UTF_8).length;
-                    } else {
-                        resp.body = "";
-                    }
+                    var response = new OpenApiRequestExecutor().execute(requestUrl.toString(), method, headers, bodyText);
+                    resp.code = response.status(); resp.message = "";
+                    StringBuilder responseHeaders = new StringBuilder();
+                    response.headers().forEach((key, values) -> responseHeaders.append(key).append(": ").append(String.join(", ", values)).append("\n"));
+                    resp.headers = responseHeaders.toString(); resp.body = response.body();
+                    resp.sizeBytes = resp.body.getBytes(StandardCharsets.UTF_8).length;
                 } catch (Exception ex) {
-                    resp.error = Errors.describeRoot(ex);
+                    resp.error = redactError.apply(Errors.describeRoot(ex));
                 } finally {
-                    if (conn != null) {
-                        conn.disconnect();
-                    }
                     if (requestBridge != null) requestBridge.close();
                     resp.timeMs = System.currentTimeMillis() - start;
                 }
@@ -273,6 +260,7 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
             @Override
             protected void done() {
                 try {
+                    if (isCancelled()) { statusLabel.setText(I18n.get("tool.openapi.status.cancelled")); return; }
                     ResponseData resp = get();
                     if (resp.error != null) {
                         statusLabel.setText("请求失败");
@@ -309,14 +297,19 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
                     respBodyArea.setText(ex.getMessage());
                 } finally {
                     sendBtn.setEnabled(true);
+                    cancelBtn.setEnabled(false);
+                    requestWorker = null;
                     methodBox.setEnabled(true);
                 }
             }
-        }.execute();
+        };
+        requestWorker.execute();
     }
 
     private void openInBrowser() {
-        String urlStr = urlField.getText().trim();
+        final String urlStr;
+        try { urlStr = workspace.resolve(captureRequest(), false).url().trim(); }
+        catch (Exception error) { UIUtils.error(getView(), Errors.describeRoot(error)); return; }
         if (urlStr.isEmpty()) {
             UIUtils.error(getView(), "请输入有效的请求 URL！");
             return;
@@ -371,6 +364,14 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
 
     @Override
     public void closeResources() {
+        workspaceSecrets.removeListener(workspaceLockListener);
+        SwingWorker<ResponseData, Void> worker = requestWorker;
+        if (worker != null) worker.cancel(true);
+        SshConfigStore.getInstance().removeChangeListener(sshConfigListener);
+        if (workspace != null) {
+            if (SwingUtilities.isEventDispatchThread()) workspace.close();
+            else SwingUtilities.invokeLater(workspace::close);
+        }
         releaseSshBridge();
     }
 
@@ -414,7 +415,7 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
                 headers.add(line.trim());
             }
         }
-        boolean hasBody = ("POST".equals(method) || "PUT".equals(method))
+        boolean hasBody = (!"GET".equals(method) && !"HEAD".equals(method))
                 && bodyText != null && !bodyText.trim().isEmpty();
         CurlCommand curl = new CurlCommand(method, url, headers, hasBody ? bodyText : "");
 
@@ -456,13 +457,10 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
         // 应用到 UI
         methodBox.setSelectedItem(method);
         urlField.setText(url);
-        if (headersSb.length() > 0) {
-            reqHeadersArea.setText(headersSb.toString());
-        }
-        if (!body.isEmpty()) {
-            reqBodyArea.setText(body);
-            reqBodyArea.setEnabled(true);
-        }
+        reqHeadersArea.setText(headersSb.toString());
+        reqBodyArea.setText(body);
+        requestName = ""; requestFavorite = false;
+        reqBodyArea.setEnabled(!"GET".equals(method) && !"HEAD".equals(method));
     }
 
 

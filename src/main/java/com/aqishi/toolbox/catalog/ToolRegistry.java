@@ -153,7 +153,7 @@ public final class ToolRegistry {
         factories.put("text.diff", context -> new TextDiffPanel());
         factories.put("jsonpath.tester", context -> new JsonPathPanel());
         factories.put("xpath.tool", context -> new XPathPanel());
-        factories.put("http.client", context -> new HttpTestPanel());
+        factories.put("http.client", context -> new HttpTestPanel(VaultSecretStore.of(context.getVaultService())));
         factories.put("openapi.workbench", context -> new OpenApiPanel());
         factories.put("callback.mock", context -> new CallbackTestPanel());
         factories.put("websocket.client", context -> new WebSocketClientPanel());

@@ -61,8 +61,13 @@ final class SocketSessionView extends JPanel {
         router.attach(sendBox, clientTable);
         QuickSendList quick = new QuickSendList(presets, router);
 
-        add(buildTop(), BorderLayout.NORTH);
-        add(buildCenter(quick), BorderLayout.CENTER);
+        JScrollPane config = Fields.scrollVertical(buildTop());
+        config.setMinimumSize(new Dimension(0, 125));
+        JComponent content = buildCenter(quick);
+        content.setMinimumSize(new Dimension(0, 240));
+        JPanel connectionStatus = Layouts.wrapRow(Tokens.SPACE_MD, Tokens.SPACE_XS, toggleBtn, statusLabel, statsLabel);
+        add(connectionStatus, BorderLayout.NORTH);
+        add(Layouts.splitVertical(config, content, 0.25, 0.33), BorderLayout.CENTER);
 
         toggleBtn.addActionListener(e -> toggle());
         wireRuntimeOptions();
@@ -72,9 +77,8 @@ final class SocketSessionView extends JPanel {
     }
 
     private Card buildTop() {
-        JPanel status = Layouts.wrapRow(Tokens.SPACE_MD, Tokens.SPACE_XS, toggleBtn, statusLabel, statsLabel);
         Card card = Card.plain();
-        card.setContent(Layouts.stack(Tokens.SPACE_SM, form, status));
+        card.setContent(form);
         return card;
     }
 
@@ -90,11 +94,16 @@ final class SocketSessionView extends JPanel {
             clientsCard.setContent(clientTable);
             side = Layouts.splitVertical(clientsCard, quickCard, 0.5, 0.5);
         }
-        JSplitPane upper = Layouts.splitHorizontal(logCard, side, 1.0, 0.72);
+        side.setMinimumSize(new Dimension(180, 60));
+        logCard.setMinimumSize(new Dimension(260, 100));
+        JSplitPane upper = Layouts.splitHorizontal(logCard, side, 1.0, 0.76);
 
         Card sendCard = Card.flush(I18n.get("tool.socketdebug.card.send"));
-        sendCard.setContent(sendBox);
-        return Layouts.splitVertical(upper, sendCard, 1.0, 0.62);
+        sendCard.addHeaderAction(sendBox.sendButton());
+        sendCard.setContent(Fields.scrollVertical(sendBox));
+        sendCard.setMinimumSize(new Dimension(0, 160));
+        upper.setMinimumSize(new Dimension(0, 140));
+        return Layouts.splitVertical(upper, sendCard, 0.5, 0.43);
     }
 
     private String idleLabel() {

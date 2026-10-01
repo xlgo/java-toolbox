@@ -71,9 +71,9 @@ final class SocketLogView extends JPanel {
         displayCombo = Fields.combo(new String[]{
                 I18n.get("tool.socketdebug.display.text"),
                 I18n.get("tool.socketdebug.display.hex"),
-                I18n.get("tool.socketdebug.display.both")});
+                I18n.get("tool.socketdebug.display.both")}, 120);
         hexDumpCheck = Fields.check(I18n.get("tool.socketdebug.log.hexDump"), false);
-        charsetCombo = Fields.combo(PayloadCodec.CHARSETS.toArray(new String[0]));
+        charsetCombo = Fields.combo(PayloadCodec.CHARSETS.toArray(new String[0]), 115);
         timeCheck = Fields.check(I18n.get("tool.socketdebug.log.time"), true);
         pauseToggle = Buttons.toggle(I18n.get("tool.socketdebug.log.pause"), false);
         autoScrollCheck = Fields.check(I18n.get("tool.socketdebug.log.autoScroll"), true);
@@ -82,11 +82,17 @@ final class SocketLogView extends JPanel {
         JButton saveBtn = Buttons.snug(I18n.get("tool.socketdebug.log.save"));
         JButton copyBtn = Buttons.snug(I18n.get("tool.socketdebug.log.copy"));
 
-        add(Layouts.wrapRow(Tokens.SPACE_SM, Tokens.SPACE_XS,
-                Fields.label(I18n.get("tool.socketdebug.log.display")), displayCombo, hexDumpCheck,
-                charsetCombo, timeCheck, autoScrollCheck,
-                Fields.label(I18n.get("tool.socketdebug.log.maxEntries")), maxEntriesSpinner,
-                pauseToggle, clearBtn, saveBtn, copyBtn), BorderLayout.NORTH);
+        displayCombo.setToolTipText(I18n.get("tool.socketdebug.log.display"));
+        JPopupMenu options = new JPopupMenu();
+        JPanel preferences = Layouts.stack(Tokens.SPACE_SM, hexDumpCheck, timeCheck, autoScrollCheck,
+                Layouts.wrapRow(Fields.label(I18n.get("tool.socketdebug.log.maxEntries")), maxEntriesSpinner),
+                Layouts.wrapRow(saveBtn, copyBtn));
+        preferences.setBorder(BorderFactory.createEmptyBorder(Tokens.SPACE_SM, Tokens.SPACE_SM, Tokens.SPACE_SM, Tokens.SPACE_SM));
+        options.add(preferences);
+        JButton more = Buttons.snug(I18n.get("ui.actions.more"));
+        more.addActionListener(e -> options.show(more, 0, more.getHeight()));
+        add(Layouts.wrapRow(Tokens.SPACE_XS, Tokens.SPACE_XS,
+                displayCombo, charsetCombo, pauseToggle, clearBtn, more), BorderLayout.NORTH);
         add(Fields.scroll(pane), BorderLayout.CENTER);
 
         displayCombo.addActionListener(e -> rerender());

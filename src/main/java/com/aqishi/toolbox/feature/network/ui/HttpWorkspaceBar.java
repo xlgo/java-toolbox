@@ -20,6 +20,8 @@ final class HttpWorkspaceBar extends JPanel implements AutoCloseable {
     private final JComboBox<Request> saved = new JComboBox<>();
     private final JComboBox<String> environment = new JComboBox<>();
     private final JLabel status = Fields.caption("");
+    private JButton loadButton, saveButton, environmentButton, unlockButton, moreButton;
+    private JMenuItem deleteItem, historyItem;
     private boolean closed;
     private final SecretStore.Listener listener = state -> SwingUtilities.invokeLater(this::refresh);
 
@@ -27,19 +29,56 @@ final class HttpWorkspaceBar extends JPanel implements AutoCloseable {
         super(new BorderLayout(0, Tokens.SPACE_XS));
         setOpaque(false);
         this.store = new HttpWorkspaceStore(secrets); this.capture = capture; this.apply = apply;
-        JPanel row = Layouts.wrapRow(Tokens.SPACE_XS, Tokens.SPACE_XS); row.setOpaque(false);
-        saved.setPreferredSize(new Dimension(170, Tokens.CONTROL_HEIGHT));
-        environment.setPreferredSize(new Dimension(120, Tokens.CONTROL_HEIGHT));
-        row.add(saved); row.add(button("load", () -> { if (saved.getSelectedItem() instanceof Request r) apply.accept(r); }));
-        row.add(button("save", this::save)); row.add(button("delete", this::delete));
-        row.add(button("history", this::history)); row.add(environment);
-        row.add(button("environment", this::editEnvironment)); row.add(button("preview", this::preview));
-        row.add(button("unlock", this::unlock));
-        add(row, BorderLayout.CENTER); add(status, BorderLayout.SOUTH);
+        saved.setMinimumSize(new Dimension(100, Tokens.CONTROL_HEIGHT));
+        environment.setMinimumSize(new Dimension(100, Tokens.CONTROL_HEIGHT));
+        saved.setToolTipText(I18n.get("ui.http.collectionHint"));
+        loadButton = button("load", () -> { if (saved.getSelectedItem() instanceof Request r) apply.accept(r); });
+        saveButton = button("save", this::save);
+        moreButton = Buttons.snug(I18n.get("ui.actions.more"));
+        JPopupMenu menu = new JPopupMenu();
+        historyItem = menuItem("history", this::history); deleteItem = menuItem("delete", this::delete);
+        menu.add(historyItem); menu.addSeparator(); menu.add(deleteItem);
+        moreButton.addActionListener(e -> menu.show(moreButton, 0, moreButton.getHeight()));
+        environmentButton = button("environment", this::editEnvironment);
+        unlockButton = button("unlock", this::unlock);
+        JPanel collection = selectorRow(I18n.get("ui.http.collection"), saved, loadButton, saveButton, moreButton);
+        JPanel environments = selectorRow(I18n.get("ui.http.environment"), environment, environmentButton, button("preview", this::preview));
+        JPanel footer = Layouts.box(Tokens.SPACE_SM, 0);
+        status.setMinimumSize(new Dimension(80, Tokens.CONTROL_HEIGHT));
+        footer.add(status, BorderLayout.CENTER); footer.add(unlockButton, BorderLayout.EAST);
+        add(Layouts.stack(Tokens.SPACE_XS, collection, environments), BorderLayout.CENTER);
+        add(footer, BorderLayout.SOUTH);
+        saved.addActionListener(e -> updateActions());
         secrets.addListener(listener); refresh();
+    }
+    private JPanel selectorRow(String text, JComboBox<?> combo, JButton... buttons) {
+        JLabel label = Fields.label(text); label.setLabelFor(combo);
+        JPanel row = Layouts.box(Tokens.SPACE_SM, 0);
+        row.add(label, BorderLayout.WEST); row.add(combo, BorderLayout.CENTER);
+        row.add(Layouts.wrapRow(Tokens.SPACE_XS, 0, buttons), BorderLayout.EAST);
+        return row;
+    }
+    private JMenuItem menuItem(String key, Runnable action) {
+        JMenuItem item = new JMenuItem(I18n.get("http.workspace." + key));
+        item.addActionListener(e -> { try { action.run(); } catch (Exception error) { showError(error); } });
+        return item;
+    }
+    private void updateActions() {
+        if (loadButton == null) return;
+        boolean unlocked = store.secrets().status() == SecretStore.Status.UNLOCKED;
+        loadButton.setEnabled(unlocked && saved.getSelectedItem() != null);
+        deleteItem.setEnabled(loadButton.isEnabled());
+        saveButton.setEnabled(unlocked); environmentButton.setEnabled(unlocked);
+        saved.setEnabled(unlocked && saved.getItemCount() > 0); environment.setEnabled(unlocked);
+        moreButton.setEnabled(unlocked);
+        unlockButton.setVisible(store.secrets().status() == SecretStore.Status.LOCKED);
+        status.setToolTipText(I18n.get(unlocked ? "http.workspace.encrypted" : "http.workspace.unlockRequired"));
+        saveButton.setToolTipText(unlocked ? null : I18n.get("http.workspace.unlockRequired"));
     }
     private JButton button(String key, Runnable action) {
         JButton button = Buttons.secondary(I18n.get("http.workspace." + key));
+        Dimension natural = button.getPreferredSize();
+        button.setPreferredSize(new Dimension(Math.max(84, natural.width + 8), natural.height));
         button.addActionListener(e -> { try { action.run(); } catch (Exception error) { showError(error); } });
         return button;
     }
@@ -75,7 +114,8 @@ final class HttpWorkspaceBar extends JPanel implements AutoCloseable {
         String name = saved.getSelectedItem() instanceof Request r ? r.name() : "";
         String env = (String) environment.getSelectedItem();
         saved.removeAllItems(); environment.removeAllItems(); environment.addItem(I18n.get("http.workspace.noEnvironment"));
-        status.setText(I18n.get("http.workspace.unlockRequired"));
+        status.setText(I18n.get(store.secrets().status() == SecretStore.Status.LOCKED ? "ui.http.locked" : "ui.http.noVault"));
+        updateActions();
         if (store.secrets().status() != SecretStore.Status.UNLOCKED) return;
         try {
             Document doc = store.load();
@@ -83,14 +123,16 @@ final class HttpWorkspaceBar extends JPanel implements AutoCloseable {
             for (int i = 0; i < saved.getItemCount(); i++) if (saved.getItemAt(i).name().equals(name)) saved.setSelectedIndex(i);
             doc.environments().forEach(e -> environment.addItem(e.name()));
             if (doc.environments().stream().anyMatch(e -> e.name().equals(env))) environment.setSelectedItem(env);
-            status.setText(I18n.get("http.workspace.encrypted"));
+            historyItem.setEnabled(!doc.history().isEmpty());
+            status.setText(I18n.get("ui.http.savedStatus", doc.requests().size(), doc.environments().size()));
         } catch (Exception error) { status.setText(Errors.describeRoot(error)); }
+        updateActions();
     }
     private void save() {
         store.load();
         Request request = capture.get();
         JTextField name = Fields.text(request.name()); JCheckBox favorite = Fields.check(I18n.get("http.workspace.favorite"), request.favorite());
-        JPanel form = new JPanel(new GridLayout(0, 1, 4, 4)); form.add(name); form.add(favorite);
+        FormGrid form = new FormGrid(); form.row(I18n.get("ui.http.requestName"), name); form.fullRow(favorite);
         if (JOptionPane.showConfirmDialog(this, form, I18n.get("http.workspace.save"), JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
         String label = name.getText().trim();
         if (store.load().requests().stream().anyMatch(r -> r.name().equals(label)) && !confirm("overwrite")) return;
@@ -126,12 +168,32 @@ final class HttpWorkspaceBar extends JPanel implements AutoCloseable {
         };
         if (old != null) old.variables().forEach((k,v) -> model.addRow(new Object[]{k,v.value(),v.secret()}));
         JTable table = new JTable(model);
-        JButton add = Buttons.secondary("+"); add.addActionListener(e -> model.addRow(new Object[]{"", "", false}));
-        JButton remove = Buttons.secondary("−"); remove.addActionListener(e -> { int i=table.getSelectedRow(); if(i>=0) model.removeRow(i); });
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT)); buttons.add(add); buttons.add(remove);
-        JPanel form = new JPanel(new BorderLayout(4,4)); form.add(name,BorderLayout.NORTH); form.add(new JScrollPane(table)); form.add(buttons,BorderLayout.SOUTH);
-        form.setPreferredSize(new Dimension(570,300));
-        Object[] actions = {I18n.get("http.workspace.save"), I18n.get("http.workspace.delete"), I18n.get("vault.cancel")};
+        table.setRowHeight(Tokens.CONTROL_HEIGHT); table.setFillsViewportHeight(true);
+        table.putClientProperty("terminateEditOnFocusLost", Boolean.TRUE);
+        table.getTableHeader().setReorderingAllowed(false);
+        table.getColumnModel().getColumn(0).setPreferredWidth(160);
+        table.getColumnModel().getColumn(1).setPreferredWidth(250);
+        table.getColumnModel().getColumn(2).setPreferredWidth(145);
+        JCheckBox reveal = Fields.check(I18n.get("ui.http.reveal"), false);
+        table.getColumnModel().getColumn(1).setCellRenderer(new javax.swing.table.DefaultTableCellRenderer() {
+            @Override public Component getTableCellRendererComponent(JTable t, Object value, boolean selected, boolean focus, int row, int col) {
+                Object shown = !reveal.isSelected() && Boolean.TRUE.equals(model.getValueAt(row, 2)) ? "••••••" : value;
+                return super.getTableCellRendererComponent(t, shown, selected, focus, row, col);
+            }
+        });
+        reveal.addActionListener(e -> table.repaint());
+        JButton add = Buttons.snug(I18n.get("ui.http.addVariable"));
+        add.addActionListener(e -> { model.addRow(new Object[]{"", "", false}); int row = model.getRowCount()-1; table.setRowSelectionInterval(row,row); table.editCellAt(row,0); table.getEditorComponent().requestFocusInWindow(); });
+        JButton remove = Buttons.snug(I18n.get("ui.http.removeVariable")); remove.setEnabled(false);
+        table.getSelectionModel().addListSelectionListener(e -> remove.setEnabled(table.getSelectedRow() >= 0));
+        remove.addActionListener(e -> { if (table.isEditing()) table.getCellEditor().cancelCellEditing(); int i=table.getSelectedRow(); if(i>=0) model.removeRow(i); });
+        JPanel buttons = Layouts.wrapRow(add, remove, reveal);
+        JPanel form = Layouts.box(0, Tokens.SPACE_SM);
+        FormGrid heading = new FormGrid(); heading.row(I18n.get("ui.http.environmentName"),name);
+        form.add(heading,BorderLayout.NORTH); form.add(Fields.scrollBoxed(table));
+        form.add(Layouts.stack(Tokens.SPACE_XS, buttons, Fields.note(I18n.get("ui.http.variableHint"))),BorderLayout.SOUTH);
+        form.setPreferredSize(new Dimension(600,330));
+        Object[] actions = {I18n.get("ui.http.saveEnvironment"), I18n.get("http.workspace.delete"), I18n.get("vault.cancel")};
         int choice = JOptionPane.showOptionDialog(this, form, I18n.get("http.workspace.environment"), JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, actions, actions[0]);
         if (choice == 1 && old != null && confirm("deleteConfirm")) { write(d -> d.deleteEnvironment(old.name())); return; }
         if (choice != 0) return;

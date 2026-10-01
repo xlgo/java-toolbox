@@ -66,20 +66,20 @@ final class SocketSendBox extends JPanel {
         setOpaque(false);
         this.sink = sink;
 
-        formatCombo = Fields.combo(new String[]{"TEXT", "HEX"});
-        charsetCombo = Fields.combo(PayloadCodec.CHARSETS.toArray(new String[0]));
+        formatCombo = Fields.combo(new String[]{"TEXT", "HEX"}, 78);
+        charsetCombo = Fields.combo(PayloadCodec.CHARSETS.toArray(new String[0]), 115);
         escapesCheck = Fields.check(I18n.get("tool.socketdebug.send.escapes"), false);
         escapesCheck.setToolTipText(I18n.get("tool.socketdebug.send.escapes.tip"));
         String[] endings = new String[PayloadLineEnding.values().length];
         for (PayloadLineEnding ending : PayloadLineEnding.values()) {
             endings[ending.ordinal()] = SocketUiText.lineEnding(ending);
         }
-        lineEndingCombo = Fields.combo(endings);
+        lineEndingCombo = Fields.combo(endings, 115);
         String[] checksums = new String[PayloadChecksum.values().length];
         for (PayloadChecksum checksum : PayloadChecksum.values()) {
             checksums[checksum.ordinal()] = SocketUiText.checksum(checksum);
         }
-        checksumCombo = Fields.combo(checksums);
+        checksumCombo = Fields.combo(checksums, 145);
         previewLabel = Fields.caption("");
 
         input = Fields.area(4, 30);
@@ -98,14 +98,17 @@ final class SocketSendBox extends JPanel {
                 Fields.label(I18n.get("tool.socketdebug.send.lineEnding")), lineEndingCombo,
                 Fields.label(I18n.get("tool.socketdebug.send.checksum")), checksumCombo, previewLabel),
                 BorderLayout.NORTH);
-        add(Fields.scroll(input), BorderLayout.CENTER);
+        JScrollPane editor = Fields.scrollBoxed(input);
+        editor.setPreferredSize(new Dimension(0, 90));
+        editor.setMinimumSize(new Dimension(0, 70));
+        add(editor, BorderLayout.CENTER);
 
         JPanel south = new JPanel(new BorderLayout(0, Tokens.SPACE_XS));
         south.setOpaque(false);
         south.add(Layouts.wrapRow(Tokens.SPACE_SM, Tokens.SPACE_XS,
                 autoSendCheck, Fields.label(I18n.get("tool.socketdebug.send.interval")), intervalSpinner,
                 Fields.label(I18n.get("tool.socketdebug.send.count")), countSpinner,
-                clearAfterSendCheck, historyBtn, sendBtn), BorderLayout.NORTH);
+                clearAfterSendCheck, historyBtn), BorderLayout.NORTH);
         if (fileBar != null) {
             south.add(fileBar, BorderLayout.SOUTH);
         }
@@ -134,6 +137,9 @@ final class SocketSendBox extends JPanel {
         });
         updatePreview();
     }
+
+    /** The parent card keeps Send visible while the options and payload area scroll. */
+    JButton sendButton() { return sendBtn; }
 
     /** Ctrl+Enter 发送；单行内容时上下键翻历史，多行时用 Ctrl+上/下。 */
     private void installKeys() {

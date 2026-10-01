@@ -134,13 +134,31 @@ final class SocketConnectionForm extends JPanel {
 
     private JPanel frameRow() {
         lengthWidth.setSelectedItem(2);
+        frameCombo.setPreferredSize(new Dimension(165, Tokens.CONTROL_HEIGHT));
+        lengthWidth.setPreferredSize(new Dimension(66, Tokens.CONTROL_HEIGHT));
+        lengthOrder.setPreferredSize(new Dimension(116, Tokens.CONTROL_HEIGHT));
         JPanel panel = new JPanel(new java.awt.BorderLayout(0, Tokens.SPACE_XS)); panel.setOpaque(false);
         panel.add(row(label("tool.socketdebug.frame.mode"), frameCombo, frameParamField, keepDelimiterCheck), java.awt.BorderLayout.NORTH);
-        lengthFields = row(label("tool.socketdebug.frame.offset"), lengthOffset, label("tool.socketdebug.frame.width"), lengthWidth,
-                lengthOrder, label("tool.socketdebug.frame.headerSize"), headerSize, label("tool.socketdebug.frame.limit"), frameLimit,
-                lengthIncludesHeader, stripHeader);
+        for (JSpinner spinner : List.of(lengthOffset, headerSize, frameLimit)) {
+            spinner.setEditor(new JSpinner.NumberEditor(spinner, "#"));
+            spinner.setPreferredSize(new Dimension(92, Tokens.CONTROL_HEIGHT));
+        }
+        lengthFields = Layouts.stack(Tokens.SPACE_XS,
+                row(pair("tool.socketdebug.frame.offset", lengthOffset), pair("tool.socketdebug.frame.width", lengthWidth), lengthOrder,
+                        pair("tool.socketdebug.frame.headerSize", headerSize), pair("tool.socketdebug.frame.limit", frameLimit)),
+                row(lengthIncludesHeader, stripHeader));
+        lengthFields.setBorder(BorderFactory.createCompoundBorder(
+                com.aqishi.toolbox.ui.kit.KitBorders.lineSubtle(1, 0, 0, 0),
+                BorderFactory.createEmptyBorder(Tokens.SPACE_SM, 0, 0, 0)));
+        lengthFields.setToolTipText(I18n.get("ui.socket.lengthHint"));
         panel.add(lengthFields); lengthFields.setVisible(false);
         return panel;
+    }
+
+    private static JPanel pair(String key, Component field) {
+        JPanel group = Layouts.box(Tokens.SPACE_XS, 0);
+        group.add(label(key), BorderLayout.WEST); group.add(field, BorderLayout.CENTER);
+        return group;
     }
 
     private static JPanel row(Component... children) {
@@ -161,6 +179,8 @@ final class SocketConnectionForm extends JPanel {
     private void syncFrameFields() {
         int mode = frameCombo.getSelectedIndex();
         frameParamField.setEnabled(mode != 0 && mode != 4);
+        frameParamField.setVisible(mode != 0 && mode != 4);
+        keepDelimiterCheck.setVisible(mode == 1);
         if (lengthFields != null) { lengthFields.setVisible(mode == 4); lengthFields.getParent().revalidate(); }
         keepDelimiterCheck.setEnabled(mode == 1);
         if (mode == 1 && !looksLikeDelimiter(frameParamField.getText())) {

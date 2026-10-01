@@ -149,18 +149,15 @@ public final class Fields {
             super(null);
             this.plainText = text == null ? "" : text;
             setVerticalAlignment(javax.swing.SwingConstants.TOP);
-            setText(html(Integer.MAX_VALUE));
+            setText(html());
         }
 
-        private String html(int width) {
+        private String html() {
             String escaped = plainText
                     .replace("&", "&amp;")
                     .replace("<", "&lt;")
                     .replace(">", "&gt;");
-            if (width == Integer.MAX_VALUE) {
-                return "<html>" + escaped + "</html>";
-            }
-            return "<html><div style='width:" + Math.max(width, 40) + "px'>" + escaped + "</div></html>";
+            return "<html>" + escaped.replace("\n", "<br>") + "</html>";
         }
 
         @Override
@@ -170,9 +167,11 @@ public final class Fields {
                 return super.getPreferredSize();
             }
             java.awt.Insets insets = getInsets();
-            setText(html(width - insets.left - insets.right));
-            Dimension preferred = super.getPreferredSize();
-            return new Dimension(width, preferred.height);
+            // Swing's HTML renderer does not reliably wrap a CSS-width div. Size the view itself.
+            javax.swing.text.View html = (javax.swing.text.View) getClientProperty(javax.swing.plaf.basic.BasicHTML.propertyKey);
+            if (html == null) return super.getPreferredSize();
+            html.setSize(Math.max(40, width - insets.left - insets.right), 0);
+            return new Dimension(width, (int) Math.ceil(html.getPreferredSpan(javax.swing.text.View.Y_AXIS)) + insets.top + insets.bottom);
         }
 
         @Override

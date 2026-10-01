@@ -95,27 +95,34 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
         methodBox = Fields.combo(new String[]{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}, 96);
         urlField = Fields.mono("https://httpbin.org/get");
 
-        sendBtn = Buttons.primary("发送请求");
+        sendBtn = Buttons.primary(I18n.get("ui.http.send"));
+        sendBtn.setToolTipText(I18n.get("ui.http.sendHint"));
         sendBtn.addActionListener(e -> sendRequest());
         cancelBtn = Buttons.secondary(I18n.get("tool.openapi.btn.cancel"));
         cancelBtn.setEnabled(false);
         cancelBtn.addActionListener(e -> { if (requestWorker != null) requestWorker.cancel(true); });
 
-        JButton importCurlBtn = Buttons.secondary("导入 cURL");
+        JMenuItem importCurlBtn = new JMenuItem(I18n.get("ui.http.importCurl"));
         importCurlBtn.addActionListener(e -> importCurl());
 
-        JButton exportCurlBtn = Buttons.secondary("复制 cURL");
+        JMenuItem exportCurlBtn = new JMenuItem(I18n.get("ui.http.exportCurl"));
         exportCurlBtn.addActionListener(e -> exportCurl());
 
-        browseBtn = Buttons.secondary("在浏览器中打开");
+        browseBtn = Buttons.secondary(I18n.get("ui.http.browser"));
         browseBtn.addActionListener(e -> openInBrowser());
+        JPopupMenu requestMenu = new JPopupMenu();
+        requestMenu.add(importCurlBtn); requestMenu.add(exportCurlBtn); requestMenu.addSeparator();
+        JMenuItem browserItem = new JMenuItem(browseBtn.getText());
+        browserItem.addActionListener(e -> browseBtn.doClick()); requestMenu.add(browserItem);
+        JButton more = Buttons.snug(I18n.get("ui.actions.more"));
+        more.addActionListener(e -> requestMenu.show(more, 0, more.getHeight()));
 
         // 方法下拉定宽靠左，URL 放 CENTER 才能随窗口一起拉伸
         JPanel urlRow = Layouts.box(Tokens.SPACE_SM, 0);
         urlRow.add(methodBox, BorderLayout.WEST);
         urlRow.add(urlField, BorderLayout.CENTER);
 
-        useSshCheck = Fields.check("启用 SSH 隧道", false);
+        useSshCheck = Fields.check(I18n.get("ui.http.ssh"), false);
         List<SshConnectionConfig> sshList = SshConfigStore.getInstance().getAll();
         sshCombo = Fields.combo(sshList.toArray(new SshConnectionConfig[0]));
         sshCombo.setEnabled(false);
@@ -130,25 +137,23 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
 
         JTabbedPane reqTabs = new JTabbedPane();
         reqTabs.setBorder(null);
-        reqHeadersArea = Fields.area(5, 40);
+        reqHeadersArea = Fields.area(3, 40);
         reqHeadersArea.setText("Content-Type: application/json\nUser-Agent: JavaToolbox/1.2\nAccept: */*");
-        reqTabs.addTab("请求头 (Headers)", Fields.scroll(reqHeadersArea));
+        reqTabs.addTab(I18n.get("ui.http.requestHeaders"), Fields.scroll(reqHeadersArea));
 
-        reqBodyArea = Fields.area(5, 40);
+        reqBodyArea = Fields.area(3, 40);
         reqBodyArea.setText("{\n  \"name\": \"toolbox\",\n  \"value\": \"hello\"\n}");
         reqBodyArea.setEnabled(false); // 默认GET，禁用请求体
-        reqTabs.addTab("请求体 (Body)", Fields.scroll(reqBodyArea));
+        reqTabs.addTab(I18n.get("ui.http.requestBody"), Fields.scroll(reqBodyArea));
 
         JPanel reqBody = Layouts.box(0, Tokens.SPACE_MD);
         reqBody.add(urlRow, BorderLayout.NORTH);
         reqBody.add(reqTabs, BorderLayout.CENTER);
         reqBody.add(sshRow, BorderLayout.SOUTH);
 
-        Card requestCard = Card.titled("请求配置");
+        Card requestCard = Card.titled(I18n.get("ui.http.request"));
         requestCard.setContent(reqBody);
-        requestCard.addHeaderAction(importCurlBtn);
-        requestCard.addHeaderAction(exportCurlBtn);
-        requestCard.addHeaderAction(browseBtn);
+        requestCard.addHeaderAction(more);
         requestCard.addHeaderAction(cancelBtn);
         requestCard.addHeaderAction(sendBtn);
 
@@ -162,31 +167,40 @@ public class HttpTestPanel extends ToolPanel implements ManagedResourceOwner {
         reqBody.add(requestTop, BorderLayout.NORTH);
 
         // ===== 响应卡片：放 CENTER 吸收剩余高度，状态行贴在结果上方 =====
-        statusLabel = new JLabel("就绪");
+        statusLabel = new JLabel(I18n.get("ui.http.ready"));
         statusLabel.setFont(Tokens.fontBody());
 
-        copyRespBtn = Buttons.ghost("复制响应");
+        copyRespBtn = Buttons.ghost(I18n.get("ui.http.copyResponse"));
         copyRespBtn.setEnabled(false);
         copyRespBtn.addActionListener(e -> UIUtils.copyToClipboard(respBodyArea.getText()));
 
         JTabbedPane respTabs = new JTabbedPane();
         respTabs.setBorder(null);
         respBodyArea = Fields.output(10, 40);
-        respTabs.addTab("响应体 (Body)", Fields.scroll(respBodyArea));
+        respTabs.addTab(I18n.get("ui.http.responseBody"), Fields.scroll(respBodyArea));
 
         respHeadersArea = Fields.output(10, 40);
-        respTabs.addTab("响应头 (Headers)", Fields.scroll(respHeadersArea));
+        respTabs.addTab(I18n.get("ui.http.responseHeaders"), Fields.scroll(respHeadersArea));
 
         JPanel respBody = Layouts.box(0, Tokens.SPACE_SM);
         respBody.add(statusLabel, BorderLayout.NORTH);
         respBody.add(respTabs, BorderLayout.CENTER);
 
-        Card responseCard = Card.titled("响应");
+        Card responseCard = Card.titled(I18n.get("ui.http.response"));
         responseCard.setContent(respBody);
         responseCard.addHeaderAction(copyRespBtn);
 
-        root.add(requestCard, BorderLayout.NORTH);
-        root.add(responseCard, BorderLayout.CENTER);
+        JScrollPane requestScroll = Fields.scrollVertical(requestCard);
+        requestScroll.setMinimumSize(new Dimension(0, 210));
+        responseCard.setMinimumSize(new Dimension(0, 160));
+        root.add(Layouts.splitVertical(requestScroll, responseCard, 0.55, 0.60), BorderLayout.CENTER);
+        root.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+                .put(KeyStroke.getKeyStroke("ctrl ENTER"), "sendRequest");
+        root.getActionMap().put("sendRequest", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent event) {
+                if (sendBtn.isEnabled()) sendBtn.doClick();
+            }
+        });
         workspaceSecrets.addListener(workspaceLockListener);
         return root;
     }

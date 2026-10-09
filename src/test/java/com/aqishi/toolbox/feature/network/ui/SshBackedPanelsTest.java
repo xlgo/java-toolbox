@@ -2,6 +2,8 @@ package com.aqishi.toolbox.feature.network.ui;
 
 import com.aqishi.toolbox.feature.data.ui.KafkaPanel;
 import com.aqishi.toolbox.feature.data.ui.ZooKeeperPanel;
+import com.aqishi.toolbox.infra.secrets.InMemoryPreferences;
+import com.aqishi.toolbox.infra.secrets.SecretStore;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.SwingUtilities;
@@ -44,7 +46,7 @@ class SshBackedPanelsTest {
         AtomicReference<Throwable> failure = new AtomicReference<>();
         SwingUtilities.invokeAndWait(() -> {
             try {
-                KafkaPanel kafka = new KafkaPanel();
+                KafkaPanel kafka = new KafkaPanel(SecretStore.disabled(), new InMemoryPreferences());
                 assertNotNull(kafka.getView());
                 assertEquals("127.0.0.1:9093", getField(kafka, "serversField", JTextField.class).getText());
                 assertFalse(getField(kafka, "useSshCheck", JCheckBox.class).isSelected());

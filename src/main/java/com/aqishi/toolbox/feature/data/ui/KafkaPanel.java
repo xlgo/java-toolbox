@@ -3,6 +3,7 @@ package com.aqishi.toolbox.feature.data.ui;
 import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.Hex;
+import com.aqishi.toolbox.util.SearchMatcher;
 
 import com.aqishi.toolbox.feature.codec.ui.JsonPanel;
 import com.aqishi.toolbox.feature.codec.ui.XmlPanel;
@@ -75,8 +76,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
     private JButton delProfileBtn;
-    private final KafkaProfileStore profileStore = new KafkaProfileStore(
-            java.util.prefs.Preferences.userNodeForPackage(KafkaPanel.class));
+    private final KafkaProfileStore profileStore;
     /** Owns the live profile map; credential property lines live in the vault. */
     private final ProfileSecretManager<KafkaProfile> secretManager;
     private final ProfileSecretUi<KafkaProfile> secretUi;
@@ -168,12 +168,17 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     private JLabel produceStatusLabel;
 
     // Tab 4: Topic Subscribers
+    private static final int TAB_SUBSCRIBERS = 3;
     private JTable subscriberGroupTable;
     private DefaultTableModel subscriberGroupTableModel;
     private JTable subscriberMemberTable;
     private DefaultTableModel subscriberMemberTableModel;
     private JLabel subscribersStatusLabel;
     private final Map<String, List<MemberDescription>> groupTopicActiveMembers = new HashMap<>();
+    private String selectedTopic = null;
+    private String loadedSubscriberTopic = null;
+    private SwingWorker<KafkaSubscriberAnalysis.Result, Void> subscribersWorker = null;
+    private SwingWorker<List<Integer>, Void> partitionsWorker = null;
 
     // Tab 5: Logging / Console Tab
     private JTextArea consoleOutput;
@@ -184,7 +189,12 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
 
     /** @param secrets vault-backed store for credential properties; {@link SecretStore#disabled()} keeps none */
     public KafkaPanel(SecretStore secrets) {
+        this(secrets, java.util.prefs.Preferences.userNodeForPackage(KafkaPanel.class));
+    }
+
+    public KafkaPanel(SecretStore secrets, java.util.prefs.Preferences preferences) {
         super(ToolCatalog.KAFKA_CONNECTOR);
+        this.profileStore = new KafkaProfileStore(preferences);
         secretManager = new ProfileSecretManager<>(KafkaProfileStore.SECRET_NAMESPACE,
                 profileStore, secrets, SwingUtilities::invokeLater);
         profiles = secretManager.profiles();
@@ -385,6 +395,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         leftTabbedPane.setBorder(null);
 
         topicSearchField = Fields.text("", "过滤主题...");
+        topicSearchField.setToolTipText(I18n.get("tool.kafka.filter.topic.tooltip"));
         refreshTopicsBtn = Buttons.secondary("刷新");
         topicListModel = new DefaultListModel<>();
         topicList = new JList<>(topicListModel);
@@ -392,6 +403,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         leftTabbedPane.addTab("主题 (Topics)", listTab(topicSearchField, refreshTopicsBtn, topicList));
 
         groupSearchField = Fields.text("", "过滤消费组...");
+        groupSearchField.setToolTipText(I18n.get("tool.kafka.filter.group.tooltip"));
         refreshGroupsBtn = Buttons.secondary("刷新");
         groupListModel = new DefaultListModel<>();
         groupList = new JList<>(groupListModel);
@@ -632,6 +644,13 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         subscriberGroupTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         Card groupCard = Card.flush("订阅了该主题的消费组");
         groupCard.setContent(Fields.scroll(subscriberGroupTable));
+        JButton refreshSubscribersBtn = Buttons.secondary(I18n.get("tool.kafka.subscribers.refresh"));
+        refreshSubscribersBtn.addActionListener(e -> {
+            if (selectedTopic != null && !selectedTopic.isEmpty()) {
+                loadTopicSubscribers(selectedTopic);
+            }
+        });
+        groupCard.addHeaderAction(refreshSubscribersBtn);
 
         subscriberMemberTableModel = new DefaultTableModel(new String[]{"消费者成员 ID", "客户端 ID (ClientId)", "主机 (Host)", "分配的分区"}, 0) {
             @Override
@@ -639,7 +658,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         };
         subscriberMemberTable = new JTable(subscriberMemberTableModel);
         subscriberMemberTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        subscribersStatusLabel = statusLabel("在左侧选择主题以查询订阅者详情。");
+        subscribersStatusLabel = statusLabel(I18n.get("tool.kafka.subscribers.hint"));
         Card memberCard = Card.flush("选中消费组的活跃消费者成员 (分配了该主题分区)");
         memberCard.setContent(Fields.scroll(subscriberMemberTable));
         memberCard.setFooter(subscribersStatusLabel);
@@ -745,6 +764,19 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
             String group = groupList.getSelectedValue();
             if (group != null) {
                 onGroupSelected(group);
+            }
+        });
+
+        // Tab Switch Listener: 切换到主题订阅者时按需懒加载
+        rightTabbedPane.addChangeListener(e -> {
+            if (rightTabbedPane.getSelectedIndex() == TAB_SUBSCRIBERS) {
+                if (selectedTopic != null && !selectedTopic.isEmpty()) {
+                    if (!selectedTopic.equals(loadedSubscriberTopic)) {
+                        loadTopicSubscribers(selectedTopic);
+                    }
+                } else {
+                    subscribersStatusLabel.setText(I18n.get("tool.kafka.subscribers.hint"));
+                }
             }
         });
 
@@ -1125,10 +1157,10 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void filterGroups() {
-        String filter = groupSearchField.getText().trim().toLowerCase();
+        SearchMatcher matcher = SearchMatcher.of(groupSearchField.getText());
         groupListModel.clear();
         for (String g : allGroupsList) {
-            if (filter.isEmpty() || g.toLowerCase().contains(filter)) {
+            if (matcher.test(g)) {
                 groupListModel.addElement(g);
             }
         }
@@ -1654,6 +1686,14 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         subscriberMemberTableModel.setRowCount(0);
         subscribersStatusLabel.setText("连接断开。");
         groupTopicActiveMembers.clear();
+
+        cancelSubscribersWorker();
+        if (partitionsWorker != null && !partitionsWorker.isDone()) {
+            partitionsWorker.cancel(true);
+        }
+        partitionsWorker = null;
+        selectedTopic = null;
+        loadedSubscriberTopic = null;
     }
 
     /**
@@ -1662,6 +1702,11 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
      */
     @Override
     public void closeResources() {
+        cancelSubscribersWorker();
+        if (partitionsWorker != null && !partitionsWorker.isDone()) {
+            partitionsWorker.cancel(true);
+        }
+        partitionsWorker = null;
         KafkaResource resource = adminResource;
         adminResource = null;
         adminClient = null;
@@ -1696,10 +1741,10 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void filterTopics() {
-        String filter = topicSearchField.getText().trim().toLowerCase();
+        SearchMatcher matcher = SearchMatcher.of(topicSearchField.getText());
         topicListModel.clear();
         for (String topic : allTopicsList) {
-            if (filter.isEmpty() || topic.toLowerCase().contains(filter)) {
+            if (matcher.test(topic)) {
                 topicListModel.addElement(topic);
             }
         }
@@ -1731,23 +1776,29 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void onTopicSelected(String topicName) {
-        rightTabbedPane.setSelectedIndex(1); // Switch to Message Viewer
+        this.selectedTopic = topicName;
+        if (rightTabbedPane.getSelectedIndex() == 0) {
+            rightTabbedPane.setSelectedIndex(1);
+        }
         fetchStatusLabel.setText("当前选定主题: " + topicName);
         produceStatusLabel.setText("发布至主题: " + topicName);
-        subscribersStatusLabel.setText("正在查询主题 '" + topicName + "' 的订阅者...");
-        subscriberGroupTableModel.setRowCount(0);
-        subscriberMemberTableModel.setRowCount(0);
-        groupTopicActiveMembers.clear();
 
         // Load partitions into partitionCombo
-        new SwingWorker<List<Integer>, Void>() {
+        if (partitionsWorker != null && !partitionsWorker.isDone()) {
+            partitionsWorker.cancel(true);
+        }
+        final String targetTopic = topicName;
+        partitionsWorker = new SwingWorker<List<Integer>, Void>() {
             @Override
             protected List<Integer> doInBackground() throws Exception {
-                return browserService.partitionsOf(topicName);
+                return browserService.partitionsOf(targetTopic);
             }
 
             @Override
             protected void done() {
+                if (isCancelled() || !targetTopic.equals(selectedTopic)) {
+                    return;
+                }
                 try {
                     List<Integer> list = get();
                     partitionCombo.removeAllItems();
@@ -1755,13 +1806,27 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                     for (Integer p : list) {
                         partitionCombo.addItem(String.valueOf(p));
                     }
+                } catch (java.util.concurrent.CancellationException ignored) {
                 } catch (Exception ex) {
-                    consoleLog("获取主题分区失败: " + ex.getMessage());
+                    if (targetTopic.equals(selectedTopic)) {
+                        consoleLog("获取主题分区失败: " + ex.getMessage());
+                    }
                 }
             }
-        }.execute();
+        };
+        partitionsWorker.execute();
 
-        loadTopicSubscribers(topicName);
+        // 主题订阅者：按需懒加载。若当前停留在“主题订阅者”页签，则立即加载；否则取消前序任务并重置状态，等待切页时加载
+        if (rightTabbedPane.getSelectedIndex() == TAB_SUBSCRIBERS) {
+            loadTopicSubscribers(topicName);
+        } else {
+            cancelSubscribersWorker();
+            loadedSubscriberTopic = null;
+            subscriberGroupTableModel.setRowCount(0);
+            subscriberMemberTableModel.setRowCount(0);
+            groupTopicActiveMembers.clear();
+            subscribersStatusLabel.setText(I18n.get("tool.kafka.subscribers.hint"));
+        }
     }
 
     private void onGroupSelected(String groupId) {
@@ -2004,19 +2069,44 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         ignoreProfileEvents = false;
     }
 
-    private void loadTopicSubscribers(String topicName) {
-        if (!isConnected || adminClient == null) return;
+    private void cancelSubscribersWorker() {
+        if (subscribersWorker != null && !subscribersWorker.isDone()) {
+            subscribersWorker.cancel(true);
+        }
+        subscribersWorker = null;
+    }
 
-        new SwingWorker<KafkaSubscriberAnalysis.Result, Void>() {
+    private void loadTopicSubscribers(String topicName) {
+        if (!isConnected || adminClient == null || topicName == null || topicName.isEmpty()) return;
+
+        cancelSubscribersWorker();
+
+        final String targetTopic = topicName;
+        subscribersStatusLabel.setText("正在查询主题 '" + targetTopic + "' 的订阅者...");
+        subscriberGroupTableModel.setRowCount(0);
+        subscriberMemberTableModel.setRowCount(0);
+        groupTopicActiveMembers.clear();
+
+        subscribersWorker = new SwingWorker<KafkaSubscriberAnalysis.Result, Void>() {
             @Override
             protected KafkaSubscriberAnalysis.Result doInBackground() throws Exception {
-                return browserService.subscribersOf(topicName, KafkaPanel.this::consoleLog);
+                if (isCancelled()) return null;
+                return browserService.subscribersOf(targetTopic, msg -> {
+                    if (!isCancelled() && targetTopic.equals(selectedTopic)) {
+                        consoleLog(msg);
+                    }
+                });
             }
 
             @Override
             protected void done() {
+                if (isCancelled() || !targetTopic.equals(selectedTopic)) {
+                    return;
+                }
                 try {
                     KafkaSubscriberAnalysis.Result result = get();
+                    if (result == null) return;
+                    loadedSubscriberTopic = targetTopic;
                     groupTopicActiveMembers.putAll(result.activeMembers());
                     subscriberGroupTableModel.setRowCount(0);
                     subscriberMemberTableModel.setRowCount(0);
@@ -2028,14 +2118,18 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                         });
                     }
 
-                    subscribersStatusLabel.setText("主题 '" + topicName + "' 订阅者查询成功，找到 "
+                    subscribersStatusLabel.setText("主题 '" + targetTopic + "' 订阅者查询成功，找到 "
                             + result.subscribers().size() + " 个订阅消费组。");
+                } catch (java.util.concurrent.CancellationException ignored) {
                 } catch (Exception ex) {
-                    subscribersStatusLabel.setText("查询订阅者失败: " + Errors.describeRoot(ex));
-                    consoleLog("查询主题订阅者失败: " + Errors.describeRoot(ex));
+                    if (targetTopic.equals(selectedTopic)) {
+                        subscribersStatusLabel.setText("查询订阅者失败: " + Errors.describeRoot(ex));
+                        consoleLog("查询主题订阅者失败: " + Errors.describeRoot(ex));
+                    }
                 }
             }
-        }.execute();
+        };
+        subscribersWorker.execute();
     }
 
     private void displayMessageValue(ConsumerRecord<byte[], byte[]> rec) {

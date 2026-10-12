@@ -1,6 +1,10 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
 import com.aqishi.toolbox.catalog.ToolCatalog;
+import com.aqishi.toolbox.feature.codec.domain.RegexMatchService;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Fields;
@@ -10,13 +14,21 @@ import com.aqishi.toolbox.ui.kit.Tokens;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.regex.Matcher;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 
 /**
  * 正则表达式测试面板：实时匹配高亮、分组捕获、匹配计数。
  */
-public class RegexPanel extends ToolPanel {
+public class RegexPanel extends ToolPanel implements ManagedResourceOwner {
+    private final ExecutorService executor = DaemonThreads.single("regex-match");
+    private final AtomicLong generation = new AtomicLong();
+    private volatile Future<?> task;
+    private Timer debounce;
+    private volatile boolean closed;
 
     public RegexPanel() {
         super(ToolCatalog.REGEX_TESTER);
@@ -66,52 +78,48 @@ public class RegexPanel extends ToolPanel {
         root.add(split, BorderLayout.CENTER);
 
         Runnable doMatch = () -> {
+            if (closed) return;
+            long ticket = generation.get();
             String p = pattern.getText();
             String text = input.getText();
-            try {
-                int opts = 0;
-                if (multiline.isSelected()) opts |= Pattern.MULTILINE;
-                if (caseIns.isSelected()) opts |= Pattern.CASE_INSENSITIVE;
-                Pattern compiled = Pattern.compile(p, opts);
-                Matcher m = compiled.matcher(text);
-
-                StringBuilder sb = new StringBuilder();
-                int count = 0;
-                int last = 0;
-                while (m.find()) {
-                    sb.append(text, last, m.start());
-                    sb.append('【').append(m.group()).append('】');
-                    last = m.end();
-                    count++;
-                    if (!global.isSelected()) break;
-                }
-                sb.append(text, last, text.length());
-                sb.append("\n\n匹配数: ").append(count);
-                if (count > 0) {
-                    sb.append("\n分组详情:");
-                    m.reset();
-                    int gi = 0;
-                    while (m.find()) {
-                        sb.append("\n  #").append(gi++).append(" => ").append(m.group());
-                        for (int g = 1; g <= m.groupCount(); g++) {
-                            sb.append("  $").append(g).append("=").append(m.group(g));
-                        }
-                        if (!global.isSelected()) break;
-                    }
-                }
-                out.setText(sb.toString());
-            } catch (Exception ex) {
-                out.setText("正则错误：" + ex.getMessage());
-            }
+            int opts = (multiline.isSelected() ? Pattern.MULTILINE : 0)
+                    | (caseIns.isSelected() ? Pattern.CASE_INSENSITIVE : 0);
+            boolean matchAll = global.isSelected();
+            task = executor.submit(() -> {
+                String result;
+                try { result = new RegexMatchService().match(p, text, opts, matchAll); }
+                catch (CancellationException cancelled) { return; }
+                catch (Exception error) { result = I18n.get("regex.failed", error.getMessage()); }
+                String output = result;
+                SwingUtilities.invokeLater(() -> {
+                    if (!closed && ticket == generation.get()) out.setText(output);
+                });
+            });
         };
 
-        pattern.addActionListener(e -> doMatch.run());
-        for (Component c : flags.getComponents()) ((AbstractButton) c).addItemListener(e -> doMatch.run());
-        input.getDocument().addDocumentListener(new SimpleDocListener(doMatch));
-        pattern.getDocument().addDocumentListener(new SimpleDocListener(doMatch));
-        doMatch.run();
+        debounce = new Timer(200, e -> doMatch.run());
+        debounce.setRepeats(false);
+        Runnable schedule = () -> {
+            generation.incrementAndGet();
+            if (task != null) task.cancel(true);
+            if (!closed) debounce.restart();
+        };
+
+        pattern.addActionListener(e -> schedule.run());
+        for (Component c : flags.getComponents()) ((AbstractButton) c).addItemListener(e -> schedule.run());
+        input.getDocument().addDocumentListener(new SimpleDocListener(schedule));
+        pattern.getDocument().addDocumentListener(new SimpleDocListener(schedule));
+        schedule.run();
 
         return root;
+    }
+
+    @Override public void closeResources() {
+        closed = true;
+        generation.incrementAndGet();
+        if (debounce != null) debounce.stop();
+        if (task != null) task.cancel(true);
+        DaemonThreads.shutdownQuietly(executor);
     }
 
     /** 文档变化即触发，简易适配器 */

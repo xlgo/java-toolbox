@@ -1,6 +1,9 @@
 package com.aqishi.toolbox.feature.data.ui;
 
 import com.aqishi.toolbox.catalog.ToolCatalog;
+import com.aqishi.toolbox.feature.data.application.RedisKeyScanner;
+import com.aqishi.toolbox.util.I18n;
+import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.feature.data.application.RedisValueWriter;
 import com.aqishi.toolbox.feature.data.domain.RedisValueEdit;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
@@ -40,6 +43,7 @@ import java.util.regex.Pattern;
  * Redis 管理工具：连接管理、键浏览器、值编辑、命令控制台。
  */
 public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
+    private static final String KEY_BATCH_SIZE_SETTING = "redis.keys.batchSize";
     // Profile Management Support
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
@@ -69,6 +73,14 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
 
     private JTextField searchField;
     private JButton refreshBtn;
+    private JButton moreKeysBtn;
+    private JSpinner keyBatchSizeSpinner;
+    private JLabel keyStatus;
+    private RedisKeyScanner keyScanner;
+    private SwingWorker<KeyBrowserResult, Void> keyWorker;
+    private final java.util.concurrent.atomic.AtomicLong keyGeneration = new java.util.concurrent.atomic.AtomicLong();
+    private volatile boolean closed;
+    private record KeyBrowserResult(RedisKeyScanner.Page page, RedisKeyNode root) { }
     private JList<String> keyList;
     private DefaultListModel<String> keyListModel;
     private JButton addKeyBtn;
@@ -346,6 +358,28 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
         searchRow.add(searchField, BorderLayout.CENTER);
         searchRow.add(refreshBtn, BorderLayout.EAST);
 
+        int configuredBatchSize = ConfigManager.getInt(KEY_BATCH_SIZE_SETTING, RedisKeyScanner.DEFAULT_BATCH_SIZE);
+        if (configuredBatchSize < 1 || configuredBatchSize > RedisKeyScanner.MAX_BATCH_SIZE)
+            configuredBatchSize = RedisKeyScanner.DEFAULT_BATCH_SIZE;
+        keyBatchSizeSpinner = new JSpinner(new SpinnerNumberModel(
+                configuredBatchSize, 1, RedisKeyScanner.MAX_BATCH_SIZE, 100));
+        keyBatchSizeSpinner.setEditor(new JSpinner.NumberEditor(keyBatchSizeSpinner, "0"));
+        keyBatchSizeSpinner.setToolTipText(I18n.get("redis.keys.batchHint"));
+        keyBatchSizeSpinner.addChangeListener(e -> ConfigManager.setInt(KEY_BATCH_SIZE_SETTING,
+                ((Number) keyBatchSizeSpinner.getValue()).intValue()));
+        JLabel batchLabel = Fields.label(I18n.get("redis.keys.batchSize"));
+        batchLabel.setLabelFor(keyBatchSizeSpinner);
+        JPanel batchRow = Layouts.box(Tokens.SPACE_SM, 0);
+        batchRow.add(batchLabel, BorderLayout.WEST);
+        batchRow.add(keyBatchSizeSpinner, BorderLayout.CENTER);
+
+        moreKeysBtn = Buttons.secondary(I18n.get("redis.keys.more"));
+        moreKeysBtn.setEnabled(false);
+        keyStatus = Fields.caption(" ");
+        JPanel scanRow = Layouts.box(Tokens.SPACE_SM, 0);
+        scanRow.add(keyStatus, BorderLayout.CENTER);
+        scanRow.add(moreKeysBtn, BorderLayout.EAST);
+
         treeCheck = Fields.check("树形展示", true);
         delimiterField = Fields.text(":");
         delimiterField.setToolTipText("命名空间分隔符");
@@ -380,7 +414,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
         delKeyBtn = Buttons.danger("删除 Key");
 
         JPanel body = Layouts.box(0, Tokens.SPACE_SM);
-        body.add(Layouts.stack(Tokens.SPACE_SM, searchRow, treeRow), BorderLayout.NORTH);
+        body.add(Layouts.stack(Tokens.SPACE_SM, searchRow, batchRow, treeRow, scanRow), BorderLayout.NORTH);
         body.add(listOrTreeCardPanel, BorderLayout.CENTER);
         // 两个按钮等宽平分整行，与原来的 GridLayout(1,2) 一致
         body.add(Layouts.columns(Tokens.SPACE_SM, addKeyBtn, delKeyBtn), BorderLayout.SOUTH);
@@ -547,6 +581,11 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
         consoleInput.setEnabled(connected);
 
         if (!connected) {
+            keyGeneration.incrementAndGet();
+            if (keyWorker != null) keyWorker.cancel(true);
+            keyWorker = null;
+            moreKeysBtn.setEnabled(false);
+            keyStatus.setText(" ");
             keyListModel.clear();
             if (treeModel != null) {
                 treeModel.setRoot(new RedisKeyNode("Keys", null));
@@ -628,6 +667,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
         // Key List Actions
         refreshBtn.addActionListener(e -> refreshKeys());
         searchField.addActionListener(e -> refreshKeys());
+        moreKeysBtn.addActionListener(e -> { if (keyScanner != null && keyWorker == null) loadKeyBatch(keyScanner); });
 
         keyList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
@@ -831,44 +871,79 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
      */
     @Override
     public void closeResources() {
+        closed = true;
+        keyGeneration.incrementAndGet();
+        if (keyWorker != null) keyWorker.cancel(true);
         closeJedis();
         releaseSshBridge();
     }
 
     private void refreshKeys() {
-        if (jedis == null) return;
+        if (closed || jedis == null) return;
         String pattern = searchField.getText().trim();
         if (pattern.isEmpty()) pattern = "*";
+        loadKeyBatch(new RedisKeyScanner(pattern));
+    }
 
-        final String finalPattern = pattern;
-        new SwingWorker<Set<String>, Void>() {
+    private void loadKeyBatch(RedisKeyScanner scanner) {
+        if (closed || jedis == null) return;
+        final int batchSize;
+        try {
+            keyBatchSizeSpinner.commitEdit();
+            batchSize = ((Number) keyBatchSizeSpinner.getValue()).intValue();
+        } catch (java.text.ParseException error) {
+            UIUtils.error(refreshBtn, I18n.get("redis.keys.batchHint"));
+            return;
+        }
+        long ticket = keyGeneration.incrementAndGet();
+        if (keyWorker != null) keyWorker.cancel(true);
+        keyScanner = scanner;
+        String delimiter = delimiterField.getText();
+        moreKeysBtn.setEnabled(false);
+        keyStatus.setText(I18n.get("redis.keys.loading"));
+        keyWorker = new SwingWorker<>() {
             @Override
-            protected Set<String> doInBackground() {
+            protected KeyBrowserResult doInBackground() {
+                final Jedis client;
                 synchronized (redisLock) {
                     if (!checkConnection()) throw new RuntimeException("Redis 连接已断开");
-                    return jedis.keys(finalPattern);
+                    client = jedis;
                 }
+                RedisKeyScanner.Page page = scanner.load((cursor, params) -> {
+                    synchronized (redisLock) {
+                        if (isCancelled() || ticket != keyGeneration.get() || jedis != client)
+                            throw new java.util.concurrent.CancellationException();
+                        return client.scan(cursor, params);
+                    }
+                }, this::isCancelled, batchSize);
+                return new KeyBrowserResult(page, buildTreeRoot(new LinkedHashSet<>(page.keys()), delimiter));
             }
 
             @Override
             protected void done() {
+                if (closed || ticket != keyGeneration.get()) return;
                 try {
-                    Set<String> keys = get();
+                    if (isCancelled()) return;
+                    KeyBrowserResult result = get();
+                    RedisKeyScanner.Page page = result.page();
                     keyListModel.clear();
-                    List<String> sortedKeys = new ArrayList<>(keys);
-                    Collections.sort(sortedKeys);
-                    for (String key : sortedKeys) {
-                        keyListModel.addElement(key);
-                    }
-                    buildTree(keys);
-                    if (keys.isEmpty()) {
+                    keyListModel.addAll(page.keys());
+                    treeModel.setRoot(result.root());
+                    keyTree.expandRow(0);
+                    moreKeysBtn.setEnabled(page.hasMore());
+                    keyStatus.setText(I18n.get(page.complete() ? "redis.keys.complete" : "redis.keys.partial", page.keys().size()));
+                    if (page.keys().isEmpty()) {
                         valueCardLayout.show(valueCardPanel, "NONE");
                     }
                 } catch (Exception ex) {
                     UIUtils.error(refreshBtn, "刷新键失败: " + ex.getMessage());
+                    keyStatus.setText(I18n.get("redis.keys.failed"));
+                } finally {
+                    keyWorker = null;
                 }
             }
-        }.execute();
+        };
+        keyWorker.execute();
     }
 
     private void loadKeyDetail(String key) {
@@ -1271,8 +1346,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
         }.execute();
     }
 
-    private void buildTree(Set<String> keys) {
-        String delim = delimiterField.getText();
+    private static RedisKeyNode buildTreeRoot(Set<String> keys, String delim) {
         if (delim.isEmpty()) {
             delim = ":";
         }
@@ -1299,6 +1373,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
                 if (child == null) {
                     child = new RedisKeyNode(part, fullPathForThisNode);
                     current.add(child);
+                    current.childrenByName.put(part, child);
                 } else {
                     if (fullPathForThisNode != null && child.getFullName() == null) {
                         child.setFullName(fullPathForThisNode);
@@ -1308,23 +1383,15 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
             }
         }
 
-        treeModel.setRoot(newRoot);
-        // Expand the root node by default
-        keyTree.expandRow(0);
+        return newRoot;
     }
 
-    private RedisKeyNode findChild(RedisKeyNode parent, String name) {
-        int count = parent.getChildCount();
-        for (int i = 0; i < count; i++) {
-            RedisKeyNode child = (RedisKeyNode) parent.getChildAt(i);
-            if (child.getUserObject().equals(name)) {
-                return child;
-            }
-        }
-        return null;
+    private static RedisKeyNode findChild(RedisKeyNode parent, String name) {
+        return parent.childrenByName.get(name);
     }
 
     static class RedisKeyNode extends DefaultMutableTreeNode {
+        private final Map<String, RedisKeyNode> childrenByName = new HashMap<>();
         private String fullName; // null if not a real key
         private final String displayName;
 

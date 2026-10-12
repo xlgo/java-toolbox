@@ -16,7 +16,7 @@
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <flatlaf.version>3.5.4</flatlaf.version>
-        <bouncycastle.version>1.70</bouncycastle.version>
+        <bouncycastle.version>1.86</bouncycastle.version>
         <jackson.version>2.15.2</jackson.version>
         <zxing.version>3.5.2</zxing.version>
         <jediterm.version>3.72</jediterm.version>
@@ -76,12 +76,12 @@
             </dependency>
             <dependency>
                 <groupId>org.bouncycastle</groupId>
-                <artifactId>bcprov-jdk15on</artifactId>
+                <artifactId>bcprov-jdk18on</artifactId>
                 <version>${bouncycastle.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.bouncycastle</groupId>
-                <artifactId>bcpkix-jdk15on</artifactId>
+                <artifactId>bcpkix-jdk18on</artifactId>
                 <version>${bouncycastle.version}</version>
             </dependency>
         </dependencies>
@@ -127,13 +127,13 @@
         <!-- BouncyCastle：国密 SM2/SM3/SM4 算法支持 -->
         <dependency>
             <groupId>org.bouncycastle</groupId>
-            <artifactId>bcprov-jdk15on</artifactId>
+            <artifactId>bcprov-jdk18on</artifactId>
             <version>${bouncycastle.version}</version>
         </dependency>
         <!-- BouncyCastle PKIX/CMS：X.509 证书生成、解析、PEM 编解码 -->
         <dependency>
             <groupId>org.bouncycastle</groupId>
-            <artifactId>bcpkix-jdk15on</artifactId>
+            <artifactId>bcpkix-jdk18on</artifactId>
             <version>${bouncycastle.version}</version>
         </dependency>
         <!-- JUnit 5 测试框架 -->
@@ -243,7 +243,7 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <version>42.6.0</version>
+            <version>42.7.14</version>
             <scope>runtime</scope>
         </dependency>
         <!--

@@ -25,6 +25,59 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SqlExecutionServiceTest {
 
+    @Test void configuresDriverLimitsBeforeExecution() throws Exception {
+        List<String> calls = new ArrayList<>();
+        Statement statement = fakeStatement(Map.of(
+                "setMaxRows", (Invoke) args -> { calls.add("rows:" + args[0]); return null; },
+                "setQueryTimeout", (Invoke) args -> { calls.add("timeout:" + args[0]); return null; },
+                "execute", (Invoke) args -> { calls.add("execute"); return false; },
+                "getUpdateCount", 0));
+        new SqlExecutionService(2, 15).execute(fakeConnection(false, statement), "UPDATE t SET n=1");
+        assertEquals(List.of("rows:3", "timeout:15", "execute"), calls);
+    }
+
+    @Test void cancellationBeforeExecutionNeverSendsSql() {
+        var cancellation = new SqlExecutionService.Cancellation();
+        cancellation.request();
+        assertThrows(java.util.concurrent.CancellationException.class,
+                () -> new SqlExecutionService().execute(null, "SELECT 1", cancellation));
+    }
+
+    @Test void cancellationReachesActiveStatementAndIsReportedAsCancellation() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var cancellation = new SqlExecutionService.Cancellation();
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        Statement statement = fakeStatement(Map.of(
+                "execute", (Invoke) args -> {
+                    entered.countDown();
+                    try { if (!release.await(3, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("cancel not delivered"); }
+                    catch (InterruptedException error) { throw new RuntimeException(error); }
+                    return false;
+                },
+                "cancel", (Invoke) args -> { release.countDown(); return null; },
+                "getUpdateCount", 0));
+        try {
+            var result = executor.submit(() -> new SqlExecutionService().execute(fakeConnection(false, statement), "SELECT slow", cancellation));
+            assertTrue(entered.await(2, java.util.concurrent.TimeUnit.SECONDS));
+            cancellation.cancelStatement();
+            var error = assertThrows(java.util.concurrent.ExecutionException.class, () -> result.get(3, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(error.getCause() instanceof java.util.concurrent.CancellationException);
+        } finally { release.countDown(); executor.shutdownNow(); }
+    }
+
+    @Test void unsupportedDriverHintsStillRetainLocalRowLimit() throws Exception {
+        Statement statement = (Statement) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{Statement.class}, (proxy, method, args) -> {
+            if (method.getName().startsWith("set")) throw new java.sql.SQLFeatureNotSupportedException();
+            if (method.getName().equals("execute")) return true;
+            if (method.getName().equals("getResultSet")) return fakeResultSet(List.of("n"), List.of(new Object[]{1}, new Object[]{2}));
+            return null;
+        });
+        QueryResult result = new SqlExecutionService(1).execute(fakeConnection(false, statement), "SELECT n");
+        assertEquals(1, result.getRows().size());
+        assertNotNull(result.getWarning());
+    }
+
     // ===== 极简 JDBC 动态代理桩 =====
 
     private static Object proxy(Class<?> iface, Map<String, Object> handlers) {

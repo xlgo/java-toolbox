@@ -1,6 +1,8 @@
 package com.aqishi.toolbox.feature.codec.ui;
 
 import com.aqishi.toolbox.catalog.ToolCatalog;
+import com.aqishi.toolbox.feature.codec.domain.TextDiffService;
+import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -9,34 +11,25 @@ import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.UIUtils;
+import com.aqishi.toolbox.util.I18n;
+import com.aqishi.toolbox.util.Errors;
 
 import javax.swing.*;
-import javax.swing.text.Style;
+import javax.swing.text.DefaultStyledDocument;
+import javax.swing.text.SimpleAttributeSet;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
 import java.awt.*;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 文本对比工具面板。
  */
-public class TextDiffPanel extends ToolPanel {
-
-    enum DiffType {
-        EQUAL, INSERT, DELETE
-    }
-
-    static class DiffEntry {
-        DiffType type;
-        String line;
-        DiffEntry(DiffType type, String line) {
-            this.type = type;
-            this.line = line;
-        }
-    }
+public class TextDiffPanel extends ToolPanel implements ManagedResourceOwner {
+    private final AtomicLong generation = new AtomicLong();
+    private volatile SwingWorker<StyledDocument, Void> worker;
+    private volatile boolean closed;
 
     public TextDiffPanel() {
         super(ToolCatalog.TEXT_DIFF);
@@ -70,6 +63,8 @@ public class TextDiffPanel extends ToolPanel {
         JCheckBox ignoreSpaceCheck = Fields.check("忽略空白", false);
 
         JButton compare = Buttons.primary("对比差异");
+        JButton cancel = Buttons.secondary(I18n.get("devtools.cancel"));
+        cancel.setEnabled(false);
         JButton clear = Buttons.danger("清空");
         Card resultCard = Card.flush("对比结果 ( + 新增, - 删除 )");
         resultCard.setContent(Fields.scroll(diffPane));
@@ -77,6 +72,7 @@ public class TextDiffPanel extends ToolPanel {
         resultCard.addHeaderAction(ignoreCaseCheck);
         resultCard.addHeaderAction(ignoreSpaceCheck);
         resultCard.addHeaderAction(clear);
+        resultCard.addHeaderAction(cancel);
         resultCard.addHeaderAction(compare);
 
         JSplitPane mainSplit = Layouts.splitVertical(inputSplit, resultCard, 0.35);
@@ -84,43 +80,60 @@ public class TextDiffPanel extends ToolPanel {
 
         // 按钮事件
         compare.addActionListener(e -> {
-            try {
-                diffPane.setText("");
-                StyledDocument doc = diffPane.getStyledDocument();
-                
-                // 定义样式
-                Style style = diffPane.addStyle("diff", null);
-                // 差异色改走 Tokens，切换深浅主题时跟着变，不再写死 RGB
-                Style deleteStyle = diffPane.addStyle("delete", style);
-                StyleConstants.setForeground(deleteStyle, Tokens.danger());
-                StyleConstants.setFontFamily(deleteStyle, Tokens.fontMono().getFamily());
-
-                Style insertStyle = diffPane.addStyle("insert", style);
-                StyleConstants.setForeground(insertStyle, Tokens.success());
-                StyleConstants.setFontFamily(insertStyle, Tokens.fontMono().getFamily());
-
-                Style equalStyle = diffPane.addStyle("equal", style);
-                StyleConstants.setForeground(equalStyle, Tokens.foreground());
-                StyleConstants.setFontFamily(equalStyle, Tokens.fontMono().getFamily());
-
-                boolean ignoreCase = ignoreCaseCheck.isSelected();
-                boolean ignoreSpace = ignoreSpaceCheck.isSelected();
-                List<DiffEntry> diffs = computeDiff(leftArea.getText(), rightArea.getText(), ignoreCase, ignoreSpace);
-                for (DiffEntry entry : diffs) {
-                    if (entry.type == DiffType.DELETE) {
-                        doc.insertString(doc.getLength(), "- " + entry.line + "\n", deleteStyle);
-                    } else if (entry.type == DiffType.INSERT) {
-                        doc.insertString(doc.getLength(), "+ " + entry.line + "\n", insertStyle);
-                    } else {
-                        doc.insertString(doc.getLength(), "  " + entry.line + "\n", equalStyle);
+            if (closed || worker != null) return;
+            String before = leftArea.getText(), after = rightArea.getText();
+            boolean ignoreCase = ignoreCaseCheck.isSelected(), ignoreSpace = ignoreSpaceCheck.isSelected();
+            SimpleAttributeSet deleteStyle = attributes(Tokens.danger());
+            SimpleAttributeSet insertStyle = attributes(Tokens.success());
+            SimpleAttributeSet equalStyle = attributes(Tokens.foreground());
+            long ticket = generation.incrementAndGet();
+            compare.setEnabled(false);
+            cancel.setEnabled(true);
+            worker = new SwingWorker<>() {
+                @Override protected StyledDocument doInBackground() throws Exception {
+                    List<TextDiffService.Entry> entries = new TextDiffService().compare(before, after, ignoreCase, ignoreSpace);
+                    // Construct an unattached document off the EDT, including its styled runs.
+                    DefaultStyledDocument document = new DefaultStyledDocument();
+                    StringBuilder run = new StringBuilder();
+                    TextDiffService.Kind kind = null;
+                    for (var entry : entries) {
+                        if (isCancelled()) return document;
+                        if (kind != null && kind != entry.kind()) {
+                            document.insertString(document.getLength(), run.toString(),
+                                    kind == TextDiffService.Kind.DELETE ? deleteStyle : kind == TextDiffService.Kind.INSERT ? insertStyle : equalStyle);
+                            run.setLength(0);
+                        }
+                        kind = entry.kind();
+                        run.append(kind == TextDiffService.Kind.DELETE ? "- " : kind == TextDiffService.Kind.INSERT ? "+ " : "  ")
+                                .append(entry.line()).append('\n');
+                    }
+                    if (kind != null) document.insertString(document.getLength(), run.toString(),
+                            kind == TextDiffService.Kind.DELETE ? deleteStyle : kind == TextDiffService.Kind.INSERT ? insertStyle : equalStyle);
+                    return document;
+                }
+                @Override protected void done() {
+                    if (closed || generation.get() != ticket) return;
+                    try {
+                        if (!isCancelled()) diffPane.setDocument(get());
+                    } catch (Exception error) {
+                        UIUtils.error(root, I18n.get("diff.failed", Errors.describeRoot(error)));
+                    } finally {
+                        worker = null;
+                        compare.setEnabled(true);
+                        cancel.setEnabled(false);
                     }
                 }
-            } catch (Exception ex) {
-                UIUtils.error(root, "比对失败: " + ex.getMessage());
-            }
+            };
+            worker.execute();
         });
 
+        cancel.addActionListener(e -> { if (worker != null) worker.cancel(true); });
         clear.addActionListener(e -> {
+            generation.incrementAndGet();
+            if (worker != null) worker.cancel(true);
+            worker = null;
+            compare.setEnabled(true);
+            cancel.setEnabled(false);
             leftArea.setText("");
             rightArea.setText("");
             diffPane.setText("");
@@ -132,47 +145,17 @@ public class TextDiffPanel extends ToolPanel {
         return root;
     }
 
-    private List<DiffEntry> computeDiff(String text1, String text2, boolean ignoreCase, boolean ignoreSpace) {
-        List<String> a = Arrays.asList(text1.split("\n", -1));
-        List<String> b = Arrays.asList(text2.split("\n", -1));
-
-        int[][] dp = new int[a.size() + 1][b.size() + 1];
-        for (int i = 1; i <= a.size(); i++) {
-            for (int j = 1; j <= b.size(); j++) {
-                if (isLineEqual(a.get(i - 1), b.get(j - 1), ignoreCase, ignoreSpace)) {
-                    dp[i][j] = dp[i - 1][j - 1] + 1;
-                } else {
-                    dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-                }
-            }
-        }
-
-        int i = a.size(), j = b.size();
-        List<DiffEntry> diff = new ArrayList<>();
-        while (i > 0 || j > 0) {
-            if (i > 0 && j > 0 && isLineEqual(a.get(i - 1), b.get(j - 1), ignoreCase, ignoreSpace)) {
-                diff.add(new DiffEntry(DiffType.EQUAL, a.get(i - 1)));
-                i--; j--;
-            } else if (j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-                diff.add(new DiffEntry(DiffType.INSERT, b.get(j - 1)));
-                j--;
-            } else if (i > 0 && (j == 0 || dp[i][j - 1] < dp[i - 1][j])) {
-                diff.add(new DiffEntry(DiffType.DELETE, a.get(i - 1)));
-                i--;
-            }
-        }
-        Collections.reverse(diff);
-        return diff;
+    private static SimpleAttributeSet attributes(Color color) {
+        SimpleAttributeSet attributes = new SimpleAttributeSet();
+        StyleConstants.setForeground(attributes, color);
+        StyleConstants.setFontFamily(attributes, Tokens.fontMono().getFamily());
+        return attributes;
     }
 
-    private boolean isLineEqual(String s1, String s2, boolean ignoreCase, boolean ignoreSpace) {
-        if (ignoreSpace) {
-            s1 = s1.replaceAll("\\s+", "");
-            s2 = s2.replaceAll("\\s+", "");
-        }
-        if (ignoreCase) {
-            return s1.equalsIgnoreCase(s2);
-        }
-        return s1.equals(s2);
+    @Override public void closeResources() {
+        closed = true;
+        generation.incrementAndGet();
+        SwingWorker<?, ?> current = worker;
+        if (current != null) current.cancel(true);
     }
 }

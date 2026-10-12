@@ -14,6 +14,7 @@ import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshTunnelBridge;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
 import com.aqishi.toolbox.infra.database.DatabaseConnectionFactory;
 import com.aqishi.toolbox.infra.database.JdbcConnectionResource;
 import com.aqishi.toolbox.infra.database.DatabaseProfileStore;
@@ -132,6 +133,12 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     // SQL Editor
     private JTextArea sqlEditor;
     private JButton runBtn;
+    private JButton cancelSqlBtn;
+    private SwingWorker<QueryResult, Void> sqlWorker;
+    private volatile SqlExecutionService.Cancellation sqlCancellation;
+    private final java.util.concurrent.ExecutorService cancellationExecutor = DaemonThreads.single("jdbc-cancel");
+    private volatile boolean closed;
+    private final java.util.concurrent.atomic.AtomicBoolean closeStarted = new java.util.concurrent.atomic.AtomicBoolean();
     private JButton formatBtn;
     private JButton clearSqlBtn;
 
@@ -447,6 +454,8 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         editorTabbedPane.addTab("可视化查询 (条件编辑器)", buildVisualQueryTab());
 
         runBtn = Buttons.primary("运行 SQL");
+        cancelSqlBtn = Buttons.secondary(I18n.get("devtools.cancel"));
+        cancelSqlBtn.setEnabled(false);
         formatBtn = Buttons.secondary("格式化");
         clearSqlBtn = Buttons.ghost("清空");
 
@@ -455,6 +464,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         card.addHeaderAction(clearSqlBtn);
         card.addHeaderAction(formatBtn);
         card.addHeaderAction(runBtn);
+        card.addHeaderAction(cancelSqlBtn);
         card.setContent(editorTabbedPane);
         return card;
     }
@@ -538,6 +548,11 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
 
         // SQL Buttons
         runBtn.addActionListener(e -> executeSql());
+        cancelSqlBtn.addActionListener(e -> {
+            cancelSqlBtn.setEnabled(false);
+            resultStatusLabel.setText(I18n.get("data.query.cancelling"));
+            cancelSqlExecution();
+        });
         formatBtn.addActionListener(e -> {
             sqlEditor.setText(SqlFormatter.format(sqlEditor.getText()));
         });
@@ -837,6 +852,8 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void disconnect() {
+        cancelSqlExecution();
+        lastQueryResult = null;
         activeUrl = null;
         JdbcConnectionResource resource = connectionResource;
         connectionResource = null;
@@ -973,6 +990,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void switchDatabase(String dbName) {
+        if (sqlWorker != null) return;
         if (!isConnected || connection == null) return;
         String dbType = (String) dbTypeCombo.getSelectedItem();
 
@@ -1027,6 +1045,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void switchSchema(String schemaName) {
+        if (sqlWorker != null) return;
         if (!isConnected || connection == null) return;
         String dbType = (String) dbTypeCombo.getSelectedItem();
         consoleLog("正在切换当前模式为: " + schemaName);
@@ -1590,6 +1609,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
 
     // --- Core Operations ---
     private void executeSql() {
+        if (closed || sqlWorker != null) return;
         if (!isConnected || connection == null) {
             UIUtils.info(getView(), "请先连接数据库！");
             return;
@@ -1598,21 +1618,39 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         if (sql.isEmpty()) return;
 
         runBtn.setEnabled(false);
+        dbSwitchCombo.setEnabled(false);
+        schemaSwitchCombo.setEnabled(false);
+        cancelSqlBtn.setEnabled(true);
+        lastQueryResult = null;
         resultStatusLabel.setText("正在执行中...");
         resultTable.setModel(new DefaultTableModel());
         consoleLog("执行 SQL: " + sql);
 
-        new SwingWorker<QueryResult, Void>() {
+        Connection queryConnection = connection;
+        SqlExecutionService.Cancellation cancellation = new SqlExecutionService.Cancellation();
+        sqlCancellation = cancellation;
+        sqlWorker = new SwingWorker<>() {
             @Override
             protected QueryResult doInBackground() throws Exception {
-                return sqlExecutionService.execute(connection, sql);
+                return sqlExecutionService.execute(queryConnection, sql, cancellation);
             }
 
             @Override
             protected void done() {
+                sqlWorker = null;
+                sqlCancellation = null;
+                if (closed) return;
                 runBtn.setEnabled(true);
+                cancelSqlBtn.setEnabled(false);
+                dbSwitchCombo.setEnabled(isConnected);
+                schemaSwitchCombo.setEnabled(isConnected);
+                if (connection != queryConnection || !isConnected) return;
                 try {
                     QueryResult res = get();
+                    if (cancellation.isRequested()) {
+                        resultStatusLabel.setText(I18n.get("data.query.cancelled"));
+                        return;
+                    }
                     lastQueryResult = res;
                     String statusText = "执行成功，耗时: " + res.getDurationMillis() + " ms. ";
                     if (res.isUpdate()) {
@@ -1643,13 +1681,29 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                     }
                     consoleLog(statusText);
                 } catch (Exception ex) {
+                    if (ex instanceof java.util.concurrent.CancellationException
+                            || ex.getCause() instanceof java.util.concurrent.CancellationException) {
+                        resultStatusLabel.setText(I18n.get("data.query.cancelled"));
+                        return;
+                    }
                     String err = Errors.describeRoot(ex);
                     consoleLog("SQL 执行错误: " + err);
                     resultStatusLabel.setText("执行出错，请查看日志。");
                     rightTabbedPane.setSelectedIndex(1);
                 }
             }
-        }.execute();
+        };
+        sqlWorker.execute();
+    }
+
+    private void cancelSqlExecution() {
+        SqlExecutionService.Cancellation cancellation = sqlCancellation;
+        if (cancellation == null) return;
+        cancellation.request();
+        cancellationExecutor.submit(() -> {
+            try { cancellation.cancelStatement(); }
+            catch (Exception error) { Errors.ignored("JDBC cancellation failed", error); }
+        });
     }
 
     /**
@@ -1658,6 +1712,10 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
      */
     @Override
     public void closeResources() {
+        if (!closeStarted.compareAndSet(false, true)) return;
+        closed = true;
+        cancelSqlExecution();
+        cancellationExecutor.shutdown();
         activeUrl = null;
         secretManager.removeListener(urlVaultListener);
         JdbcConnectionResource resource = connectionResource;

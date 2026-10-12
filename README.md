@@ -38,10 +38,10 @@
 | 格式化 | JSON 格式化 | JSON 美化 / 压缩 / 树形折叠预览，支持彩虹括号语法高亮 |
 | 格式化 | XML 格式化 | XML 美化 / 压缩 / 树形折叠预览，支持标签属性语法着色与语法错误校验 |
 | 格式化 | SQL 格式化 | 对常见 SQL 关键字大写美化、换行与缩进优化 |
-| 开发工具 | 正则测试 | 实时匹配高亮、分组捕获、匹配计数 |
+| 开发工具 | 正则测试 | 后台实时匹配高亮、分组捕获、匹配计数；输入防抖、500 ms 匹配预算及最多 2000 条结果 |
 | 开发工具 | JWT 编解码 | 支持 Header/Payload 实时解析与过期状态提示，支持 HS256 签名生成与 Token 构造 |
 | 开发工具 | Cron 表达式解析 | 数字 Unix 语义的 5 字段或增加秒的 6 字段表达式，计算未来 15 次执行时间；周日为 0/7，不按 Quartz 解释，不支持 L/W/# 或年份字段 |
-| 开发工具 | 文本对比 | 纯 Java 计算两端文本差异，并以彩色高亮显示结果（标记新增与删除行） |
+| 开发工具 | 文本对比 | 使用线性内存算法后台计算行差异，以彩色高亮显示新增与删除；支持取消，每份文本最多 2,097,152 字符、20,000 行 |
 | 开发工具 | Docker 转换 | 将 `docker run` 运行命令解析并一键转换为 `docker-compose` YAML 声明配置 |
 | 开发工具 | 子网计算器 | 输入 IP/CIDR（如 `192.168.1.1/24`）计算网络地址、广播地址、掩码并展示二进制 |
 | 开发工具 | HTTP 接口测试 | GET / POST / PUT / PATCH / DELETE / HEAD / OPTIONS、RAW / URL 编码表单 / multipart 多文件上传、取消和字节进度；请求集合、收藏、最近 50 条历史及多环境变量（`{{baseUrl}}`），完整模板与变量加密存入保险库，发送预览隐藏敏感变量 |
@@ -58,7 +58,7 @@
 | 开发工具 | 颜色转换 | HEX / RGB / HSL 互转，集成 **JColorChooser 调色板** 与 **一键复制** |
 | 开发工具 | 证书管理 | X.509 证书管理：支持根证书创建、子证书签发、证书解析（RSA / EC / **国密 SM2**，SM2 使用 SM3withSM2 签名与 GM/T 0009 默认用户 ID，可一次签发 TLCP 所需的 SM2 签名 + 加密双证书），以及 **ACME v2 免费证书自动申请**（支持 Let's Encrypt / ZeroSSL，集成 Cloudflare API 自动挂载/清理 TXT 记录、DNS-01/HTTP-01 验证、倒计时保护及一键打包 Zip 导出） |
 | 开发工具 | K8s 部署生成 | Kubernetes 资源 YAML 生成器，支持 Deployment / Service / Ingress（含 TLS）/ ConfigMap 实时预览与导出 |
-| 开发工具 | Redis 管理 | Redis 连接管理与键浏览器（列表/树形双视图），支持值编辑与命令控制台操作 |
+| 开发工具 | Redis 管理 | Redis 连接管理与键浏览器（列表/树形双视图），使用 SCAN 分批加载并去重，默认每次最多加载 1000 条，可配置为 1–10,000 条并记住设置；点击加载更多继续追加，支持值编辑与命令控制台操作 |
 | 开发工具 | 流程图与时序图设计 | 现代化流程图与时序图设计器，支持流程节点、生命线、激活条。支持多选拖动、节点修改文字、双击编辑、高阶撤销/重做（Ctrl+Z / Ctrl+Y）、中键/空白处拖拽画布滚动与 Ctrl+滚轮丝滑缩放，以及鼠标悬停节点控制点直接拖拽出连线吸附的极速连线交互，支持 PNG 导出 |
 | 开发工具 | BPMN 流程图设计器 | 专业 BPMN 2.0 流程图绘制，支持事件/任务/网关节点、智能吸附连线、框选批量移动与一键自动拓扑排版 |
 | 开发工具 | Mermaid 绘图 | Mermaid 语法实时预览与高清 PNG 渲染，支持拖拽平移、丰富图表模板与本地导出 |
@@ -72,7 +72,7 @@
 | 生成 | DDL 转 Java 实体 | 解析 MySQL / PostgreSQL / Oracle / SQL Server 建表语句（含 COMMENT、COMMENT ON、复合主键），生成 Lombok / 普通 JavaBean / Record 实体，可选 JPA（jakarta / javax）或 MyBatis-Plus 注解与 MyBatis resultMap，支持批量保存为文件 |
 | 生成 | 分布式 ID 工具 | 粘贴任意 ID 自动识别并解析时间戳：雪花 ID（Twitter / MyBatis-Plus / Hutool / 百度 UidGenerator / Sonyflake / Discord 预设及自定义位布局）、UUID v1/v3/v4/v5/v6/v7、ULID、MongoDB ObjectId、KSUID；支持批量生成，可视化雪花位布局与容量 |
 | 运维 | SSH 客户端 | 服务器连接管理与分组树展示，支持多会话交互终端与 SFTP 文件传输 |
-| 运维 | 数据库管理 | 多数据库管理客户端（支持 MySQL / PostgreSQL / Oracle / SQLite / H2 等），数据库树形浏览、SQL 执行；当前查询快照可导出 CSV / Excel / JSON / SQL INSERT，保留 NULL、数值、日期和二进制，支持 SQL 方言与 CSV 防公式选项 |
+| 运维 | 数据库管理 | 多数据库管理客户端（支持 MySQL / PostgreSQL / Oracle / SQLite / H2 等），数据库树形浏览、SQL 执行与取消，最多展示 5000 行；驱动支持时应用 30 秒查询超时；当前查询快照可导出 CSV / Excel / JSON / SQL INSERT，保留 NULL、数值、日期和二进制，支持 SQL 方言与 CSV 防公式选项 |
 | 运维 | Hosts 环境管理 | 系统 Hosts 文件管理，支持多套 Dev/QA/Staging 环境规则定义、一键开关应用与 DNS 缓存刷新 |
 | 运维 | WebSocket 测试 | WebSocket / 长连接测试客户端，支持 ws/wss 握手请求头配置、消息收发与定时心跳包保活 |
 | 运维 | ZooKeeper 管理 | ZooKeeper 节点树浏览与数据编辑，支持创建 / 删除节点，可选经由 SSH 本地端口转发连接内网集群 |
@@ -166,7 +166,7 @@ git push
 
 - Java Swing（GUI）
 - FlatLaf 3.5.4（外观包 + IntelliJ 主题包）
-- BouncyCastle 1.70（国密 SM2/SM3/SM4 算法支持，提供与经典加解密的统一调用）
+- BouncyCastle 1.86（jdk18on，国密 SM2/SM3/SM4 算法支持，提供与经典加解密的统一调用）
 - Jackson 2.15.2 + Tomlj 1.0.0（JSON/XML/YAML/TOML 数据模型与语法解析）
 - ice4j 3.2（远程桌面完整 ICE/STUN UDP 直连；未启用 TURN）
 - Maven Shade（打 fat jar）

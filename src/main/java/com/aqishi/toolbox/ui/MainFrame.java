@@ -111,16 +111,31 @@ public class MainFrame extends JFrame {
         addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
-                ConfigManager.setInt("width", getWidth());
-                ConfigManager.setInt("height", getHeight());
-                Point p = getLocation();
-                ConfigManager.setInt("x", p.x);
-                ConfigManager.setInt("y", p.y);
-                persistNavigationState();
-                ConfigManager.save();
+                if (statusTimer != null) {
+                    try {
+                        statusTimer.stop();
+                    } catch (Throwable ignored) {
+                    }
+                }
+                try {
+                    ConfigManager.setInt("width", getWidth());
+                    ConfigManager.setInt("height", getHeight());
+                    Point p = getLocation();
+                    ConfigManager.setInt("x", p.x);
+                    ConfigManager.setInt("y", p.y);
+                    persistNavigationState();
+                    ConfigManager.save();
+                } catch (Throwable ignored) {
+                }
                 closeManagedResources();
-                secureClipboard.clearPending();
-                vaultService.close();
+                try {
+                    secureClipboard.clearPending();
+                } catch (Throwable ignored) {
+                }
+                try {
+                    vaultService.close();
+                } catch (Throwable ignored) {
+                }
             }
         });
 
@@ -141,10 +156,21 @@ public class MainFrame extends JFrame {
 
     @Override
     public void dispose() {
-        if (statusTimer != null) statusTimer.stop();
+        if (statusTimer != null) {
+            try {
+                statusTimer.stop();
+            } catch (Throwable ignored) {
+            }
+        }
         closeManagedResources();
-        secureClipboard.clearPending();
-        vaultService.close();
+        try {
+            secureClipboard.clearPending();
+        } catch (Throwable ignored) {
+        }
+        try {
+            vaultService.close();
+        } catch (Throwable ignored) {
+        }
         super.dispose();
     }
 
@@ -161,7 +187,7 @@ public class MainFrame extends JFrame {
             }
             try {
                 ((ManagedResourceOwner) tool).closeResources();
-            } catch (RuntimeException error) {
+            } catch (Throwable error) {
                 // One panel failing to release must not strand the sockets and
                 // threads owned by every panel after it.
                 System.err.println("[shutdown] " + tool.getClass().getSimpleName()

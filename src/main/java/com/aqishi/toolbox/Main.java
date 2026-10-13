@@ -27,8 +27,16 @@ public final class Main {
         java.nio.file.Path logDirectory = Logging.bootstrap();
         Logger log = LoggerFactory.getLogger(Main.class);
         log.info("Java Toolbox 启动，日志目录 {}", logDirectory);
-        Thread.setDefaultUncaughtExceptionHandler((thread, error) ->
-                log.error("线程 {} 未捕获异常", thread.getName(), error));
+        Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
+            try {
+                log.error("线程 {} 未捕获异常", thread.getName(), error);
+            } catch (Throwable loggingError) {
+                System.err.println("[uncaught] thread: " + thread.getName());
+                if (error != null) {
+                    error.printStackTrace(System.err);
+                }
+            }
+        });
 
         // 1. 瞬间呈现启动闪屏进度窗（直接使用系统默认外观渲染，确保极速弹出）
         SplashWindow splash = new SplashWindow();

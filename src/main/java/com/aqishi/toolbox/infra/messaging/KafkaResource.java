@@ -54,8 +54,12 @@ public final class KafkaResource implements ManagedResource {
             return;
         }
         try {
-            client.close();
-        } catch (Exception ignored) {
+            if (client instanceof org.apache.kafka.clients.admin.AdminClient) {
+                ((org.apache.kafka.clients.admin.AdminClient) client).close(java.time.Duration.ofMillis(500));
+            } else {
+                client.close();
+            }
+        } catch (Throwable ignored) {
             // Kafka close is best-effort at the common lifecycle boundary
         } finally {
             client = null;

@@ -3,6 +3,7 @@ package com.aqishi.toolbox.feature.system.ui;
 import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.feature.system.application.WeChatContactCollector;
+import com.aqishi.toolbox.feature.system.application.WeChatBulkSender;
 
 import com.aqishi.toolbox.feature.system.domain.WeChatContactReader;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
@@ -38,7 +39,7 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 
 /**
- * 微信群发助手面板：通过 Java Robot 模拟按键实现微信 PC 端自动搜索联系人并发送消息。
+ * 微信群发与通讯录面板：默认按控件定位发送文本并核对数据库记录，兼容模式支持 Robot 图片发送。
  * 支持手动录入、导入 Excel 以及导出模板。
  */
 public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
@@ -52,6 +53,7 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
     private JButton exportTplBtn;
     private JButton addRowBtn;
     private JButton addImgRowBtn;
+    private JButton deleteRowBtn;
     private JButton clearBtn;
     private JProgressBar progressBar;
 
@@ -61,6 +63,13 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
     private JTextField intervalField;
     private JComboBox<String> sendKeyCombo;
     private JCheckBox confirmBeforeSendCb;
+    private JComboBox<String> sendModeCombo;
+    private JButton sendConfigBtn;
+    private JTabbedPane sendSettings;
+    private JDialog sendConfigDialog;
+    private volatile WeChatBulkSender bulkSender;
+    private SwingWorker<Void, Void> bulkWorker;
+    private long bulkGeneration;
     private JCheckBox enableGlobalImgCb;
     private DefaultListModel<String> globalImgListModel;
     private JList<String> globalImgList;
@@ -116,30 +125,16 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
         return tabbedPane;
     }
 
-    /**
-     * 群发助手页：参数在上，左侧「发什么」、右侧「发得怎么样」。
-     *
-     * <p>只有发送参数按首选高度固定在页首；待发送列表与全局附件都属于「这次要发的内容」，
-     * 叠在左栏，执行日志独占右栏。全部结果区都放进分隔条而不是 {@code NORTH}，
-     * 窗口变矮时它们一起收缩，不会出现配置区把内容区挤到只剩一条缝的情况。</p>
-     */
+    /** 配置和全局附件收进弹窗，待发列表占据主内容区的大部分空间。 */
     private JPanel buildSendPanel() {
         JPanel root = Layouts.page();
 
         root.add(buildSendConfigCard(), BorderLayout.NORTH);
-        root.add(Layouts.splitHorizontal(
-                clampedSplit(Layouts.splitVertical(
-                        buildSendTableCard(), buildGlobalImageCard(), 1.0), 0.68),
-                buildSendLogCard(), 0.5, 0.55), BorderLayout.CENTER);
+        root.add(clampedSplit(Layouts.splitHorizontal(
+                buildSendTableCard(), buildSendLogCard(), 0.75), 0.75), BorderLayout.CENTER);
 
         // Print initial warning logs
-        logArea.setText("【使用说明与注意事项】\n" +
-                "1. 本工具利用 Java Robot 模拟键盘按键唤醒微信，微信窗口需要能被 Ctrl+Alt+W 唤醒（或提前点击打开微信置于最前）。\n" +
-                "2. 支持发送【文本】与【图片】：若发送内容为本地图片的绝对路径（如 D:\\pic.png，支持 png/jpg/jpeg/gif/bmp），将自动读取并作为图片发送。可点击“添加图片行”快速选择本地图片。\n" +
-                "3. 发送前，请确保微信中已有这些联系人（支持完整昵称、备注或精准的微信号），名字不要有错别字。\n" +
-                "4. 发送期间请不要移动鼠标或操作键盘，以免干扰模拟焦点导致消息错乱。\n" +
-                "5. 微信发送按键请与微信电脑端设置一致（可在微信设置中查看是 Enter 还是 Ctrl+Enter）。\n" +
-                "6. 建议将发送间隔设置为 2000 毫秒以上，避免发送过快导致微信接口限制。\n\n");
+        logArea.setText(I18n.get("wechat.send.hint") + "\n\n");
 
         return root;
     }
@@ -182,13 +177,9 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
         return split;
     }
 
-    /**
-     * 群发参数卡片：左列＝按哪些键，右列＝各段等待多久。
-     *
-     * <p>六项参数两两同类，分两列后卡片高度减半；开始 / 停止是整页的主操作，
-     * 放卡片标题右侧，不再单独占一行按钮条。</p>
-     */
+    /** 顶部只保留配置入口和开始/停止；参数控件在弹窗内复用，关闭后保留配置值。 */
     private Card buildSendConfigCard() {
+        sendModeCombo = Fields.combo(new String[]{I18n.get("wechat.send.mode.verified"), I18n.get("wechat.send.mode.compatibility")});
         JTextField wakeupKeyField = Fields.text("Ctrl + Alt + W");
         wakeupKeyField.setEditable(false);
         JTextField searchKeyField = Fields.text("Ctrl + F");
@@ -209,34 +200,69 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
         FormGrid delays = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_XS);
         delays.rowCompact("唤醒延时(毫秒)", wakeupDelayField);
         delays.rowCompact("检索延时(毫秒)", searchDelayField);
-        delays.rowCompact("发送间隔(毫秒)", intervalField);
 
         confirmBeforeSendCb = Fields.check("发送前人工确认 (防错发/防失效)", false);
 
         FormGrid form = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_SM);
-        form.fullRow(Layouts.columns(Tokens.SPACE_XL, keys, delays));
-        form.row("安全模式", Layouts.wrapRow(confirmBeforeSendCb));
-        form.fullRow(new WrapNote(
-                "<html><b>防错提示：</b>强烈建议使用微信唯一备注名！若搜索不到弹窗，本工具会自动发送 Esc 关闭恢复。</html>"));
+        form.row(I18n.get("wechat.send.mode"), sendModeCombo);
+        form.row(I18n.get("wechat.send.interval"), intervalField);
+        JPanel compatibility = Layouts.stack(Tokens.SPACE_SM,
+                Layouts.columns(Tokens.SPACE_XL, keys, delays), Layouts.wrapRow(confirmBeforeSendCb));
+        compatibility.setVisible(false);
+        form.fullRow(compatibility);
+        form.fullRow(Fields.note(I18n.get("wechat.send.modeHint")));
+        sendModeCombo.addActionListener(e -> {
+            compatibility.setVisible(sendModeCombo.getSelectedIndex() == 1);
+            compatibility.getParent().revalidate();
+        });
 
         startBtn = Buttons.primary("开始群发");
         stopBtn = Buttons.danger("停止群发");
         stopBtn.setEnabled(false);
 
+        JPanel parameters = Layouts.page();
+        parameters.add(form, BorderLayout.NORTH);
+        JPanel images = Layouts.page();
+        images.add(buildGlobalImageCard(), BorderLayout.CENTER);
+        sendSettings = new JTabbedPane();
+        sendSettings.addTab(I18n.get("wechat.send.config.parameters"), parameters);
+        sendSettings.addTab(I18n.get("wechat.send.config.images"), images);
+        sendConfigBtn = Buttons.secondary(I18n.get("wechat.send.config"));
+        sendConfigBtn.addActionListener(e -> showSendConfig());
+
         Card card = Card.titled("微信群发配置参数");
-        card.setContent(form);
+        card.getContent().setVisible(false);
         // addHeaderAction 从左往右排，主操作最后加才落在最右
+        card.addHeaderAction(sendConfigBtn);
         card.addHeaderAction(stopBtn);
         card.addHeaderAction(startBtn);
         return card;
     }
 
-    /**
-     * 全局附件卡片：启用开关与三个列表操作提到标题带，路径列表铺满卡片。
-     *
-     * <p>高度交给上方的纵向分隔条按比例分配，不再写死一个「紧凑高度」——
-     * 附件多的时候用户可以自己把分隔条往上拖。</p>
-     */
+    private void showSendConfig() {
+        if (closed || !startBtn.isEnabled()) return;
+        JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(getView()),
+                I18n.get("wechat.send.config"), Dialog.ModalityType.APPLICATION_MODAL);
+        sendConfigDialog = dialog;
+        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        JPanel body = Layouts.page();
+        body.add(sendSettings, BorderLayout.CENTER);
+        JButton close = Buttons.primary(I18n.get("wechat.send.config.close"));
+        close.addActionListener(e -> dialog.dispose());
+        body.add(Layouts.wrapRow(close), BorderLayout.SOUTH);
+        dialog.setContentPane(body);
+        dialog.getRootPane().setDefaultButton(close);
+        dialog.getRootPane().registerKeyboardAction(e -> dialog.dispose(),
+                KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
+        Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+        dialog.setSize(Math.min(760, screen.width), Math.min(560, screen.height));
+        dialog.setMinimumSize(new Dimension(Math.min(560, screen.width), Math.min(400, screen.height)));
+        dialog.setLocationRelativeTo(getView());
+        try { dialog.setVisible(true); }
+        finally { dialog.dispose(); sendConfigDialog = null; }
+    }
+
+    /** 全局附件位于配置弹窗，启用开关放标题带，图片路径列表铺满内容区。 */
     private Card buildGlobalImageCard() {
         enableGlobalImgCb = Fields.check("启用全局图片附件", false);
         addGlobalImgBtn = Buttons.secondary("添加图片");
@@ -248,8 +274,7 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
         globalImgList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         globalImgList.setFont(Tokens.fontBody());
 
-        // 标题保持原文案的一整句：拆成标题 + 副标题会多占一行高度，
-        // 这张卡片在矮窗口下本来就只剩「标题带 + 按钮条」的空间
+        // 标题保持一行，三个附件按钮放底部，弹窗变窄时允许折行。
         Card card = Card.flush("全局附加图片 (发送时将连同文本依次发送)");
         // 只有启用开关放标题带；三个按钮再塞进去会在窄窗口把标题挤成 0 宽，
         // 底部用 wrapRow 则可以折行
@@ -262,8 +287,8 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
     /**
      * 待发送列表卡片。
      *
-     * <p>整表级别的导入 / 导出放标题带，按行编辑的三个动作放底部状态条；
-     * 这张卡片只占分隔条左侧一半宽度，底部用 {@code wrapRow} 才能在窄窗口下折行而不是被裁掉。</p>
+     * <p>整表级别的导入 / 导出放标题带，添加、删除和清空放底部状态条；
+     * 底部用 {@code wrapRow} 在窄窗口下折行，避免裁掉按钮。</p>
      */
     private Card buildSendTableCard() {
         tableModel = new DefaultTableModel(new String[]{"ID", "联系人/备注(精准名称)", "发送内容", "状态", "发送时间"}, 0) {
@@ -273,10 +298,16 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
             }
         };
         contactTable = new JTable(tableModel);
-        contactTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        contactTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        int[] columnWidths = {50, 180, 320, 145, 170};
+        for (int i = 0; i < columnWidths.length; i++)
+            contactTable.getColumnModel().getColumn(i).setPreferredWidth(columnWidths[i]);
 
         addRowBtn = Buttons.secondary("添加一行");
         addImgRowBtn = Buttons.secondary("添加图片行");
+        deleteRowBtn = Buttons.danger(I18n.get("wechat.send.delete"));
+        deleteRowBtn.setToolTipText(I18n.get("wechat.send.deleteHint"));
+        deleteRowBtn.setEnabled(false);
         clearBtn = Buttons.danger("清空表格");
         importBtn = Buttons.secondary("导入 Excel");
         exportTplBtn = Buttons.ghost("导出模板");
@@ -285,7 +316,7 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
         card.addHeaderAction(exportTplBtn);
         card.addHeaderAction(importBtn);
         card.setContent(Fields.scroll(contactTable));
-        card.setFooter(Layouts.wrapRow(addRowBtn, addImgRowBtn, clearBtn));
+        card.setFooter(Layouts.wrapRow(addRowBtn, addImgRowBtn, deleteRowBtn, clearBtn));
         return card;
     }
 
@@ -850,6 +881,16 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void setupListeners() {
+        deleteRowBtn.addActionListener(e -> deleteSelectedSendRows());
+        contactTable.getSelectionModel().addListSelectionListener(e -> updateDeleteRowAction());
+        tableModel.addTableModelListener(e -> updateDeleteRowAction());
+        contactTable.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "delete-send-rows");
+        contactTable.getActionMap().put("delete-send-rows", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent event) {
+                if (!contactTable.isEditing()) deleteSelectedSendRows();
+            }
+        });
         addRowBtn.addActionListener(e -> {
             int id = tableModel.getRowCount() + 1;
             tableModel.addRow(new Object[]{id, "输入联系人名称", "输入发送内容", "待发送", ""});
@@ -876,7 +917,7 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
             JFileChooser chooser = new JFileChooser();
             chooser.setMultiSelectionEnabled(true);
             chooser.setFileFilter(new FileNameExtensionFilter("图片文件 (*.png; *.jpg; *.jpeg; *.gif; *.bmp)", "png", "jpg", "jpeg", "gif", "bmp"));
-            if (chooser.showOpenDialog(getView()) == JFileChooser.APPROVE_OPTION) {
+            if (chooser.showOpenDialog(addGlobalImgBtn) == JFileChooser.APPROVE_OPTION) {
                 File[] files = chooser.getSelectedFiles();
                 for (File f : files) {
                     globalImgListModel.addElement(f.getAbsolutePath());
@@ -892,6 +933,21 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
         });
 
         clearGlobalImgBtn.addActionListener(e -> globalImgListModel.clear());
+    }
+
+    private void updateDeleteRowAction() {
+        deleteRowBtn.setEnabled(!closed && startBtn.isEnabled() && contactTable.getSelectedRowCount() > 0);
+    }
+
+    private void deleteSelectedSendRows() {
+        if (closed || !startBtn.isEnabled()) return;
+        int[] rows = java.util.Arrays.stream(contactTable.getSelectedRows())
+                .map(contactTable::convertRowIndexToModel).sorted().toArray();
+        if (rows.length == 0) return;
+        if (contactTable.isEditing() && !contactTable.getCellEditor().stopCellEditing()) return;
+        for (int i = rows.length - 1; i >= 0; i--) tableModel.removeRow(rows[i]);
+        for (int row = 0; row < tableModel.getRowCount(); row++) tableModel.setValueAt(row + 1, row, 0);
+        updateDeleteRowAction();
     }
 
     private void addImageRow() {
@@ -1038,6 +1094,103 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void startBulkSend() {
+        if (sendModeCombo.getSelectedIndex() == 0) startVerifiedBulkSend();
+        else startLegacyBulkSend();
+    }
+
+    protected WeChatBulkSender createBulkSender() { return new WeChatBulkSender(); }
+
+    private void startVerifiedBulkSend() {
+        if (closed || bulkWorker != null || (sendThread != null && sendThread.isAlive())) return;
+        if (contactTable.isEditing() && !contactTable.getCellEditor().stopCellEditing()) return;
+        final int interval;
+        try {
+            interval = Integer.parseInt(intervalField.getText().trim());
+            if (interval < 500 || interval > 60000) throw new NumberFormatException();
+        } catch (NumberFormatException invalid) { UIUtils.error(getView(), I18n.get("wechat.send.invalid")); return; }
+        if (enableGlobalImgCb.isSelected() && !globalImgListModel.isEmpty()) {
+            UIUtils.error(getView(), I18n.get("wechat.send.imagesCompatibility")); return;
+        }
+        var rows = new java.util.ArrayList<Integer>();
+        var requests = new java.util.ArrayList<WeChatBulkSender.Request>();
+        for (int row = 0; row < tableModel.getRowCount(); row++) {
+            String status = String.valueOf(tableModel.getValueAt(row, 3));
+            if (status.equals(I18n.get("wechat.send.confirmed")) || status.equals(I18n.get("wechat.send.pending"))
+                    || status.equals(I18n.get("wechat.send.uncertain")) || status.equals(I18n.get("wechat.send.legacyTriggered"))) continue;
+            String name = tableModel.getValueAt(row, 1) instanceof String value ? value.trim() : "";
+            String text = tableModel.getValueAt(row, 2) instanceof String value ? value : "";
+            if (isImagePath(text)) { UIUtils.error(getView(), I18n.get("wechat.send.imagesCompatibility")); return; }
+            if (name.isBlank() || text.isBlank() || text.length() > 10000) {
+                UIUtils.error(getView(), I18n.get("wechat.send.invalid")); return;
+            }
+            rows.add(row); requests.add(new WeChatBulkSender.Request(name, text));
+        }
+        if (requests.isEmpty()) { log(I18n.get("wechat.send.noRetry")); return; }
+        long ticket = ++bulkGeneration;
+        WeChatBulkSender sender = createBulkSender();
+        bulkSender = sender;
+        setBulkActionsEnabled(false);
+        progressBar.setMaximum(requests.size()); progressBar.setValue(0);
+        int[] completed = {0};
+        bulkWorker = new SwingWorker<>() {
+            @Override protected Void doInBackground() throws Exception {
+                sender.send(requests, interval, new WeChatBulkSender.Listener() {
+                    @Override public void progress(int index, String status) {
+                        SwingUtilities.invokeLater(() -> {
+                            if (closed || ticket != bulkGeneration) return;
+                            if (index >= 0) tableModel.setValueAt(I18n.get("wechat.send.verifying"), rows.get(index), 3);
+                            log(status);
+                        });
+                    }
+                    @Override public void result(WeChatBulkSender.Result result) {
+                        SwingUtilities.invokeLater(() -> {
+                            if (closed || ticket != bulkGeneration) return;
+                            String status = I18n.get(switch (result.outcome()) {
+                                case "acknowledged" -> "wechat.send.confirmed";
+                                case "pending" -> "wechat.send.pending";
+                                case "uncertain" -> "wechat.send.uncertain";
+                                case "cancelled" -> "wechat.send.cancelled";
+                                default -> "wechat.send.notSent";
+                            });
+                            int row = rows.get(result.index());
+                            tableModel.setValueAt(status, row, 3);
+                            tableModel.setValueAt(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()), row, 4);
+                            progressBar.setValue(++completed[0]);
+                            log(requests.get(result.index()).recipient() + "：" + status
+                                    + (result.reason().isEmpty() ? "" : " — " + result.reason())
+                                    + (result.serverId().isEmpty() ? "" : " | ID=" + result.serverId()));
+                        });
+                    }
+                });
+                return null;
+            }
+            @Override protected void done() {
+                sender.close();
+                if (closed || ticket != bulkGeneration) return;
+                try { get(); }
+                catch (Exception error) {
+                    log(Errors.describeRoot(error));
+                    for (int row : rows) if (I18n.get("wechat.send.verifying").equals(tableModel.getValueAt(row, 3)))
+                        tableModel.setValueAt(I18n.get("wechat.send.uncertain"), row, 3);
+                } finally {
+                    bulkWorker = null; bulkSender = null; setBulkActionsEnabled(true);
+                }
+            }
+        };
+        bulkWorker.execute();
+    }
+
+    private void setBulkActionsEnabled(boolean enabled) {
+        startBtn.setEnabled(enabled); stopBtn.setEnabled(!enabled); contactTable.setEnabled(enabled);
+        sendModeCombo.setEnabled(enabled); importBtn.setEnabled(enabled); clearBtn.setEnabled(enabled);
+        sendConfigBtn.setEnabled(enabled); updateDeleteRowAction();
+        addRowBtn.setEnabled(enabled); addImgRowBtn.setEnabled(enabled); addGlobalImgBtn.setEnabled(enabled);
+        delGlobalImgBtn.setEnabled(enabled); clearGlobalImgBtn.setEnabled(enabled); enableGlobalImgCb.setEnabled(enabled);
+    }
+
+    private void startLegacyBulkSend() {
+        if (closed || bulkWorker != null || (sendThread != null && sendThread.isAlive())) return;
+        if (contactTable.isEditing() && !contactTable.getCellEditor().stopCellEditing()) return;
         final int rowCount = tableModel.getRowCount();
         if (rowCount == 0) {
             UIUtils.info(getView(), "请添加联系人后再启动群发！");
@@ -1065,16 +1218,7 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
             globalImgsList.add(globalImgListModel.getElementAt(i));
         }
 
-        startBtn.setEnabled(false);
-        stopBtn.setEnabled(true);
-        importBtn.setEnabled(false);
-        clearBtn.setEnabled(false);
-        addRowBtn.setEnabled(false);
-        addImgRowBtn.setEnabled(false);
-        addGlobalImgBtn.setEnabled(false);
-        delGlobalImgBtn.setEnabled(false);
-        clearGlobalImgBtn.setEnabled(false);
-        enableGlobalImgCb.setEnabled(false);
+        setBulkActionsEnabled(false);
         stopRequested = false;
 
         progressBar.setMaximum(rowCount);
@@ -1103,9 +1247,9 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
                     String msg = (String) tableModel.getValueAt(i, 2);
                     String status = (String) tableModel.getValueAt(i, 3);
 
-                    if ("成功".equals(status)) {
+                    if (I18n.get("wechat.send.legacyTriggered").equals(status) || I18n.get("wechat.send.confirmed").equals(status)
+                            || I18n.get("wechat.send.pending").equals(status) || I18n.get("wechat.send.uncertain").equals(status)) {
                         progressBar.setValue(i + 1);
-                        successCount++;
                         continue;
                     }
 
@@ -1267,8 +1411,8 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
 
                         // Done
                         String timeStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
-                        updateRowStatus(i, "成功", timeStr);
-                        log("发送成功: [" + name + "]");
+                        updateRowStatus(i, I18n.get("wechat.send.legacyTriggered"), timeStr);
+                        log(I18n.get("wechat.send.legacyLog", name));
                         successCount++;
 
                     } catch (Exception ex) {
@@ -1291,22 +1435,13 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
                     }
                 }
 
-                log("群发任务结束，总计成功: " + successCount + "/" + rowCount);
+                log(I18n.get("wechat.send.legacySummary", successCount, rowCount));
 
             } catch (Exception ex) {
                 log("线程意外中止: " + ex.getMessage());
             } finally {
                 SwingUtilities.invokeLater(() -> {
-                    startBtn.setEnabled(true);
-                    stopBtn.setEnabled(false);
-                    importBtn.setEnabled(true);
-                    clearBtn.setEnabled(true);
-                    addRowBtn.setEnabled(true);
-                    addImgRowBtn.setEnabled(true);
-                    addGlobalImgBtn.setEnabled(true);
-                    delGlobalImgBtn.setEnabled(true);
-                    clearGlobalImgBtn.setEnabled(true);
-                    enableGlobalImgCb.setEnabled(true);
+                    if (!closed) setBulkActionsEnabled(true);
                 });
             }
         });
@@ -1315,6 +1450,9 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void stopBulkSend() {
+        if (bulkSender != null) {
+            bulkSender.close(); stopBtn.setEnabled(false); log(I18n.get("wechat.send.stopping")); return;
+        }
         stopRequested = true;
         if (sendThread != null) {
             sendThread.interrupt();
@@ -1452,6 +1590,8 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
         if (collector != null) collector.close();
         SwingWorker<?, ?> worker = contactWorker;
         if (worker != null) worker.cancel(true);
+        WeChatBulkSender senderService = bulkSender;
+        if (senderService != null) senderService.close();
         Thread sender = sendThread;
         sendThread = null;
         if (sender != null && sender.isAlive()) sender.interrupt();
@@ -1460,6 +1600,8 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
     @Override public void closeResources() {
         closed = true;
         stopBackgroundWork();
+        JDialog dialog = sendConfigDialog;
+        if (dialog != null) SwingUtilities.invokeLater(dialog::dispose);
     }
 
     private void stopAutoCollect() {

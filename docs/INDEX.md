@@ -11,7 +11,7 @@
 
 - [Kubernetes 集群管理](k8s_manager_guide.md)：集群配置、Namespace、日志、Exec 和文件传输。
 - [远程桌面](remote_desktop_guide.md)：ICE/STUN、TCP 回退、信令和会话生命周期。
-- [微信工具](wechat_tools_guide.md)：Windows 微信通讯录只读快照、一键读取、Excel 导出及运行要求。
+- [微信工具](wechat_tools_guide.md)：Windows 微信通讯录只读快照、文本群发定位与发送记录核验、图片兼容模式及运行要求。
 
 ## 设计记录
 

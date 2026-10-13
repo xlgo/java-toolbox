@@ -350,6 +350,9 @@
                                     <includes>
                                         <include>wechat_export.py</include>
                                         <include>wechat_contacts.py</include>
+                                        <include>wechat_send.py</include>
+                                        <include>wechat_send_store.py</include>
+                                        <include>wechat_send_ui.py</include>
                                     </includes>
                                 </resource>
                             </resources>

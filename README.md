@@ -87,7 +87,7 @@
 | 运维 | JAR / Class 分析 | 解析 class 文件（编译版本、预览特性、字段与方法签名），分析 JAR / WAR / Spring Boot fat jar 的 MANIFEST、Maven 坐标、最低 Java 版本与内嵌依赖；在目录中搜索类所在的 jar，检测重复类并区分内容是否一致 |
 | 监控 | 视频监控 | 视频源与分屏布局管理，支持格子合并拆分和设备树；当前画面为预览占位，未内置 RTSP/视频解码器 |
 | 监控 | 远程桌面 | 纯 P2P 远程控制桌面，优先采用 ice4j 完整 ICE 状态机进行 UDP 双向打洞（多 STUN、triggered check、peer-reflexive candidate、角色冲突处理与候选对提名），失败后尝试带 UPnP/NAT-PMP 的 TCP 直连；不配置 TURN，信令服务器不转发桌面数据。所有数据通道经 X25519 密钥交换与 AES-256-GCM 加密；被控端须确认授权并核对两端一致的 6 位校验码，查看、控制、文件传输、终端分项授予，可设访问密码 |
-| 其它 | 微信群发与通讯录 | 登录 Windows 微信 4.x 后一键读取本机个人联系人（含企业微信联系人），自动识别数据目录和当前账号；无需切页、模拟点击或 OCR，保留昵称、备注、微信号、性别、标签与头像链接，支持 Excel 导出、一键追加群发、头像下载 |
+| 其它 | 微信群发与通讯录 | Windows 微信 4.x 通讯录一键只读获取，无需切页或 OCR；文本群发自动定位联系人、读回内容并核对新发送记录，无需持续保持微信前台，定位时短暂显示；支持 Excel、头像下载，图片保留在前台兼容模式 |
 | 其它 | 微信导出工具脚本 | `tools/wechat_export.py` 与 `tools/wechat_contacts.py`：以只读方式获取已登录账号的 SQLCipher 通讯录快照，验证数据库页、合并已提交 WAL；密钥不落盘，不读取聊天记录；需 64 位 Python 3.11+，本机验证版本为微信 4.1.13.65 |
 
 证书签发前会检查 CA 有效期、签发权限和私钥配对；叶子证书的到期时间不会超过 CA 到期时间。更多检查结果与待补能力见 [功能检查记录](docs/reviews/2026-09-29-functional-audit.md)。
@@ -106,6 +106,20 @@
 本机已按具体联系人验证并修正 `flag=1` 记录漏读，读取到 **665 个唯一联系人**。本地记录可能包含客户端当前列表未展示的联系人，昵称和备注也可能与手机端不同；总数一致不能证明名单完整，本地记录不能用于确认实时双向好友关系。更多细节见 [读取指南](docs/wechat_tools_guide.md)和 [漏读修正记录](docs/reviews/2026-10-13-wechat-missing-contacts.md)。
 
 密钥定位的结构资料主要参考社区项目 [wechatauto-replica 的 db.py](https://github.com/fanyuantaier/wechatauto-replica/blob/main/wechatauto/db.py)，数据库页认证和 WAL 读取分别依据 [SQLCipher 设计](https://www.zetetic.net/sqlcipher/design/)与 [SQLite 文件格式](https://sqlite.org/fileformat2.html#walformat)。本项目的读取助手位于 `tools/wechat_contacts.py`。
+
+## 微信文本群发与结果核验
+
+群发页默认使用 **文本后台核验**。填写微信号或唯一的昵称/备注与文本，点击“开始群发”；程序自动切换到目标聊天，读取确认输入内容，然后在微信最小化或其他应用处于前台时投递发送事件，并只读核对该会话的新发送记录。定位时微信会短暂显示，不需要一直保持微信前台，不使用 OCR。
+
+- 将微信设置为 **Enter 发送**。需要 Windows、64 位 Python 3.11+；缺少 `uiautomation` 或 `cryptography` 时会自动安装，首次准备需要联网。已在 **微信 4.1.13.65** 实测。
+- 发送参数和全局图片集中在 **群发配置** 弹窗，待发列表占主页面大部分空间；支持 **删除选中**、Ctrl/Shift 多选和 Delete 键，发送期间禁用列表删除。
+- **已确认发送记录** 表示找到了内容一致、当前账号在本机发出的新记录，且 `status=2`、服务器 ID 大于零；不能据此确认对方收到或已读。
+- **待确认 / 未确认** 不会自动重发，切换兼容模式也会跳过这些行。联系人名称重复、搜索结果不唯一或输入框已有草稿时跳过；已有草稿保留。点击停止会等待当前助手退出后才允许开始下一批。
+- **兼容发送（文本/图片）** 保留图片、全局附件和 `Ctrl+Enter`，仍依赖微信前台与快捷键，结果显示 **已触发（未核验）**。
+
+发送控件定位使用 Windows UI Automation。微信未暴露控件树时，助手临时开启经过模块指令与唯一地址验证的 Qt 无障碍状态，正常结束和停止时恢复；此过程涉及进程内状态，通讯录读取仍保持只读。发送结果核验会在内存中读取消息数据库快照，不将密钥、聊天数据库或测试消息写入项目文件。当前要求仅有一个待发送账号的主窗口，无法唯一识别账号或客户端结构时会报错。
+
+控件与 Qt 状态的结构资料参考 [wechatauto-replica 的 uia_driver.py](https://github.com/fanyuantaier/wechatauto-replica/blob/main/wechatauto/uia_driver.py)。具体用法、限制与实测记录见 [微信工具指南](docs/wechat_tools_guide.md)和 [群发优化验证记录](docs/reviews/2026-10-13-wechat-bulk-send.md)。
 
 ## 主题与体验优化
 
@@ -237,6 +251,9 @@ src/main/java/com/aqishi/toolbox/
 
 tools/wechat_export.py                # 微信通讯录只读助手入口
 tools/wechat_contacts.py              # 账号识别、联系人快照与字段读取
+tools/wechat_send.py                  # 文本群发计划、停止与核验事件
+tools/wechat_send_ui.py               # Windows 控件定位、输入读回与定向发送
+tools/wechat_send_store.py            # 联系人解析和新发送记录核验
 ```
 ## Roadmap
 
@@ -251,7 +268,7 @@ tools/wechat_contacts.py              # 账号识别、联系人快照与字段�
 - ☸️ [K8s 集群管理 (K8s Manager) 指南](docs/k8s_manager_guide.md)：涵盖多集群配置导入、Web Terminal、日志流追踪与容器文件传输说明。
 - [常用工作流指南](docs/common-workflows-guide.md)：HTTP 请求集合与环境变量、查询结果导出、TCP 长度分帧和 K8s 端口转发。
 - [开发工具使用指南](docs/developer-utilities-guide.md)：结构化对比、表格转 SQL、JSON 转 DTO、HTTP 上传、MyBatis 日志、Maven 依赖和 SSE 调试。
-- 💬 [微信通讯录读取指南](docs/wechat_tools_guide.md)：一键读取本机已登录账号的通讯录，无需 OCR、模拟点击或手动选择首个好友。
+- 💬 [微信工具指南](docs/wechat_tools_guide.md)：通讯录一键只读获取，文本群发自动定位与发送记录核验，图片兼容模式及运行要求。
 
 ## 自动构建与发布
 

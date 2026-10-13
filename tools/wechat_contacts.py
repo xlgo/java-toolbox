@@ -16,6 +16,7 @@ import sqlite3
 import struct
 import time
 import subprocess
+from contextlib import closing
 
 PAGE_SIZE = 4096
 RESERVED = 80
@@ -203,7 +204,7 @@ def wal_checksum(data, state, byte_order):
     return s0, s1
 
 
-def committed_wal_pages(wal):
+def committed_wal_pages(wal, cancelled=lambda: False):
     if not wal:
         return {}, None
     if len(wal) < 32:
@@ -218,6 +219,8 @@ def committed_wal_pages(wal):
     salt = wal[16:24]
     pages, committed, database_size = {}, {}, None
     for offset in range(32, len(wal) - PAGE_SIZE - 23, PAGE_SIZE + 24):
+        if cancelled():
+            raise InterruptedError('cancelled')
         frame = wal[offset:offset + 24]
         if frame[8:16] != salt:
             break  # Older frames from the previous WAL generation are irrelevant.
@@ -236,9 +239,11 @@ def committed_wal_pages(wal):
     return committed, database_size
 
 
-def stable_source(path):
+def stable_source(path, cancelled=lambda: False):
     wal_path = Path(str(path) + '-wal')
     for _ in range(3):
+        if cancelled():
+            raise InterruptedError('cancelled')
         before = path.stat()
         if before.st_size > MAX_DATABASE_BYTES:
             raise ContactReadError('通讯录数据库超过 128 MiB 读取上限。')
@@ -261,20 +266,24 @@ def stable_source(path):
     raise ContactReadError('微信正在更新通讯录，未取得一致快照，请稍后重试。')
 
 
-def database_snapshot(path, key):
-    raw, wal = stable_source(path)
+def database_snapshot(path, key, cancelled=lambda: False):
+    raw, wal = stable_source(path, cancelled)
     if len(raw) < PAGE_SIZE or len(raw) % PAGE_SIZE:
         raise ContactReadError('通讯录文件不是完整的 SQLCipher 4 数据库。')
     mac_key = hashlib.pbkdf2_hmac('sha512', key, bytes(value ^ 0x3a for value in raw[:16]), 2, 32)
     result = bytearray()
     for offset in range(0, len(raw), PAGE_SIZE):
+        if cancelled():
+            raise InterruptedError('cancelled')
         result.extend(decrypt_page(raw[offset:offset + PAGE_SIZE], offset // PAGE_SIZE + 1, key, mac_key))
-    pages, size = committed_wal_pages(wal)
+    pages, size = committed_wal_pages(wal, cancelled)
     if size is not None:
         del result[size * PAGE_SIZE:]
         if len(result) < size * PAGE_SIZE:
             result.extend(bytes(size * PAGE_SIZE - len(result)))
         for number, page in pages.items():
+            if cancelled():
+                raise InterruptedError('cancelled')
             if number <= size:
                 result[(number - 1) * PAGE_SIZE:number * PAGE_SIZE] = decrypt_page(page, number, key, mac_key)
     # A deserialized in-memory database cannot open the source's on-disk WAL file.
@@ -326,7 +335,7 @@ def protobuf_fields(data):
 
 
 def read_snapshot(snapshot, friends_only=True, account_folder=''):
-    with sqlite3.connect(':memory:') as database:
+    with closing(sqlite3.connect(':memory:')) as database:
         database.deserialize(snapshot)
         database.execute('PRAGMA query_only=ON')
         database.row_factory = sqlite3.Row
@@ -405,7 +414,7 @@ def collect_contacts(emit, cancelled=lambda: False, friends_only=True):
                     if not verify_key(key, first):
                         continue
                     emit({'type': 'status', 'status': '正在验证数据库和最新已提交数据…'})
-                    contacts = read_snapshot(database_snapshot(path, key), friends_only, path.parents[2].name)
+                    contacts = read_snapshot(database_snapshot(path, key, cancelled), friends_only, path.parents[2].name)
                     for contact in contacts:
                         if cancelled():
                             raise InterruptedError('cancelled')

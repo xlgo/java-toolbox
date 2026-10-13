@@ -6,6 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 import unittest
+from contextlib import closing
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -35,7 +36,7 @@ def wal(frames):
 
 
 def snapshot(rows):
-    with sqlite3.connect(':memory:') as database:
+    with closing(sqlite3.connect(':memory:')) as database:
         database.execute('CREATE TABLE contact(id INTEGER PRIMARY KEY,username TEXT,nick_name TEXT,alias TEXT,remark TEXT,local_type INTEGER,flag INTEGER,delete_flag INTEGER,verify_flag INTEGER,big_head_url TEXT,small_head_url TEXT,extra_buffer BLOB)')
         database.execute('CREATE TABLE contact_label(label_id_ INTEGER,label_name_ TEXT)')
         database.execute("INSERT INTO contact_label VALUES (7,'Work')")
@@ -101,6 +102,16 @@ class EncryptionTests(unittest.TestCase):
             self.assertEqual(page, path.read_bytes())
             self.assertEqual(['contact.db'], [p.name for p in Path(directory).iterdir()])
 
+    def test_cancellation_interrupts_page_decryption_and_wal_verification(self):
+        page = encrypted_page(1, self.key, self.salt, self.first)
+        raw = page + encrypted_page(2, self.key, self.salt, bytes([8]) * 4016 + bytes(80))
+        checks = iter([False, True])
+        with patch.object(contacts, 'stable_source', return_value=(raw, b'')):
+            with self.assertRaises(InterruptedError):
+                contacts.database_snapshot(Path('unused'), self.key, lambda: next(checks))
+        with self.assertRaises(InterruptedError):
+            contacts.committed_wal_pages(wal([(1, 1, page)]), lambda: True)
+
 
 class ContactTests(unittest.TestCase):
     def test_personal_contacts_include_enterprise_but_not_self_public_accounts_groups_or_strangers(self):
@@ -157,7 +168,7 @@ class ContactTests(unittest.TestCase):
         self.assertEqual('', row['tag'])
 
     def test_unknown_schema_is_failure_instead_of_successful_empty_list(self):
-        with sqlite3.connect(':memory:') as database:
+        with closing(sqlite3.connect(':memory:')) as database:
             database.execute('CREATE TABLE other(n INTEGER)')
             with self.assertRaises(contacts.ContactReadError): contacts.read_snapshot(database.serialize())
 

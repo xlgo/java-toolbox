@@ -1,7 +1,8 @@
 package com.aqishi.toolbox.feature.system.ui;
 
 import com.aqishi.toolbox.catalog.ToolCatalog;
-import com.aqishi.toolbox.util.Json;
+import com.aqishi.toolbox.util.I18n;
+import com.aqishi.toolbox.feature.system.application.WeChatContactCollector;
 
 import com.aqishi.toolbox.feature.system.domain.WeChatContactReader;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
@@ -35,11 +36,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.Map;
 
 /**
  * 微信群发助手面板：通过 Java Robot 模拟按键实现微信 PC 端自动搜索联系人并发送消息。
@@ -88,9 +84,11 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
     private JLabel wxcStatsLabel;
     private JProgressBar wxcProgressBar;
     private JButton wxcAutoCollectBtn;
-    private boolean autoCollectRunning = false;
-    private Thread autoCollectThread;
-    private Process autoCollectProcess;
+    private boolean autoCollectRunning;
+    private volatile WeChatContactCollector contactCollector;
+    private SwingWorker<java.util.List<WeChatContactReader.ContactInfo>, String> contactWorker;
+    private long collectGeneration;
+    private volatile boolean closed;
     private java.util.List<WeChatContactReader.ContactInfo> allContacts = new java.util.ArrayList<>();
 
     private volatile boolean stopRequested = false;
@@ -330,11 +328,11 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
 
         wxcBrowseBtn = Buttons.primary("导入外部通讯录文件 (Excel/CSV/TXT)...");
         wxcLoadBtn = Buttons.secondary("从剪贴板/文本批量导入...");
-        wxcAutoCollectBtn = Buttons.secondary("模拟人工点击获取...");
+        wxcAutoCollectBtn = Buttons.secondary(I18n.get("wechat.collect.start"));
 
         FormGrid form = new FormGrid(Tokens.SPACE_MD, Tokens.SPACE_SM);
         form.fullRow(Layouts.wrapRow(wxcBrowseBtn, wxcLoadBtn, wxcAutoCollectBtn));
-        form.fullRow(new WrapNote("<html><b>使用说明：</b>此处用于直接导入外部通讯录列表。您可以使用任何工具导出通讯录为 Excel、CSV 或 TXT 文件后在此导入，或者直接在弹窗中从剪贴板复制粘贴通讯录文本列表。支持字段自适应匹配（如昵称、微信号、备注、性别）。</html>"));
+        form.fullRow(Fields.note(I18n.get("wechat.collect.hint")));
 
         Card card = Card.titled("数据导入与说明");
         card.setContent(form);
@@ -1389,308 +1387,91 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void startAutoCollect() {
-        Window ancestor = SwingUtilities.getWindowAncestor(this.getView());
-        JDialog dialog = new JDialog(ancestor instanceof Frame ? (Frame) ancestor : null, "自动获取微信通讯录参数配置", true);
-        dialog.setSize(450, 360);
-        dialog.setLocationRelativeTo(ancestor);
-        dialog.setLayout(new GridBagLayout());
-        
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(6, 12, 6, 12);
-        
-        // Instructions
-        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2;
-        JLabel tipLabel = new JLabel("<html><b>获取前准备步骤：</b><br>" +
-                "1. 在电脑上打开微信客户端，点击左下角的 <b>「通讯录」</b> 图标。<br>" +
-                "2. 手动在联系人列表中<b>点击选中第一个好友</b>。<br>" +
-                "3. 保持微信主界面可见。<br>" +
-                "4. 点击下方的「开始获取」后，<b>请勿操作鼠标和键盘</b>。</html>");
-        dialog.add(tipLabel, gbc);
-        
-        // Limit field
-        gbc.gridy = 1; gbc.gridwidth = 1; gbc.weightx = 0;
-        dialog.add(new JLabel("获取上限数量:"), gbc);
-        JTextField limitField = new JTextField("1000");
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        dialog.add(limitField, gbc);
-        
-        // Delay field
-        gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0;
-        dialog.add(new JLabel("按键/点击间隔时间(毫秒):"), gbc);
-        JTextField delayField = new JTextField("300");
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        dialog.add(delayField, gbc);
-
-        // Mode combo
-        gbc.gridx = 0; gbc.gridy = 3; gbc.weightx = 0;
-        dialog.add(new JLabel("操作模式:"), gbc);
-        JComboBox<String> modeCombo = new JComboBox<>(new String[]{
-                "键盘模式 (使用 Down 键，在键盘可用时极快)", 
-                "鼠标模式 (模拟鼠标点击与滚轮，微信4.x必选)"
-        });
-        modeCombo.setSelectedIndex(0); // Default to Mouse mode
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        dialog.add(modeCombo, gbc);
-        
-        // Action buttons
-        gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2; gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.CENTER;
-        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
-        JButton runBtn = new JButton("开始获取");
-        JButton cancelBtn = new JButton("取消");
-        btnRow.add(runBtn);
-        btnRow.add(cancelBtn);
-        dialog.add(btnRow, gbc);
-        
-        cancelBtn.addActionListener(ev -> dialog.dispose());
-        
-        runBtn.addActionListener(ev -> {
-            int limit = 1000;
-            int delay = 300;
-            try {
-                limit = Integer.parseInt(limitField.getText().trim());
-                delay = Integer.parseInt(delayField.getText().trim());
-            } catch (Exception ex) {
-                UIUtils.error(dialog, "参数格式错误，请输入正整数！");
-                return;
-            }
-            String mode = modeCombo.getSelectedIndex() == 0 ? "keyboard" : "mouse";
-            dialog.dispose();
-            executeAutoCollect(limit, delay, mode);
-        });
-        
-        dialog.setVisible(true);
-    }
- 
-    private void executeAutoCollect(int limit, int delay, String mode) {
+        if (closed || autoCollectRunning) return;
         autoCollectRunning = true;
-        wxcAutoCollectBtn.setText("停止获取");
-        wxcBrowseBtn.setEnabled(false);
-        wxcLoadBtn.setEnabled(false);
-        wxcExportBtn.setEnabled(false);
-        wxcDownloadAvatarBtn.setEnabled(false);
-        wxcAddToSendBtn.setEnabled(false);
-        
-        wxcProgressBar.setValue(0);
-        wxcProgressBar.setString("正在启动自动获取程序...");
+        long ticket = ++collectGeneration;
+        WeChatContactCollector collector = createContactCollector();
+        contactCollector = collector;
+        wxcAutoCollectBtn.setText(I18n.get("wechat.collect.stop"));
+        setContactActionsEnabled(false);
         wxcProgressBar.setIndeterminate(true);
+        wxcProgressBar.setString(I18n.get("wechat.collect.reading"));
         wxcProgressBar.setVisible(true);
-        
-        autoCollectThread = new Thread(() -> {
-            File tempScriptFile = null;
-            try {
-                // Prefer the packaged resource; direct IDE launches may use
-                // the canonical source before Maven copies it to the classpath.
-                try (java.io.InputStream is = openWeChatExportScript()) {
-                    if (is == null) {
-                        throw new java.io.FileNotFoundException(
-                                "未找到微信导出脚本：/tools/wechat_export.py 或 tools/wechat_export.py");
-                    }
-                    tempScriptFile = File.createTempFile("wechat_export_", ".py");
-                    tempScriptFile.deleteOnExit();
-                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(tempScriptFile)) {
-                        byte[] buffer = new byte[4096];
-                        int bytesRead;
-                        while ((bytesRead = is.read(buffer)) != -1) {
-                            fos.write(buffer, 0, bytesRead);
-                        }
-                    }
-                }
-
-                double delaySec = delay / 1000.0;
-                
-                ProcessBuilder pb = new ProcessBuilder(
-                        "python",
-                        tempScriptFile.getAbsolutePath(),
-                        "--limit", String.valueOf(limit),
-                        "--delay", String.valueOf(delaySec),
-                        "--mode", mode
-                );
-                pb.redirectErrorStream(true);
-                pb.directory(new File("."));
-                
-                autoCollectProcess = pb.start();
-                
-                ObjectMapper mapper = Json.mapper();
-                
-                StringBuilder outputLog = new StringBuilder();
-                try (BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(autoCollectProcess.getInputStream(), StandardCharsets.UTF_8))) {
-                    String line;
-                    int collected = 0;
-                    while ((line = reader.readLine()) != null) {
-                        if (!autoCollectRunning) {
-                            break;
-                        }
-                        
-                        String trimmed = line.trim();
-                        if (trimmed.isEmpty()) continue;
-                        
-                        // 仅保留尾部日志用于失败诊断，避免上千联系人时无界增长
-                        outputLog.append(trimmed).append("\n");
-                        if (outputLog.length() > 4000) {
-                            outputLog.delete(0, outputLog.length() - 2000);
-                        }
-
-                        try {
-                            Map<String, Object> data = mapper.readValue(trimmed, Map.class);
-                            if (data.containsKey("error")) {
-                                String errorMsg = (String) data.get("error");
-                                SwingUtilities.invokeLater(() -> {
-                                    UIUtils.error(getView(), errorMsg);
-                                    stopAutoCollect();
-                                });
-                                return;
-                            } else if (data.containsKey("status")) {
-                                String statusMsg = (String) data.get("status");
-                                SwingUtilities.invokeLater(() -> {
-                                    wxcProgressBar.setString(statusMsg);
-                                });
-                            } else if (data.containsKey("debug")) {
-                                // 诊断行（仅在脚本以 --debug 运行时出现），不当作联系人数据
-                                System.out.println("[WeChat AutoCollect Debug] " + trimmed);
-                            } else {
-                                String nickname = (String) data.get("nickname");
-                                String wechatId = (String) data.get("wechat_id");
-                                String remark = (String) data.get("remark");
-                                String region = (String) data.get("region");
-                                String tag = (String) data.get("tag");
-
-                                Object genderRaw = data.get("gender");
-                                int gender = genderRaw instanceof Number ? ((Number) genderRaw).intValue() : 0;
-
-                                String username = wechatId != null && !wechatId.isEmpty() ? wechatId : nickname;
-                                // 昵称与微信号同时为空说明这行不是有效联系人，跳过以免写入空行
-                                if (username == null || username.trim().isEmpty()) {
-                                    continue;
-                                }
-
-                                WeChatContactReader.ContactInfo info = new WeChatContactReader.ContactInfo();
-                                info.nickname = nickname;
-                                info.alias = wechatId;
-                                info.remark = remark;
-                                info.tag = tag != null ? tag : "";
-                                info.username = username;
-                                info.gender = gender;
-                                info.avatarUrl = "";
-                                
-                                collected++;
-                                final int finalCollected = collected;
-                                SwingUtilities.invokeLater(() -> {
-                                    if (findContactByUsername(info.username) == null) {
-                                        allContacts.add(info);
-                                        refreshContactTable();
-                                    }
-                                    wxcProgressBar.setIndeterminate(false);
-                                    wxcProgressBar.setValue(Math.min(100, (finalCollected * 100) / limit));
-                                    wxcProgressBar.setString(String.format("已获取 %d 个联系人: %s", finalCollected, info.getDisplayName()));
-                                });
-                            }
-                        } catch (Exception ex) {
-                            System.out.println("[WeChat AutoCollect Output] " + trimmed);
-                        }
-                    }
-                }
-                
-                int exitVal = autoCollectProcess.waitFor();
-                if (exitVal != 0 && autoCollectRunning) {
-                    final String fullLog = outputLog.toString();
-                    SwingUtilities.invokeLater(() -> {
-                        UIUtils.error(getView(), "自动获取失败！错误日志：\n" + 
-                                (fullLog.length() > 600 ? fullLog.substring(fullLog.length() - 600) : fullLog));
-                    });
-                }
-            } catch (Exception ex) {
-                SwingUtilities.invokeLater(() -> {
-                    String msg = ex.getMessage();
-                    if (msg != null && (msg.contains("Cannot run program") || msg.contains("系统找不到指定的文件") || msg.contains("not found"))) {
-                        UIUtils.error(getView(), "执行自动获取异常:\n系统未检测到有效的 Python 环境！\n\n请确认：\n1. 电脑已安装 Python\n2. 安装时已勾选 “Add Python to PATH” 选项。\n安装并配置完成后，请重启本软件重试。");
-                    } else {
-                        UIUtils.error(getView(), "执行自动获取异常:\n" + msg);
-                    }
-                });
-            } finally {
-                if (tempScriptFile != null && tempScriptFile.exists()) {
-                    try {
-                        tempScriptFile.delete();
-                    } catch (Exception ignored) {
-                        Errors.ignored("删除临时脚本文件失败，交由系统临时目录回收", ignored);
-                    }
-                }
-                SwingUtilities.invokeLater(() -> {
-                    stopAutoCollect();
-                });
+        contactWorker = new SwingWorker<>() {
+            @Override protected java.util.List<WeChatContactReader.ContactInfo> doInBackground() throws Exception {
+                return collector.collect(this::publish);
             }
-        });
-        
-        autoCollectThread.start();
+            @Override protected void process(java.util.List<String> statuses) {
+                if (!closed && collectGeneration == ticket && !statuses.isEmpty())
+                    wxcProgressBar.setString(statuses.get(statuses.size() - 1));
+            }
+            @Override protected void done() {
+                collector.close();
+                if (closed || collectGeneration != ticket) return;
+                try {
+                    if (isCancelled()) return;
+                    var contacts = get();
+                    // Install one verified snapshot. Stable usernames preserve duplicate display names.
+                    allContacts = new java.util.ArrayList<>(contacts);
+                    refreshContactTable();
+                    wxcProgressBar.setString(I18n.get("wechat.collect.complete", contacts.size()));
+                } catch (Exception error) {
+                    if (!(error instanceof java.util.concurrent.CancellationException)
+                            && !(error.getCause() instanceof java.util.concurrent.CancellationException)) {
+                        wxcProgressBar.setString(I18n.get("wechat.collect.failed"));
+                        UIUtils.error(getView(), Errors.describeRoot(error));
+                    }
+                } finally {
+                    contactWorker = null;
+                    contactCollector = null;
+                    autoCollectRunning = false;
+                    wxcAutoCollectBtn.setText(I18n.get("wechat.collect.start"));
+                    wxcProgressBar.setIndeterminate(false);
+                    setContactActionsEnabled(true);
+                }
+            }
+        };
+        contactWorker.execute();
     }
 
-    /**
-     * Uses the packaged script when available, then the canonical repository
-     * source for direct IDE/classpath launches that skip Maven resources.
-     */
-    private static java.io.InputStream openWeChatExportScript() throws java.io.IOException {
-        java.io.InputStream resource = WeChatPanel.class.getResourceAsStream("/tools/wechat_export.py");
-        if (resource != null) {
-            return resource;
-        }
-        File source = new File("tools", "wechat_export.py");
-        return source.isFile() ? new java.io.FileInputStream(source) : null;
+    protected WeChatContactCollector createContactCollector() {
+        return new WeChatContactCollector();
     }
 
-    /**
-     * Stops the export helper and the bulk-send robot without touching the UI.
-     *
-     * <p>Called from {@link #closeResources()}, which runs on the shutdown path
-     * where components may already be disposed. The Python helper is killed
-     * forcibly because a graceful {@code destroy()} leaves it running whenever
-     * the interpreter ignores the close request.</p>
-     */
+    private void setContactActionsEnabled(boolean enabled) {
+        wxcBrowseBtn.setEnabled(enabled);
+        wxcLoadBtn.setEnabled(enabled);
+        wxcExportBtn.setEnabled(enabled);
+        wxcDownloadAvatarBtn.setEnabled(enabled);
+        wxcAddToSendBtn.setEnabled(enabled);
+    }
+
     private void stopBackgroundWork() {
         stopRequested = true;
-        autoCollectRunning = false;
-
-        Process process = autoCollectProcess;
-        autoCollectProcess = null;
-        if (process != null && process.isAlive()) {
-            process.destroyForcibly();
-        }
-
-        Thread collector = autoCollectThread;
-        autoCollectThread = null;
-        if (collector != null && collector.isAlive()) {
-            collector.interrupt();
-        }
-
+        WeChatContactCollector collector = contactCollector;
+        if (collector != null) collector.close();
+        SwingWorker<?, ?> worker = contactWorker;
+        if (worker != null) worker.cancel(true);
         Thread sender = sendThread;
         sendThread = null;
-        if (sender != null && sender.isAlive()) {
-            sender.interrupt();
-        }
+        if (sender != null && sender.isAlive()) sender.interrupt();
     }
 
-    @Override
-    public void closeResources() {
+    @Override public void closeResources() {
+        closed = true;
         stopBackgroundWork();
     }
 
     private void stopAutoCollect() {
+        collectGeneration++;
+        if (contactCollector != null) contactCollector.close();
+        if (contactWorker != null) contactWorker.cancel(true);
+        contactCollector = null;
+        contactWorker = null;
         autoCollectRunning = false;
-        if (autoCollectProcess != null && autoCollectProcess.isAlive()) {
-            autoCollectProcess.destroyForcibly();
-        }
-        if (autoCollectThread != null && autoCollectThread.isAlive()) {
-            autoCollectThread.interrupt();
-        }
-
-        wxcAutoCollectBtn.setText("模拟人工点击获取...");
-        wxcBrowseBtn.setEnabled(true);
-        wxcLoadBtn.setEnabled(true);
-        wxcExportBtn.setEnabled(true);
-        wxcDownloadAvatarBtn.setEnabled(true);
-        wxcAddToSendBtn.setEnabled(true);
-        wxcProgressBar.setVisible(false);
+        wxcAutoCollectBtn.setText(I18n.get("wechat.collect.start"));
+        setContactActionsEnabled(true);
+        wxcProgressBar.setIndeterminate(false);
+        wxcProgressBar.setString(I18n.get("wechat.collect.cancelled"));
     }
 }

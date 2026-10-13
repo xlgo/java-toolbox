@@ -87,10 +87,25 @@
 | 运维 | JAR / Class 分析 | 解析 class 文件（编译版本、预览特性、字段与方法签名），分析 JAR / WAR / Spring Boot fat jar 的 MANIFEST、Maven 坐标、最低 Java 版本与内嵌依赖；在目录中搜索类所在的 jar，检测重复类并区分内容是否一致 |
 | 监控 | 视频监控 | 视频源与分屏布局管理，支持格子合并拆分和设备树；当前画面为预览占位，未内置 RTSP/视频解码器 |
 | 监控 | 远程桌面 | 纯 P2P 远程控制桌面，优先采用 ice4j 完整 ICE 状态机进行 UDP 双向打洞（多 STUN、triggered check、peer-reflexive candidate、角色冲突处理与候选对提名），失败后尝试带 UPnP/NAT-PMP 的 TCP 直连；不配置 TURN，信令服务器不转发桌面数据。所有数据通道经 X25519 密钥交换与 AES-256-GCM 加密；被控端须确认授权并核对两端一致的 6 位校验码，查看、控制、文件传输、终端分项授予，可设访问密码 |
-| 其它 | 微信群发与通讯录 | 微信群发，以及自适应读取微信 SQLite 通讯录（展示昵称、备注、微信号、头像，支持 Excel 导出、一键追加群发、头像批量下载） |
-| 其它 | 微信导出工具脚本 | `tools/wechat_export.py`：基于 Windows UIAutomation 的微信 UI 自动化导出工具，附带可视化悬浮控制面板（暂停/继续/停止）、自动重试与坐标防失焦校验 |
+| 其它 | 微信群发与通讯录 | 登录 Windows 微信 4.x 后一键读取本机个人联系人（含企业微信联系人），自动识别数据目录和当前账号；无需切页、模拟点击或 OCR，保留昵称、备注、微信号、性别、标签与头像链接，支持 Excel 导出、一键追加群发、头像下载 |
+| 其它 | 微信导出工具脚本 | `tools/wechat_export.py` 与 `tools/wechat_contacts.py`：以只读方式获取已登录账号的 SQLCipher 通讯录快照，验证数据库页、合并已提交 WAL；密钥不落盘，不读取聊天记录；需 64 位 Python 3.11+，本机验证版本为微信 4.1.13.65 |
 
 证书签发前会检查 CA 有效期、签发权限和私钥配对；叶子证书的到期时间不会超过 CA 到期时间。更多检查结果与待补能力见 [功能检查记录](docs/reviews/2026-09-29-functional-audit.md)。
+
+## 微信通讯录自动读取
+
+在 Windows 微信 4.x 完成登录后，打开工具箱的 **微信群发与通讯录 → 通讯录管理**，点击 **自动读取通讯录**。程序自动定位本地数据目录并读取个人联系人和企业微信联系人，支持非默认存储位置、同名联系人，以及按昵称、备注、自定义微信号或原始 UserName 搜索。
+
+- 需要 **64 位 Python 3.11+**，并具备 SQLite 内存反序列化支持。程序自动检测 `python`、`py -3`、`python3`；安装包目前不内置 Python。
+- AES 解密使用 `cryptography`，缺少时自动通过当前 Python 的 pip 安装，首次安装需要联网。
+- 以只读方式获取运行中的微信数据库密钥，用页认证校验匹配数据库，再合并已提交的 WAL 数据。密钥与解密数据库仅保留在内存，不写入配置或日志，不修改微信进程或原始文件；不使用 OCR 或模拟点击。
+- 点击 **停止读取** 可取消。只有读取完整完成且数量验证通过后才替换表格；失败和停止会保留原列表。Excel 导出、导入支持昵称、微信号、备注、标签、性别、原始 UserName 和头像链接。
+
+当前仅支持 Windows，已在 **微信 4.1.13.65** 实测。Mac 尚未实现；其他微信版本或进程读取权限限制可能影响兼容性。每次读取都重新识别密钥，换电脑或账号无需复用旧密钥；同时登录多个账号时，当前实现读取第一个验证通过的数据库，尚无账号选择器。
+
+本机已按具体联系人验证并修正 `flag=1` 记录漏读，读取到 **665 个唯一联系人**。本地记录可能包含客户端当前列表未展示的联系人，昵称和备注也可能与手机端不同；总数一致不能证明名单完整，本地记录不能用于确认实时双向好友关系。更多细节见 [读取指南](docs/wechat_tools_guide.md)和 [漏读修正记录](docs/reviews/2026-10-13-wechat-missing-contacts.md)。
+
+密钥定位的结构资料主要参考社区项目 [wechatauto-replica 的 db.py](https://github.com/fanyuantaier/wechatauto-replica/blob/main/wechatauto/db.py)，数据库页认证和 WAL 读取分别依据 [SQLCipher 设计](https://www.zetetic.net/sqlcipher/design/)与 [SQLite 文件格式](https://sqlite.org/fileformat2.html#walformat)。本项目的读取助手位于 `tools/wechat_contacts.py`。
 
 ## 主题与体验优化
 
@@ -220,14 +235,15 @@ src/main/java/com/aqishi/toolbox/
 ├── vault/                            # 加密保险库、迁移和剪贴板策略
 └── util/                             # 国际化、日志、JSON、格式化与 UI 辅助
 
-tools/wechat_export.py                # 唯一维护的微信 UIAutomation 脚本源
+tools/wechat_export.py                # 微信通讯录只读助手入口
+tools/wechat_contacts.py              # 账号识别、联系人快照与字段读取
 ```
 ## Roadmap
 
 `v1.9.1` 已交付 YAML/TOML/INI 格式转换、大文件日志查看器（Log Viewer）与 K8s 管理面板重构解耦，并升级跨平台原生安装包构建流水线（支持 Windows .msi / Linux .deb, .rpm / macOS .dmg）。下一阶段优先补齐 DNS/TLS/HTTP 诊断和工作区导入导出；完整范围、依赖和分类见 [功能路线图](docs/feature-roadmap.md)。
 
 ## 详细功能文档
-针对涉及复杂打洞、容器交互及UI自动化的工具，提供了专门的技术与使用指南文档：
+针对网络打洞、容器交互及本地通讯录读取等工具，提供了专门的技术与使用指南文档：
 
 - [文档索引](docs/INDEX.md)：路线图、优化清单、专题指南和设计/实施记录的入口。
 
@@ -235,7 +251,7 @@ tools/wechat_export.py                # 唯一维护的微信 UIAutomation 脚�
 - ☸️ [K8s 集群管理 (K8s Manager) 指南](docs/k8s_manager_guide.md)：涵盖多集群配置导入、Web Terminal、日志流追踪与容器文件传输说明。
 - [常用工作流指南](docs/common-workflows-guide.md)：HTTP 请求集合与环境变量、查询结果导出、TCP 长度分帧和 K8s 端口转发。
 - [开发工具使用指南](docs/developer-utilities-guide.md)：结构化对比、表格转 SQL、JSON 转 DTO、HTTP 上传、MyBatis 日志、Maven 依赖和 SSE 调试。
-- 💬 [微信工具与 UI 自动化导出指南](docs/wechat_tools_guide.md)：说明本地通讯录解析及 Python UIAutomation 悬浮控制面板脚本的使用方法。
+- 💬 [微信通讯录读取指南](docs/wechat_tools_guide.md)：一键读取本机已登录账号的通讯录，无需 OCR、模拟点击或手动选择首个好友。
 
 ## 自动构建与发布
 

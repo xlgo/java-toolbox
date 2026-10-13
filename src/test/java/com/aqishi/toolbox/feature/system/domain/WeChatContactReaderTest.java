@@ -150,6 +150,31 @@ public class WeChatContactReaderTest {
     }
 
     @Test
+    void automaticContactFieldsSurviveExcelRoundTrip() throws Exception {
+        var original = new WeChatContactReader.ContactInfo();
+        original.username = "wxid_stable";
+        original.alias = "custom_alias";
+        original.nickname = "Same Name";
+        original.remark = "First Last";
+        original.tag = "Work";
+        original.gender = 2;
+        original.avatarUrl = "https://avatar.invalid/profile";
+        File file = File.createTempFile("wechat_roundtrip_", ".xlsx");
+        try {
+            WeChatContactReader.exportContactsToExcel(List.of(original), file);
+            var rows = WeChatContactReader.readContactsFromExcel(file);
+            assertEquals(1, rows.size());
+            var restored = rows.get(0);
+            assertEquals(original.username, restored.username);
+            assertEquals(original.alias, restored.alias);
+            assertEquals(original.remark, restored.remark);
+            assertEquals(original.tag, restored.tag);
+            assertEquals(original.gender, restored.gender);
+            assertEquals(original.avatarUrl, restored.avatarUrl);
+        } finally { java.nio.file.Files.deleteIfExists(file.toPath()); }
+    }
+
+    @Test
     public void testParseContactsFromText() {
         String text = "昵称\t微信号\t备注\t性别\n" +
                 "张三\tzhangsan\t小张\t男\n" +

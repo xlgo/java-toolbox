@@ -39,6 +39,16 @@ jobs:
       - name: Run tests (Linux with xvfb)
         run: xvfb-run --auto-servernum mvn -B verify
 
+      - name: Set up Python for contact snapshot tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test read-only contact snapshots
+        run: |
+          python -m pip install "cryptography>=43"
+          python -m unittest discover -s tools/tests -v
+
       - name: Upload test reports on failure
         if: failure()
         uses: actions/upload-artifact@v4

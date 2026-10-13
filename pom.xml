@@ -349,6 +349,7 @@
                                     <directory>${project.basedir}/tools</directory>
                                     <includes>
                                         <include>wechat_export.py</include>
+                                        <include>wechat_contacts.py</include>
                                     </includes>
                                 </resource>
                             </resources>

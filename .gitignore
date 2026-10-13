@@ -1,6 +1,8 @@
 # Maven 构建产物
 target/
 *.class
+__pycache__/
+*.pyc
 
 # 打包的 jar（用 release 发布）
 java-toolbox.jar

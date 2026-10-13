@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.feature.system.domain;
 
 import com.aqishi.toolbox.util.Errors;
+import com.aqishi.toolbox.util.I18n;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
@@ -327,7 +328,8 @@ public class WeChatContactReader {
 
             // 创建表头
             Row headerRow = sheet.createRow(0);
-            String[] headers = {"昵称", "微信号", "备注名", TAG_HEADER};
+            String[] headers = {"昵称", "微信号", "备注名", TAG_HEADER,
+                    I18n.get("wechat.export.gender"), "UserName", I18n.get("wechat.export.avatar")};
             for (int i = 0; i < headers.length; i++) {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(headers[i]);
@@ -342,6 +344,9 @@ public class WeChatContactReader {
                 row.createCell(1).setCellValue(contact.getWeChatId() != null ? contact.getWeChatId() : "");
                 row.createCell(2).setCellValue(contact.remark != null ? contact.remark : "");
                 row.createCell(3).setCellValue(contact.tag != null ? contact.tag : "");
+                row.createCell(4).setCellValue(contact.gender);
+                row.createCell(5).setCellValue(contact.username != null ? contact.username : "");
+                row.createCell(6).setCellValue(contact.avatarUrl != null ? contact.avatarUrl : "");
             }
 
             // 自适应列宽
@@ -375,7 +380,7 @@ public class WeChatContactReader {
 
             // 1. 尝试从第一行读取表头进行列对齐
             Row headerRow = sheet.getRow(0);
-            int nickCol = 0, wechatCol = 1, remarkCol = 2, genderCol = 3, tagCol = -1;
+            int nickCol = 0, wechatCol = 1, remarkCol = 2, genderCol = 3, tagCol = -1, usernameCol = -1, avatarCol = -1;
             boolean hasHeader = false;
             boolean genderHeader = false;
             if (headerRow != null) {
@@ -384,7 +389,10 @@ public class WeChatContactReader {
                     if (cell != null) {
                         try {
                             String val = cell.getStringCellValue().trim();
-                            if (val.contains("昵称") || val.equalsIgnoreCase("nickname")) { nickCol = c; hasHeader = true; }
+                            if (val.equalsIgnoreCase("username")) { usernameCol = c; hasHeader = true; }
+                            else if (val.equals(I18n.get("wechat.export.avatar")) || val.equalsIgnoreCase("avatar_url")) { avatarCol = c; hasHeader = true; }
+                            else if (val.equals(I18n.get("wechat.export.gender"))) { genderCol = c; hasHeader = true; genderHeader = true; }
+                            else if (val.contains("昵称") || val.equalsIgnoreCase("nickname")) { nickCol = c; hasHeader = true; }
                             else if (val.contains("微信") || val.equalsIgnoreCase("alias") || val.equalsIgnoreCase("wechat") || val.contains("账号") || val.contains("ID")) { wechatCol = c; hasHeader = true; }
                             else if (val.contains("备注") || val.equalsIgnoreCase("remark")) { remarkCol = c; hasHeader = true; }
                             else if (val.contains("性别") || val.equalsIgnoreCase("gender") || val.equalsIgnoreCase("sex")) { genderCol = c; hasHeader = true; genderHeader = true; }
@@ -409,6 +417,9 @@ public class WeChatContactReader {
                 info.nickname = getRowCellValue(row, nickCol);
                 info.alias = getRowCellValue(row, wechatCol);
                 info.username = info.alias != null && !info.alias.isEmpty() ? info.alias : UUID.randomUUID().toString();
+                String originalUsername = getRowCellValue(row, usernameCol);
+                if (!originalUsername.isEmpty()) info.username = originalUsername;
+                info.avatarUrl = getRowCellValue(row, avatarCol);
                 info.remark = getRowCellValue(row, remarkCol);
                 if (tagCol >= 0) {
                     info.tag = getRowCellValue(row, tagCol);

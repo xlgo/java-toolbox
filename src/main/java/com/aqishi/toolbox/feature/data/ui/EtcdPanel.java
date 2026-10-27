@@ -51,6 +51,7 @@ public class EtcdPanel extends ToolPanel implements ManagedResourceOwner {
     private long cachedBytes;
     private boolean more;
     private volatile boolean closed, busy;
+    private Card connectionCard;
     private volatile EtcdClient client;
     private final AtomicReference<EtcdClient> opening = new AtomicReference<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(DaemonThreads.factory("etcd-request"));
@@ -96,7 +97,7 @@ public class EtcdPanel extends ToolPanel implements ManagedResourceOwner {
         form.row(I18n.get("etcd.endpoint"), line);
         form.row(I18n.get("etcd.sshLabel"), sshRow);
         form.fullRow(Fields.note(I18n.get("etcd.sshHint")));
-        Card card = Card.titled(I18n.get("tool.etcd.management")); card.setContent(form); return card;
+        connectionCard = Card.titled(I18n.get("tool.etcd.management")).setCollapsible(true); connectionCard.setContent(form); return connectionCard;
     }
     private void buildSettings() {
         usernameField = Fields.text(""); passwordField = new JPasswordField();
@@ -214,7 +215,7 @@ public class EtcdPanel extends ToolPanel implements ManagedResourceOwner {
                 } catch (Exception error) { candidate.close(); throw error; }
                 finally { opening.compareAndSet(candidate, null); }
             }, value -> {
-                client = value.client(); activePrefix = prefix;
+                client = value.client(); activePrefix = prefix; if (connectionCard != null && !connectionCard.isCollapsed()) connectionCard.setCollapsed(true);
                 install(value.page(), false);
                 statusLabel.setText(options.sshConfigId().isEmpty()
                         ? I18n.get("etcd.connected", value.version(), options.api())

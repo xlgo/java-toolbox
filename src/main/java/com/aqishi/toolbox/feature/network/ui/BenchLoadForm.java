@@ -68,7 +68,7 @@ final class BenchLoadForm {
         form.row(I18n.get("tool.httpbench.label.bodyContains"), containsField);
         form.caption(I18n.get("tool.httpbench.caption.connections"));
 
-        card = Card.titled(I18n.get("tool.httpbench.card.load"));
+        card = Card.titled(I18n.get("tool.httpbench.card.load")).setCollapsible(true);
         card.setContent(form);
         syncMode();
         syncInsecure();

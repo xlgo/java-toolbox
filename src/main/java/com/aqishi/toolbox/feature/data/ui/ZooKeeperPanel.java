@@ -41,6 +41,7 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
     private JSpinner timeoutSpinner;
     private JCheckBox useSshCheck;
     private JComboBox<SshConnectionConfig> sshCombo;
+    private Card connectionCard;
     private JButton connectBtn;
     private JLabel statusLabel;
 
@@ -101,12 +102,12 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
 
         JPanel body = Layouts.box();
         body.add(form, BorderLayout.CENTER);
-        Card card = Card.titled("ZooKeeper 连接");
-        card.setContent(body);
-        card.addHeaderAction(connectBtn);
+        connectionCard = Card.titled("ZooKeeper 连接").setCollapsible(true);
+        connectionCard.setContent(body);
+        connectionCard.addHeaderAction(connectBtn);
         statusLabel = Fields.caption("未连接");
-        card.setFooter(statusLabel);
-        return card;
+        connectionCard.setFooter(statusLabel);
+        return connectionCard;
     }
 
     private Card buildTreeCard() {
@@ -239,6 +240,7 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
                     connectBtn.setText("断开");
                     connectBtn.setEnabled(true);
                     statusLabel.setText(sshEnabled ? "已连接（SSH 隧道）" : "已连接");
+                    if (connectionCard != null && !connectionCard.isCollapsed()) connectionCard.setCollapsed(true);
                     refreshRoot();
                 } catch (Exception error) {
                     connected = false;

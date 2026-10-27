@@ -70,7 +70,7 @@ final class BenchRequestForm {
         content.add(urlRow, BorderLayout.NORTH);
         content.add(tabs, BorderLayout.CENTER);
 
-        card = Card.titled(I18n.get("tool.httpbench.card.request"));
+        card = Card.titled(I18n.get("tool.httpbench.card.request")).setCollapsible(true);
         card.setContent(content);
         JButton importBtn = Buttons.snug(I18n.get("tool.httpbench.btn.importCurl"));
         importBtn.addActionListener(event -> {

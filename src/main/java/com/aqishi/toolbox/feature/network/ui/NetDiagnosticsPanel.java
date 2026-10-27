@@ -171,7 +171,7 @@ public class NetDiagnosticsPanel extends ToolPanel implements ManagedResourceOwn
         form.row(I18n.get("tool.netdiag.label.resolver"), resolverRow);
         form.row(I18n.get("tool.netdiag.label.recordTypes"), typesRow);
 
-        Card configCard = Card.titled(I18n.get("tool.netdiag.card.dnsConfig"));
+        Card configCard = Card.titled(I18n.get("tool.netdiag.card.dnsConfig")).setCollapsible(true);
         configCard.setContent(form);
 
         dnsModel = new DefaultTableModel(new Object[]{
@@ -260,7 +260,7 @@ public class NetDiagnosticsPanel extends ToolPanel implements ManagedResourceOwn
         form.row(I18n.get("tool.netdiag.label.port"), hostRow);
         form.caption(I18n.get("tool.netdiag.caption.tls"));
 
-        Card configCard = Card.titled(I18n.get("tool.netdiag.card.tlsConfig"));
+        Card configCard = Card.titled(I18n.get("tool.netdiag.card.tlsConfig")).setCollapsible(true);
         configCard.setContent(form);
 
         tlsReportArea = Fields.output(16, 30);
@@ -376,7 +376,7 @@ public class NetDiagnosticsPanel extends ToolPanel implements ManagedResourceOwn
         form.row(I18n.get("tool.netdiag.label.options"), optionsRow);
         form.caption(I18n.get("tool.netdiag.caption.http"));
 
-        Card configCard = Card.titled(I18n.get("tool.netdiag.card.httpConfig"));
+        Card configCard = Card.titled(I18n.get("tool.netdiag.card.httpConfig")).setCollapsible(true);
         configCard.setContent(form);
 
         httpTimingModel = new DefaultTableModel(new Object[]{

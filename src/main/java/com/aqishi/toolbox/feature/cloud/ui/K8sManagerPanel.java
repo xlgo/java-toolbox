@@ -127,6 +127,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
     private DefaultTableModel nodeModel;
 
     // State
+    private Card connectionCard;
     private volatile boolean isConnected = false;
     private String activeServerUrl = "";
     private String activeToken = "";
@@ -286,10 +287,10 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
 
         connBtn = Buttons.primary("连接集群");
 
-        Card card = Card.titled("Kubernetes 集群配置");
-        card.setContent(form);
-        card.addHeaderAction(connBtn);
-        return card;
+        connectionCard = Card.titled("Kubernetes 集群配置").setCollapsible(true);
+        connectionCard.setContent(form);
+        connectionCard.addHeaderAction(connBtn);
+        return connectionCard;
     }
 
     /**
@@ -554,6 +555,9 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
 
     private void toggleState(boolean connected) {
         connecting = false;
+        if (connected && connectionCard != null && !connectionCard.isCollapsed()) {
+            connectionCard.setCollapsed(true);
+        }
         this.isConnected = connected;
         connBtn.setText(connected ? "断开连接" : "连接集群");
         connBtn.setEnabled(true);

@@ -133,7 +133,7 @@ public class CallbackTestPanel extends ToolPanel implements ManagedResourceOwner
         FormGrid serverForm = new FormGrid();
         serverForm.row(t("callback.mock.port"), portRow);
         Card serverCard = Card.titled(t("callback.mock.server"),
-                t("callback.mock.loopback"));
+                t("callback.mock.loopback")).setCollapsible(true);
         serverCard.setContent(serverForm);
         serverCard.addHeaderAction(toggleServerButton);
 

@@ -59,6 +59,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
     private JTextArea msgDetailArea;
     private JLabel logStatsLabel;
 
+    private Card connCard;
     private State currentState = State.DISCONNECTED;
 
     private final MqttSession session;
@@ -113,9 +114,9 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private Card buildConnectionCard() {
-        Card card = Card.plain();
-        card.setLayout(new BorderLayout(0, 8));
-        card.setBorder(new EmptyBorder(10, 12, 10, 12));
+        connCard = Card.titled(I18n.get("tool.mqtt.broker")).setCollapsible(true);
+        connCard.setLayout(new BorderLayout(0, 8));
+        connCard.setBorder(new EmptyBorder(10, 12, 10, 12));
 
         // Line 1: Broker URL & Controls
         JPanel row1 = new JPanel(new BorderLayout(8, 0));
@@ -154,7 +155,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         presetBar.add(disconnectBtn);
 
         row1.add(presetBar, BorderLayout.EAST);
-        card.add(row1, BorderLayout.NORTH);
+        connCard.add(row1, BorderLayout.NORTH);
 
         // Line 2: Advanced Auth & Options
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
@@ -177,8 +178,8 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         cleanSessionCheckBox = new JCheckBox(I18n.get("tool.mqtt.cleanSession"), true);
         row2.add(cleanSessionCheckBox);
 
-        card.add(row2, BorderLayout.SOUTH);
-        return card;
+        connCard.add(row2, BorderLayout.SOUTH);
+        return connCard;
     }
 
     private Card buildSubscribeCard() {
@@ -569,6 +570,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
         @Override
         public void onConnected(String brokerUrl) {
             applyState(State.CONNECTED);
+            if (connCard != null && !connCard.isCollapsed()) connCard.setCollapsed(true);
             if (lastCleanSession) {
                 subTableModel.setRowCount(0);
             } else {

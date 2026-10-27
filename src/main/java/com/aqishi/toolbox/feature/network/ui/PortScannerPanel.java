@@ -84,6 +84,7 @@ public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner 
             loadingProfile;
     private final List<ProbeOutcome> visibleResults = new ArrayList<>();
     private final Set<JDialog> diagnosticDialogs = new HashSet<>();
+    private Card configCard;
     private String selectedHost = "";
     private Filter activeFilter = new Filter("", ProbeOutcome.State.OPEN, "");
     private ScanSession.Phase shownPhase;
@@ -192,12 +193,12 @@ public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner 
         form.row(t("profiles"), Layouts.wrapRow(profileCombo, saveProfileBtn, deleteProfileBtn));
         planLabel = Fields.caption(t("targetHint"));
         form.fullRow(planLabel);
-        Card card = Card.titled(t("config"));
-        card.setContent(form);
-        card.addHeaderAction(previewBtn);
-        card.addHeaderAction(stopBtn);
-        card.addHeaderAction(startBtn);
-        return card;
+        configCard = Card.titled(t("config")).setCollapsible(true);
+        configCard.setContent(form);
+        configCard.addHeaderAction(previewBtn);
+        configCard.addHeaderAction(stopBtn);
+        configCard.addHeaderAction(startBtn);
+        return configCard;
     }
 
     private Card hostCard() {
@@ -900,6 +901,7 @@ public class PortScannerPanel extends ToolPanel implements ManagedResourceOwner 
 
     private void startScan() {
         if (active() || closed || exporting) return;
+        if (configCard != null && !configCard.isCollapsed()) configCard.setCollapsed(true);
         final ScanPlan plan;
         try {
             plan = plan();

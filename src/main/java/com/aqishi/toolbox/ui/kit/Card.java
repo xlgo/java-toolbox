@@ -1,26 +1,39 @@
 package com.aqishi.toolbox.ui.kit;
 
 import javax.swing.BorderFactory;
+import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Container;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.geom.Path2D;
+import java.awt.geom.RoundRectangle2D;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
 
 /**
- * 卡片容器：圆角描边 + 可选标题带 + 内容区。
+ * 卡片容器：圆角描边 + 可选标题带 + 内容区 + 可选折叠支持。
  *
  * <p>用来替代到处出现的 {@code TitledBorder}。标题带与内容之间只用一条细线分隔，
  * 不叠加阴影或额外留白；背景与描边在绘制时从 {@link Tokens} 读取，切换主题即跟随。</p>
  *
+ * <p>支持原生折叠功能：配置卡片可一键折叠收缩为单行标题栏，极大地释放主要操作区域的可视空间，
+ * 折叠后标题右侧的动作栏（连接/开始/停止等）依然可见可用。</p>
+ *
  * <p>典型用法：</p>
  * <pre>{@code
- * Card card = Card.titled("随机数据配置");
+ * Card card = Card.titled("随机数据配置").setCollapsible(true);
  * card.setContent(form);
  * card.addHeaderAction(Buttons.primary("生成数据"));
  * }</pre>
@@ -36,6 +49,14 @@ public class Card extends JPanel {
     private final JPanel content = new JPanel(new BorderLayout());
     private boolean flush;
 
+    // 折叠支持
+    private boolean collapsible = false;
+    private boolean collapsed = false;
+    private JLabel collapseIndicator;
+    private Hairline headerHairline;
+    private JPanel headerWrapper;
+    private List<Consumer<Boolean>> collapseListeners;
+
     /** 无标题卡片 */
     public static Card plain() {
         return new Card(null, null);
@@ -49,6 +70,16 @@ public class Card extends JPanel {
     /** 带标题与副标题（说明文字）的卡片 */
     public static Card titled(String title, String subtitle) {
         return new Card(title, subtitle);
+    }
+
+    /** 创建支持折叠的带标题卡片 */
+    public static Card collapsible(String title) {
+        return titled(title).setCollapsible(true);
+    }
+
+    /** 创建支持折叠的带标题与副标题卡片 */
+    public static Card collapsible(String title, String subtitle) {
+        return titled(title, subtitle).setCollapsible(true);
     }
 
     /** 带标题的卡片，内容直接铺满（内容自带边距时使用，例如表格、编辑器） */
@@ -82,6 +113,10 @@ public class Card extends JPanel {
         titleLabel.setFont(Tokens.fontSectionTitle());
         titleLabel.setForeground(Tokens.foreground());
 
+        collapseIndicator = new JLabel(new ChevronIcon(true, 14));
+        collapseIndicator.setVisible(false);
+        collapseIndicator.setBorder(new EmptyBorder(0, 0, 0, Tokens.SPACE_XS));
+
         titleBox = new JPanel();
         titleBox.setOpaque(false);
         titleBox.setLayout(new javax.swing.BoxLayout(titleBox, javax.swing.BoxLayout.Y_AXIS));
@@ -103,14 +138,21 @@ public class Card extends JPanel {
         actionBox.setOpaque(false);
         actionBox.setVisible(false);
 
-        header.add(titleBox, BorderLayout.CENTER);
+        JPanel leftBox = new JPanel(new BorderLayout(Tokens.SPACE_XS, 0));
+        leftBox.setOpaque(false);
+        leftBox.add(collapseIndicator, BorderLayout.WEST);
+        leftBox.add(titleBox, BorderLayout.CENTER);
+
+        header.add(leftBox, BorderLayout.CENTER);
         header.add(actionBox, BorderLayout.EAST);
 
-        JPanel headerWrapper = new JPanel(new BorderLayout());
+        headerWrapper = new JPanel(new BorderLayout());
         headerWrapper.setOpaque(false);
         headerWrapper.setBorder(new EmptyBorder(
                 Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.SPACE_SM + 2, Tokens.CARD_PADDING));
         headerWrapper.add(header, BorderLayout.CENTER);
+
+        headerHairline = new Hairline();
 
         JPanel headerBlock = new JPanel(new BorderLayout()) {
             @Override
@@ -122,8 +164,24 @@ public class Card extends JPanel {
         };
         headerBlock.setOpaque(false);
         headerBlock.add(headerWrapper, BorderLayout.CENTER);
-        headerBlock.add(new Hairline(), BorderLayout.SOUTH);
+        headerBlock.add(headerHairline, BorderLayout.SOUTH);
         add(headerBlock, BorderLayout.NORTH);
+
+        java.awt.event.MouseAdapter clickAdapter = new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (!collapsible) return;
+                if (actionBox != null && SwingUtilities.isDescendingFrom(e.getComponent(), actionBox)) {
+                    return;
+                }
+                toggleCollapsed();
+            }
+        };
+        headerWrapper.addMouseListener(clickAdapter);
+        leftBox.addMouseListener(clickAdapter);
+        titleBox.addMouseListener(clickAdapter);
+        titleLabel.addMouseListener(clickAdapter);
+        collapseIndicator.addMouseListener(clickAdapter);
     }
 
     private void applyContentPadding() {
@@ -169,8 +227,8 @@ public class Card extends JPanel {
         // 只钉住按钮这类固定宽度控件；标签文本会变（例如连接状态），钉死会让它永远保持添加时的宽度
         if (component instanceof javax.swing.AbstractButton) {
             JComponent target = (JComponent) component;
-            java.awt.Dimension preferred = target.getPreferredSize();
-            target.setMaximumSize(new java.awt.Dimension(preferred.width, Integer.MAX_VALUE));
+            Dimension preferred = target.getPreferredSize();
+            target.setMaximumSize(new Dimension(preferred.width, Integer.MAX_VALUE));
         }
         actionBox.add(component);
         actionBox.setVisible(true);
@@ -195,6 +253,9 @@ public class Card extends JPanel {
         inner.add(component, BorderLayout.CENTER);
         footer.add(new Hairline(), BorderLayout.NORTH);
         footer.add(inner, BorderLayout.CENTER);
+        if (collapsed) {
+            footer.setVisible(false);
+        }
         add(footer, BorderLayout.SOUTH);
         return this;
     }
@@ -213,6 +274,104 @@ public class Card extends JPanel {
         }
     }
 
+    /** 开启或关闭卡片折叠能力 */
+    public Card setCollapsible(boolean collapsible) {
+        return setCollapsible(collapsible, false);
+    }
+
+    /** 开启卡片折叠能力，并指定是否默认折叠 */
+    public Card setCollapsible(boolean collapsible, boolean defaultCollapsed) {
+        if (header == null && collapsible) {
+            throw new IllegalStateException("card has no header to collapse");
+        }
+        this.collapsible = collapsible;
+        if (collapseIndicator != null) {
+            collapseIndicator.setVisible(collapsible);
+        }
+        updateCursorAndTooltip();
+        if (collapsible && defaultCollapsed) {
+            setCollapsed(true);
+        }
+        return this;
+    }
+
+    public boolean isCollapsible() {
+        return collapsible;
+    }
+
+    public boolean isCollapsed() {
+        return collapsed;
+    }
+
+    public Card toggleCollapsed() {
+        return setCollapsed(!collapsed);
+    }
+
+    public Card setCollapsed(boolean value) {
+        if (!collapsible) {
+            return this;
+        }
+        if (this.collapsed == value) {
+            return this;
+        }
+        this.collapsed = value;
+        content.setVisible(!value);
+        if (footer != null) {
+            footer.setVisible(!value);
+        }
+        if (headerHairline != null) {
+            headerHairline.setVisible(!value);
+        }
+        updateCollapseIndicator();
+        updateCursorAndTooltip();
+        revalidate();
+        repaint();
+
+        Container parent = getParent();
+        if (parent != null) {
+            parent.revalidate();
+            parent.repaint();
+        }
+
+        if (collapseListeners != null) {
+            for (Consumer<Boolean> listener : collapseListeners) {
+                try {
+                    listener.accept(value);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        return this;
+    }
+
+    public Card addCollapseListener(Consumer<Boolean> listener) {
+        if (collapseListeners == null) {
+            collapseListeners = new ArrayList<>();
+        }
+        collapseListeners.add(listener);
+        return this;
+    }
+
+    private void updateCollapseIndicator() {
+        if (collapseIndicator != null) {
+            collapseIndicator.setIcon(new ChevronIcon(!collapsed, 14));
+        }
+    }
+
+    private void updateCursorAndTooltip() {
+        if (headerWrapper != null) {
+            Cursor cursor = collapsible ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor();
+            headerWrapper.setCursor(cursor);
+            if (titleBox != null) titleBox.setCursor(cursor);
+            if (titleLabel != null) titleLabel.setCursor(cursor);
+            if (collapseIndicator != null) collapseIndicator.setCursor(cursor);
+
+            String tip = collapsible ? (collapsed ? "点击展开配置" : "点击折叠配置") : null;
+            if (collapseIndicator != null) collapseIndicator.setToolTipText(tip);
+            if (titleLabel != null) titleLabel.setToolTipText(tip);
+        }
+    }
+
     @Override
     public void updateUI() {
         super.updateUI();
@@ -225,6 +384,8 @@ public class Card extends JPanel {
             subtitleLabel.setFont(Tokens.fontCaption());
             subtitleLabel.setForeground(Tokens.mutedForeground());
         }
+        updateCollapseIndicator();
+        updateCursorAndTooltip();
     }
 
     @Override
@@ -263,7 +424,7 @@ public class Card extends JPanel {
         Graphics2D g2 = (Graphics2D) g.create();
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setStroke(new java.awt.BasicStroke(1f));
+            g2.setStroke(new BasicStroke(1f));
             g2.setColor(Tokens.border());
             g2.draw(shape());
         } finally {
@@ -271,9 +432,9 @@ public class Card extends JPanel {
         }
     }
 
-    private java.awt.geom.RoundRectangle2D.Float shape() {
+    private RoundRectangle2D.Float shape() {
         float arc = Tokens.RADIUS_CARD;
-        return new java.awt.geom.RoundRectangle2D.Float(
+        return new RoundRectangle2D.Float(
                 0.5f, 0.5f, getWidth() - 1f, getHeight() - 1f, arc, arc);
     }
 
@@ -288,6 +449,53 @@ public class Card extends JPanel {
         protected void paintComponent(Graphics g) {
             g.setColor(Tokens.borderSubtle());
             g.fillRect(0, 0, getWidth(), 1);
+        }
+    }
+
+    /** 矢量折叠指示 Chevron 图标 */
+    private static final class ChevronIcon implements Icon {
+        private final boolean down;
+        private final int size;
+
+        ChevronIcon(boolean down, int size) {
+            this.down = down;
+            this.size = size;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+                g2.setColor(Tokens.mutedForeground());
+                g2.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                float midX = x + size / 2f;
+                float midY = y + size / 2f;
+                Path2D path = new Path2D.Float();
+                if (down) {
+                    path.moveTo(midX - 4f, midY - 2f);
+                    path.lineTo(midX, midY + 2f);
+                    path.lineTo(midX + 4f, midY - 2f);
+                } else {
+                    path.moveTo(midX - 2f, midY - 4f);
+                    path.lineTo(midX + 2f, midY);
+                    path.lineTo(midX - 2f, midY + 4f);
+                }
+                g2.draw(path);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public int getIconWidth() {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return size;
         }
     }
 }

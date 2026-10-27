@@ -58,6 +58,7 @@ public final class DockerManagerPanel extends ToolPanel implements ManagedResour
     private volatile boolean closed;
     private boolean busy;
     private long epoch;
+    private Card connectionCard;
     private final Runnable sshChanges = this::refreshSshConfigs;
 
     @FunctionalInterface
@@ -142,9 +143,9 @@ public final class DockerManagerPanel extends ToolPanel implements ManagedResour
         connectionBody.add(tunnelSettings, BorderLayout.NORTH);
         connectionBody.add(settings, BorderLayout.CENTER);
         connection.add(connectionBody, BorderLayout.CENTER);
-        Card card = Card.titled(t("title"));
-        card.setContent(connection);
-        root.add(card, BorderLayout.NORTH);
+        connectionCard = Card.titled(t("title")).setCollapsible(true);
+        connectionCard.setContent(connection);
+        root.add(connectionCard, BorderLayout.NORTH);
         kindCombo = Fields.combo(Kind.values());
         allCheck = Fields.check(t("all"), true);
         filterField = Fields.text("");
@@ -289,6 +290,7 @@ public final class DockerManagerPanel extends ToolPanel implements ManagedResour
                         statusLabel.setText(
                                 t("connected")
                                         + (useSshCheck.isSelected() ? " · " + ssh.getName() : ""));
+                        if (connectionCard != null && !connectionCard.isCollapsed()) connectionCard.setCollapsed(true);
                         refresh();
                     },
                     true);

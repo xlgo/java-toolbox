@@ -246,7 +246,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         form.row(I18n.get("remote_desktop.server_url"), serverUrlField);
         form.fullRow(Layouts.columns(Tokens.SPACE_XL, room, identity));
 
-        Card card = Card.titled(I18n.get("remote_desktop.config_border"));
+        Card card = Card.titled(I18n.get("remote_desktop.config_border")).setCollapsible(true);
         card.setContent(form);
         card.addHeaderAction(connectServerBtn);
         card.setFooter(clientStatusLabel);

@@ -159,7 +159,7 @@ public class VideoMonitorPanel extends ToolPanel implements ManagedResourceOwner
         bar.right(splitBtn);
         bar.right(mergeBtn);
 
-        Card card = Card.titled("\uD83D\uDCF9 视频监控");
+        Card card = Card.titled("\uD83D\uDCF9 视频监控").setCollapsible(true);
         card.setContent(bar);
         return card;
     }

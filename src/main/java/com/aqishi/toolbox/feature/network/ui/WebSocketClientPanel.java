@@ -54,6 +54,7 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
     private JTextField heartbeatPayloadField;
 
     private final WebSocketSession session;
+    private Card topCard;
     private State currentState = State.DISCONNECTED;
 
     public WebSocketClientPanel() {
@@ -74,7 +75,7 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
         mainPanel.setBorder(new EmptyBorder(16, 16, 16, 16));
 
         // --- 顶栏：WebSocket 地址与连接控制 ---
-        Card topCard = Card.plain();
+        topCard = Card.titled(I18n.get("tool.websocket.url")).setCollapsible(true);
         topCard.setLayout(new BorderLayout(12, 12));
         topCard.setBorder(new EmptyBorder(12, 16, 12, 16));
 
@@ -125,7 +126,7 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
         leftPanel.setBorder(new EmptyBorder(0, 0, 0, 8));
 
         // 请求头配置
-        Card headersCard = Card.plain();
+        Card headersCard = Card.titled(I18n.get("tool.websocket.headers")).setCollapsible(true);
         headersCard.setLayout(new BorderLayout(0, 6));
         headersCard.setBorder(new EmptyBorder(8, 8, 8, 8));
 
@@ -389,6 +390,7 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
         @Override
         public void onOpen(int httpStatus) {
             applyState(State.CONNECTED);
+            if (topCard != null && !topCard.isCollapsed()) topCard.setCollapsed(true);
             appendLog("[CONNECTED]", I18n.get("tool.websocket.log.opened", httpStatus));
         }
 

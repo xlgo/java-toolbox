@@ -98,7 +98,8 @@ public final class ToolCatalog {
     public static final ToolDescriptor SUBNET_CALC = tool("subnet.calc", "network",
             "Subnet", "CIDR", "IP", "子网掩码", "网络地址", "广播地址", "子网");
     public static final ToolDescriptor PORT_SCANNER = tool("port.scanner", "network",
-            "port", "scanner", "network", "ping", "nmap", "tcp", "端口扫描", "网络诊断");
+            "port", "scanner", "network", "ping", "nmap", "tcp", "端口扫描", "网络诊断",
+            "CIDR", "IPv4", "IPv6", "subnet", "range", "batch", "CSV");
     public static final ToolDescriptor SSH = tool("ssh", "network",
             "ssh", "terminal", "sftp", "shell", "服务器", "远程连接");
     public static final ToolDescriptor NET_DIAGNOSTICS = tool("net.diagnostics", "network",
@@ -116,7 +117,10 @@ public final class ToolCatalog {
             "Kafka", "Message", "Consumer", "Group", "Lag", "Topic", "队列", "消息");
     public static final ToolDescriptor ZOOKEEPER_MANAGEMENT = tool("zookeeper.management", "data",
             "ZooKeeper", "Zookeeper", "ZK", "节点", "分布式协调", "注册中心");
+    public static final ToolDescriptor ETCD_MANAGEMENT = tool("etcd.management", "data",
+            "etcd", "v2", "v3", "KV", "key value", "lease", "SSH", "TLS");
 
+    public static final ToolDescriptor DOCKER_MANAGEMENT = tool("docker.management", "cloud", "Docker", "container", "image", "volume", "network", "SSH");
     public static final ToolDescriptor DOCKER_CONVERT = tool("docker.convert", "cloud",
             "Docker", "Compose", "容器", "docker-compose", "docker run", "容器编排");
     public static final ToolDescriptor K8S_DEPLOYMENT = tool("k8s.deployment", "cloud",
@@ -204,8 +208,8 @@ public final class ToolCatalog {
             TEXT_DIFF, JSONPATH_TESTER, XPATH_TOOL, FILE_ENCODING,
             HTTP_CLIENT, OPENAPI_WORKBENCH, CALLBACK_MOCK, WEBSOCKET_CLIENT, MQTT_CLIENT, SOCKET_DEBUG, SUBNET_CALC,
             PORT_SCANNER, NET_DIAGNOSTICS, HTTP_BENCH, SSH,
-            DATABASE_CONNECTOR, REDIS_MANAGEMENT, KAFKA_CONNECTOR, ZOOKEEPER_MANAGEMENT,
-            DOCKER_CONVERT, K8S_DEPLOYMENT, K8S_MANAGER, CHMOD_CALC, CRON_PARSER, HOSTS_MANAGER,
+            DATABASE_CONNECTOR, REDIS_MANAGEMENT, KAFKA_CONNECTOR, ZOOKEEPER_MANAGEMENT, ETCD_MANAGEMENT,
+            DOCKER_MANAGEMENT, DOCKER_CONVERT, K8S_DEPLOYMENT, K8S_MANAGER, CHMOD_CALC, CRON_PARSER, HOSTS_MANAGER,
             WECHAT_SENDER, LOG_VIEWER, THREAD_DUMP, GC_LOG, PORT_PROCESS, JAR_INSPECTOR,
             DATA_GENERATOR, QRCODE, COLOR_CONVERT, DDL_ENTITY, ID_TOOLKIT,
             CALCULATOR, STATISTICS,

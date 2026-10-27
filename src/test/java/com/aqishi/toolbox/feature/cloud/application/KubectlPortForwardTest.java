@@ -12,6 +12,13 @@ import java.util.function.BooleanSupplier;
 import static org.junit.jupiter.api.Assertions.*;
 
 class KubectlPortForwardTest {
+    @Test void routedKubeconfigPreservesTlsServerName() throws Exception {
+        var credentials=new PortForwardConfig.Credentials("https://127.0.0.1:12345","token",false,"","","","cluster.internal");
+        var cluster=new ObjectMapper().readTree(PortForwardConfig.json(credentials)).path("clusters").get(0).path("cluster");
+        assertEquals("cluster.internal",cluster.path("tls-server-name").asText());
+        assertEquals("https://127.0.0.1:12345",cluster.path("server").asText());
+        assertFalse(cluster.has("insecure-skip-tls-verify"));
+    }
     private PortForwardConfig.Credentials credentials(){return new PortForwardConfig.Credentials("https://cluster.example.test","private-token",false,"ca","cert","key");}
     private KubectlPortForward.Target target(){return new KubectlPortForward.Target("default","service","api",0,"http");}
     @Test void writesPrivateKubeconfigAndDeletesOnClose() throws Exception{

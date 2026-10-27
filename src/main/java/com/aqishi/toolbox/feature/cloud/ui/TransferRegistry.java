@@ -13,6 +13,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 使 {@code ManagedResourceOwner.closeResources()} 能在应用退出时统一取消传输。</p>
  */
 final class TransferRegistry {
+    private final Set<AutoCloseable> resources = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    void registerResource(AutoCloseable resource) { resources.add(resource); }
+    void unregisterResource(AutoCloseable resource) { resources.remove(resource); }
 
     private final Set<WebSocketClient> clients = Collections.newSetFromMap(
             new ConcurrentHashMap<WebSocketClient, Boolean>());
@@ -43,6 +46,10 @@ final class TransferRegistry {
 
     /** 先关闭传输套接字，再中断等待中的流式工作线程。 */
     void cancelAll() {
+        for (AutoCloseable resource : resources.toArray(AutoCloseable[]::new)) {
+            resources.remove(resource);
+            try { resource.close(); } catch (Exception ignored) { }
+        }
         for (WebSocketClient client : clients.toArray(new WebSocketClient[0])) {
             try {
                 client.close();

@@ -43,6 +43,7 @@
 | 开发工具 | Cron 表达式解析 | 数字 Unix 语义的 5 字段或增加秒的 6 字段表达式，计算未来 15 次执行时间；周日为 0/7，不按 Quartz 解释，不支持 L/W/# 或年份字段 |
 | 开发工具 | 文本对比 | 使用线性内存算法后台计算行差异，以彩色高亮显示新增与删除；支持取消，每份文本最多 2,097,152 字符、20,000 行 |
 | 开发工具 | Docker 转换 | 将 `docker run` 运行命令解析并一键转换为 `docker-compose` YAML 声明配置 |
+| 云原生与运维 | Docker 管理 | 本机、SSH 远程命令或公共 SSH TCP 隧道：支持目标主机/端口设置、容器/镜像/网络/数据卷浏览、详情、容器启停、日志与用量、镜像拉取、资源创建删除、超时与取消，见 [使用指南](docs/docker_manager_guide.md) 和 [公共 SSH 组件](docs/ssh_shared_component_guide.md) |
 | 开发工具 | 子网计算器 | 输入 IP/CIDR（如 `192.168.1.1/24`）计算网络地址、广播地址、掩码并展示二进制 |
 | 开发工具 | HTTP 接口测试 | GET / POST / PUT / PATCH / DELETE / HEAD / OPTIONS、RAW / URL 编码表单 / multipart 多文件上传、取消和字节进度；请求集合、收藏、最近 50 条历史及多环境变量（`{{baseUrl}}`），完整模板与变量加密存入保险库，发送预览隐藏敏感变量 |
 | 开发工具 | DNS / TLS / HTTP 诊断 | 指定 DNS 服务器查 A/AAAA/CNAME/MX/TXT/NS/SOA/SRV/CAA 与反向 PTR、TLS 握手与证书链体检（协议/套件/SAN/指纹/剩余有效期，校验失败仍可取链查看）、HTTP 分段耗时（解析 / 连接 / 握手 / 首字节 / 传输）与重定向链 |
@@ -54,6 +55,7 @@
 | 数据 | MyBatis SQL 日志还原 | 解析同一组 Preparing/Parameters，按类型转义替换占位符；保留引用/注释中的问号，数量不符或不支持的参数报错，只生成诊断 SQL |
 | 运维 | Maven 依赖来源分析 | 离线导入 dependency:tree 的文本/JSON 输出，查看引入路径、scope、被省略版本和多版本提示，可复制排除片段 |
 | 网络 | SSE 流式调试 | GET/POST 流式事件接收，自定义请求头和 POST Body；显示事件类型、ID、时间和数据，GET 可用 Last-Event-ID 重连，支持停止和清空 |
+| 网络 | 端口扫描与网络诊断 | IPv4/IPv6 范围和 CIDR、多目标与末尾通配符；组合预设与自定义端口、目标文件导入、命名方案、超时/并发/速率和预算、主机汇总、分页、CSV/JSON 导出及所选端点 DNS/TLS/HTTP 诊断，详见 [扫描指南](docs/port_scanner_guide.md) |
 | 开发工具 | 回调 Mock | 启动临时 HTTP 服务器接收回调请求，自定义响应状态码与内容，实时回显请求详情 |
 | 开发工具 | 颜色转换 | HEX / RGB / HSL 互转，集成 **JColorChooser 调色板** 与 **一键复制** |
 | 开发工具 | 证书管理 | X.509 证书管理：支持根证书创建、子证书签发、证书解析（RSA / EC / **国密 SM2**，SM2 使用 SM3withSM2 签名与 GM/T 0009 默认用户 ID，可一次签发 TLCP 所需的 SM2 签名 + 加密双证书），以及 **ACME v2 免费证书自动申请**（支持 Let's Encrypt / ZeroSSL，集成 Cloudflare API 自动挂载/清理 TXT 记录、DNS-01/HTTP-01 验证、倒计时保护及一键打包 Zip 导出） |
@@ -76,11 +78,12 @@
 | 运维 | Hosts 环境管理 | 系统 Hosts 文件管理，支持多套 Dev/QA/Staging 环境规则定义、一键开关应用与 DNS 缓存刷新 |
 | 运维 | WebSocket 测试 | WebSocket / 长连接测试客户端，支持 ws/wss 握手请求头配置、消息收发与定时心跳包保活 |
 | 运维 | ZooKeeper 管理 | ZooKeeper 节点树浏览与数据编辑，支持创建 / 删除节点，可选经由 SSH 本地端口转发连接内网集群 |
+| 数据 | etcd 管理 | 支持 v2 REST 与 v3 HTTP/JSON 网关；目录/前缀浏览、分页、UTF-8/Base64 键值编辑、版本检查、TTL、账号认证、HTTPS/mTLS 与 SSH 隧道，详见 [etcd 使用指南](docs/etcd_tools_guide.md) |
 | 运维 | Kafka 管理 | 管理 Kafka 集群，浏览主题与消费组，查看 Lag 详情，消息拉取/发布，以及**实时查看主题的订阅消费组与活跃成员分区分配** |
 | 运维 | MQTT 客户端 | MQTT v3.1 / v3.1.1 客户端测试，broker 连接、主题订阅 / 发布与实时消息收发 |
 | 运维 | TCP/UDP 调试 | 网络调试助手：TCP 客户端（可选 TLS、自动重连，首次连接失败也会重试，可随时取消）、TCP 服务端（客户端列表、单发 / 群发 / 断开、回显）、UDP（回复最后发送方、广播、组播），多会话标签页；文本 / HEX 收发、字符集、转义与换行符、自动附加 SUM8 / XOR8 / CRC-8 / CRC-16（Modbus、CCITT）/ CRC-32 校验，定时循环发送、常用消息列表、发送历史与发送文件；接收按分隔符 / 定长 / 空闲超时 / 长度字段分帧（1/2/4 字节、大小端、头部配置和帧长上限），可保存日志 |
 | 运维 | 端口扫描 | 端口扫描与网络连通性诊断，支持预设端口组（Web / DB / 运维）、自定义范围、并发扫描与已知服务识别 |
-| 运维 | K8s 集群管理 | 多集群管理，Kubeconfig 导入与 Namespace 切换，浏览 Pod/Deployment/Service/ConfigMap/Node，日志追踪，Exec 容器终端，以及**容器文件上传与下载**；通过本机 kubectl 管理 Pod / Service / Deployment 端口转发，自动分配本地端口、查看日志、停止会话 |
+| 运维 | K8s 集群管理 | 多集群管理，Kubeconfig 导入与 Namespace 切换，资源浏览、日志追踪、Exec 终端与容器文件传输；支持共享 SSH 隧道、原始 TLS 主机名校验及客户端证书认证；本机 kubectl 的 Pod / Service / Deployment 端口转发也可通过 SSH 访问集群，见 [指南](docs/k8s_manager_guide.md) |
 | 运维 | 线程转储分析 | 解析 jstack / jcmd / kill -3 输出（含 JDK 21 JSON 格式与多份转储），按状态统计、死锁检测（监视器与 ReentrantLock）、锁竞争排行、相同栈分组、线程池聚合、热点方法，以及多份转储间的卡死线程对比 |
 | 运维 | GC 日志分析 | 解析 JDK 9+ 统一日志与 JDK 8 格式（G1 / Parallel / Serial / CMS / ZGC 含分代 / Shenandoah / safepoint），统计停顿分位数、吞吐率、分配速率与 Full GC 原因，堆与停顿图表可拖拽缩放，识别堆底持续上涨（疑似泄漏）并给出调优建议 |
 | 运维 | 端口与进程 | 查看端口占用及对应进程（Windows netstat / tasklist，macOS lsof，Linux ss），按端口、范围或进程过滤，查看命令行，确认后结束进程或进程树；检查端口是否空闲，权限不足时给出提示 |
@@ -227,7 +230,7 @@ src/main/java/com/aqishi/toolbox/
 │   ├── security/                     # 加密、证书、账号密码和 TOTP
 │   ├── codec/                        # 编码、格式、文本和时间转换
 │   ├── network/                      # HTTP、MQTT、WebSocket、SSH 和网络诊断
-│   ├── data/                         # 数据库、Redis、Kafka、ZooKeeper
+│   ├── data/                         # 数据库、Redis、Kafka、ZooKeeper、etcd
 │   ├── cloud/                        # Docker/Kubernetes 工具与应用服务
 │   ├── system/                       # Hosts、权限、Cron 和微信工具
 │   ├── generation/                   # 数据、二维码和颜色生成/转换
@@ -243,6 +246,7 @@ src/main/java/com/aqishi/toolbox/
 │   ├── kubernetes/                   # Kubernetes REST 与 kubeconfig
 │   ├── kafka/                        # Kafka 管理客户端工厂
 │   ├── redis/                        # Jedis 与 Redis 配置存储
+│   ├── etcd/                         # v2/v3 HTTP、TLS 与 SSH 转发适配器
 │   ├── messaging/                    # Kafka/MQTT 资源生命周期
 │   ├── network/                      # HTTP/WebSocket 资源生命周期
 │   └── ssh/                          # JSch 会话生命周期

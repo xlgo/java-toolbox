@@ -24,6 +24,9 @@ public class KubernetesProfile implements SecretBearing {
     public String clientKeyData;
     /** PEM-encoded cluster CA; when present it becomes the only trust anchor. */
     public String caCertData;
+    public boolean useSsh;
+    public String sshConfigId;
+    public String tlsServerName;
 
     public KubernetesProfile() {
     }

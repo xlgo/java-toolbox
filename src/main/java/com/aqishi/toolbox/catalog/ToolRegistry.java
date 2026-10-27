@@ -179,6 +179,8 @@ public final class ToolRegistry {
         factories.put("kafka.connector", context -> new KafkaPanel(
                 VaultSecretStore.of(context.getVaultService())));
         factories.put("zookeeper.management", context -> new ZooKeeperPanel());
+        factories.put("etcd.management", context -> new com.aqishi.toolbox.feature.data.ui.EtcdPanel());
+        factories.put("docker.management", context -> new com.aqishi.toolbox.feature.cloud.ui.DockerManagerPanel());
         factories.put("docker.convert", context -> new DockerComposePanel());
         factories.put("k8s.deployment", context -> new K8sPanel());
         factories.put("k8s.manager", context -> new K8sManagerPanel(

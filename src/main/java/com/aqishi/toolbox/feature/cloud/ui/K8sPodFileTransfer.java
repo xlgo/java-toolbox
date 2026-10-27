@@ -65,6 +65,9 @@ final class K8sPodFileTransfer {
                 CountDownLatch latch = new CountDownLatch(1);
 
                 client = new org.java_websocket.client.WebSocketClient(uri, headers) {
+                    @Override protected void onSetSSLParameters(javax.net.ssl.SSLParameters parameters) {
+                        parameters.setEndpointIdentificationAlgorithm(ctx.skipTls() ? null : "HTTPS");
+                    }
                     @Override
                     public void onOpen(org.java_websocket.handshake.ServerHandshake handshakedata) {
                         SwingUtilities.invokeLater(() -> progressDialog.setTitle("正在传输数据..."));
@@ -177,6 +180,9 @@ final class K8sPodFileTransfer {
                 CountDownLatch latch = new CountDownLatch(1);
 
                 client = new org.java_websocket.client.WebSocketClient(uri, headers) {
+                    @Override protected void onSetSSLParameters(javax.net.ssl.SSLParameters parameters) {
+                        parameters.setEndpointIdentificationAlgorithm(ctx.skipTls() ? null : "HTTPS");
+                    }
                     @Override
                     public void onOpen(org.java_websocket.handshake.ServerHandshake handshakedata) {
                         SwingUtilities.invokeLater(() -> progressDialog.setTitle("正在上传数据..."));
@@ -293,7 +299,7 @@ final class K8sPodFileTransfer {
     private static void applyTls(org.java_websocket.client.WebSocketClient client, K8sClusterContext ctx) {
         SSLSocketFactory factory = ctx.socketFactory();
         if (ctx.serverUrl().startsWith("https://") && factory != null) {
-            client.setSocketFactory(factory);
+            client.setSocketFactory(ctx.webSocketFactory());
         }
     }
 }

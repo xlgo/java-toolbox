@@ -67,7 +67,7 @@ public final class KubernetesClient implements ManagedResource {
 
         HttpConnectionResource resource = null;
         try {
-            HttpURLConnection connection = (HttpURLConnection) new URL(serverUrl + apiPath).openConnection();
+            HttpURLConnection connection = (HttpURLConnection) new URL(serverUrl + apiPath).openConnection(java.net.Proxy.NO_PROXY);
             resource = new HttpConnectionResource(connection);
             activeRequests.add(resource);
             configure(connection, method, body);
@@ -106,6 +106,7 @@ public final class KubernetesClient implements ManagedResource {
         connection.setConnectTimeout(6000);
         connection.setReadTimeout(12000);
         connection.setRequestMethod(method);
+        connection.setInstanceFollowRedirects(false);
         if (connection instanceof HttpsURLConnection) {
             HttpsURLConnection secureConnection = (HttpsURLConnection) connection;
             if (socketFactory != null) {

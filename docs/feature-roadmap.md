@@ -32,10 +32,16 @@
 
 ## P1：协议与运维协作
 
+已补充：Docker 增加“SSH TCP 隧道”连接方式，直接复用公共 `SshTunnelBridge` 的回环端口和租约；保留 SSH 远程命令模式。覆盖隧道建立、超时/取消、迟到连接回收以及其他工具连接隔离。公共组件接入约定见 [公共 SSH 隧道](ssh_shared_component_guide.md)。74 项相关测试和实际 SSH 转发共享验证通过。
+
+本次已实现：Docker 管理（`docker.management`，云原生与运维），使用本机 Docker CLI 或已保存 SSH 服务器上的 Docker CLI；提供资源列表、检查、容器生命周期、日志、统计、镜像拉取、容器创建及网络/卷创建。K8s 管理复用 SSH 隧道，保留原始 TLS 服务身份，覆盖 REST、日志、Exec、文件传输和 kubectl Port Forward。网络及进程操作在后台执行，取消和关闭释放自有资源；不保存额外凭据。见 [Docker 管理](docker_manager_guide.md) 和 [K8s 指南](k8s_manager_guide.md)。Docker Compose 项目管理、持续日志和交互终端不在本次范围。
+
 | 功能 | 目标分类 | 依赖与首个交付切片 |
 |---|---|---|
 | GraphQL 客户端 | 网络与接口 | 依赖共享 HTTP 请求模型；先支持 Schema 导入、查询变量和响应树 |
 | gRPC 客户端 | 网络与接口 | 依赖协议资源层；先支持 proto 导入、Unary 调用和元数据配置 |
+| etcd 管理 | 数据与消息 | [已完成] 稳定 ID `etcd.management`；v2 HTTP / v3 JSON 网关键值浏览、并发保护编辑、TTL、认证、TLS 和 SSH 隧道；连接凭据仅保留在当前会话，关闭时取消请求并释放临时隧道 |
+| 批量端口扫描与网络诊断 | 网络与接口 | [第一批及检查补充已完成] `port.scanner` 支持 IPv4/IPv6 段/CIDR、多目标、末尾通配符、组合端口组、限速与任务预算、SQLite 分页和导出；已补 TXT 导入、命名方案、所选端点诊断和停止时已完成结果保留。批量协议识别、结果对比与失败项重试待做；见 [使用指南](port_scanner_guide.md) |
 | SSE 流式调试 | 网络与接口 | [已完成] GET/POST 流式接收，解析 event/data/id/retry，GET 断线续传、状态显示与取消；有界显示队列 |
 | OAuth2 / OIDC / JWK 工具 | 安全与身份 | [部分完成（当前迭代）] JWK / JWKS 解析、指纹与 PEM 互转、OIDC Discovery 拉取 JWKS、非对称 JWT 验签与声明校验已完成；授权码流程解析待做 |
 | Git 仓库辅助工具 | 系统与自动化 | 依赖外部进程生命周期抽象；先支持状态查看、差异预览和常用命令模板 |

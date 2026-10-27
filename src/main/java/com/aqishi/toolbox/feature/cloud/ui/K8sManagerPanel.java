@@ -15,6 +15,9 @@ import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.infra.kubernetes.KubeconfigParser;
 import com.aqishi.toolbox.infra.kubernetes.KubernetesTls;
 import com.aqishi.toolbox.infra.kubernetes.KubeconfigStore;
+import com.aqishi.toolbox.infra.kubernetes.KubernetesEndpoint;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.infra.secrets.ProfileSecretManager;
 import com.aqishi.toolbox.infra.secrets.SecretStore;
 import com.aqishi.toolbox.ui.ToolPanel;
@@ -63,6 +66,13 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
     private JTextField serverField;
     private JPasswordField tokenField;
     private JCheckBox skipTlsCheck;
+    private JCheckBox useSshCheck;
+    private JComboBox<SshConnectionConfig> sshCombo;
+    private JTextField tlsServerNameField;
+    private volatile KubernetesEndpoint activeEndpoint;
+    private volatile boolean resourcesClosed;
+    private boolean connecting;
+    private final Runnable sshChanges = this::refreshSshConfigs;
     private JButton pickCaCertBtn;
     private JLabel caCertStatusLabel;
     private JButton connBtn;
@@ -246,6 +256,12 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
 
         serverField = Fields.text("https://127.0.0.1:6443");
         tokenField = Fields.password();
+        useSshCheck = Fields.check(I18n.get("k8s.ssh.enable"), false);
+        sshCombo = Fields.combo(new SshConnectionConfig[0]);
+        tlsServerNameField = Fields.text("");
+        useSshCheck.addActionListener(e -> sshCombo.setEnabled(useSshCheck.isSelected() && !isConnected && !connecting));
+        SshConfigStore.getInstance().addChangeListener(sshChanges);
+        refreshSshConfigs();
         skipTlsCheck = Fields.check("跳过 TLS 证书验证 (不推荐，仅限内网自签集群)", false);
         pickCaCertBtn = Buttons.secondary("选择 CA 证书");
         caCertStatusLabel = new JLabel("未设置，使用系统信任库");
@@ -264,6 +280,9 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
         form.fullRow(Layouts.columns(Tokens.SPACE_XL, endpoint, credential));
         form.row("集群 CA 证书", Layouts.columns(Tokens.SPACE_SM, pickCaCertBtn, caCertStatusLabel));
         form.row("安全设置", skipTlsCheck);
+        form.row(I18n.get("k8s.ssh.label"), Layouts.columns(Tokens.SPACE_SM, useSshCheck, sshCombo));
+        form.row(I18n.get("k8s.ssh.tlsName"), tlsServerNameField);
+        form.fullRow(Fields.note(I18n.get("k8s.ssh.hint")));
 
         connBtn = Buttons.primary("连接集群");
 
@@ -534,6 +553,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
     }
 
     private void toggleState(boolean connected) {
+        connecting = false;
         this.isConnected = connected;
         connBtn.setText(connected ? "断开连接" : "连接集群");
         connBtn.setEnabled(true);
@@ -547,6 +567,9 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
         tokenField.setEnabled(!connected);
         skipTlsCheck.setEnabled(!connected);
         pickCaCertBtn.setEnabled(!connected);
+        useSshCheck.setEnabled(!connected);
+        sshCombo.setEnabled(!connected && useSshCheck.isSelected());
+        tlsServerNameField.setEnabled(!connected);
 
         nsCombo.setEnabled(connected);
         refreshNsBtn.setEnabled(connected);
@@ -555,6 +578,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
         resourceTabs.setEnabled(connected);
 
         if (!connected) {
+            transfers.cancelAll();
             closePortForwards();
             closeKubernetesService();
             nsCombo.removeAllItems();
@@ -562,6 +586,29 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
             activeSocketFactory = null;
             activeHostnameVerifier = null;
         }
+    }
+
+    private void refreshSshConfigs() {
+        if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refreshSshConfigs); return; }
+        if (resourcesClosed || sshCombo == null) return;
+        SshConnectionConfig selected = (SshConnectionConfig) sshCombo.getSelectedItem();
+        String id = selected == null ? null : selected.getId();
+        sshCombo.removeAllItems();
+        for (SshConnectionConfig config : SshConfigStore.getInstance().getAll()) sshCombo.addItem(config);
+        if (id != null) {
+            sshCombo.setSelectedItem(null);
+            for (int i = 0; i < sshCombo.getItemCount(); i++) if (id.equals(sshCombo.getItemAt(i).getId())) sshCombo.setSelectedIndex(i);
+        }
+        sshCombo.setEnabled(useSshCheck.isSelected() && !isConnected && !connecting);
+    }
+
+    private void applySshProfile(KubernetesProfile profile) {
+        useSshCheck.setSelected(profile.useSsh);
+        tlsServerNameField.setText(profile.tlsServerName == null ? "" : profile.tlsServerName);
+        sshCombo.setSelectedItem(null);
+        for (int i = 0; i < sshCombo.getItemCount(); i++)
+            if (sshCombo.getItemAt(i).getId().equals(profile.sshConfigId)) sshCombo.setSelectedIndex(i);
+        sshCombo.setEnabled(profile.useSsh && !isConnected && !connecting);
     }
 
     private void clearAllTables() {
@@ -596,6 +643,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
                 serverField.setText(p.serverUrl);
                 secretUi.fill(tokenField, p, "token");
                 skipTlsCheck.setSelected(p.skipTls);
+                applySshProfile(p);
                 activeClientCert = p.clientCertData;
                 applyClientKey(p);
                 activeCaCert = p.caCertData;
@@ -618,6 +666,9 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
                     activeCaCert
             );
             final String savedName = name;
+            p.useSsh = useSshCheck.isSelected();
+            p.sshConfigId = sshCombo.getSelectedItem() instanceof SshConnectionConfig ssh ? ssh.getId() : null;
+            p.tlsServerName = tlsServerNameField.getText().trim();
             secretUi.save(savedName, p, outcome -> {
                 clientKeyFromVault = outcome == ProfileSecretManager.SaveOutcome.SAVED_WITH_SECRET
                         && activeClientKey != null;
@@ -761,6 +812,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
     }
 
     private void connectClusterNow() {
+        if (connecting || resourcesClosed) return;
         closePortForwards();
         activeServerUrl = serverField.getText().trim();
         activeToken = new String(tokenField.getPassword());
@@ -774,18 +826,34 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
             return;
         }
 
+        final String originalServer = activeServerUrl;
+        final String serverName = tlsServerNameField.getText().trim();
+        SshConnectionConfig ssh = (SshConnectionConfig) sshCombo.getSelectedItem();
+        if (useSshCheck.isSelected() && ssh == null) { UIUtils.error(getView(), I18n.get("k8s.ssh.select")); return; }
+        final String sshId = useSshCheck.isSelected() ? ssh.getId() : "";
+        final boolean skip = activeSkipTls;
+        final String ca = activeCaCert, cert = activeClientCert, key = activeClientKey;
+        connecting = true;
+        for (JComponent control : new JComponent[] {serverField, tokenField, skipTlsCheck, pickCaCertBtn,
+                profileCombo, saveProfileBtn, delProfileBtn, importKubeconfigBtn, useSshCheck, sshCombo, tlsServerNameField}) control.setEnabled(false);
+
         connBtn.setEnabled(false);
         connBtn.setText("连接中...");
 
         new SwingWorker<Boolean, Void>() {
             @Override
             protected Boolean doInBackground() throws Exception {
-                activeSocketFactory = KubernetesTls.socketFactory(
-                        activeSkipTls, activeCaCert, activeClientCert, activeClientKey);
-                activeHostnameVerifier = KubernetesTls.hostnameVerifier(activeSkipTls);
                 closeKubernetesService();
-                kubernetesService = kubernetesServiceFactory.create(
-                        activeServerUrl, activeToken, activeSocketFactory, activeHostnameVerifier);
+                KubernetesEndpoint route = KubernetesEndpoint.open(originalServer, sshId, serverName, skip, ca, cert, key);
+                synchronized (K8sManagerPanel.this) {
+                    if (resourcesClosed) { route.close(); throw new java.util.concurrent.CancellationException(); }
+                    activeEndpoint = route;
+                    activeServerUrl = route.server();
+                    activeSocketFactory = route.socketFactory();
+                    activeHostnameVerifier = KubernetesTls.hostnameVerifier(skip);
+                    kubernetesService = kubernetesServiceFactory.create(
+                            activeServerUrl, activeToken, activeSocketFactory, activeHostnameVerifier);
+                }
                 // Test connectivity by querying API version info or namespaces
                 executeRequest("GET", "/api/v1/namespaces", null, activeSkipTls);
                 return true;
@@ -793,6 +861,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
 
             @Override
             protected void done() {
+                if (resourcesClosed) { closeKubernetesService(); return; }
                 try {
                     get();
                     toggleState(true);
@@ -1173,6 +1242,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
     }
 
     private void handleImportSuccess(KubernetesProfile p) {
+        applySshProfile(p);
         serverField.setText(p.serverUrl);
         tokenField.setText(p.token);
         skipTlsCheck.setSelected(p.skipTls);
@@ -1312,6 +1382,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
             profileCombo.setSelectedItem(selectName);
             KubernetesProfile p = profiles.get(selectName);
             if (p != null) {
+                applySshProfile(p);
                 activeClientCert = p.clientCertData;
                 applyClientKey(p);
                 activeCaCert = p.caCertData;
@@ -1325,6 +1396,7 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
                 serverField.setText(p.serverUrl);
                 secretUi.fill(tokenField, p, "token");
                 skipTlsCheck.setSelected(p.skipTls);
+                applySshProfile(p);
                 activeClientCert = p.clientCertData;
                 applyClientKey(p);
                 activeCaCert = p.caCertData;
@@ -1358,15 +1430,20 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
         return service.request(method, apiPath, body);
     }
 
-    private void closeKubernetesService() {
+    private synchronized void closeKubernetesService() {
         KubernetesService service = kubernetesService;
         kubernetesService = null;
         if (service != null) service.close();
+        KubernetesEndpoint route = activeEndpoint;
+        activeEndpoint = null;
+        if (route != null) route.close();
     }
 
     /** Releases the HTTP transport used by all non-streaming cluster actions. */
     @Override
     public void closeResources() {
+        resourcesClosed = true;
+        SshConfigStore.getInstance().removeChangeListener(sshChanges);
         if (SwingUtilities.isEventDispatchThread()) closePortForwards();
         else SwingUtilities.invokeLater(this::closePortForwards);
         transfers.cancelAll();
@@ -1389,7 +1466,8 @@ public class K8sManagerPanel extends ToolPanel implements ManagedResourceOwner, 
         }
         try {
             var credentials = new com.aqishi.toolbox.feature.cloud.application.PortForwardConfig.Credentials(
-                    activeServerUrl, activeToken, activeSkipTls, activeCaCert, activeClientCert, activeClientKey);
+                    activeServerUrl, activeToken, activeSkipTls, activeCaCert, activeClientCert, activeClientKey,
+                    activeEndpoint == null ? "" : activeEndpoint.identity());
             portForwardDialogs.removeIf(K8sPortForwardDialog::isClosed);
             K8sPortForwardDialog dialog = new K8sPortForwardDialog(getView(), credentials, ns, kind, name);
             portForwardDialogs.add(dialog); dialog.show();

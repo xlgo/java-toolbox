@@ -40,12 +40,14 @@ public final class KubeconfigParser {
         String serverUrl = "https://127.0.0.1:6443";
         String clusterCa = null;
         boolean insecureSkipTlsVerify = false;
+        String tlsServerName = "";
         JsonNode clusters = root.path("clusters");
         if (clusters.isArray()) {
             for (JsonNode cluster : clusters) {
                 if (cluster.path("name").asText().equals(clusterName) || clusters.size() == 1) {
                     JsonNode clusterBody = cluster.path("cluster");
                     serverUrl = clusterBody.path("server").asText();
+                    tlsServerName = clusterBody.path("tls-server-name").asText("");
                     clusterCa = readCredential(clusterBody, "certificate-authority-data",
                             "certificate-authority", baseDirectory);
                     insecureSkipTlsVerify =
@@ -78,8 +80,10 @@ public final class KubeconfigParser {
         // Verification stays on unless the kubeconfig explicitly opts out; a
         // supplied cluster CA is always the preferred trust anchor.
         boolean skipTls = insecureSkipTlsVerify && isBlank(clusterCa);
-        return new KubernetesProfile(serverUrl, serverUrl, token, skipTls,
+        KubernetesProfile profile = new KubernetesProfile(serverUrl, serverUrl, token, skipTls,
                 clientCertificate, clientKey, clusterCa);
+        profile.tlsServerName = tlsServerName;
+        return profile;
     }
 
     private static boolean isBlank(String value) {

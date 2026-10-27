@@ -10,7 +10,10 @@ import java.util.*;
 
 /** Private, session-scoped kubeconfig. Credentials never appear in process arguments or normal settings. */
 public final class PortForwardConfig implements AutoCloseable {
-    public record Credentials(String server, String token, boolean skipTls, String ca, String certificate, String key) {
+    public record Credentials(String server, String token, boolean skipTls, String ca, String certificate, String key, String tlsServerName) {
+        public Credentials(String server, String token, boolean skipTls, String ca, String certificate, String key) {
+            this(server, token, skipTls, ca, certificate, key, "");
+        }
         public Credentials {
             var uri=URI.create(server);
             if (!Set.of("https", "http").contains(uri.getScheme()) || uri.getHost()==null || uri.getUserInfo()!=null || uri.getFragment()!=null)
@@ -48,6 +51,7 @@ public final class PortForwardConfig implements AutoCloseable {
     }
     static String json(Credentials c) throws Exception {
         Map<String,Object> cluster=new LinkedHashMap<>(); cluster.put("server",c.server());
+        if(c.tlsServerName()!=null && !c.tlsServerName().isBlank()) cluster.put("tls-server-name",c.tlsServerName());
         if(c.skipTls()) cluster.put("insecure-skip-tls-verify",true);
         else if(!c.ca().isBlank()) cluster.put("certificate-authority-data",base64(c.ca()));
         Map<String,Object> user=new LinkedHashMap<>();

@@ -37,6 +37,12 @@ interface K8sClusterContext {
      */
     SSLSocketFactory socketFactory();
 
+    default javax.net.SocketFactory webSocketFactory() {
+        SSLSocketFactory tls = socketFactory();
+        return tls instanceof com.aqishi.toolbox.infra.network.RoutedTlsSocketFactory routed
+                ? routed.webSocketFactory() : tls;
+    }
+
     /** 已建立的主机名校验器；未连接时为 {@code null}。 */
     HostnameVerifier hostnameVerifier();
 

@@ -201,6 +201,9 @@ final class K8sExecTerminal {
             headers.put("Sec-WebSocket-Protocol", "v4.channel.k8s.io");
 
             org.java_websocket.client.WebSocketClient client = new org.java_websocket.client.WebSocketClient(uri, headers) {
+                @Override protected void onSetSSLParameters(javax.net.ssl.SSLParameters parameters) {
+                    parameters.setEndpointIdentificationAlgorithm(ctx.skipTls() ? null : "HTTPS");
+                }
                 // 每个输出通道一个有状态解码器，跨帧的多字节字符不会被切成乱码。
                 private final StreamingUtf8Decoder stdout = new StreamingUtf8Decoder();
                 private final StreamingUtf8Decoder stderr = new StreamingUtf8Decoder();
@@ -267,12 +270,17 @@ final class K8sExecTerminal {
             };
 
             clientHolder[0] = client;
+            ctx.transfers().register(client);
+            AutoCloseable windowResource = () -> SwingUtilities.invokeLater(dialog::dispose);
+            ctx.transfers().registerResource(windowResource);
 
             applyTls(client, ctx);
 
             dialog.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
                 public void windowClosed(java.awt.event.WindowEvent e) {
+                    ctx.transfers().unregister(client);
+                    ctx.transfers().unregisterResource(windowResource);
                     connector.close();
                     terminalWidget.stop();
                 }
@@ -305,7 +313,7 @@ final class K8sExecTerminal {
             return;
         }
         if (ctx.socketFactory() != null) {
-            client.setSocketFactory(ctx.socketFactory());
+            client.setSocketFactory(ctx.webSocketFactory());
         }
     }
 }

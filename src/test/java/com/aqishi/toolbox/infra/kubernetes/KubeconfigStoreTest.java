@@ -12,6 +12,12 @@ import java.util.prefs.Preferences;
 import static org.junit.jupiter.api.Assertions.*;
 
 class KubeconfigStoreTest {
+    @Test void persistsSshReferenceAndTlsNameWithoutDuplicatingCredentials() {
+        var profile=new KubernetesProfile("ssh-cluster","https://cluster:6443","",false);
+        profile.useSsh=true;profile.sshConfigId="shared-ssh-id";profile.tlsServerName="cluster.internal";
+        store.save(profile); var loaded=store.list().get(0);
+        assertTrue(loaded.useSsh);assertEquals("shared-ssh-id",loaded.sshConfigId);assertEquals("cluster.internal",loaded.tlsServerName);
+    }
 
     private Preferences node;
     private KubeconfigStore store;

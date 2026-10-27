@@ -13,6 +13,11 @@ import java.util.Base64;
 import static org.junit.jupiter.api.Assertions.*;
 
 class KubeconfigParserTest {
+    @Test void importsTlsServerNameForSshRouting() throws Exception {
+        var profile=parser.parse(kubeconfig("    server: https://10.0.0.8:6443\n    tls-server-name: cluster.internal\n","ctx1","    token: fixture\n"),null);
+        assertEquals("cluster.internal",profile.tlsServerName);
+        assertFalse(profile.useSsh);
+    }
 
     private final KubeconfigParser parser = new KubeconfigParser();
 

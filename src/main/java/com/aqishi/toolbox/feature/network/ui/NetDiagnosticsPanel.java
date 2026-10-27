@@ -3,6 +3,7 @@ package com.aqishi.toolbox.feature.network.ui;
 import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.catalog.ToolDescriptor;
 import com.aqishi.toolbox.feature.network.domain.NetDiagnosticsService;
+import com.aqishi.toolbox.feature.network.domain.ScanTargetParser;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
@@ -108,6 +109,26 @@ public class NetDiagnosticsPanel extends ToolPanel implements ManagedResourceOwn
         panel.setBorder(BorderFactory.createEmptyBorder(
                 Tokens.SPACE_SM, Tokens.SPACE_SM, Tokens.SPACE_SM, Tokens.SPACE_SM));
         return panel;
+    }
+
+    /** Prefill a scanner endpoint without automatically issuing any diagnostic requests. */
+    public void useEndpoint(String ip, int port, String originalTarget, int timeoutMillis) {
+        getView();
+        String hostname = "";
+        try {
+            var parsed = ScanTargetParser.parse(originalTarget, true);
+            if (parsed.names().size() == 1 && parsed.numericCount() == 0) {
+                hostname = parsed.names().get(0);
+            }
+        } catch (IllegalArgumentException ignored) { }
+        dnsHostField.setText(hostname.isEmpty() ? ip : hostname);
+        tlsHostField.setText(ip);
+        tlsPortSpinner.setValue(port);
+        tlsSniField.setText(hostname);
+        boolean https = port == 443 || port == 8443;
+        httpUrlField.setText((https ? "https://" : "http://")
+                + (ip.contains(":") ? "[" + ip + "]" : ip) + ":" + port + "/");
+        timeoutSpinner.setValue(Math.max(500, Math.min(60000, timeoutMillis)));
     }
 
     // ==========================================

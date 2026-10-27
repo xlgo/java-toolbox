@@ -69,6 +69,11 @@ final class K8sLogViewer {
         JDialog dialog = new JDialog((Frame) null, "Pod 日志: " + podName, false);
         dialog.setSize(800, 550);
         dialog.setLocationRelativeTo(null);
+        AutoCloseable windowResource = () -> SwingUtilities.invokeLater(dialog::dispose);
+        ctx.transfers().registerResource(windowResource);
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowClosed(java.awt.event.WindowEvent event) { ctx.transfers().unregisterResource(windowResource); }
+        });
 
         // 容器选择、追踪开关与加载动作是同一条工具栏，窄窗口下按钮不换行、下拉不被拉宽
         ActionBar top = new ActionBar();
@@ -142,7 +147,8 @@ final class K8sLogViewer {
                     String path = "/api/v1/namespaces/" + encode(ns) + "/pods/" + encode(podName)
                             + "/log?container=" + encode(c) + "&follow=true&tailLines=200";
                     URL url = new URL(ctx.serverUrl().replaceAll("/+$", "") + path);
-                    conn = (HttpURLConnection) url.openConnection();
+                    conn = (HttpURLConnection) url.openConnection(java.net.Proxy.NO_PROXY);
+                    conn.setInstanceFollowRedirects(false);
                     activeConn.set(conn);
                     if (cancelled.get()) {
                         return;

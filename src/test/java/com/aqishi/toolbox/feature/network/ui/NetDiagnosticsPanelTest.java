@@ -1,11 +1,43 @@
 package com.aqishi.toolbox.feature.network.ui;
 
-import org.junit.jupiter.api.Test;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import org.junit.jupiter.api.Test;
+
 class NetDiagnosticsPanelTest {
+
+    @Test
+    void scannerPrefillKeepsTheActualIpAndHostnameForSniWithoutRunningRequests() throws Exception {
+        NetDiagnosticsPanel panel = new NetDiagnosticsPanel();
+        try {
+            javax.swing.SwingUtilities.invokeAndWait(
+                    () -> panel.useEndpoint("127.0.0.1", 8443, "service.example", 100));
+            assertEquals(
+                    "127.0.0.1",
+                    field(panel, "tlsHostField", javax.swing.JTextField.class).getText());
+            assertEquals(
+                    "service.example",
+                    field(panel, "tlsSniField", javax.swing.JTextField.class).getText());
+            assertEquals(
+                    8443, field(panel, "tlsPortSpinner", javax.swing.JSpinner.class).getValue());
+            assertEquals(
+                    "https://127.0.0.1:8443/",
+                    field(panel, "httpUrlField", javax.swing.JTextField.class).getText());
+            assertEquals(
+                    null,
+                    field(panel, "tlsWorker", java.util.concurrent.atomic.AtomicReference.class)
+                            .get());
+        } finally {
+            panel.closeResources();
+        }
+    }
+
+    private static <T> T field(Object panel, String name, Class<T> type) throws Exception {
+        var field = NetDiagnosticsPanel.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return type.cast(field.get(panel));
+    }
 
     @Test
     void buildsViewWithCatalogIdentity() {

@@ -34,6 +34,8 @@ public final class Tokens {
     public static final int RADIUS_CARD = 12;
     /** 控件圆角 */
     public static final int RADIUS_CONTROL = 8;
+    /** 启动器磁贴圆角：比表单卡片更大，接近移动端的圆润观感 */
+    public static final int RADIUS_TILE = 18;
 
     // ---------------------------------------------------------------- 尺寸
 
@@ -47,6 +49,21 @@ public final class Tokens {
     public static final int TABLE_ROW_HEIGHT = 26;
     /** 卡片内边距 */
     public static final int CARD_PADDING = 14;
+
+    // ---------------------------------------------------------------- 启动器
+
+    /** 工具磁贴宽度（单列最小宽度） */
+    public static final int TILE_WIDTH = 180;
+    /** 工具磁贴高度 */
+    public static final int TILE_HEIGHT = 138;
+    /** 磁贴内图标底块的边长 */
+    public static final int TILE_ICON = 48;
+    /** 磁贴之间的间距 */
+    public static final int TILE_GAP = 16;
+    /** 分类导航条目高度 */
+    public static final int RAIL_ROW_HEIGHT = 38;
+    /** 顶栏高度 */
+    public static final int TOPBAR_HEIGHT = 56;
 
     // ---------------------------------------------------------------- 字体
 
@@ -246,6 +263,21 @@ public final class Tokens {
     public static Color selectionForeground() {
         Color color = first("Toolbox.selectionForeground");
         return color == null ? foreground() : color;
+    }
+
+    /**
+     * 磁贴投影色。
+     *
+     * <p>深色主题用纯黑做柔和的暗角，浅色主题用冷灰，投影才不会显脏。</p>
+     */
+    public static Color shadow() {
+        return isDark() ? new Color(0, 0, 0) : new Color(0x263449);
+    }
+
+    /** 启动器页面底色：比工作区再淡一档，让彩色磁贴浮起来 */
+    public static Color launcherBackground() {
+        Color color = first("Toolbox.launcherBackground");
+        return color == null ? surface() : color;
     }
 
     // ---------------------------------------------------------------- 颜色工具

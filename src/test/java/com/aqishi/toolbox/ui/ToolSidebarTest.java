@@ -1,180 +1,189 @@
 package com.aqishi.toolbox.ui;
 
-import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.I18n;
 import org.junit.jupiter.api.Test;
 
-import javax.swing.*;
-import javax.swing.tree.TreePath;
-import java.awt.*;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Container;
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * 一级分类导航的行为测试。
+ *
+ * <p>重构后侧栏不再承载工具树：它只负责「去哪一组」，工具由主区磁贴承担。
+ * 因此这里断言的是分类列表、选中同步、折叠入口与底部设置区，而不再是树的展开状态。</p>
+ */
 class ToolSidebarTest {
 
     @Test
-    void filtersInlineAndShowsEmptyState() throws Exception {
-        AtomicReference<ToolSidebar> sidebarRef = new AtomicReference<>();
-        SwingUtilities.invokeAndWait(() -> sidebarRef.set(sidebar()));
-        ToolSidebar sidebar = sidebarRef.get();
-        JTextField search = find(sidebar, JTextField.class);
-        JTree tree = find(sidebar, JTree.class);
+    void listsEveryCategoryIncludingAllTools() throws Exception {
+        onEdt(() -> {
+            ToolSidebar sidebar = sidebar();
+            assertNotNull(named(sidebar, "nav.category.all"), "全部工具入口必须存在");
+            assertNotNull(named(sidebar, "nav.category.crypto"));
+            assertNotNull(named(sidebar, "nav.category.convert"));
 
-        SwingUtilities.invokeAndWait(() -> search.setText("missing"));
-
-        // 过滤由 120ms 去抖 Timer 在 EDT 上触发；固定 sleep 在机器繁忙时会漏掉，
-        // 改为轮询等待空态出现（超时上限给足，避免慢机误判）。
-        long deadline = System.currentTimeMillis() + 5000;
-        while (System.currentTimeMillis() < deadline && !showsEmptyState(tree)) {
-            Thread.sleep(20);
-            SwingUtilities.invokeAndWait(() -> { });
-        }
-        assertTrue(showsEmptyState(tree), "search filter did not settle within timeout");
-    }
-
-    private static boolean showsEmptyState(JTree tree) {
-        return tree.getRowCount() == 1
-                && I18n.get("nav.empty").equals(
-                        tree.getPathForRow(0).getLastPathComponent().toString());
+            JButton all = named(sidebar, "nav.category.all");
+            assertEquals(I18n.get("nav.all"), all.getAccessibleContext().getAccessibleName());
+            assertEquals(ToolSidebar.ALL, sidebar.getSelectedCategory(), "默认停在全部工具");
+        });
     }
 
     @Test
-    void selectionCallbackUsesStableToolId() throws Exception {
+    void selectionCallbackUsesStableCategoryId() throws Exception {
         AtomicReference<String> selected = new AtomicReference<>();
-        ToolSidebar[] sidebar = new ToolSidebar[1];
-        SwingUtilities.invokeAndWait(() -> {
-            ToolNavigationModel model = model();
-            sidebar[0] = new ToolSidebar(model, selected::set, () -> { });
-            JTree tree = find(sidebar[0], JTree.class);
-            TreePath path = findPath(tree, "Hash");
-            tree.setSelectionPath(path);
+        onEdt(() -> {
+            ToolSidebar sidebar = new ToolSidebar(model(), selected::set, () -> { });
+            named(sidebar, "nav.category.crypto").doClick(0);
         });
-
-        assertEquals("hash.codec", selected.get());
+        assertEquals("crypto", selected.get());
     }
 
     @Test
-    void shortcutsFocusSearchOpenSelectionAndClearQuery() throws Exception {
-        ToolSidebar[] sidebar = new ToolSidebar[1];
-        SwingUtilities.invokeAndWait(() -> {
-            sidebar[0] = sidebar();
-            JTextField search = find(sidebar[0], JTextField.class);
-            search.setText("Hash");
-            sidebar[0].getActionMap().get("nav.focusSearch")
-                    .actionPerformed(new java.awt.event.ActionEvent(sidebar[0], 0, ""));
-            assertTrue(search.isFocusOwner() || !sidebar[0].isShowing());
-            sidebar[0].getActionMap().get("nav.clearSearch")
-                    .actionPerformed(new java.awt.event.ActionEvent(sidebar[0], 0, ""));
-            assertEquals("", search.getText());
+    void selectingAToolMovesTheHighlightToItsCategory() throws Exception {
+        onEdt(() -> {
+            ToolSidebar sidebar = sidebar();
+            sidebar.setSelectedTool("radix.encoding");
+            assertEquals("convert", sidebar.getSelectedCategory());
+            assertEquals("radix.encoding", sidebar.getSelectedToolId());
         });
     }
 
     @Test
-    void restoresPersistedExpansionSet() throws Exception {
-        ToolSidebar[] sidebar = new ToolSidebar[1];
-        SwingUtilities.invokeAndWait(() -> {
-            sidebar[0] = sidebar();
-            sidebar[0].setExpandedGroupIds(Collections.singleton("convert"));
+    void repeatedClickOnTheSameCategoryStillNotifies() throws Exception {
+        // 用户可能正停在某个工具页，点当前分类就是要回到列表，不能因为「已经是这个分类」而吞掉回调
+        AtomicReference<Integer> calls = new AtomicReference<>(0);
+        onEdt(() -> {
+            ToolSidebar sidebar = new ToolSidebar(model(), id -> calls.updateAndGet(v -> v + 1), () -> { });
+            named(sidebar, "nav.category.crypto").doClick(0);
+            named(sidebar, "nav.category.crypto").doClick(0);
         });
-
-        assertEquals(Collections.singleton("convert"), sidebar[0].getExpandedGroupIds());
+        assertEquals(2, calls.get());
     }
 
     @Test
     void usesCompactCollapseControlWithLocalizedDescription() throws Exception {
-        ToolSidebar[] sidebar = new ToolSidebar[1];
-        SwingUtilities.invokeAndWait(() -> sidebar[0] = sidebar());
-
-        JButton collapse = find(sidebar[0], JButton.class);
-        assertTrue(collapse.getText() == null || collapse.getText().isEmpty());
-        assertNotNull(collapse.getIcon());
-        assertTrue(collapse.isFocusPainted());
-        assertEquals(I18n.get("nav.collapse"), collapse.getToolTipText());
-        assertEquals(
-                I18n.get("nav.collapse"),
-                collapse.getAccessibleContext().getAccessibleName());
-    }
-
-    @Test
-    void narrowSidebarKeepsSearchShortcutOutsideTheInput() throws Exception {
-        SwingUtilities.invokeAndWait(() -> {
+        onEdt(() -> {
             ToolSidebar sidebar = sidebar();
-            sidebar.setSize(200, 520);
-            layoutAll(sidebar);
-            JTextField search = find(sidebar, JTextField.class);
-            assertNotNull(search.getClientProperty("JTextField.leadingIcon"));
-            assertNull(search.getClientProperty("JTextField.trailingComponent"));
-            assertTrue(search.getWidth() >= 170, "search uses the full narrow sidebar width");
-            assertNotNull(findLabel(sidebar, "Ctrl K"));
-            JTree tree = find(sidebar, JTree.class);
-            assertTrue(tree.getScrollableTracksViewportWidth());
-            assertEquals(Tokens.NAV_ROW_HEIGHT, tree.getRowHeight());
+            JButton collapse = find(sidebar, JButton.class,
+                    button -> I18n.get("nav.collapse")
+                            .equals(button.getAccessibleContext().getAccessibleName()));
+            assertNotNull(collapse);
+            assertTrue(collapse.getText() == null || collapse.getText().isEmpty());
+            assertNotNull(collapse.getIcon());
+            assertTrue(collapse.isFocusPainted());
+            assertEquals(I18n.get("nav.collapse"), collapse.getToolTipText());
         });
     }
 
     @Test
-    void selectionPaintsAcrossTheRowAndKeepsCategoryCountSeparate() throws Exception {
-        SwingUtilities.invokeAndWait(() -> {
+    void selectedCategoryPaintsItsHighlightAcrossTheRow() throws Exception {
+        onEdt(() -> {
             ToolSidebar sidebar = sidebar();
             sidebar.setSize(240, 520);
             layoutAll(sidebar);
-            JTree tree = find(sidebar, JTree.class);
-            sidebar.setSelectedTool("hash.codec");
-            Rectangle selected = tree.getPathBounds(findPath(tree, "Hash"));
-            BufferedImage snapshot = new BufferedImage(tree.getWidth(), tree.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            sidebar.setSelectedCategory("crypto");
+            JButton item = named(sidebar, "nav.category.crypto");
+            item.setSize(216, Tokens.RAIL_ROW_HEIGHT);
+
+            BufferedImage snapshot = new BufferedImage(
+                    item.getWidth(), item.getHeight(), BufferedImage.TYPE_INT_ARGB);
             Graphics2D graphics = snapshot.createGraphics();
-            tree.paint(graphics);
+            item.paint(graphics);
             graphics.dispose();
-            assertEquals(Tokens.accentSoft().getRGB(), snapshot.getRGB(
-                    tree.getWidth() - 10, selected.y + selected.height / 2));
-            TreePath group = findPath(tree, "Security");
-            Component row = tree.getCellRenderer().getTreeCellRendererComponent(
-                    tree, group.getLastPathComponent(), false, true, false, 0, false);
-            assertInstanceOf(Container.class, row);
-            assertNotNull(findLabel((Container) row, "Security"));
-            assertNotNull(findLabel((Container) row, "1"));
-            sidebar.restyle();
-            assertEquals("hash.codec", sidebar.getSelectedToolId());
+
+            // 行尾远离文字与图标，只可能是高亮底色
+            assertEquals(Tokens.accentSoft().getRGB(),
+                    snapshot.getRGB(item.getWidth() - 6, item.getHeight() / 2));
         });
     }
 
     @Test
-    void refreshLabelsKeepsTheMountedViewAndCallbacksOnTheEdt() throws Exception {
-        AtomicInteger builds = new AtomicInteger();
-        AtomicReference<Boolean> callbackOnEdt = new AtomicReference<>(false);
-        ToolPanel tool = new ToolPanel(TestDescriptors.of("crypto", "hash.codec", "digest")) {
-            @Override public String getLabel() { return "Hash"; }
-            @Override public String getGroupLabel() { return "Security"; }
-            @Override protected JComponent build() {
-                builds.incrementAndGet();
-                return new JPanel();
-            }
-        };
-        ToolNavigationModel model =
-                new ToolNavigationModel(Collections.singletonList(tool));
-        ToolContentHost host =
-                new ToolContentHost(Collections.singletonList(tool));
-        ToolSidebar[] sidebar = new ToolSidebar[1];
-
-        SwingUtilities.invokeAndWait(() -> {
-            sidebar[0] = new ToolSidebar(model, id -> {
-                callbackOnEdt.set(SwingUtilities.isEventDispatchThread());
-                host.showTool(id);
-            }, () -> { });
-            sidebar[0].setSelectedTool("hash.codec");
-            sidebar[0].getActionMap().get("nav.openSelection")
-                    .actionPerformed(new java.awt.event.ActionEvent(sidebar[0], 0, ""));
-            sidebar[0].refreshLabels();
+    void unselectedCategoryKeepsNavigationBackground() throws Exception {
+        onEdt(() -> {
+            ToolSidebar sidebar = sidebar();
+            sidebar.setSelectedCategory("crypto");
+            JButton other = named(sidebar, "nav.category.convert");
+            other.setSize(216, Tokens.RAIL_ROW_HEIGHT);
+            BufferedImage snapshot = new BufferedImage(
+                    other.getWidth(), other.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            Graphics2D graphics = snapshot.createGraphics();
+            other.paint(graphics);
+            graphics.dispose();
+            Color painted = new Color(snapshot.getRGB(other.getWidth() - 6, other.getHeight() / 2), true);
+            assertFalse(equalsRgb(Tokens.accentSoft(), painted), "未选中项不应带选中底色");
         });
+    }
 
-        assertTrue(callbackOnEdt.get());
-        assertEquals(1, builds.get());
-        assertTrue(host.isMounted("hash.codec"));
+    @Test
+    void refreshLabelsKeepsTheCurrentCategory() throws Exception {
+        onEdt(() -> {
+            ToolSidebar sidebar = sidebar();
+            sidebar.setSelectedCategory("convert");
+            sidebar.refreshLabels();
+            assertEquals("convert", sidebar.getSelectedCategory());
+            assertNotNull(named(sidebar, "nav.category.convert"));
+        });
+    }
+
+    @Test
+    void footerHostsThemeControls() throws Exception {
+        onEdt(() -> {
+            ToolSidebar sidebar = sidebar();
+            JPanel footer = new JPanel();
+            JLabel probe = new JLabel("外观");
+            footer.add(probe);
+            sidebar.setFooter(footer);
+            assertNotNull(find(sidebar, JLabel.class, label -> "外观".equals(label.getText())));
+        });
+    }
+
+    @Test
+    void focusSearchDelegatesToTheInjectedAction() throws Exception {
+        AtomicReference<Integer> calls = new AtomicReference<>(0);
+        onEdt(() -> {
+            ToolSidebar sidebar = sidebar();
+            sidebar.setSearchAction(() -> calls.updateAndGet(v -> v + 1));
+            sidebar.focusSearch();
+        });
+        assertEquals(1, calls.get());
+    }
+
+    @Test
+    void sidebarDrawsItsNavigationSurface() throws Exception {
+        onEdt(() -> {
+            ToolSidebar sidebar = sidebar();
+            sidebar.setSize(240, 400);
+            layoutAll(sidebar);
+            BufferedImage snapshot = new BufferedImage(240, 400, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D graphics = snapshot.createGraphics();
+            sidebar.paint(graphics);
+            graphics.dispose();
+            assertEquals(Tokens.navigationBackground().getRGB(),
+                    snapshot.getRGB(200, 380));
+        });
+    }
+
+    // ---------------------------------------------------------------- 辅助
+
+    private static boolean equalsRgb(Color expected, Color actual) {
+        return expected.getRGB() == actual.getRGB();
     }
 
     private static ToolSidebar sidebar() {
@@ -196,33 +205,21 @@ class ToolSidebarTest {
         };
     }
 
-    private static TreePath findPath(JTree tree, String label) {
-        for (int row = 0; row < tree.getRowCount(); row++) {
-            TreePath path = tree.getPathForRow(row);
-            if (label.equals(path.getLastPathComponent().toString())) {
-                return path;
-            }
-        }
-        fail("Missing tree path: " + label);
-        return null;
+    private static JButton named(Container root, String name) {
+        JButton button = find(root, JButton.class, candidate -> name.equals(candidate.getName()));
+        assertNotNull(button, "缺少导航项: " + name);
+        return button;
     }
 
     private static <T extends Component> T find(Container root, Class<T> type) {
-        for (Component child : root.getComponents()) {
-            if (type.isInstance(child)) return type.cast(child);
-            if (child instanceof Container) {
-                T nested = find((Container) child, type);
-                if (nested != null) return nested;
-            }
-        }
-        return null;
+        return find(root, type, ignored -> true);
     }
 
-    private static JLabel findLabel(Container root, String text) {
+    private static <T extends Component> T find(Container root, Class<T> type, Predicate<T> matches) {
         for (Component child : root.getComponents()) {
-            if (child instanceof JLabel && text.equals(((JLabel) child).getText())) return (JLabel) child;
+            if (type.isInstance(child) && matches.test(type.cast(child))) return type.cast(child);
             if (child instanceof Container) {
-                JLabel nested = findLabel((Container) child, text);
+                T nested = find((Container) child, type, matches);
                 if (nested != null) return nested;
             }
         }
@@ -234,5 +231,9 @@ class ToolSidebarTest {
         for (Component child : root.getComponents()) {
             if (child instanceof Container) layoutAll((Container) child);
         }
+    }
+
+    private static void onEdt(Runnable action) throws Exception {
+        SwingUtilities.invokeAndWait(action);
     }
 }

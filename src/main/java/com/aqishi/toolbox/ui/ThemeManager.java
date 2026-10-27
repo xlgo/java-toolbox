@@ -12,6 +12,7 @@ import com.formdev.flatlaf.themes.FlatMacLightLaf;
 
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.Errors;
+import com.aqishi.toolbox.ui.kit.Skin;
 import com.aqishi.toolbox.ui.kit.Tokens;
 
 import javax.swing.*;
@@ -37,27 +38,40 @@ public final class ThemeManager {
         public final Class<? extends FlatLaf> lafClass;  // 核心 LAF 非 null
         public final String lafClassName;                 // IntelliJ 主题非 null，LAF 类全名
         public final boolean dark;
+        /** 固定皮肤；为 null 时按明暗自动落到 DARK / LIGHT */
+        public final Skin skin;
 
         Theme(String name, Class<? extends FlatLaf> lafClass, String lafClassName, boolean dark) {
+            this(name, lafClass, lafClassName, dark, null);
+        }
+
+        Theme(String name, Class<? extends FlatLaf> lafClass, String lafClassName,
+              boolean dark, Skin skin) {
             this.name = name;
             this.lafClass = lafClass;
             this.lafClassName = lafClassName;
             this.dark = dark;
+            this.skin = skin;
         }
     }
 
-    /** 内置主题列表：6 个核心 LAF + 48 个 IntelliJ 主题 */
+    /** 护眼主题名：浅色壳层 + 暖色色板。用英文名与其它内置主题保持一致，文案由皮肤菜单本地化 */
+    public static final String EYE_CARE_THEME = "Eye Care";
+
+    /** 内置主题列表：6 个核心 LAF + 1 个护眼主题 + 48 个 IntelliJ 主题 */
     private static final List<Theme> THEMES = buildThemes();
 
     private static List<Theme> buildThemes() {
         List<Theme> list = new ArrayList<>();
         // 核心 LAF
-        list.add(new Theme("Flat Light（浅色）", FlatLightLaf.class, null, false));
-        list.add(new Theme("Flat Dark（深色）", FlatDarkLaf.class, null, true));
-        list.add(new Theme("IntelliJ（默认）", FlatIntelliJLaf.class, null, false));
-        list.add(new Theme("Darcula", FlatDarculaLaf.class, null, true));
-        list.add(new Theme("macOS Light", FlatMacLightLaf.class, null, false));
-        list.add(new Theme("macOS Dark", FlatMacDarkLaf.class, null, true));
+        list.add(new Theme("Flat Light（浅色）", FlatLightLaf.class, null, false, Skin.LIGHT));
+        list.add(new Theme("Flat Dark（深色）", FlatDarkLaf.class, null, true, Skin.DARK));
+        list.add(new Theme("IntelliJ（默认）", FlatIntelliJLaf.class, null, false, Skin.LIGHT));
+        list.add(new Theme("Darcula", FlatDarculaLaf.class, null, true, Skin.DARK));
+        list.add(new Theme("macOS Light", FlatMacLightLaf.class, null, false, Skin.LIGHT));
+        list.add(new Theme("macOS Dark", FlatMacDarkLaf.class, null, true, Skin.DARK));
+        // 护眼：复用浅色 LAF，由色板换成暖米色；皮肤固定，不随明暗推导
+        list.add(new Theme(EYE_CARE_THEME, FlatLightLaf.class, null, false, Skin.EYE_CARE));
         // flatlaf-intellij-themes 包中所有主题（每个主题是独立的 FlatLaf 子类）
         for (FlatAllIJThemes.FlatIJLookAndFeelInfo info : FlatAllIJThemes.INFOS) {
             list.add(new Theme(info.getName(), null, info.getClassName(), info.isDark()));
@@ -67,11 +81,61 @@ public final class ThemeManager {
 
     private static Theme current = THEMES.get(2); // 默认 IntelliJ
 
+    /** 当前皮肤：卡片渐变与导航配色据此推导 */
+    private static Skin currentSkin = Skin.LIGHT;
+
     private ThemeManager() {
     }
 
     public static Theme current() {
         return current;
+    }
+
+    /** 当前皮肤基调 */
+    public static Skin skin() {
+        return currentSkin;
+    }
+
+    /**
+     * 三档皮肤与内置主题一一对应，切换皮肤即切换整窗外观。
+     *
+     * <p>护眼模式是一个独立的主题名，因此换皮肤后再从下拉里选别的主题，
+     * 皮肤会自动跟随新主题的明暗，不会残留暖色调。</p>
+     */
+    public static void applySkin(Skin skin) {
+        if (skin == null) return;
+        // 按皮肤查找内置主题：避免在这里重复写主题名称字面量
+        for (Theme theme : THEMES) {
+            if (theme.skin == skin) {
+                apply(theme.name);
+                return;
+            }
+        }
+    }
+
+    /** 一键深浅切换：暗黑 ↔ 多彩浅色，护眼视作浅色 */
+    public static void toggleDarkLight() {
+        applySkin(currentSkin.isDark() ? Skin.LIGHT : Skin.DARK);
+    }
+
+    private static Skin resolveSkin(Theme theme) {
+        if (theme.skin != null) return theme.skin;
+        return theme.dark ? Skin.DARK : Skin.LIGHT;
+    }
+
+    /**
+     * 让皮肤跟随实际生效的 LAF。
+     *
+     * <p>色板要按皮肤决定冷暖，而 LAF 也可能被外部直接 setup（测试、插件）。
+     * 如果皮肤的明暗与 LAF 冲突，就地校正；护眼皮肤是浅色 LAF，明暗一致，
+     * 因此不会被误改成普通浅色。</p>
+     */
+    private static void syncSkinWithLaf() {
+        LookAndFeel laf = UIManager.getLookAndFeel();
+        if (!(laf instanceof FlatLaf flat)) return;
+        if (currentSkin.isDark() != flat.isDark()) {
+            currentSkin = flat.isDark() ? Skin.DARK : Skin.LIGHT;
+        }
     }
 
     public static String[] names() {
@@ -100,6 +164,8 @@ public final class ThemeManager {
                 Class<?> clazz = Class.forName(t.lafClassName);
                 laf = (FlatLaf) clazz.getDeclaredConstructor().newInstance();
             }
+            // 皮肤必须先于色板确定：这一步决定了文字、卡片、导航的冷暖与明暗方向
+            currentSkin = resolveSkin(t);
             FlatLaf.setup(laf);
             applyCustomDefaults();
             current = t;
@@ -131,6 +197,8 @@ public final class ThemeManager {
                 laf = (FlatLaf) clazz.getDeclaredConstructor().newInstance();
             }
             FlatLaf.setup(laf);
+            // 皮肤必须先于自定义默认值确定：色板要按皮肤决定冷暖
+            currentSkin = resolveSkin(t);
             // 必须在 setup 之后写入：setLookAndFeel 会重建 defaults 表
             applyCustomDefaults();
             FlatLaf.updateUI();
@@ -159,6 +227,7 @@ public final class ThemeManager {
      * 在这里统一设置，可以让尚未逐个重构的工具面板也获得一致的控件观感。</p>
      */
     static void applyCustomDefaults() {
+        syncSkinWithLaf();
         applyWorkbenchPalette();
         applyCjkFontDefaults();
 
@@ -267,23 +336,25 @@ public final class ThemeManager {
             return;
         }
 
-        boolean dark = ((FlatLaf) laf).isDark();
-        Color workspace = color(dark, 0xF3F5F9, 0x151C27);
-        Color card = color(dark, 0xFFFFFF, 0x1E2837);
-        Color navigation = color(dark, 0xF8FAFD, 0x192230);
-        Color foreground = color(dark, 0x263449, 0xE4EAF4);
-        Color muted = color(dark, 0x65748B, 0xA0AEC2);
-        Color disabled = color(dark, 0x98A4B7, 0x687A94);
-        Color border = color(dark, 0xD6DEEA, 0x344258);
-        Color separator = color(dark, 0xE4E9F2, 0x2D394D);
-        Color accent = color(dark, 0x386AE8, 0x7DA2FF);
-        Color primary = color(dark, 0x386AE8, 0x416FDC);
-        Color selection = color(dark, 0xE8EFFD, 0x2B3D5E);
-        Color selectionText = color(dark, 0x2857C5, 0xB9CEFF);
+        Skin skin = currentSkin;
+        Color workspace = skinColor(skin, 0xF3F5F9, 0x151C27, 0xF7F2E3);
+        Color card = skinColor(skin, 0xFFFFFF, 0x1E2837, 0xFFFDF6);
+        Color navigation = skinColor(skin, 0xF8FAFD, 0x192230, 0xF2EBD8);
+        Color launcher = skinColor(skin, 0xF6F8FC, 0x111823, 0xF9F5E8);
+        Color foreground = skinColor(skin, 0x263449, 0xE4EAF4, 0x3A362D);
+        Color muted = skinColor(skin, 0x65748B, 0xA0AEC2, 0x7D7360);
+        Color disabled = skinColor(skin, 0x98A4B7, 0x687A94, 0xA79C87);
+        Color border = skinColor(skin, 0xD6DEEA, 0x344258, 0xE0D7C3);
+        Color separator = skinColor(skin, 0xE4E9F2, 0x2D394D, 0xEBE3D2);
+        Color accent = skinColor(skin, 0x386AE8, 0x7DA2FF, 0xB4791F);
+        Color primary = skinColor(skin, 0x386AE8, 0x416FDC, 0xA9721C);
+        Color selection = skinColor(skin, 0xE8EFFD, 0x2B3D5E, 0xF6EBD3);
+        Color selectionText = skinColor(skin, 0x2857C5, 0xB9CEFF, 0x8A5D12);
         UIDefaults defaults = UIManager.getLookAndFeelDefaults();
 
         putColors(defaults, workspace, "Panel.background", "control", "Window.background",
                 "TabbedPane.background", "SplitPane.background", "ScrollBar.background");
+        putColors(defaults, launcher, "Toolbox.launcherBackground");
         putColors(defaults, card, "TextField.background", "PasswordField.background",
                 "FormattedTextField.background", "TextArea.background", "TextPane.background",
                 "EditorPane.background", "Table.background", "List.background", "Tree.background",
@@ -334,13 +405,19 @@ public final class ThemeManager {
         putColors(defaults, Tokens.shift(primary, -0.17f), "Button.default.pressedBackground");
         putColors(defaults, Tokens.blend(border, card, 0.35f), "ScrollBar.thumb");
         putColors(defaults, border, "ScrollBar.hoverThumbColor");
-        putColors(defaults, color(dark, 0x1D8A68, 0x63CCAC), "Actions.Green");
-        putColors(defaults, color(dark, 0xB97A16, 0xE7BA6A), "Actions.Yellow");
-        putColors(defaults, color(dark, 0xCA4A58, 0xF08591), "Actions.Red", "Component.error.borderColor");
+        putColors(defaults, skinColor(skin, 0x1D8A68, 0x63CCAC, 0x2E7D3E), "Actions.Green");
+        putColors(defaults, skinColor(skin, 0xB97A16, 0xE7BA6A, 0xA9721C), "Actions.Yellow");
+        putColors(defaults, skinColor(skin, 0xCA4A58, 0xF08591, 0xB4453F),
+                "Actions.Red", "Component.error.borderColor");
     }
 
-    private static Color color(boolean dark, int lightRgb, int darkRgb) {
-        return new Color(dark ? darkRgb : lightRgb);
+    /** 按皮肤取色：浅色 / 暗黑 / 护眼三套 RGB 常量 */
+    private static Color skinColor(Skin skin, int lightRgb, int darkRgb, int warmRgb) {
+        return switch (skin) {
+            case DARK -> new Color(darkRgb);
+            case EYE_CARE -> new Color(warmRgb);
+            case LIGHT -> new Color(lightRgb);
+        };
     }
 
     private static void putColors(UIDefaults defaults, Color color, String... keys) {

@@ -19,6 +19,7 @@
 
 ## 设计记录
 
+- [启动器式主界面重构](reviews/2026-10-28-launcher-ui.md)：卡片启动器、一级分类导航、顶栏搜索/收藏/一键主题，三档皮肤与功能对账清单。
 - [Docker 管理与 K8s SSH 检查记录](reviews/2026-10-17-docker-k8s-ssh.md)：交付范围、生命周期、测试与已知限制。
 - [Docker 公共 SSH 隧道检查](reviews/2026-10-17-docker-shared-ssh-tunnel.md)：TCP 方式、共享租约、超时取消和验证记录。
 - [Docker 连接边界修正](reviews/2026-10-17-docker-connection-isolation.md)：恢复原 SSH 终端和 SFTP，Docker 使用独立命令连接及公共隧道接口。

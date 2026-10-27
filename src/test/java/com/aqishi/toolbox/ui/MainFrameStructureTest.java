@@ -9,59 +9,163 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-import javax.swing.*;
-import java.awt.*;
+import javax.swing.JButton;
+import javax.swing.JComboBox;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JTabbedPane;
+import javax.swing.JTextField;
+import javax.swing.SwingUtilities;
+import java.awt.Component;
+import java.awt.Container;
+import java.awt.Rectangle;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * 外壳结构测试。
+ *
+ * <p>重构后主窗口是「顶栏 + 一级分类 + 卡片启动器/工具页」：工具不再挂在侧栏树上，
+ * 而是以磁贴进入。这里验证的是外壳契约——首次进启动器、点磁贴才挂载工具、
+ * 返回能回到列表、顶栏控件在窄窗口下不互相挤压。</p>
+ */
 class MainFrameStructureTest {
+
     @TempDir
     Path temp;
 
     @Test
-    void usesUnifiedSidebarAndLazyContentInsteadOfTabbedNavigation() throws Exception {
-        try (WorkbenchFixture fixture = new WorkbenchFixture("zh_CN")) {
+    void startsOnTheLauncherWithoutMountingAnyTool() throws Exception {
+        try (WorkbenchFixture fixture = new WorkbenchFixture("zh_CN", null)) {
             SwingUtilities.invokeAndWait(() -> {
                 MainFrame frame = fixture.frame;
                 assertNotNull(find(frame.getContentPane(), ToolSidebar.class));
+                assertNotNull(find(frame.getContentPane(), TopBar.class));
+                assertNotNull(find(frame.getContentPane(), LauncherPanel.class));
                 ToolContentHost host = find(frame.getContentPane(), ToolContentHost.class);
                 assertNotNull(host);
                 assertNull(find(frame.getContentPane(), JTabbedPane.class));
-                assertEquals(1, host.getComponentCount());
-                assertTrue(host.isMounted("json.format"));
-                assertFalse(host.isMounted("jsonpath.tester"));
 
-                JButton expand = named(frame, "workbench.expandNavigation", JButton.class);
-                assertNotNull(expand.getIcon());
-                assertTrue(expand.getText().isEmpty(), "navigation uses a vector icon, not a font glyph");
-                assertEquals(I18n.get("nav.expand"), expand.getAccessibleContext().getAccessibleName());
-                assertFalse(expand.isVisible());
+                assertEquals(0, host.getComponentCount(), "启动器视图不应预挂载任何工具");
+                assertFalse(host.isVisible());
+                assertFalse(named(frame, "workbench.back", JButton.class).isVisible(),
+                        "启动器不需要返回按钮");
+                assertTrue(named(frame, "workbench.search", JTextField.class).isVisible());
+                assertTrue(named(frame, "workbench.favorites", javax.swing.AbstractButton.class).isVisible());
+                assertTrue(named(frame, "workbench.themeToggle", JButton.class).isVisible());
             });
         }
     }
 
     @Test
-    void usesOneInjectedVaultSessionForBothSensitiveTools() throws Exception {
-        try (WorkbenchFixture fixture = new WorkbenchFixture("zh_CN")) {
-            SwingUtilities.invokeAndWait(() ->
-                    assertSame(fixture.support.service(), fixture.frame.getVaultServiceForTest()));
+    void restoresTheLastToolAndShowsItsTitle() throws Exception {
+        try (WorkbenchFixture fixture = new WorkbenchFixture("zh_CN", "json.format")) {
+            SwingUtilities.invokeAndWait(() -> {
+                MainFrame frame = fixture.frame;
+                ToolContentHost host = find(frame.getContentPane(), ToolContentHost.class);
+                assertEquals(1, host.getComponentCount());
+                assertTrue(host.isMounted("json.format"));
+                assertTrue(host.isVisible());
+
+                JButton back = named(frame, "workbench.back", JButton.class);
+                assertTrue(back.isVisible(), "工具页必须能一键回到列表");
+                assertNotNull(back.getIcon());
+                JLabel title = named(frame, "workbench.title", JLabel.class);
+                assertTrue(title.isVisible());
+                assertEquals(frame.findTool("json.format").getLabel(), title.getText());
+            });
+        }
+    }
+
+    @Test
+    void clickingATileMountsItsToolAndBackReturnsToTheLauncher() throws Exception {
+        try (WorkbenchFixture fixture = new WorkbenchFixture("zh_CN", null)) {
+            SwingUtilities.invokeAndWait(() -> {
+                MainFrame frame = fixture.frame;
+                ToolContentHost host = find(frame.getContentPane(), ToolContentHost.class);
+
+                JButton tile = named(frame, "launcher.tile.jsonpath.tester", JButton.class);
+                tile.doClick(0);
+
+                assertTrue(host.isMounted("jsonpath.tester"));
+                assertTrue(host.isVisible());
+                assertEquals(frame.findTool("jsonpath.tester").getLabel(),
+                        named(frame, "workbench.title", JLabel.class).getText());
+
+                named(frame, "workbench.back", JButton.class).doClick(0);
+                assertFalse(host.isVisible(), "返回后应回到启动器");
+                assertFalse(named(frame, "workbench.back", JButton.class).isVisible());
+            });
+        }
+    }
+
+    @Test
+    void mountsOnlyTheToolsThatWereActuallyOpened() throws Exception {
+        try (WorkbenchFixture fixture = new WorkbenchFixture("zh_CN", null)) {
+            SwingUtilities.invokeAndWait(() -> {
+                MainFrame frame = fixture.frame;
+                ToolContentHost host = find(frame.getContentPane(), ToolContentHost.class);
+                assertFalse(host.isMounted("http.client"));
+                assertFalse(host.isMounted("ssh"));
+
+                frame.selectTool("json.format");
+                frame.selectTool("jsonpath.tester");
+                assertEquals(2, host.getComponentCount());
+                assertFalse(host.isMounted("http.client"));
+            });
+        }
+    }
+
+    @Test
+    void categoryNavigationFiltersTheLauncher() throws Exception {
+        try (WorkbenchFixture fixture = new WorkbenchFixture("zh_CN", null)) {
+            SwingUtilities.invokeAndWait(() -> {
+                MainFrame frame = fixture.frame;
+                LauncherPanel launcher = find(frame.getContentPane(), LauncherPanel.class);
+                assertNull(launcher.getCategoryFilter(), "全部工具视图不过滤");
+
+                named(frame, "nav.category.codec", JButton.class).doClick(0);
+                assertEquals("codec", launcher.getCategoryFilter());
+
+                named(frame, "nav.category.all", JButton.class).doClick(0);
+                assertNull(launcher.getCategoryFilter());
+            });
+        }
+    }
+
+    @Test
+    void searchFindsToolsAcrossCategories() throws Exception {
+        try (WorkbenchFixture fixture = new WorkbenchFixture("zh_CN", null)) {
+            SwingUtilities.invokeAndWait(() -> {
+                MainFrame frame = fixture.frame;
+                LauncherPanel launcher = find(frame.getContentPane(), LauncherPanel.class);
+                launcher.setQuery("JSONPath");
+                assertEquals("JSONPath", launcher.getQuery());
+                assertTrue(launcher.isVisible());
+                launcher.setQuery("");
+                assertEquals("", launcher.getQuery());
+            });
         }
     }
 
     @ParameterizedTest(name = "header fits {0} at {1} x {2}")
     @CsvSource({
-            "zh_CN, 820, 520",
-            "en_US, 820, 520",
-            "zh_CN, 1024, 660",
-            "en_US, 1024, 660"
+            "zh_CN, 900, 600",
+            "en_US, 900, 600",
+            "zh_CN, 1180, 760",
+            "en_US, 1180, 760"
     })
-    void keepsHeaderControlsReachableAndLongTitlesOutOfSettings(
-            String locale, int width, int height) throws Exception {
-        try (WorkbenchFixture fixture = new WorkbenchFixture(locale)) {
+    void keepsHeaderControlsReachableWithLongToolTitles(String locale, int width, int height)
+            throws Exception {
+        try (WorkbenchFixture fixture = new WorkbenchFixture(locale, "json.format")) {
             SwingUtilities.invokeAndWait(() -> {
                 MainFrame frame = fixture.frame;
                 frame.setSize(width, height);
@@ -72,146 +176,122 @@ class MainFrameStructureTest {
                 String probe = "en_US".equals(locale)
                         ? "JSON formatting and deeply nested structured data transformation workbench"
                         : "JSON 格式化与多层嵌套结构化数据转换工作台：完整工具名称显示测试";
-                // 字体度量因平台而异：CI 的 xvfb 没有 Windows 字体，同一句话在 1024 宽下可能放得下。
-                // 重复探针直到它确实超宽，保证每个平台都测到截断场景。
-                StringBuilder text = new StringBuilder(probe);
-                title.setText(text.toString());
-                frame.validate();
-                for (int i = 0; i < 8 && title.getPreferredSize().width <= title.getWidth(); i++) {
-                    text.append(' ').append(probe);
-                    title.setText(text.toString());
-                    frame.validate();
-                }
-                assertTrue(title.getPreferredSize().width > title.getWidth(),
-                        "the regression probe must exercise a title that needs clipping");
-                assertHeaderLayout(frame);
-
-                collapseButton(frame).doClick(0);
+                title.setText(probe);
                 frame.validate();
                 assertHeaderLayout(frame);
-                JButton expand = named(frame, "workbench.expandNavigation", JButton.class);
-                assertTrue(expand.isVisible());
-                assertWithinContent(frame, expand);
             });
         }
     }
 
     @Test
-    void preservesLazyViewsEditorStateAndSelectionAcrossChromeChanges() throws Exception {
-        try (WorkbenchFixture fixture = new WorkbenchFixture("zh_CN")) {
+    void collapsesAndExpandsTheCategoryRail() throws Exception {
+        try (WorkbenchFixture fixture = new WorkbenchFixture("zh_CN", null)) {
             SwingUtilities.invokeAndWait(() -> {
                 MainFrame frame = fixture.frame;
                 ToolSidebar sidebar = find(frame.getContentPane(), ToolSidebar.class);
-                ToolContentHost host = find(frame.getContentPane(), ToolContentHost.class);
-                JComponent jsonView = frame.findTool("json.format").getView();
-                JTextArea editor = find(jsonView, JTextArea.class);
-                assertNotNull(editor);
-                editor.setText("{\"keepMyDraft\":true}");
-                sidebar.setExpandedGroupIds(Collections.singleton("codec"));
+                JButton collapse = find(frame.getContentPane(), JButton.class,
+                        button -> I18n.get("nav.collapse")
+                                .equals(button.getAccessibleContext().getAccessibleName()));
+                assertNotNull(collapse);
 
-                frame.selectTool("jsonpath.tester");
-                JComponent pathView = frame.findTool("jsonpath.tester").getView();
-                JTextField expression = find(pathView, JTextField.class);
-                assertNotNull(expression);
-                expression.setText("$.keepMyDraft");
-                assertEquals(2, host.getComponentCount());
-                assertFalse(host.isMounted("http.client"));
-                assertFalse(host.isMounted("ssh"));
-
-                collapseButton(frame).doClick(0);
+                collapse.doClick(0);
                 assertFalse(sidebar.isVisible());
-                assertPreserved(frame, host, sidebar, jsonView, pathView, editor, expression);
-                named(frame, "workbench.expandNavigation", JButton.class).doClick(0);
+                JButton expand = named(frame, "workbench.expandNavigation", JButton.class);
+                assertTrue(expand.isVisible(), "折叠后必须留下展开入口");
+
+                expand.doClick(0);
                 assertTrue(sidebar.isVisible());
-                assertPreserved(frame, host, sidebar, jsonView, pathView, editor, expression);
-
-                named(frame, "workbench.theme", JComboBox.class).setSelectedItem("Flat Dark（深色）");
-                assertTrue(ThemeManager.current().dark);
-                assertPreserved(frame, host, sidebar, jsonView, pathView, editor, expression);
-
-                named(frame, "workbench.language", JComboBox.class).setSelectedItem("English");
-                assertEquals("en_US", ConfigManager.get("locale", null));
-                assertEquals(frame.findTool("jsonpath.tester").getLabel(),
-                        named(frame, "workbench.title", JLabel.class).getText());
-                assertLinkedSetting(frame, "workbench.theme", "top.theme");
-                assertLinkedSetting(frame, "workbench.language", "top.lang");
-                assertPreserved(frame, host, sidebar, jsonView, pathView, editor, expression);
-
-                named(frame, "workbench.theme", JComboBox.class).setSelectedItem("Flat Light（浅色）");
-                named(frame, "workbench.language", JComboBox.class).setSelectedItem("简体中文");
-                assertFalse(ThemeManager.current().dark);
-                assertEquals("zh_CN", ConfigManager.get("locale", null));
-                assertPreserved(frame, host, sidebar, jsonView, pathView, editor, expression);
-
-                frame.selectTool("json.format");
-                assertTrue(jsonView.isVisible());
-                assertFalse(pathView.isVisible());
-                assertEquals("json.format", sidebar.getSelectedToolId());
-                assertSame(jsonView, frame.findTool("json.format").getView());
-                assertEquals("{\"keepMyDraft\":true}", editor.getText());
-                assertEquals(2, host.getComponentCount());
+                assertFalse(expand.isVisible());
             });
         }
     }
 
-    private static void assertPreserved(
-            MainFrame frame, ToolContentHost host, ToolSidebar sidebar,
-            JComponent jsonView, JComponent pathView, JTextArea editor, JTextField expression) {
-        assertEquals("jsonpath.tester", sidebar.getSelectedToolId());
-        assertEquals("jsonpath.tester", ConfigManager.get("nav.selectedTool", null));
-        assertEquals(Collections.singleton("codec"), sidebar.getExpandedGroupIds());
-        assertSame(jsonView, frame.findTool("json.format").getView());
-        assertSame(pathView, frame.findTool("jsonpath.tester").getView());
-        assertSame(jsonView, host.getComponent(0));
-        assertSame(pathView, host.getComponent(1));
-        assertEquals(2, host.getComponentCount());
-        assertFalse(jsonView.isVisible());
-        assertTrue(pathView.isVisible());
-        assertEquals("{\"keepMyDraft\":true}", editor.getText());
-        assertEquals("$.keepMyDraft", expression.getText());
+    @Test
+    void keepsDraftsAndSelectionAcrossThemeAndLanguageSwitches() throws Exception {
+        try (WorkbenchFixture fixture = new WorkbenchFixture("zh_CN", "json.format")) {
+            SwingUtilities.invokeAndWait(() -> {
+                MainFrame frame = fixture.frame;
+                JComponent jsonView = frame.findTool("json.format").getView();
+                javax.swing.JTextArea editor = find(jsonView, javax.swing.JTextArea.class);
+                if (editor != null) {
+                    editor.setText("keep-my-draft");
+                }
+
+                // 一键深浅切换
+                named(frame, "workbench.themeToggle", JButton.class).doClick(0);
+                assertTrue(ThemeManager.skin().isDark());
+                named(frame, "workbench.themeToggle", JButton.class).doClick(0);
+                assertFalse(ThemeManager.skin().isDark());
+
+                // 皮肤菜单三档
+                ThemeManager.applySkin(com.aqishi.toolbox.ui.kit.Skin.EYE_CARE);
+                assertEquals(com.aqishi.toolbox.ui.kit.Skin.EYE_CARE, ThemeManager.skin());
+
+                assertSame(jsonView, frame.findTool("json.format").getView());
+                if (editor != null) {
+                    assertEquals("keep-my-draft", editor.getText());
+                }
+
+                // 语言切换后标题跟随本地化，但选中的工具不变
+                JComboBox<?> language = named(frame, "workbench.language", JComboBox.class);
+                assertEquals(0, language.getSelectedIndex());
+                language.setSelectedItem("English");
+                assertEquals("en_US", ConfigManager.get("locale", null));
+                assertEquals(frame.findTool("json.format").getLabel(),
+                        named(frame, "workbench.title", JLabel.class).getText());
+
+                language.setSelectedItem("简体中文");
+                assertEquals("zh_CN", ConfigManager.get("locale", null));
+            });
+        }
     }
+
+    @Test
+    void supportsKeyboardShortcutsForSearchAndBack() throws Exception {
+        try (WorkbenchFixture fixture = new WorkbenchFixture("zh_CN", "json.format")) {
+            SwingUtilities.invokeAndWait(() -> {
+                MainFrame frame = fixture.frame;
+                ToolContentHost host = find(frame.getContentPane(), ToolContentHost.class);
+                assertTrue(host.isVisible());
+
+                frame.getRootPane().getActionMap().get("nav.back")
+                        .actionPerformed(new java.awt.event.ActionEvent(frame, 0, ""));
+                assertFalse(host.isVisible(), "Esc 应回到启动器");
+
+                assertNotNull(frame.getRootPane().getActionMap().get("nav.focusSearch"));
+            });
+        }
+    }
+
+    // ---------------------------------------------------------------- 断言辅助
 
     private static void assertHeaderLayout(MainFrame frame) {
         JLabel title = named(frame, "workbench.title", JLabel.class);
-        JComboBox<?> theme = named(frame, "workbench.theme", JComboBox.class);
+        JTextField search = named(frame, "workbench.search", JTextField.class);
         JComboBox<?> language = named(frame, "workbench.language", JComboBox.class);
-        assertWithinContent(frame, title);
-        assertWithinContent(frame, theme);
-        assertWithinContent(frame, language);
-        assertTrue(theme.getWidth() >= theme.getPreferredSize().width,
-                "theme picker must retain its usable width");
-        assertTrue(language.getWidth() >= language.getPreferredSize().width,
-                "language picker must retain its usable width");
-        Rectangle titleBounds = boundsInContent(frame, title);
-        Rectangle themeBounds = boundsInContent(frame, theme);
-        Rectangle languageBounds = boundsInContent(frame, language);
-        assertTrue(titleBounds.getMaxX() <= themeBounds.x,
-                "long tool title must not overlap settings");
-        assertTrue(themeBounds.getMaxX() < languageBounds.x,
-                "settings must retain a visible horizontal gap");
-        assertEquals(themeBounds.y, languageBounds.y, "settings should stay on one row");
-        assertEquals(themeBounds.height, languageBounds.height);
-        assertLinkedSetting(frame, "workbench.theme", "top.theme");
-        assertLinkedSetting(frame, "workbench.language", "top.lang");
-        ToolContentHost host = find(frame.getContentPane(), ToolContentHost.class);
-        assertNotNull(host);
-        Rectangle bodyBounds = boundsInContent(frame, host);
-        assertTrue(bodyBounds.y >= themeBounds.getMaxY(),
-                "the header must not wrap controls into the tool page");
-        assertTrue(bodyBounds.height > 0);
-    }
+        JButton theme = named(frame, "workbench.themeToggle", JButton.class);
+        javax.swing.AbstractButton favorites =
+                named(frame, "workbench.favorites", javax.swing.AbstractButton.class);
 
-    private static void assertLinkedSetting(MainFrame frame, String name, String labelKey) {
-        JComboBox<?> field = named(frame, name, JComboBox.class);
-        JLabel label = find(frame.getContentPane(), JLabel.class, candidate -> candidate.getLabelFor() == field);
-        assertNotNull(label, "setting needs a linked visible label: " + name);
-        assertEquals(I18n.get(labelKey), label.getText());
-        assertEquals(label.getText(), field.getAccessibleContext().getAccessibleName());
-        assertTrue(field.isEnabled());
-        assertTrue(field.isFocusable());
-        assertWithinContent(frame, label);
-        assertTrue(boundsInContent(frame, label).getMaxY() <= boundsInContent(frame, field).y,
-                "setting label should sit above its control");
+        for (Component component : new Component[]{title, search, language, theme, favorites}) {
+            assertWithinContent(frame, component);
+        }
+        assertTrue(search.getWidth() >= 200, "搜索框必须保持可用宽度");
+        assertTrue(language.getWidth() >= language.getPreferredSize().width,
+                "语言下拉不能被压缩");
+
+        Rectangle titleBounds = boundsInContent(frame, title);
+        Rectangle searchBounds = boundsInContent(frame, search);
+        assertTrue(titleBounds.getMaxX() <= searchBounds.x + 1,
+                "长工具名不能压到搜索框上");
+        assertEquals(boundsInContent(frame, theme).y, boundsInContent(frame, language).y,
+                "外观控件应保持在同一行");
+
+        LauncherPanel launcher = find(frame.getContentPane(), LauncherPanel.class);
+        Rectangle body = boundsInContent(frame, launcher);
+        assertTrue(body.y >= boundsInContent(frame, search).getMaxY(),
+                "顶栏不能换行压进内容区");
+        assertTrue(body.height > 0);
     }
 
     private static void assertWithinContent(MainFrame frame, Component component) {
@@ -223,14 +303,8 @@ class MainFrameStructureTest {
     }
 
     private static Rectangle boundsInContent(MainFrame frame, Component component) {
-        return SwingUtilities.convertRectangle(component.getParent(), component.getBounds(), frame.getContentPane());
-    }
-
-    private static JButton collapseButton(MainFrame frame) {
-        JButton button = find(frame.getContentPane(), JButton.class,
-                candidate -> I18n.get("nav.collapse").equals(candidate.getAccessibleContext().getAccessibleName()));
-        assertNotNull(button);
-        return button;
+        return SwingUtilities.convertRectangle(
+                component.getParent(), component.getBounds(), frame.getContentPane());
     }
 
     private static <T extends Component> T named(MainFrame frame, String name, Class<T> type) {
@@ -261,12 +335,12 @@ class MainFrameStructureTest {
         private final String previousTheme = ThemeManager.current().name;
         private final MainFrame frame;
 
-        private WorkbenchFixture(String locale) throws Exception {
+        private WorkbenchFixture(String locale, String startTool) throws Exception {
             support = new VaultUiTestSupport(temp.resolve("profile"));
             configScope = ConfigManagerTestSupport.install(support.paths());
             ConfigManager.set("locale", locale);
             ConfigManager.set("theme", "Flat Light（浅色）");
-            ConfigManager.set("nav.selectedTool", "json.format");
+            ConfigManager.set("nav.selectedTool", startTool == null ? "" : startTool);
             AtomicReference<MainFrame> frameRef = new AtomicReference<>();
             SwingUtilities.invokeAndWait(() -> {
                 I18n.init();

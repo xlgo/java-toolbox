@@ -27,21 +27,64 @@ public final class WorkbenchIcons {
     public static Icon category(String groupId) {
         return new VectorIcon(Kind.CATEGORY, 16, groupId == null ? "" : groupId);
     }
+
+    /** 指定颜色的分类图标：导航项选中时用强调色，未选中用次要色 */
+    public static Icon category(String groupId, Color color) {
+        return new VectorIcon(Kind.CATEGORY, 16, groupId == null ? "" : groupId, color);
+    }
     public static Icon appearance() { return new VectorIcon(Kind.APPEARANCE, 16, null); }
     public static Icon globe() { return new VectorIcon(Kind.GLOBE, 16, null); }
     public static Icon status() { return new VectorIcon(Kind.STATUS, 16, null); }
 
-    private enum Kind { BRAND, SEARCH, SIDEBAR, SIDEBAR_COLLAPSED, CATEGORY, APPEARANCE, GLOBE, STATUS }
+    // ---------------------------------------------------------------- 外壳图标
+
+    /** 太阳：浅色皮肤下的主题切换入口 */
+    public static Icon sun(int size) { return new VectorIcon(Kind.SUN, size, null); }
+
+    /** 月亮：深色皮肤下的主题切换入口 */
+    public static Icon moon(int size) { return new VectorIcon(Kind.MOON, size, null); }
+
+    /** 星标：收藏；filled 为已收藏状态 */
+    public static Icon star(boolean filled, int size) {
+        return new VectorIcon(filled ? Kind.STAR_FILLED : Kind.STAR, size, null);
+    }
+
+    /** 齿轮：主题与皮肤设置 */
+    public static Icon gear(int size) { return new VectorIcon(Kind.GEAR, size, null); }
+
+    /** 返回箭头：从工具页回到启动器 */
+    public static Icon back(int size) { return new VectorIcon(Kind.BACK, size, null); }
+
+    /** 关闭 / 清空 */
+    public static Icon close(int size) { return new VectorIcon(Kind.CLOSE, size, null); }
+
+    /** 更多操作 */
+    public static Icon more(int size) { return new VectorIcon(Kind.MORE, size, null); }
+
+    /** 调色板：皮肤菜单的护眼项 */
+    public static Icon palette(int size) { return new VectorIcon(Kind.PALETTE, size, null); }
+
+    private enum Kind {
+        BRAND, SEARCH, SIDEBAR, SIDEBAR_COLLAPSED, CATEGORY, APPEARANCE, GLOBE, STATUS,
+        SUN, MOON, STAR, STAR_FILLED, GEAR, BACK, CLOSE, MORE, PALETTE
+    }
 
     private static final class VectorIcon implements Icon {
         private final Kind kind;
         private final int size;
         private final String groupId;
+        /** 显式颜色；为 null 时跟随组件的 foreground */
+        private final Color color;
 
         private VectorIcon(Kind kind, int size, String groupId) {
+            this(kind, size, groupId, null);
+        }
+
+        private VectorIcon(Kind kind, int size, String groupId, Color color) {
             this.kind = kind;
             this.size = size;
             this.groupId = groupId;
+            this.color = color;
         }
 
         @Override public int getIconWidth() { return size; }
@@ -59,8 +102,14 @@ public final class WorkbenchIcons {
                 if (kind == Kind.BRAND) paintBrand(g);
                 else {
                     g.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                    g.setColor(component != null && component.getForeground() != null
-                            && kind != Kind.SEARCH ? component.getForeground() : Tokens.mutedForeground());
+                    Color resolved = color;
+                    if (resolved == null) {
+                        resolved = component != null && component.getForeground() != null
+                                && kind != Kind.SEARCH
+                                ? component.getForeground()
+                                : Tokens.mutedForeground();
+                    }
+                    g.setColor(resolved);
                     switch (kind) {
                         case SEARCH -> paintSearch(g);
                         case SIDEBAR, SIDEBAR_COLLAPSED -> paintSidebar(g, kind == Kind.SIDEBAR_COLLAPSED);
@@ -68,6 +117,14 @@ public final class WorkbenchIcons {
                         case APPEARANCE -> paintAppearance(g);
                         case GLOBE -> paintGlobe(g);
                         case STATUS -> paintStatus(g);
+                        case SUN -> paintSun(g);
+                        case MOON -> paintMoon(g);
+                        case STAR, STAR_FILLED -> paintStar(g, kind == Kind.STAR_FILLED);
+                        case GEAR -> paintGear(g);
+                        case BACK -> paintBack(g);
+                        case CLOSE -> paintClose(g);
+                        case MORE -> paintMore(g);
+                        case PALETTE -> paintPalette(g);
                         default -> { }
                     }
                 }
@@ -177,6 +234,72 @@ public final class WorkbenchIcons {
             g.setColor(Tokens.success());
             g.draw(new Ellipse2D.Float(1.5f, 1.5f, 13f, 13f));
             line(g, 4.5f, 8f, 7f, 10.5f); line(g, 7f, 10.5f, 11.8f, 5.5f);
+        }
+
+        private void paintSun(Graphics2D g) {
+            g.draw(new Ellipse2D.Float(5.2f, 5.2f, 5.6f, 5.6f));
+            for (int i = 0; i < 8; i++) {
+                double angle = i * Math.PI / 4;
+                line(g,
+                        (float) (8 + Math.cos(angle) * 6.6f), (float) (8 + Math.sin(angle) * 6.6f),
+                        (float) (8 + Math.cos(angle) * 7.9f), (float) (8 + Math.sin(angle) * 7.9f));
+            }
+        }
+
+        private void paintMoon(Graphics2D g) {
+            java.awt.geom.Area crescent = new java.awt.geom.Area(
+                    new Ellipse2D.Float(2.2f, 1.6f, 11.6f, 12.8f));
+            crescent.subtract(new java.awt.geom.Area(
+                    new Ellipse2D.Float(6.0f, 0.2f, 11.2f, 12.4f)));
+            g.fill(crescent);
+        }
+
+        private void paintStar(Graphics2D g, boolean filled) {
+            java.awt.geom.Path2D star = new java.awt.geom.Path2D.Float();
+            for (int i = 0; i < 10; i++) {
+                double angle = -Math.PI / 2 + i * Math.PI / 5;
+                float radius = i % 2 == 0 ? 6.9f : 2.9f;
+                float x = (float) (8 + Math.cos(angle) * radius);
+                float y = (float) (8.4 + Math.sin(angle) * radius);
+                if (i == 0) star.moveTo(x, y);
+                else star.lineTo(x, y);
+            }
+            star.closePath();
+            if (filled) g.fill(star);
+            else g.draw(star);
+        }
+
+        private void paintGear(Graphics2D g) {
+            g.draw(new Ellipse2D.Float(5.6f, 5.6f, 4.8f, 4.8f));
+            for (int i = 0; i < 8; i++) {
+                double angle = i * Math.PI / 4;
+                line(g,
+                        (float) (8 + Math.cos(angle) * 4.6f), (float) (8 + Math.sin(angle) * 4.6f),
+                        (float) (8 + Math.cos(angle) * 6.8f), (float) (8 + Math.sin(angle) * 6.8f));
+            }
+        }
+
+        private void paintBack(Graphics2D g) {
+            line(g, 13.5f, 3.5f, 6.5f, 8f);
+            line(g, 6.5f, 8f, 13.5f, 12.5f);
+        }
+
+        private void paintClose(Graphics2D g) {
+            line(g, 4.5f, 4.5f, 11.5f, 11.5f);
+            line(g, 11.5f, 4.5f, 4.5f, 11.5f);
+        }
+
+        private void paintMore(Graphics2D g) {
+            g.fill(new Ellipse2D.Float(2.2f, 7.2f, 1.6f, 1.6f));
+            g.fill(new Ellipse2D.Float(7.2f, 7.2f, 1.6f, 1.6f));
+            g.fill(new Ellipse2D.Float(12.2f, 7.2f, 1.6f, 1.6f));
+        }
+
+        private void paintPalette(Graphics2D g) {
+            g.draw(new Ellipse2D.Float(1.8f, 2.6f, 12.4f, 10.8f));
+            g.fill(new Ellipse2D.Float(4.4f, 5.2f, 1.4f, 1.4f));
+            g.fill(new Ellipse2D.Float(8.0f, 4.4f, 1.4f, 1.4f));
+            g.fill(new Ellipse2D.Float(10.8f, 7.2f, 1.4f, 1.4f));
         }
 
         private void line(Graphics2D g, float x1, float y1, float x2, float y2) {

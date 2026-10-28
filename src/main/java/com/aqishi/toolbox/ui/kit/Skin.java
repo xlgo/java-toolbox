@@ -17,8 +17,11 @@ import java.util.Locale;
  */
 public enum Skin {
 
-    DARK("skin.dark", "Dark", 0x151C27),
-    LIGHT("skin.light", "Light", 0xF6F8FC),
+    LIGHT("skin.light", "Light", 0xF4F5F2),
+    DARK("skin.dark", "Dark", 0x15181C),
+    MIDNIGHT("skin.midnight", "Midnight", 0x0B1526),
+    FOREST("skin.forest", "Forest", 0x0F1A12),
+    PAPER("skin.paper", "Paper", 0xF7F0DE),
     EYE_CARE("skin.eye", "Eye Care", 0xFAF6EA);
 
     private final String labelKey;
@@ -47,12 +50,12 @@ public enum Skin {
 
     /** 是否为深色壳层：决定文字、描边与图标的对比方向 */
     public boolean isDark() {
-        return this == DARK;
+        return this == DARK || this == MIDNIGHT || this == FOREST;
     }
 
-    /** 护眼皮肤额外压掉蓝光，图标底色也要跟着偏暖 */
+    /** 暖色皮肤：纸感与护眼都压低蓝色通道 */
     public boolean isWarm() {
-        return this == EYE_CARE;
+        return this == EYE_CARE || this == PAPER;
     }
 
     public Color base() {
@@ -121,8 +124,8 @@ public enum Skin {
      */
     private Color tint(Color seed, float light, float dark, float warm) {
         return switch (this) {
-            case DARK -> Tokens.blend(base(), seed, 1f - dark);
-            case EYE_CARE -> warmTint(seed, warm);
+            case DARK, MIDNIGHT, FOREST -> Tokens.blend(base(), seed, 1f - dark);
+            case PAPER, EYE_CARE -> warmTint(seed, warm);
             case LIGHT -> Tokens.blend(Color.WHITE, seed, 1f - light);
         };
     }
@@ -149,8 +152,8 @@ public enum Skin {
     /** 图标底块的饱和渐变起点（比卡片更浓，作为视觉锚点） */
     public Color glyphFrom(Color seed) {
         return switch (this) {
-            case DARK -> Tokens.blend(seed, Color.BLACK, 0.10f);
-            case EYE_CARE -> warmGlyph(seed);
+            case DARK, MIDNIGHT, FOREST -> Tokens.blend(seed, base(), 0.18f);
+            case PAPER, EYE_CARE -> warmGlyph(seed);
             case LIGHT -> seed;
         };
     }
@@ -158,8 +161,8 @@ public enum Skin {
     /** 图标底块的渐变终点 */
     public Color glyphTo(Color seed) {
         return switch (this) {
-            case DARK -> Tokens.blend(Tokens.shift(seed, -0.18f), Color.BLACK, 0.22f);
-            case EYE_CARE -> Tokens.shift(warmGlyph(seed), -0.14f);
+            case DARK, MIDNIGHT, FOREST -> Tokens.shift(Tokens.blend(seed, base(), 0.24f), -0.18f);
+            case PAPER, EYE_CARE -> Tokens.shift(warmGlyph(seed), -0.14f);
             case LIGHT -> Tokens.shift(seed, -0.14f);
         };
     }
@@ -182,8 +185,8 @@ public enum Skin {
     /** 卡片描边：深色皮肤下几乎不可见，浅色皮肤下是一道很淡的色边 */
     public Color tileBorder(Color seed) {
         return switch (this) {
-            case DARK -> Tokens.blend(base(), seed, 0.18f);
-            case EYE_CARE -> Tokens.blend(warmTint(seed, 0.40f), base(), 0.30f);
+            case DARK, MIDNIGHT, FOREST -> Tokens.blend(base(), seed, 0.18f);
+            case PAPER, EYE_CARE -> Tokens.blend(warmTint(seed, 0.40f), base(), 0.30f);
             case LIGHT -> Tokens.blend(seed, Color.WHITE, 0.80f);
         };
     }

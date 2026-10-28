@@ -31,7 +31,7 @@ public final class Tokens {
     // ---------------------------------------------------------------- 圆角
 
     /** 卡片圆角 */
-    public static final int RADIUS_CARD = 12;
+    public static final int RADIUS_CARD = 14;
     /** 控件圆角 */
     public static final int RADIUS_CONTROL = 8;
     /** 启动器磁贴圆角：比表单卡片更大，接近移动端的圆润观感 */
@@ -118,6 +118,11 @@ public final class Tokens {
         return base().deriveFont(Font.BOLD, 15f);
     }
 
+    /** 工作区工具标题：效果页的 22px 粗体 */
+    public static Font fontPageTitle() {
+        return base().deriveFont(Font.BOLD, 22f);
+    }
+
     /** 辅助说明、状态栏 */
     public static Font fontCaption() {
         return base().deriveFont(Font.PLAIN, 12f);
@@ -190,15 +195,51 @@ public final class Tokens {
         return content;
     }
 
-    /** 卡片头部底色：比卡片本体略微收敛，用于强化标题带 */
+    /** 卡片头部底色：与效果页一致，卡片标题同属白色面板，不再单独铺色 */
     public static Color cardHeaderBackground() {
-        return blend(cardBackground(), surface(), 0.32f);
+        return cardBackground();
     }
 
     /** 描边色 */
     public static Color border() {
         Color color = first("Component.borderColor", "Separator.foreground", "controlShadow");
         return color == null ? new Color(0xC8C8C8) : color;
+    }
+
+    /** 更明显的描边，用于输入框与次级按钮 */
+    public static Color borderStrong() {
+        Color color = first("Toolbox.borderStrongColor");
+        return color == null ? blend(border(), foreground(), 0.16f) : color;
+    }
+
+    /** 代码块与等宽文本底色 */
+    public static Color codeBackground() {
+        Color color = first("Toolbox.codeBackground");
+        return color == null ? surface() : color;
+    }
+
+    /** 表单字段底色 */
+    public static Color fieldBackground() {
+        Color color = first("Toolbox.fieldBackground", "TextField.background");
+        return color == null ? cardBackground() : color;
+    }
+
+    /** 次级面板底色 */
+    public static Color panelAlt() {
+        Color color = first("Toolbox.panelAltBackground");
+        return color == null ? surface() : color;
+    }
+
+    /** 悬停底色 */
+    public static Color hoverSurface() {
+        Color color = first("Toolbox.hoverBackground");
+        return color == null ? hoverBackground() : color;
+    }
+
+    /** 选中底色 */
+    public static Color activeSurface() {
+        Color color = first("Toolbox.activeBackground");
+        return color == null ? accentSoft() : color;
     }
 
     /** 更弱的分隔线，用于卡片内部分隔 */
@@ -221,6 +262,12 @@ public final class Tokens {
             color = blend(foreground(), cardBackground(), 0.45f);
         }
         return color;
+    }
+
+    /** 比 muted 更实一档的正文说明色，用于工具描述与副标题 */
+    public static Color secondaryForeground() {
+        Color color = first("Toolbox.secondaryForeground");
+        return color == null ? blend(foreground(), mutedForeground(), 0.35f) : color;
     }
 
     /** 强调色，用于主操作、选中态与关键数值 */
@@ -252,6 +299,11 @@ public final class Tokens {
     public static Color accentSoft() {
         Color color = first("Toolbox.selectionBackground");
         return color == null ? blend(accent(), cardBackground(), isDark() ? 0.78f : 0.91f) : color;
+    }
+
+    /** 强调色的中等透明层，用于工具标题图标的描边 */
+    public static Color accentMid() {
+        return blend(accentSoft(), accent(), isDark() ? 0.40f : 0.26f);
     }
 
     /** 轻量悬停底色，不与明确的选中状态混淆。 */

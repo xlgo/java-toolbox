@@ -75,8 +75,9 @@ class TotpPanelVaultTest {
 
     private static boolean hasCode(Container root) {
         for (Component child : root.getComponents()) {
-            if (child instanceof JLabel
-                    && ((JLabel) child).getText().matches("\\d{3} \\d{3}")) return true;
+            if (child instanceof JLabel label
+                    && label.getText() != null
+                    && label.getText().matches("\\d{3} \\d{3}")) return true;
             if (child instanceof Container && hasCode((Container) child)) return true;
         }
         return false;

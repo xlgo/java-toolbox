@@ -51,6 +51,16 @@ public final class ToolGlyph {
         return new GlyphIcon(toolId, categoryId, Math.max(16, size));
     }
 
+    /** 线框字形：用于工具标题与侧栏导航，不铺渐变底板。 */
+    public static Icon outline(String toolId, String categoryId, int size) {
+        return new OutlineGlyphIcon(toolId, Math.max(12, size), null);
+    }
+
+    /** 指定颜色的线框字形；颜色为 null 时取当前强调色。 */
+    public static Icon outline(String toolId, String categoryId, int size, Color color) {
+        return new OutlineGlyphIcon(toolId, Math.max(12, size), color);
+    }
+
     /**
      * 工具语义到字形的映射。
      *
@@ -187,6 +197,49 @@ public final class ToolGlyph {
                 g.scale(scale, scale);
                 g.setColor(skin.glyphInk());
                 g.setStroke(new BasicStroke(1.9f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                paint(glyph, g);
+            } finally {
+                g.dispose();
+            }
+        }
+    }
+
+    /** 线框字形：与磁贴共用同一套语义路径，只改用统一描边。 */
+    private static final class OutlineGlyphIcon implements Icon {
+
+        private final Glyph glyph;
+        private final int size;
+        private final Color color;
+
+        private OutlineGlyphIcon(String toolId, int size, Color color) {
+            this.glyph = glyphOf(toolId);
+            this.size = size;
+            this.color = color;
+        }
+
+        @Override
+        public int getIconWidth() {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return size;
+        }
+
+        @Override
+        public void paintIcon(Component component, Graphics graphics, int x, int y) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            try {
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+                g.translate(x, y);
+                float inset = size * 0.10f;
+                float scale = (size - inset * 2) / GRID;
+                g.translate(inset, inset);
+                g.scale(scale, scale);
+                g.setColor(color == null ? com.aqishi.toolbox.ui.kit.Tokens.accent() : color);
+                g.setStroke(new BasicStroke(1.85f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                 paint(glyph, g);
             } finally {
                 g.dispose();

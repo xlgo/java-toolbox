@@ -28,7 +28,7 @@ class SkinTest {
             assertTrue(!skin.labelEn().isEmpty());
             assertTrue(!skin.label().equals(skin.labelKey()), "皮肤名必须有本地化文案");
         }
-        assertEquals(3, Skin.values().length, "效果图是三档皮肤");
+        assertEquals(6, Skin.values().length, "效果页五档主题，外加护眼模式");
     }
 
     @Test
@@ -96,7 +96,7 @@ class SkinTest {
         for (Skin skin : Skin.values()) {
             assertNotEquals(skin.tileFrom(seed), skin.glyphFrom(seed));
             assertTrue(luminance(skin.tileFrom(seed)) > luminance(skin.glyphFrom(seed))
-                            || skin == Skin.DARK,
+                            || skin.isDark(),
                     skin + " 的图标应比磁贴底更深，形成视觉锚点");
         }
     }

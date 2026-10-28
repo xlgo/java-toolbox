@@ -20,12 +20,11 @@ public final class Layouts {
     private Layouts() {
     }
 
-    /** 工具页根容器：统一外边距 + BorderLayout */
+    /** 工具页根容器：外边距由工作区统一提供，这里只负责布局。 */
     public static JPanel page() {
         JPanel panel = new JPanel(new BorderLayout(Tokens.SPACE_LG, Tokens.SPACE_LG));
         panel.setOpaque(false);
-        panel.setBorder(new EmptyBorder(
-                Tokens.SPACE_LG, Tokens.SPACE_LG, Tokens.SPACE_LG, Tokens.SPACE_LG));
+        panel.setBorder(new EmptyBorder(0, 0, 0, 0));
         return panel;
     }
 

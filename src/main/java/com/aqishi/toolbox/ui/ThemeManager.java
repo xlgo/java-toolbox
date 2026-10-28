@@ -57,6 +57,19 @@ public final class ThemeManager {
 
     /** 护眼主题名：浅色壳层 + 暖色色板。用英文名与其它内置主题保持一致，文案由皮肤菜单本地化 */
     public static final String EYE_CARE_THEME = "Eye Care";
+    public static final String MIDNIGHT_THEME = "Midnight";
+    public static final String FOREST_THEME = "Forest";
+    public static final String PAPER_THEME = "Paper";
+
+    /** 默认强调色：与效果页一致的石墨绿 */
+    public static final int DEFAULT_ACCENT = 0x0F766E;
+
+    /** 效果页给出的七个强调色，顺序与顶栏色点一致 */
+    public static final int[] ACCENTS = {
+            0x0F766E, 0x2563EB, 0xDC2626, 0xD97706, 0x7C3AED, 0xDB2777, 0x475569
+    };
+
+    private static int currentAccent = DEFAULT_ACCENT;
 
     /** 内置主题列表：6 个核心 LAF + 1 个护眼主题 + 48 个 IntelliJ 主题 */
     private static final List<Theme> THEMES = buildThemes();
@@ -72,6 +85,10 @@ public final class ThemeManager {
         list.add(new Theme("macOS Dark", FlatMacDarkLaf.class, null, true, Skin.DARK));
         // 护眼：复用浅色 LAF，由色板换成暖米色；皮肤固定，不随明暗推导
         list.add(new Theme(EYE_CARE_THEME, FlatLightLaf.class, null, false, Skin.EYE_CARE));
+        // 效果页的五档外观。午夜蓝与森绿共用深色 LAF，仅壳层色板不同；暖纸使用浅色 LAF。
+        list.add(new Theme(MIDNIGHT_THEME, FlatDarkLaf.class, null, true, Skin.MIDNIGHT));
+        list.add(new Theme(FOREST_THEME, FlatDarkLaf.class, null, true, Skin.FOREST));
+        list.add(new Theme(PAPER_THEME, FlatLightLaf.class, null, false, Skin.PAPER));
         // flatlaf-intellij-themes 包中所有主题（每个主题是独立的 FlatLaf 子类）
         for (FlatAllIJThemes.FlatIJLookAndFeelInfo info : FlatAllIJThemes.INFOS) {
             list.add(new Theme(info.getName(), null, info.getClassName(), info.isDark()));
@@ -94,6 +111,27 @@ public final class ThemeManager {
     /** 当前皮肤基调 */
     public static Skin skin() {
         return currentSkin;
+    }
+
+    /** 当前强调色，用于自绘控件保持与 LAF 主色一致 */
+    public static Color accent() {
+        return new Color(currentAccent);
+    }
+
+    public static int accentRgb() {
+        return currentAccent;
+    }
+
+    /**
+     * 独立切换强调色。效果页顶栏的色点只改变主色，不换整套 LAF；
+     * 这里同步重写扁平外观里的主色、选中色与焦点色，再刷新组件树。
+     */
+    public static void applyAccent(int rgb) {
+        currentAccent = rgb & 0xFFFFFF;
+        ConfigManager.set("accent.color", String.format("#%06X", currentAccent));
+        ConfigManager.save();
+        applyCustomDefaults();
+        FlatLaf.updateUI();
     }
 
     /**
@@ -153,6 +191,7 @@ public final class ThemeManager {
     public static void setupDefault() {
         try {
             String savedTheme = ConfigManager.get("theme", "IntelliJ（默认）");
+            currentAccent = parseAccent(ConfigManager.get("accent.color", "#0F766E"));
             Theme t = get(savedTheme);
             if (t == null) {
                 t = THEMES.get(2); // 回退默认主题
@@ -337,32 +376,42 @@ public final class ThemeManager {
         }
 
         Skin skin = currentSkin;
-        Color workspace = skinColor(skin, 0xF3F5F9, 0x151C27, 0xF7F2E3);
-        Color card = skinColor(skin, 0xFFFFFF, 0x1E2837, 0xFFFDF6);
-        Color navigation = skinColor(skin, 0xF8FAFD, 0x192230, 0xF2EBD8);
-        Color launcher = skinColor(skin, 0xF6F8FC, 0x111823, 0xF9F5E8);
-        Color foreground = skinColor(skin, 0x263449, 0xE4EAF4, 0x3A362D);
-        Color muted = skinColor(skin, 0x65748B, 0xA0AEC2, 0x7D7360);
-        Color disabled = skinColor(skin, 0x98A4B7, 0x687A94, 0xA79C87);
-        Color border = skinColor(skin, 0xD6DEEA, 0x344258, 0xE0D7C3);
-        Color separator = skinColor(skin, 0xE4E9F2, 0x2D394D, 0xEBE3D2);
-        Color accent = skinColor(skin, 0x386AE8, 0x7DA2FF, 0xB4791F);
-        Color primary = skinColor(skin, 0x386AE8, 0x416FDC, 0xA9721C);
-        Color selection = skinColor(skin, 0xE8EFFD, 0x2B3D5E, 0xF6EBD3);
-        Color selectionText = skinColor(skin, 0x2857C5, 0xB9CEFF, 0x8A5D12);
+        Palette p = palette(skin);
+        Color workspace = p.workspace();
+        Color card = p.panel();
+        Color navigation = p.side();
+        Color launcher = p.workspace();
+        Color foreground = p.ink();
+        Color secondary = p.ink2();
+        Color muted = p.muted();
+        Color disabled = p.muted();
+        Color border = p.line();
+        Color borderStrong = p.line2();
+        Color separator = p.line();
+        Color accent = accent();
+        Color primary = accent;
+        Color selection = Tokens.blend(card, accent, 0.14f);
+        Color selectionText = foreground;
+        Color field = p.field();
+        Color code = p.code();
+        Color hover = p.hover();
+        Color active = p.active();
         UIDefaults defaults = UIManager.getLookAndFeelDefaults();
 
         putColors(defaults, workspace, "Panel.background", "control", "Window.background",
                 "TabbedPane.background", "SplitPane.background", "ScrollBar.background");
         putColors(defaults, launcher, "Toolbox.launcherBackground");
+        putColors(defaults, navigation, "Toolbox.navigationBackground", "Toolbox.chromeBackground");
         putColors(defaults, card, "TextField.background", "PasswordField.background",
                 "FormattedTextField.background", "TextArea.background", "TextPane.background",
                 "EditorPane.background", "Table.background", "List.background", "Tree.background",
                 "ComboBox.background", "Spinner.background", "Viewport.background",
-                "Button.background", "Button.startBackground", "Button.endBackground",
-                "ToggleButton.background", "MenuBar.background", "PopupMenu.background",
-                "ToolTip.background", "Toolbox.chromeBackground");
-        putColors(defaults, navigation, "Toolbox.navigationBackground", "TableHeader.background");
+                "MenuBar.background", "PopupMenu.background", "ToolTip.background");
+        putColors(defaults, field, "Toolbox.fieldBackground", "FormattedTextField.background");
+        putColors(defaults, code, "Toolbox.codeBackground");
+        putColors(defaults, p.panel2(), "Button.background", "Button.startBackground",
+                "Button.endBackground", "ToggleButton.background", "TableHeader.background");
+        putColors(defaults, p.panel3(), "Toolbox.panelAltBackground");
         putColors(defaults, foreground, "Label.foreground", "Button.foreground", "ToggleButton.foreground",
                 "CheckBox.foreground", "RadioButton.foreground", "ComboBox.foreground",
                 "TextField.foreground", "PasswordField.foreground", "FormattedTextField.foreground",
@@ -370,6 +419,7 @@ public final class ThemeManager {
                 "TableHeader.foreground", "List.foreground", "Tree.foreground", "Spinner.foreground",
                 "TabbedPane.foreground", "ToolTip.foreground", "Menu.foreground", "MenuItem.foreground",
                 "textText");
+        putColors(defaults, secondary, "Toolbox.secondaryForeground");
         putColors(defaults, muted, "Toolbox.mutedForeground", "TextField.placeholderForeground",
                 "PasswordField.placeholderForeground");
         putColors(defaults, disabled, "Label.disabledForeground", "Button.disabledText",
@@ -377,12 +427,13 @@ public final class ThemeManager {
                 "TextField.inactiveForeground", "textInactiveText");
         putColors(defaults, border, "Component.borderColor", "Button.borderColor",
                 "ToggleButton.borderColor", "TextField.borderColor", "Separator.foreground");
+        putColors(defaults, borderStrong, "Toolbox.borderStrongColor", "Component.focusedBorderColor",
+                "Button.focusedBorderColor");
         putColors(defaults, separator, "Table.gridColor", "TableHeader.bottomSeparatorColor");
         putColors(defaults, accent, "Toolbox.accentColor", "Component.accentColor", "Component.focusColor",
-                "Component.focusedBorderColor", "Button.focusedBorderColor", "TabbedPane.underlineColor",
-                "ProgressBar.foreground", "CheckBox.icon.selectedBackground",
-                "CheckBox.icon.selectedBorderColor", "RadioButton.icon.selectedBackground",
-                "RadioButton.icon.selectedBorderColor");
+                "TabbedPane.underlineColor", "ProgressBar.foreground",
+                "CheckBox.icon.selectedBackground", "CheckBox.icon.selectedBorderColor",
+                "RadioButton.icon.selectedBackground", "RadioButton.icon.selectedBorderColor");
         putColors(defaults, selection, "Toolbox.selectionBackground", "List.selectionBackground",
                 "Tree.selectionBackground", "Table.selectionBackground", "ComboBox.selectionBackground",
                 "TabbedPane.hoverColor", "Button.hoverBackground", "ToggleButton.selectedBackground",
@@ -390,6 +441,8 @@ public final class ThemeManager {
                 "PasswordField.selectionBackground", "FormattedTextField.selectionBackground",
                 "TextArea.selectionBackground", "TextPane.selectionBackground",
                 "EditorPane.selectionBackground");
+        putColors(defaults, active, "Toolbox.activeBackground");
+        putColors(defaults, hover, "Toolbox.hoverBackground");
         putColors(defaults, selectionText, "Toolbox.selectionForeground", "List.selectionForeground",
                 "Tree.selectionForeground", "Table.selectionForeground", "ComboBox.selectionForeground",
                 "ToggleButton.selectedForeground", "MenuItem.selectionForeground",
@@ -405,19 +458,110 @@ public final class ThemeManager {
         putColors(defaults, Tokens.shift(primary, -0.17f), "Button.default.pressedBackground");
         putColors(defaults, Tokens.blend(border, card, 0.35f), "ScrollBar.thumb");
         putColors(defaults, border, "ScrollBar.hoverThumbColor");
-        putColors(defaults, skinColor(skin, 0x1D8A68, 0x63CCAC, 0x2E7D3E), "Actions.Green");
-        putColors(defaults, skinColor(skin, 0xB97A16, 0xE7BA6A, 0xA9721C), "Actions.Yellow");
-        putColors(defaults, skinColor(skin, 0xCA4A58, 0xF08591, 0xB4453F),
-                "Actions.Red", "Component.error.borderColor");
+        putColors(defaults, p.ok(), "Actions.Green", "Toolbox.successColor");
+        putColors(defaults, p.warn(), "Actions.Yellow", "Toolbox.warningColor");
+        putColors(defaults, p.danger(), "Actions.Red", "Component.error.borderColor",
+                "Toolbox.dangerColor");
     }
 
-    /** 按皮肤取色：浅色 / 暗黑 / 护眼三套 RGB 常量 */
-    private static Color skinColor(Skin skin, int lightRgb, int darkRgb, int warmRgb) {
+    private static int parseAccent(String value) {
+        try {
+            String hex = value == null ? "" : value.trim();
+            if (hex.startsWith("#")) hex = hex.substring(1);
+            return hex.length() == 6 ? Integer.parseInt(hex, 16) : DEFAULT_ACCENT;
+        } catch (NumberFormatException ignored) {
+            return DEFAULT_ACCENT;
+        }
+    }
+
+    /**
+     * 每个皮肤一套完整表面色板，取自效果页的五套主题。
+     *
+     * <p>只换 LAF 明暗不足以得到午夜蓝、森绿或暖纸——它们的主背景、侧栏、
+     * 卡片与边框都需要各自的冷暖关系。这里集中维护，避免 Tokens 里散落条件判断。</p>
+     */
+    private static Palette palette(Skin skin) {
         return switch (skin) {
-            case DARK -> new Color(darkRgb);
-            case EYE_CARE -> new Color(warmRgb);
-            case LIGHT -> new Color(lightRgb);
+            case LIGHT -> new Palette(0xE9EBE8, 0xF4F5F2, 0xFFFFFF, 0xF6F7F4, 0xECEEE9,
+                    0x1B211D, 0x4C564F, 0x6B756E, 0xDDE1DA, 0xCDD3CA, 0xFFFFFF, 0xF2F4EF,
+                    0xE8EBE5, 0xDDE8E2, 0xB42318, 0x067647, 0xB54708);
+            case DARK -> new Palette(0x0E1013, 0x15181C, 0x1A1E23, 0x20252C, 0x262C34,
+                    0xECEFF1, 0xAEB8BF, 0x8D979E, 0x2A3038, 0x39414B, 0x121519, 0x121519,
+                    0x232830, 0x243732, 0xF97066, 0x32D583, 0xFDB022);
+            case MIDNIGHT -> new Palette(0x070D1A, 0x0B1526, 0x101C33, 0x14233F, 0x1A2C4F,
+                    0xE6EEFC, 0xA9BCDA, 0x8094B4, 0x1E3050, 0x2B4470, 0x0A1425, 0x0A1425,
+                    0x16263F, 0x17352F, 0xFB7185, 0x34D399, 0xFBBF24);
+            case FOREST -> new Palette(0x0A120D, 0x0F1A12, 0x152219, 0x1A2B1F, 0x213627,
+                    0xE7F2E8, 0xAEC7B1, 0x86A08A, 0x26392A, 0x35523B, 0x0D1710, 0x0D1710,
+                    0x1C2F22, 0x274435, 0xFDA4AF, 0x4ADE80, 0xFACC15);
+            case PAPER -> new Palette(0xEFE6D4, 0xF7F0DE, 0xFFFAF0, 0xFBF4E3, 0xF1E7CF,
+                    0x2D2314, 0x6B5B40, 0x7E6D50, 0xE3D5B8, 0xD3BF97, 0xFFFDF6, 0xF6EED9,
+                    0xF3EAD3, 0xEEE0BD, 0xB42318, 0x067647, 0xB54708);
+            case EYE_CARE -> new Palette(0xF5F0E4, 0xFAF6EA, 0xFFFDF6, 0xF8F2E2, 0xEEE5D2,
+                    0x3A362D, 0x665D4D, 0x7D7360, 0xE0D7C3, 0xCFC3AC, 0xFFFEF8, 0xF7F0E1,
+                    0xF1E9D7, 0xE8DEC5, 0xB4453F, 0x2E7D3E, 0xA9721C);
         };
+    }
+
+    private static final class Palette {
+        private final int workspace;
+        private final int side;
+        private final int panel;
+        private final int panel2;
+        private final int panel3;
+        private final int ink;
+        private final int ink2;
+        private final int muted;
+        private final int line;
+        private final int line2;
+        private final int field;
+        private final int code;
+        private final int hover;
+        private final int active;
+        private final int danger;
+        private final int ok;
+        private final int warn;
+
+        private Palette(int workspace, int side, int panel, int panel2, int panel3,
+                        int ink, int ink2, int muted, int line, int line2,
+                        int field, int code, int hover, int active,
+                        int danger, int ok, int warn) {
+            this.workspace = workspace;
+            this.side = side;
+            this.panel = panel;
+            this.panel2 = panel2;
+            this.panel3 = panel3;
+            this.ink = ink;
+            this.ink2 = ink2;
+            this.muted = muted;
+            this.line = line;
+            this.line2 = line2;
+            this.field = field;
+            this.code = code;
+            this.hover = hover;
+            this.active = active;
+            this.danger = danger;
+            this.ok = ok;
+            this.warn = warn;
+        }
+
+        Color workspace() { return new Color(workspace); }
+        Color side() { return new Color(side); }
+        Color panel() { return new Color(panel); }
+        Color panel2() { return new Color(panel2); }
+        Color panel3() { return new Color(panel3); }
+        Color ink() { return new Color(ink); }
+        Color ink2() { return new Color(ink2); }
+        Color muted() { return new Color(muted); }
+        Color line() { return new Color(line); }
+        Color line2() { return new Color(line2); }
+        Color field() { return new Color(field); }
+        Color code() { return new Color(code); }
+        Color hover() { return new Color(hover); }
+        Color active() { return new Color(active); }
+        Color danger() { return new Color(danger); }
+        Color ok() { return new Color(ok); }
+        Color warn() { return new Color(warn); }
     }
 
     private static void putColors(UIDefaults defaults, Color color, String... keys) {

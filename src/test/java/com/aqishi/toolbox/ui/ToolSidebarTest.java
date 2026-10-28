@@ -1,12 +1,17 @@
 package com.aqishi.toolbox.ui;
 
+import com.aqishi.toolbox.util.ConfigManager;
+import com.aqishi.toolbox.util.ConfigManagerTestSupport;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.I18n;
+import com.aqishi.toolbox.vault.VaultUiTestSupport;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import javax.swing.JButton;
 import javax.swing.JComponent;
-import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import java.awt.Color;
@@ -14,143 +19,145 @@ import java.awt.Component;
 import java.awt.Container;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 一级分类导航的行为测试。
+ * 工具目录侧栏的行为测试。
  *
- * <p>重构后侧栏不再承载工具树：它只负责「去哪一组」，工具由主区磁贴承担。
- * 因此这里断言的是分类列表、选中同步、折叠入口与底部设置区，而不再是树的展开状态。</p>
+ * <p>侧栏不再是分类入口，而是完整工具列表：这里验证平铺条目、稳定工具 ID、
+ * 搜索、收藏持久化与选中高亮。分类本身的顺序由目录模型保证。</p>
  */
 class ToolSidebarTest {
 
+    @TempDir
+    Path temp;
+
+    private VaultUiTestSupport support;
+    private AutoCloseable configScope;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        support = new VaultUiTestSupport(temp.resolve("profile"));
+        configScope = ConfigManagerTestSupport.install(support.paths());
+        ConfigManager.set("nav.favorites", "");
+        ConfigManager.set("locale", "zh_CN");
+        I18n.init();
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        if (configScope != null) configScope.close();
+        if (support != null) support.close();
+    }
+
     @Test
-    void listsEveryCategoryIncludingAllTools() throws Exception {
+    void listsEveryToolAsANavigationRow() throws Exception {
         onEdt(() -> {
             ToolSidebar sidebar = sidebar();
-            assertNotNull(named(sidebar, "nav.category.all"), "全部工具入口必须存在");
-            assertNotNull(named(sidebar, "nav.category.crypto"));
-            assertNotNull(named(sidebar, "nav.category.convert"));
-
-            JButton all = named(sidebar, "nav.category.all");
-            assertEquals(I18n.get("nav.all"), all.getAccessibleContext().getAccessibleName());
-            assertEquals(ToolSidebar.ALL, sidebar.getSelectedCategory(), "默认停在全部工具");
+            assertNotNull(named(sidebar, "nav.tool.hash.codec"), "每个工具都应有独立入口");
+            assertNotNull(named(sidebar, "nav.tool.radix.encoding"));
+            assertNotNull(named(sidebar, "nav.tool.regex.tester"));
+            assertNotNull(named(sidebar, "nav.tool.http.client"));
         });
     }
 
     @Test
-    void selectionCallbackUsesStableCategoryId() throws Exception {
-        AtomicReference<String> selected = new AtomicReference<>();
+    void clickingARowReportsTheStableToolId() throws Exception {
+        AtomicReference<String> opened = new AtomicReference<>();
         onEdt(() -> {
-            ToolSidebar sidebar = new ToolSidebar(model(), selected::set, () -> { });
-            named(sidebar, "nav.category.crypto").doClick(0);
+            ToolSidebar sidebar = new ToolSidebar(model(), opened::set, () -> { });
+            named(sidebar, "nav.tool.regex.tester").doClick(0);
         });
-        assertEquals("crypto", selected.get());
+        assertEquals("regex.tester", opened.get());
     }
 
     @Test
-    void selectingAToolMovesTheHighlightToItsCategory() throws Exception {
+    void selectionHighlightFollowsTheOpenTool() throws Exception {
         onEdt(() -> {
             ToolSidebar sidebar = sidebar();
             sidebar.setSelectedTool("radix.encoding");
-            assertEquals("convert", sidebar.getSelectedCategory());
             assertEquals("radix.encoding", sidebar.getSelectedToolId());
-        });
-    }
+            assertEquals("convert", sidebar.getSelectedCategory());
 
-    @Test
-    void repeatedClickOnTheSameCategoryStillNotifies() throws Exception {
-        // 用户可能正停在某个工具页，点当前分类就是要回到列表，不能因为「已经是这个分类」而吞掉回调
-        AtomicReference<Integer> calls = new AtomicReference<>(0);
-        onEdt(() -> {
-            ToolSidebar sidebar = new ToolSidebar(model(), id -> calls.updateAndGet(v -> v + 1), () -> { });
-            named(sidebar, "nav.category.crypto").doClick(0);
-            named(sidebar, "nav.category.crypto").doClick(0);
-        });
-        assertEquals(2, calls.get());
-    }
-
-    @Test
-    void usesCompactCollapseControlWithLocalizedDescription() throws Exception {
-        onEdt(() -> {
-            ToolSidebar sidebar = sidebar();
-            JButton collapse = find(sidebar, JButton.class,
-                    button -> I18n.get("nav.collapse")
-                            .equals(button.getAccessibleContext().getAccessibleName()));
-            assertNotNull(collapse);
-            assertTrue(collapse.getText() == null || collapse.getText().isEmpty());
-            assertNotNull(collapse.getIcon());
-            assertTrue(collapse.isFocusPainted());
-            assertEquals(I18n.get("nav.collapse"), collapse.getToolTipText());
-        });
-    }
-
-    @Test
-    void selectedCategoryPaintsItsHighlightAcrossTheRow() throws Exception {
-        onEdt(() -> {
-            ToolSidebar sidebar = sidebar();
-            sidebar.setSize(240, 520);
-            layoutAll(sidebar);
-            sidebar.setSelectedCategory("crypto");
-            JButton item = named(sidebar, "nav.category.crypto");
-            item.setSize(216, Tokens.RAIL_ROW_HEIGHT);
-
-            BufferedImage snapshot = new BufferedImage(
-                    item.getWidth(), item.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            JButton item = named(sidebar, "nav.tool.radix.encoding");
+            item.setSize(220, 34);
+            BufferedImage snapshot = new BufferedImage(220, 34, BufferedImage.TYPE_INT_ARGB);
             Graphics2D graphics = snapshot.createGraphics();
             item.paint(graphics);
             graphics.dispose();
 
-            // 行尾远离文字与图标，只可能是高亮底色
-            assertEquals(Tokens.accentSoft().getRGB(),
-                    snapshot.getRGB(item.getWidth() - 6, item.getHeight() / 2));
+            assertEquals(Tokens.activeSurface().getRGB(), snapshot.getRGB(214, 16));
         });
     }
 
     @Test
-    void unselectedCategoryKeepsNavigationBackground() throws Exception {
+    void searchFiltersChineseNamesAndShowsAnEmptyState() throws Exception {
         onEdt(() -> {
             ToolSidebar sidebar = sidebar();
-            sidebar.setSelectedCategory("crypto");
-            JButton other = named(sidebar, "nav.category.convert");
-            other.setSize(216, Tokens.RAIL_ROW_HEIGHT);
-            BufferedImage snapshot = new BufferedImage(
-                    other.getWidth(), other.getHeight(), BufferedImage.TYPE_INT_ARGB);
-            Graphics2D graphics = snapshot.createGraphics();
-            other.paint(graphics);
-            graphics.dispose();
-            Color painted = new Color(snapshot.getRGB(other.getWidth() - 6, other.getHeight() / 2), true);
-            assertFalse(equalsRgb(Tokens.accentSoft(), painted), "未选中项不应带选中底色");
+            sidebar.setQuery("正则");
+            assertNotNull(named(sidebar, "nav.tool.regex.tester"));
+            assertEquals(null, find(sidebar, JButton.class,
+                    button -> "nav.tool.http.client".equals(button.getName())));
+
+            sidebar.setQuery("no-such-tool-xyz");
+            assertNotNull(find(sidebar, javax.swing.JLabel.class,
+                    label -> I18n.get("nav.empty").equals(label.getText())));
         });
     }
 
     @Test
-    void refreshLabelsKeepsTheCurrentCategory() throws Exception {
+    void searchAlsoMatchesEnglishKeywords() throws Exception {
         onEdt(() -> {
             ToolSidebar sidebar = sidebar();
-            sidebar.setSelectedCategory("convert");
+            sidebar.setQuery("regexp");
+            assertNotNull(named(sidebar, "nav.tool.regex.tester"));
+            assertEquals(null, find(sidebar, JButton.class,
+                    button -> "nav.tool.http.client".equals(button.getName())));
+        });
+    }
+
+    @Test
+    void favoritesArePersistedAndToggleableFromTheRowStar() throws Exception {
+        onEdt(() -> {
+            ToolSidebar sidebar = sidebar();
+            JButton star = named(sidebar, "nav.favorite.regex.tester");
+            star.doClick(0);
+
+            assertTrue(sidebar.isFavorite("regex.tester"));
+            assertEquals("regex.tester", ConfigManager.get("nav.favorites", ""));
+            assertNotNull(named(sidebar, "nav.favorite.regex.tester"));
+        });
+    }
+
+    @Test
+    void favoriteStateSurvivesAFilterRebuild() throws Exception {
+        onEdt(() -> {
+            ToolSidebar sidebar = sidebar();
+            sidebar.setFavorite("http.client", true);
+            sidebar.setQuery("http");
+            sidebar.setQuery("");
+            assertTrue(sidebar.isFavorite("http.client"));
+        });
+    }
+
+    @Test
+    void refreshLabelsKeepsTheCurrentSelection() throws Exception {
+        onEdt(() -> {
+            ToolSidebar sidebar = sidebar();
+            sidebar.setSelectedTool("radix.encoding");
             sidebar.refreshLabels();
-            assertEquals("convert", sidebar.getSelectedCategory());
-            assertNotNull(named(sidebar, "nav.category.convert"));
-        });
-    }
-
-    @Test
-    void footerHostsThemeControls() throws Exception {
-        onEdt(() -> {
-            ToolSidebar sidebar = sidebar();
-            JPanel footer = new JPanel();
-            JLabel probe = new JLabel("外观");
-            footer.add(probe);
-            sidebar.setFooter(footer);
-            assertNotNull(find(sidebar, JLabel.class, label -> "外观".equals(label.getText())));
+            assertEquals("radix.encoding", sidebar.getSelectedToolId());
+            assertNotNull(named(sidebar, "nav.tool.radix.encoding"));
         });
     }
 
@@ -175,16 +182,11 @@ class ToolSidebarTest {
             Graphics2D graphics = snapshot.createGraphics();
             sidebar.paint(graphics);
             graphics.dispose();
-            assertEquals(Tokens.navigationBackground().getRGB(),
-                    snapshot.getRGB(200, 380));
+            assertEquals(Tokens.navigationBackground().getRGB(), snapshot.getRGB(200, 200));
         });
     }
 
     // ---------------------------------------------------------------- 辅助
-
-    private static boolean equalsRgb(Color expected, Color actual) {
-        return expected.getRGB() == actual.getRGB();
-    }
 
     private static ToolSidebar sidebar() {
         return new ToolSidebar(model(), id -> { }, () -> { });
@@ -192,8 +194,10 @@ class ToolSidebarTest {
 
     private static ToolNavigationModel model() {
         return new ToolNavigationModel(Arrays.asList(
-                tool("crypto", "hash.codec", "Hash", "Security", "digest"),
-                tool("convert", "radix.encoding", "Radix", "Convert", "binary")));
+                tool("crypto", "hash.codec", "哈希计算", "安全", "digest"),
+                tool("convert", "radix.encoding", "进制转换", "编码", "binary"),
+                tool("codec", "regex.tester", "正则测试", "编码", "regexp", "正则"),
+                tool("network", "http.client", "HTTP 接口测试", "网络", "http", "request")));
     }
 
     private static ToolPanel tool(
@@ -209,10 +213,6 @@ class ToolSidebarTest {
         JButton button = find(root, JButton.class, candidate -> name.equals(candidate.getName()));
         assertNotNull(button, "缺少导航项: " + name);
         return button;
-    }
-
-    private static <T extends Component> T find(Container root, Class<T> type) {
-        return find(root, type, ignored -> true);
     }
 
     private static <T extends Component> T find(Container root, Class<T> type, Predicate<T> matches) {

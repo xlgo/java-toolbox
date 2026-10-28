@@ -6,23 +6,23 @@ import java.awt.Color;
 import java.util.Locale;
 
 /**
- * 皮肤基调：决定启动器、侧边导航与外壳的配色策略。
+ * 皮肤基调：效果页的五套配色（浅色 / 深色 / 午夜蓝 / 森林绿 / 奶油暖），另加一档护眼暖白。
  *
- * <p>效果图提供三档皮肤——暗黑模式、多彩浅色、护眼模式。三者的差别不在控件本身，
- * 而在卡片与导航的底色如何从分类品牌色推导：暗黑压暗、浅色提亮、护眼向暖黄偏移。
- * 控件颜色仍由 FlatLaf 的 UIManager 提供，因此换肤不会破坏任何工具面板。</p>
+ * <p>每套皮肤对应一份完整色板（工作区、侧栏、面板、边框、三级文字与强调色），
+ * 由 {@code ThemeManager} 写入 UIManager，控件与卡片都从那里取色，
+ * 因此换肤不会破坏任何工具面板。</p>
  *
- * <p>皮肤与「主题」是两个层次：主题决定 LAF（50 多套可选），皮肤决定壳层的彩色卡片。
- * 三档皮肤各自映射到一个内置主题，其余主题按明暗自动落到 {@link #DARK} 或 {@link #LIGHT}。</p>
+ * <p>皮肤与「主题」是两个层次：主题决定 LAF（效果页五套 + 主题库），
+ * 皮肤决定色板冷暖。主题库里的外观按明暗自动落到 {@link #DARK} 或 {@link #LIGHT}。</p>
  */
 public enum Skin {
 
-    LIGHT("skin.light", "Light", 0xF4F5F2),
-    DARK("skin.dark", "Dark", 0x15181C),
-    MIDNIGHT("skin.midnight", "Midnight", 0x0B1526),
-    FOREST("skin.forest", "Forest", 0x0F1A12),
-    PAPER("skin.paper", "Paper", 0xF7F0DE),
-    EYE_CARE("skin.eye", "Eye Care", 0xFAF6EA);
+    LIGHT("skin.light", "Light", 0xEEF0F3),
+    DARK("skin.dark", "Dark", 0x131519),
+    MIDNIGHT("skin.midnight", "Midnight", 0x0A1120),
+    FOREST("skin.forest", "Forest", 0x0F1D15),
+    PAPER("skin.paper", "Cream", 0xF3ECDC),
+    EYE_CARE("skin.eye", "Eye Care", 0xF3EFE4);
 
     private final String labelKey;
     private final String labelEn;

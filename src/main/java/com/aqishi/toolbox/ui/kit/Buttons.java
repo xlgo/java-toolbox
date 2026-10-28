@@ -97,13 +97,17 @@ public final class Buttons {
     /**
      * 统一按钮高度，宽度按文本自适应。
      *
-     * <p>最小宽度等于首选宽度：布局退化到最小尺寸时，宁可布局紧一点，也不要把
-     * 「测试连接」压成「测…」——按钮文字被截断是比拥挤更严重的可用性问题。</p>
+     * <p>效果页的按钮是贴合文字的（padding 8/15），没有 84px 的最小宽度；
+     * 一排 5–6 个操作在窄窗口下也能放下。最小宽度只留一个很小的下限，
+     * 避免单字按钮被压成一个小方块。</p>
      */
     private static void applyHeight(AbstractButton button) {
         Dimension preferred = button.getPreferredSize();
-        int width = Math.max(preferred.width + Tokens.SPACE_MD, 84);
+        // 首选宽度贴合文字；最小宽度也不低于文字宽度——被压窄时宁可让整行换行，
+        // 也不要出现「复制…」这种把操作名截断的按钮。
+        int textWidth = preferred.width;
+        int width = Math.max(textWidth, 64);
         button.setPreferredSize(new Dimension(width, Tokens.CONTROL_HEIGHT));
-        button.setMinimumSize(new Dimension(width, Tokens.CONTROL_HEIGHT));
+        button.setMinimumSize(new Dimension(textWidth, Tokens.CONTROL_HEIGHT));
     }
 }

@@ -3,43 +3,45 @@ package com.aqishi.toolbox.ui;
 import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.I18n;
 
-import javax.swing.Box;
-import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.geom.RoundRectangle2D;
 import java.util.function.Consumer;
 
 /**
- * 工具页标题区：语义图标 + 名称 + 一句话说明 + 收藏按钮。
+ * 工具页标题区：返回按钮 + 语义图标 + 名称 + 一句话说明 + 收藏星标。
  *
- * <p>效果页在每个工具上方保留固定的识别区，用户从一个工具切到另一个工具时，
- * 标题、图标和描述会同时变化，不必依赖侧栏高亮才能确认当前页。该组件只负责展示，
- * 收藏状态由主窗口从侧栏的持久化结果同步进来。</p>
+ * <p>对应效果页的 {@code .tool-head}。用户从一个工具切到另一个工具时，
+ * 标题、图标和描述会同时变化，不必依赖侧栏高亮才能确认当前页；
+ * 左上角的返回键回到首页的工具卡片，不必知道快捷键。</p>
  */
 public final class ToolHeader extends JPanel {
 
     private final JLabel title = new JLabel();
     private final JLabel description = new JLabel();
-    private final AccentBadge badge = new AccentBadge();
+    private final IconBadge badge = new IconBadge();
     private final JButton favorite = new JButton();
-    private final JPanel textBox = new JPanel();
+    private final JButton back = new JButton();
 
     private String toolId;
     private String categoryId;
     private ToolPanel tool;
     private Consumer<String> favoriteListener = ignored -> { };
+    private Runnable backListener = () -> { };
 
     public ToolHeader() {
-        super(new BorderLayout(Tokens.SPACE_MD, 0));
+        super(new BorderLayout(Tokens.SPACE_MD + 2, 0));
         setOpaque(false);
         setName("workbench.toolHeader");
 
@@ -50,36 +52,66 @@ public final class ToolHeader extends JPanel {
         description.setFont(Tokens.fontBody());
         description.setForeground(Tokens.secondaryForeground());
 
-        textBox.setOpaque(false);
-        textBox.setLayout(new BoxLayout(textBox, BoxLayout.Y_AXIS));
-        title.setAlignmentX(Component.LEFT_ALIGNMENT);
-        description.setAlignmentX(Component.LEFT_ALIGNMENT);
-        textBox.add(title);
-        textBox.add(Box.createVerticalStrut(3));
-        textBox.add(description);
+        badge.setPreferredSize(new Dimension(44, 44));
+        badge.setMinimumSize(new Dimension(44, 44));
+        badge.setMaximumSize(new Dimension(44, 44));
 
-        badge.setPreferredSize(new Dimension(46, 46));
-        badge.setMinimumSize(new Dimension(46, 46));
-        badge.setMaximumSize(new Dimension(46, 46));
+        back.setName("workbench.toolBack");
+        back.setIcon(WorkbenchIcons.back(14));
+        back.setText(I18n.get("nav.back"));
+        back.setFont(Tokens.fontBody());
+        back.setIconTextGap(Tokens.SPACE_XS);
+        back.setFocusPainted(false);
+        back.setMargin(new Insets(4, 10, 4, 12));
+        back.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        back.putClientProperty("JComponent.minimumWidth", 0);
+        back.addActionListener(event -> backListener.run());
+        Dimension backSize = new Dimension(back.getPreferredSize().width, Tokens.CONTROL_HEIGHT);
+        back.setPreferredSize(backSize);
+        back.setMinimumSize(backSize);
 
         favorite.setName("workbench.toolFavorite");
         favorite.setFont(Tokens.fontBody());
-        favorite.setFocusPainted(true);
-        favorite.setMargin(new java.awt.Insets(3, 12, 3, 12));
+        favorite.setFocusPainted(false);
+        favorite.setMargin(new Insets(3, 8, 3, 8));
         favorite.setHorizontalAlignment(SwingConstants.CENTER);
+        favorite.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        favorite.putClientProperty("JComponent.minimumWidth", 0);
         favorite.addActionListener(event -> {
             if (toolId != null) {
                 favoriteListener.accept(toolId);
             }
         });
 
-        JPanel leading = new JPanel(new BorderLayout(Tokens.SPACE_MD, 0));
-        leading.setOpaque(false);
-        leading.add(badge, BorderLayout.WEST);
-        leading.add(textBox, BorderLayout.CENTER);
+        JPanel texts = new JPanel();
+        texts.setOpaque(false);
+        texts.setLayout(new javax.swing.BoxLayout(texts, javax.swing.BoxLayout.Y_AXIS));
+        title.setAlignmentX(Component.LEFT_ALIGNMENT);
+        description.setAlignmentX(Component.LEFT_ALIGNMENT);
+        texts.add(title);
+        texts.add(javax.swing.Box.createVerticalStrut(3));
+        texts.add(description);
 
-        add(leading, BorderLayout.CENTER);
-        add(favorite, BorderLayout.EAST);
+        JPanel identity = new JPanel(new BorderLayout(Tokens.SPACE_MD, 0));
+        identity.setOpaque(false);
+        identity.add(badge, BorderLayout.WEST);
+        identity.add(texts, BorderLayout.CENTER);
+
+        JPanel left = new JPanel(new BorderLayout(Tokens.SPACE_MD + 2, 0));
+        left.setOpaque(false);
+        left.add(back, BorderLayout.WEST);
+        left.add(identity, BorderLayout.CENTER);
+
+        JPanel actions = new JPanel(new BorderLayout());
+        actions.setOpaque(false);
+        actions.add(favorite, BorderLayout.EAST);
+
+        add(left, BorderLayout.CENTER);
+        add(actions, BorderLayout.EAST);
+    }
+
+    public void setBackListener(Runnable listener) {
+        backListener = listener == null ? () -> { } : listener;
     }
 
     public void setTool(ToolPanel tool) {
@@ -92,11 +124,11 @@ public final class ToolHeader extends JPanel {
         description.setToolTipText(description.getText());
         badge.setTool(toolId, categoryId);
         getAccessibleContext().setAccessibleName(tool.getLabel());
-        refreshFavoriteLabel(favorite.getClientProperty("favorite") == Boolean.TRUE);
+        refreshFavorite(favorite.getClientProperty("favorite") == Boolean.TRUE);
     }
 
     public void setFavorite(boolean value) {
-        refreshFavoriteLabel(value);
+        refreshFavorite(value);
     }
 
     public void setFavoriteListener(Consumer<String> listener) {
@@ -113,28 +145,34 @@ public final class ToolHeader extends JPanel {
         title.setForeground(Tokens.foreground());
         description.setFont(Tokens.fontBody());
         description.setForeground(Tokens.secondaryForeground());
+        back.setFont(Tokens.fontBody());
+        back.setText(I18n.get("nav.back"));
+        back.setIcon(WorkbenchIcons.back(14));
         badge.repaint();
         if (tool != null) {
             title.setText(tool.getLabel());
             description.setText(summary(tool));
             description.setToolTipText(description.getText());
         }
-        refreshFavoriteLabel(favorite.getClientProperty("favorite") == Boolean.TRUE);
+        refreshFavorite(favorite.getClientProperty("favorite") == Boolean.TRUE);
         revalidate();
         repaint();
     }
 
-    private void refreshFavoriteLabel(boolean value) {
+    private void refreshFavorite(boolean value) {
         favorite.setFont(Tokens.fontBody());
         favorite.putClientProperty("favorite", value);
-        String text = I18n.get(value ? "tool.favorite.on" : "tool.favorite.off");
+        favorite.setIcon(WorkbenchIcons.star(value, 15));
+        String text = I18n.get(value ? "tool.favorite.on.short" : "tool.favorite.off.short");
         favorite.setText(text);
-        favorite.setToolTipText(text);
-        favorite.getAccessibleContext().setAccessibleName(text);
+        favorite.setToolTipText(I18n.get(value
+                ? "launcher.favorite.remove" : "launcher.favorite.add"));
+        favorite.setForeground(value ? Tokens.favorite() : Tokens.foreground());
+        favorite.getAccessibleContext().setAccessibleName(favorite.getToolTipText());
         int textWidth = favorite.getFontMetrics(favorite.getFont()).stringWidth(text);
-        favorite.setPreferredSize(new Dimension(
-                Math.max(96, textWidth + 28), Tokens.CONTROL_HEIGHT));
-        favorite.setMinimumSize(favorite.getPreferredSize());
+        Dimension size = new Dimension(Math.max(84, textWidth + 40), Tokens.CONTROL_HEIGHT);
+        favorite.setPreferredSize(size);
+        favorite.setMinimumSize(size);
     }
 
     private static String summary(ToolPanel tool) {
@@ -143,13 +181,13 @@ public final class ToolHeader extends JPanel {
         return key.equals(value) ? I18n.get("tool.summary.generic") : value;
     }
 
-    /** 46px 圆角图标座：浅强调底色 + 语义线框。 */
-    private static final class AccentBadge extends JPanel {
+    /** 44px 圆角图标座：浅强调底色 + 语义线框。 */
+    private static final class IconBadge extends JPanel {
 
         private String toolId;
         private String categoryId;
 
-        AccentBadge() {
+        IconBadge() {
             setOpaque(false);
         }
 
@@ -165,16 +203,17 @@ public final class ToolHeader extends JPanel {
             try {
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 RoundRectangle2D shape = new RoundRectangle2D.Float(
-                        0.5f, 0.5f, getWidth() - 1f, getHeight() - 1f, 12, 12);
+                        0.5f, 0.5f, getWidth() - 1f, getHeight() - 1f, 10, 10);
                 g.setColor(Tokens.accentSoft());
                 g.fill(shape);
                 g.setColor(Tokens.accentMid());
+                g.setStroke(new BasicStroke(1f));
                 g.draw(shape);
             } finally {
                 g.dispose();
             }
             if (toolId != null) {
-                ToolGlyph.outline(toolId, categoryId, 23).paintIcon(this, graphics, 11, 11);
+                ToolGlyph.outline(toolId, categoryId, 22).paintIcon(this, graphics, 11, 11);
             }
         }
     }

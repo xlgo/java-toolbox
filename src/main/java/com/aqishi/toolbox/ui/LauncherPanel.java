@@ -1,10 +1,10 @@
 package com.aqishi.toolbox.ui;
 
 import com.aqishi.toolbox.ui.kit.Tokens;
-import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.I18n;
 
 import javax.swing.BorderFactory;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -17,50 +17,81 @@ import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Insets;
 import java.awt.LayoutManager;
+import java.awt.Rectangle;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.function.Consumer;
 
 /**
- * 启动器：按分类分区展示全部工具磁贴，并承担搜索与收藏两种视图。
+ * 首页：效果页的 {@code #viewHome}——页面标题、一句话说明与工具卡片网格。
  *
- * <p>这是效果图的主内容区。它不销毁任何 {@link ToolPanel}——点击磁贴只是把工具 ID
- * 交给主窗口，由 {@link ToolContentHost} 惰性挂载。因此来回切分类不会丢失工具页里的草稿。</p>
+ * <p>它承担「全部工具 / 我的收藏 / 最近使用 / 单个分类 / 搜索结果」五种视图，
+ * 只有标题、说明与卡片集合不同。点击卡片只是把工具 ID 交给主窗口，
+ * 由 {@link ToolContentHost} 惰性挂载，因此来回切换不会丢失工具页里的草稿。</p>
  *
- * <p>视图状态（分类、搜索词、仅看收藏）都保存在本类字段里，重建时只重排组件，
- * 不改变用户的选择。</p>
+ * <p>网格按可用宽度自动决定列数并把卡片等分拉伸（效果页的
+ * {@code repeat(auto-fill, minmax(248px, 1fr))}），窗口变窄时列数减少而不是出现横向滚动。</p>
  */
 public final class LauncherPanel extends JPanel {
 
-    /** 收藏的持久化键：逗号分隔的工具 ID */
-    private static final String FAVORITES_KEY = "nav.favorites";
-
     private final ToolNavigationModel model;
+    private final ToolShortcuts shortcuts;
     private final Consumer<String> openListener;
-    private final JPanel content = new BackdropPanel();
+
+    private final JLabel titleLabel = new JLabel();
+    private final JLabel subtitleLabel = new JLabel();
+    private final JPanel gridHost = new JPanel(new BorderLayout());
     private final JScrollPane scrollPane;
-    private final Set<String> favorites = new LinkedHashSet<>();
+    private final ViewportBody viewportBody = new ViewportBody();
 
-    /** null 表示「全部工具」，否则为分类 ID */
-    private String categoryFilter;
+    private String category = ToolSidebar.ALL;
     private String query = "";
-    private boolean favoriteOnly;
 
-    public LauncherPanel(ToolNavigationModel model, Consumer<String> openListener) {
+    public LauncherPanel(ToolNavigationModel model, ToolShortcuts shortcuts,
+                         Consumer<String> openListener) {
         super(new BorderLayout());
         setOpaque(false);
         this.model = model;
-        this.openListener = openListener;
-        loadFavorites();
+        this.shortcuts = shortcuts == null ? ToolShortcuts.load() : shortcuts;
+        this.openListener = openListener == null ? ignored -> { } : openListener;
 
+        JPanel content = new JPanel();
+        content.setOpaque(false);
         content.setLayout(new javax.swing.BoxLayout(content, javax.swing.BoxLayout.Y_AXIS));
         content.setBorder(BorderFactory.createEmptyBorder(
-                Tokens.SPACE_XL, Tokens.SPACE_XL, Tokens.SPACE_XL, Tokens.SPACE_XL));
+                Tokens.PAGE_PADDING_TOP, Tokens.PAGE_PADDING_X,
+                Tokens.PAGE_PADDING_BOTTOM, Tokens.PAGE_PADDING_X));
 
-        scrollPane = new JScrollPane(content);
+        titleLabel.setName("home.title");
+        titleLabel.setFont(Tokens.fontHomeTitle());
+        titleLabel.setForeground(Tokens.foreground());
+        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        subtitleLabel.setName("home.subtitle");
+        subtitleLabel.setFont(Tokens.fontBody());
+        subtitleLabel.setForeground(Tokens.secondaryForeground());
+        subtitleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel head = new JPanel();
+        head.setOpaque(false);
+        head.setLayout(new javax.swing.BoxLayout(head, javax.swing.BoxLayout.Y_AXIS));
+        head.setAlignmentX(Component.LEFT_ALIGNMENT);
+        head.add(titleLabel);
+        head.add(javax.swing.Box.createVerticalStrut(Tokens.SPACE_XS));
+        head.add(subtitleLabel);
+
+        gridHost.setOpaque(false);
+        gridHost.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        content.add(head);
+        content.add(javax.swing.Box.createVerticalStrut(Tokens.SPACE_XL - 4));
+        content.add(gridHost);
+
+        viewportBody.setLayout(new BorderLayout());
+        viewportBody.setOpaque(false);
+        viewportBody.add(content, BorderLayout.CENTER);
+
+        scrollPane = new JScrollPane(viewportBody);
         scrollPane.setBorder(BorderFactory.createEmptyBorder());
         scrollPane.setOpaque(false);
         scrollPane.getViewport().setOpaque(false);
@@ -68,27 +99,29 @@ public final class LauncherPanel extends JPanel {
         scrollPane.getVerticalScrollBar().setUnitIncrement(18);
         add(scrollPane, BorderLayout.CENTER);
 
-        rebuild();
+        setName("workbench.home");
+        this.shortcuts.addListener(ignored -> refresh());
+        refresh();
     }
 
-    // ---------------------------------------------------------------- 视图控制
+    // ---------------------------------------------------------------- 状态
 
-    /** 只看某个分类；传 null 显示全部分区 */
-    public void setCategoryFilter(String categoryId) {
-        this.categoryFilter = categoryId;
-        this.favoriteOnly = false;
-        rebuild();
+    /** 切换视图：{@code all} / {@code favorites} / {@code recent} / 分类 ID */
+    public void setCategory(String categoryId) {
+        this.category = categoryId == null || categoryId.isEmpty()
+                ? ToolSidebar.ALL : categoryId;
+        refresh();
         scrollToTop();
     }
 
-    public String getCategoryFilter() {
-        return categoryFilter;
+    public String getCategory() {
+        return category;
     }
 
-    /** 搜索词；非空时搜索结果覆盖分类与收藏视图 */
+    /** 搜索词；非空时结果覆盖当前视图 */
     public void setQuery(String value) {
         this.query = value == null ? "" : value.trim();
-        rebuild();
+        refresh();
         scrollToTop();
     }
 
@@ -96,35 +129,43 @@ public final class LauncherPanel extends JPanel {
         return query;
     }
 
-    /** 仅显示收藏 */
-    public void setFavoriteOnly(boolean value) {
-        if (favoriteOnly == value) {
-            return;
+    /** 收藏 / 最近使用变化或语言切换后重建卡片 */
+    public void refresh() {
+        List<ToolPanel> tools = visibleTools();
+        titleLabel.setText(viewTitle(tools.size()));
+        subtitleLabel.setText(viewSubtitle(tools.size()));
+        subtitleLabel.setToolTipText(subtitleLabel.getText());
+
+        gridHost.removeAll();
+        if (tools.isEmpty()) {
+            gridHost.add(emptyState(), BorderLayout.CENTER);
+        } else {
+            CardGrid grid = new CardGrid();
+            for (ToolPanel tool : tools) {
+                grid.add(createCard(tool));
+            }
+            gridHost.add(grid, BorderLayout.NORTH);
         }
-        favoriteOnly = value;
-        if (value) {
-            categoryFilter = null;
-        }
-        rebuild();
-        scrollToTop();
+        gridHost.revalidate();
+        gridHost.repaint();
+        titleLabel.revalidate();
+        revalidate();
+        repaint();
     }
 
-    public boolean isFavoriteOnly() {
-        return favoriteOnly;
+    public void restyle() {
+        titleLabel.setName("home.title");
+        titleLabel.setFont(Tokens.fontHomeTitle());
+        titleLabel.setForeground(Tokens.foreground());
+        subtitleLabel.setName("home.subtitle");
+        subtitleLabel.setFont(Tokens.fontBody());
+        subtitleLabel.setForeground(Tokens.secondaryForeground());
+        refresh();
     }
 
-    public boolean isFavorite(String toolId) {
-        return favorites.contains(toolId);
-    }
-
-    /**
-     * 把键盘焦点交给第一张磁贴。
-     *
-     * <p>顶栏搜索框按「下」时调用：搜索原本支持键盘直达结果，搜索框搬到顶栏后
-     * 这条路径要接得上，否则纯键盘用户只能靠 Tab 逐个挪。</p>
-     */
+    /** 键盘从搜索框按「下」时，把焦点交给第一张卡片 */
     public boolean focusFirstTile() {
-        LauncherCard first = firstTile(content);
+        LauncherCard first = firstTile(gridHost);
         if (first == null) {
             return false;
         }
@@ -146,236 +187,246 @@ public final class LauncherPanel extends JPanel {
         return null;
     }
 
-    /** 语言或主题切换后刷新文案；卡片本身按皮肤自绘，无需重建颜色 */
-    public void refresh() {
-        rebuild();
-    }
-
     private void scrollToTop() {
         SwingUtilities.invokeLater(() -> scrollPane.getVerticalScrollBar().setValue(0));
     }
 
-    // ---------------------------------------------------------------- 构建
+    // ---------------------------------------------------------------- 数据
 
-    private void rebuild() {
-        content.removeAll();
-
-        List<Section> sections = sections();
-        if (sections.isEmpty()) {
-            content.add(emptyState());
-        } else {
-            boolean first = true;
-            for (Section section : sections) {
-                if (!first) {
-                    content.add(javax.swing.Box.createVerticalStrut(Tokens.SPACE_LG));
-                }
-                first = false;
-                if (section.title != null) {
-                    content.add(sectionHeader(section.title, section.tools.size()));
-                    content.add(javax.swing.Box.createVerticalStrut(Tokens.SPACE_MD));
-                }
-                content.add(tileGrid(section.tools));
-            }
-        }
-        content.revalidate();
-        content.repaint();
-    }
-
-    /** 一次构建要展示的分区：搜索 > 收藏 > 分类 > 全部 */
-    private List<Section> sections() {
+    private List<ToolPanel> visibleTools() {
+        List<ToolPanel> list = new ArrayList<>();
         if (!query.isEmpty()) {
-            List<ToolPanel> matches = new ArrayList<>();
             String needle = query.toLowerCase(Locale.ROOT);
             for (ToolNavigationModel.Group group : model.getGroups()) {
                 for (ToolPanel tool : group.getTools()) {
                     if (tool.matchesSearch(needle)) {
-                        matches.add(tool);
+                        list.add(tool);
                     }
                 }
             }
-            // 没有命中时返回空分区而不是「0 个结果」的空标题，
-            // 让 rebuild() 走空态提示，用户才知道是没搜到而不是界面没反应
-            return matches.isEmpty()
-                    ? List.of()
-                    : List.of(new Section(I18n.get("launcher.searchResults"), matches));
+            return list;
         }
-
-        if (favoriteOnly) {
-            List<ToolPanel> marked = new ArrayList<>();
+        if (ToolSidebar.FAVORITES.equals(category)) {
             for (ToolNavigationModel.Group group : model.getGroups()) {
                 for (ToolPanel tool : group.getTools()) {
-                    if (favorites.contains(tool.getName())) {
-                        marked.add(tool);
+                    if (shortcuts.isFavorite(tool.getName())) {
+                        list.add(tool);
                     }
                 }
             }
-            return marked.isEmpty()
-                    ? List.of()
-                    : List.of(new Section(I18n.get("launcher.favorites"), marked));
+            return list;
         }
-
-        if (categoryFilter != null) {
-            for (ToolNavigationModel.Group group : model.getGroups()) {
-                if (group.getId().equals(categoryFilter)) {
-                    // 单分类视图不写标题：侧栏已经高亮了当前分类，再写一遍是噪音
-                    return List.of(new Section(null, group.getTools()));
+        if (ToolSidebar.RECENT.equals(category)) {
+            for (String id : shortcuts.getRecent()) {
+                ToolPanel tool = model.findTool(id);
+                if (tool != null) {
+                    list.add(tool);
                 }
             }
-            return List.of();
+            return list;
         }
-
-        List<Section> all = new ArrayList<>();
         for (ToolNavigationModel.Group group : model.getGroups()) {
-            all.add(new Section(group.getLabel(), group.getTools()));
+            if (ToolSidebar.ALL.equals(category) || group.getId().equals(category)) {
+                list.addAll(group.getTools());
+            }
         }
-        return all;
+        return list;
     }
 
-    private JPanel tileGrid(List<ToolPanel> tools) {
-        JPanel grid = new JPanel(new TileFlowLayout());
-        grid.setOpaque(false);
-        grid.setAlignmentX(Component.LEFT_ALIGNMENT);
-        for (ToolPanel tool : tools) {
-            grid.add(createCard(tool));
+    private String viewTitle(int count) {
+        if (!query.isEmpty()) {
+            return java.text.MessageFormat.format(I18n.get("home.search"), query);
         }
-        return grid;
+        if (ToolSidebar.FAVORITES.equals(category)) {
+            return I18n.get("launcher.favorites");
+        }
+        if (ToolSidebar.RECENT.equals(category)) {
+            return I18n.get("nav.recent");
+        }
+        if (ToolSidebar.ALL.equals(category)) {
+            return I18n.get("nav.all");
+        }
+        String groupLabel = category;
+        for (ToolNavigationModel.Group group : model.getGroups()) {
+            if (group.getId().equals(category)) {
+                groupLabel = group.getLabel();
+                break;
+            }
+        }
+        return groupLabel;
     }
+
+    private String viewSubtitle(int count) {
+        if (!query.isEmpty()) {
+            return java.text.MessageFormat.format(I18n.get("home.search.count"), count);
+        }
+        if (ToolSidebar.FAVORITES.equals(category)) {
+            return I18n.get("home.favorites.hint");
+        }
+        if (ToolSidebar.RECENT.equals(category)) {
+            return I18n.get("home.recent.hint");
+        }
+        return java.text.MessageFormat.format(I18n.get("home.subtitle"), count);
+    }
+
+    // ---------------------------------------------------------------- 卡片
 
     private LauncherCard createCard(ToolPanel tool) {
         String id = tool.getName();
-        String category = tool.getGroup();
-        String title = tool.getLabel();
-        String subtitle = localizedAlternate("tool." + id);
-
-        LauncherCard card = new LauncherCard(id, category, title, subtitle);
-        card.setFavorite(favorites.contains(id), false);
+        String subtitle = summary(tool);
+        LauncherCard card = new LauncherCard(id, tool.getGroup(), tool.getLabel(), subtitle,
+                tool.getGroupLabel());
+        card.setFavorite(shortcuts.isFavorite(id), false);
         card.addActionListener(event -> openListener.accept(id));
         card.addPropertyChangeListener("favorite", event -> {
-            if (Boolean.TRUE.equals(event.getNewValue())) {
-                favorites.add(id);
-            } else {
-                favorites.remove(id);
-            }
-            persistFavorites();
-            // 收藏视图下取消收藏，磁贴应立即消失
-            if (favoriteOnly) {
-                rebuild();
-            }
+            shortcuts.setFavorite(id, Boolean.TRUE.equals(event.getNewValue()));
         });
         return card;
     }
 
-    /**
-     * 磁贴副标题：界面中文时给英文名，界面英文时给中文名。
-     * 两者都不重复，卡片信息量最大。
-     */
-    private String localizedAlternate(String key) {
-        boolean chineseUi = !"en_US".equals(ConfigManager.get("locale", "zh_CN"));
-        return chineseUi ? I18n.getEnglish(key) : I18n.getChinese(key);
+    /** 工具说明：优先取专用文案，缺省时用通用一句话 */
+    private static String summary(ToolPanel tool) {
+        String key = "tool." + tool.getName() + ".summary";
+        String value = I18n.get(key);
+        return key.equals(value) ? I18n.get("tool.summary.generic") : value;
     }
 
-    private JPanel sectionHeader(String title, int count) {
-        return new SectionHeader(title, count);
-    }
+    private JComponent emptyState() {
+        JPanel panel = new EmptyState();
+        String message;
+        if (!query.isEmpty()) {
+            message = I18n.get("home.empty.search");
+        } else if (ToolSidebar.FAVORITES.equals(category)) {
+            message = I18n.get("home.empty.favorites");
+        } else if (ToolSidebar.RECENT.equals(category)) {
+            message = I18n.get("home.empty.recent");
+        } else {
+            message = I18n.get("home.empty.category");
+        }
+        JLabel strong = new JLabel(I18n.get("home.empty.title"));
+        strong.setFont(Tokens.fontTitle().deriveFont(15f));
+        strong.setForeground(Tokens.foreground());
+        strong.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JLabel body = new JLabel(message);
+        body.setFont(Tokens.fontBody());
+        body.setForeground(Tokens.secondaryForeground());
+        body.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-    private JPanel emptyState() {
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setOpaque(false);
-        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.setBorder(BorderFactory.createEmptyBorder(Tokens.SPACE_XL * 2, 0, 0, 0));
-        JLabel label = new JLabel(I18n.get("launcher.empty"));
-        label.setFont(Tokens.fontBody());
-        label.setForeground(Tokens.mutedForeground());
-        panel.add(label, BorderLayout.NORTH);
+        panel.setLayout(new javax.swing.BoxLayout(panel, javax.swing.BoxLayout.Y_AXIS));
+        panel.setBorder(BorderFactory.createEmptyBorder(44, 20, 44, 20));
+        panel.add(strong);
+        panel.add(javax.swing.Box.createVerticalStrut(6));
+        panel.add(body);
         return panel;
     }
 
-    // ---------------------------------------------------------------- 收藏持久化
+    // ---------------------------------------------------------------- 内部组件
 
-    private void loadFavorites() {
-        String stored = ConfigManager.get(FAVORITES_KEY, "");
-        if (stored == null || stored.isEmpty()) {
-            return;
+    /** 虚线空状态框，对应效果页的 {@code .empty} */
+    private static final class EmptyState extends JPanel {
+        EmptyState() {
+            setOpaque(false);
         }
-        for (String id : stored.split(",")) {
-            String trimmed = id.trim();
-            if (!trimmed.isEmpty()) {
-                favorites.add(trimmed);
+
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            java.awt.Graphics2D g = (java.awt.Graphics2D) graphics.create();
+            try {
+                g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                        java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setColor(Tokens.borderStrong());
+                g.setStroke(new java.awt.BasicStroke(1.5f, java.awt.BasicStroke.CAP_ROUND,
+                        java.awt.BasicStroke.JOIN_ROUND, 1f, new float[]{6f, 5f}, 0f));
+                g.draw(new java.awt.geom.RoundRectangle2D.Float(
+                        0.75f, 0.75f, getWidth() - 1.5f, getHeight() - 1.5f,
+                        Tokens.RADIUS_CARD, Tokens.RADIUS_CARD));
+            } finally {
+                g.dispose();
             }
         }
     }
 
-    private void persistFavorites() {
-        ConfigManager.set(FAVORITES_KEY, String.join(",", favorites));
-        ConfigManager.save();
-    }
+    /** 视口内容容器：宽度跟随视口，高度按内容伸展，横向不留空 */
+    private static final class ViewportBody extends JPanel implements javax.swing.Scrollable {
 
-    // ---------------------------------------------------------------- 内部类型
-
-    private record Section(String title, List<ToolPanel> tools) {
-    }
-
-    /** 分区标题：标题在左，数量在右 */
-    private static final class SectionHeader extends JPanel {
-
-        SectionHeader(String title, int count) {
-            super(new BorderLayout());
-            setOpaque(false);
-            setAlignmentX(Component.LEFT_ALIGNMENT);
-            JLabel name = new JLabel(title);
-            name.setFont(Tokens.fontSectionTitle().deriveFont(13.5f));
-            name.setForeground(Tokens.foreground());
-            JLabel badge = new JLabel(Integer.toString(count));
-            badge.setFont(Tokens.fontCaption());
-            badge.setForeground(Tokens.mutedForeground());
-            add(name, BorderLayout.WEST);
-            add(badge, BorderLayout.EAST);
-        }
-    }
-
-    /** 启动器页面底色，绘制时取色以便跟随皮肤 */
-    private static final class BackdropPanel extends JPanel {
-        BackdropPanel() {
-            // 关闭默认不透明，避免浅色 LAF 底色盖住深色皮肤
+        ViewportBody() {
             setOpaque(false);
         }
 
         @Override
-        protected void paintComponent(Graphics g) {
-            g.setColor(Tokens.launcherBackground());
-            g.fillRect(0, 0, getWidth(), getHeight());
-            super.paintComponent(g);
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
+            return 18;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+            return orientation == javax.swing.SwingConstants.VERTICAL ? visible.height : visible.width;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
+
+        @Override
+        public void doLayout() {
+            super.doLayout();
+            // 内容列最大 1180px：超宽屏下保持阅读行长，与效果页的 .main-inner 一致
+            Component child = getComponentCount() > 0 ? getComponent(0) : null;
+            if (child == null) return;
+            Insets insets = getInsets();
+            int available = Math.max(1, getWidth() - insets.left - insets.right);
+            int max = Tokens.PAGE_MAX_WIDTH + Tokens.PAGE_PADDING_X * 2;
+            if (available <= max) return;
+            int width = max;
+            int x = insets.left + (available - width) / 2;
+            child.setBounds(x, insets.top, width, child.getHeight());
         }
     }
 
     /**
-     * 磁贴流式布局：按可用宽度换行，行内左对齐。
+     * 卡片网格：按可用宽度决定列数，卡片等分拉伸。
      *
-     * <p>与通用 {@code WrapLayout} 的区别是这里需要把首选高度算准——启动器整体在
-     * 滚动视图里，高度算少了会裁掉最后一行磁贴。</p>
+     * <p>效果页用的是 CSS Grid 的 {@code minmax(248px, 1fr)}：列数随宽度变化，
+     * 每列宽度均分剩余空间。这里用同样的规则计算，最后一行不足列数时左对齐，
+     * 卡片宽度与上一行保持一致，不会出现半宽卡片。</p>
      */
-    private static final class TileFlowLayout implements LayoutManager {
+    private static final class CardGrid extends JPanel implements LayoutManager {
 
-        @Override
-        public void addLayoutComponent(String name, Component comp) {
+        private int columns = 1;
+        private int cardWidth = Tokens.TILE_WIDTH;
+
+        CardGrid() {
+            setOpaque(false);
+            setLayout(this);
+            addComponentListener(new java.awt.event.ComponentAdapter() {
+                @Override
+                public void componentResized(java.awt.event.ComponentEvent event) {
+                    revalidate();
+                }
+            });
+        }
+
+        private int computeColumns(int available) {
+            int min = Tokens.TILE_WIDTH + Tokens.TILE_GAP;
+            return Math.max(1, (available + Tokens.TILE_GAP) / min);
         }
 
         @Override
-        public void removeLayoutComponent(Component comp) {
-        }
+        public void addLayoutComponent(String name, Component comp) { }
 
         @Override
-        public Dimension preferredLayoutSize(Container target) {
-            return measure(target, availableWidth(target));
-        }
-
-        @Override
-        public Dimension minimumLayoutSize(Container target) {
-            Insets insets = target.getInsets();
-            return new Dimension(
-                    Tokens.TILE_WIDTH + insets.left + insets.right,
-                    Tokens.TILE_HEIGHT + insets.top + insets.bottom);
-        }
+        public void removeLayoutComponent(Component comp) { }
 
         private int availableWidth(Container target) {
             int width = target.getWidth();
@@ -384,34 +435,26 @@ public final class LauncherPanel extends JPanel {
                 cursor = cursor.getParent();
                 width = cursor.getWidth();
             }
-            // 滚动视图首次布局时祖先可能还没有宽度，按一个磁贴兜底而不是 Integer.MAX_VALUE，
-            // 否则会在首帧把 76 张磁贴排成一行
-            return width <= 0 ? Tokens.TILE_WIDTH : width;
+            // 首帧祖先还没有宽度时按 4 列兜底，避免把 80 张卡片排成一行
+            return width <= 0 ? Tokens.TILE_WIDTH * 4 + Tokens.TILE_GAP * 3 : width;
         }
 
-        private Dimension measure(Container target, int width) {
+        @Override
+        public Dimension preferredLayoutSize(Container target) {
             Insets insets = target.getInsets();
-            int available = Math.max(Tokens.TILE_WIDTH, width - insets.left - insets.right);
-            int rowWidth = 0;
-            int rowHeight = 0;
-            int totalHeight = 0;
-            for (Component child : target.getComponents()) {
-                if (!child.isVisible()) continue;
-                Dimension size = child.getPreferredSize();
-                int advance = rowWidth == 0 ? size.width : size.width + Tokens.TILE_GAP;
-                if (rowWidth > 0 && rowWidth + advance > available) {
-                    totalHeight += rowHeight + Tokens.TILE_GAP;
-                    rowWidth = size.width;
-                    rowHeight = size.height;
-                } else {
-                    rowWidth += advance;
-                    rowHeight = Math.max(rowHeight, size.height);
-                }
-            }
-            totalHeight += rowHeight;
+            int available = Math.max(Tokens.TILE_WIDTH,
+                    availableWidth(target) - insets.left - insets.right);
+            int cols = computeColumns(available);
+            int rows = Math.max(1, (target.getComponentCount() + cols - 1) / cols);
+            int height = rows * Tokens.TILE_HEIGHT + (rows - 1) * Tokens.TILE_GAP;
             return new Dimension(
                     available + insets.left + insets.right,
-                    totalHeight + insets.top + insets.bottom);
+                    height + insets.top + insets.bottom);
+        }
+
+        @Override
+        public Dimension minimumLayoutSize(Container target) {
+            return new Dimension(Tokens.TILE_WIDTH, Tokens.TILE_HEIGHT);
         }
 
         @Override
@@ -419,23 +462,23 @@ public final class LauncherPanel extends JPanel {
             Insets insets = target.getInsets();
             int available = Math.max(Tokens.TILE_WIDTH,
                     target.getWidth() - insets.left - insets.right);
+            columns = computeColumns(available);
+            cardWidth = Math.max(Tokens.TILE_WIDTH,
+                    (available - (columns - 1) * Tokens.TILE_GAP) / columns);
+
             int x = insets.left;
             int y = insets.top;
-            int rowHeight = 0;
-            boolean firstInRow = true;
+            int column = 0;
             for (Component child : target.getComponents()) {
                 if (!child.isVisible()) continue;
-                Dimension size = child.getPreferredSize();
-                if (!firstInRow && (x - insets.left) + size.width > available) {
+                if (column == columns) {
+                    column = 0;
                     x = insets.left;
-                    y += rowHeight + Tokens.TILE_GAP;
-                    rowHeight = 0;
-                    firstInRow = true;
+                    y += Tokens.TILE_HEIGHT + Tokens.TILE_GAP;
                 }
-                child.setBounds(x, y, size.width, size.height);
-                x += size.width + Tokens.TILE_GAP;
-                rowHeight = Math.max(rowHeight, size.height);
-                firstInRow = false;
+                child.setBounds(x, y, cardWidth, Tokens.TILE_HEIGHT);
+                x += cardWidth + Tokens.TILE_GAP;
+                column++;
             }
         }
     }

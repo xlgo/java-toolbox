@@ -2,6 +2,7 @@ package com.aqishi.toolbox.ui;
 
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.ConfigManagerTestSupport;
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.vault.VaultUiTestSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 启动器的数据视图测试：分类、搜索、收藏三种过滤方式，以及磁贴的打开回调。
+ * 首页卡片视图测试：全部 / 分类 / 收藏 / 最近 / 搜索五种视图，以及卡片的打开回调。
  */
 class LauncherPanelTest {
 
@@ -43,8 +44,9 @@ class LauncherPanelTest {
         support = new VaultUiTestSupport(temp.resolve("profile"));
         configScope = ConfigManagerTestSupport.install(support.paths());
         ConfigManager.set("nav.favorites", "");
+        ConfigManager.set("nav.recent", "");
         ConfigManager.set("locale", "zh_CN");
-        com.aqishi.toolbox.util.I18n.init();
+        I18n.init();
     }
 
     @AfterEach
@@ -54,13 +56,13 @@ class LauncherPanelTest {
     }
 
     @Test
-    void showsEveryToolAsATileByDefault() throws Exception {
+    void showsEveryToolAsACardByDefault() throws Exception {
         onEdt(() -> {
             LauncherPanel launcher = launcher(id -> { });
-            assertEquals(4, tiles(launcher).size(), "四个工具都应有磁贴");
+            assertEquals(4, tiles(launcher).size(), "四个工具都应有卡片");
             assertNotNull(tile(launcher, "json.format"));
             assertNotNull(tile(launcher, "jsonpath.tester"));
-            assertNull(launcher.getCategoryFilter());
+            assertEquals(ToolSidebar.ALL, launcher.getCategory());
         });
     }
 
@@ -68,8 +70,8 @@ class LauncherPanelTest {
     void filterShowsOnlyTheSelectedCategory() throws Exception {
         onEdt(() -> {
             LauncherPanel launcher = launcher(id -> { });
-            launcher.setCategoryFilter("codec");
-            assertEquals("codec", launcher.getCategoryFilter());
+            launcher.setCategory("codec");
+            assertEquals("codec", launcher.getCategory());
             assertEquals(
                     new LinkedHashSet<>(Arrays.asList(
                             "json.format", "jsonpath.tester", "regex.tester")),
@@ -86,8 +88,7 @@ class LauncherPanelTest {
 
             launcher.setQuery("no-such-tool-xyz");
             assertTrue(tiles(launcher).isEmpty());
-            assertNotNull(labelContaining(launcher,
-                    com.aqishi.toolbox.util.I18n.get("launcher.empty")), "空态必须有提示");
+            assertNotNull(labelContaining(launcher, I18n.get("home.empty.title")), "空态必须有提示");
         });
     }
 
@@ -103,15 +104,16 @@ class LauncherPanelTest {
     @Test
     void favoritesArePersistedAndFilterable() throws Exception {
         onEdt(() -> {
-            LauncherPanel launcher = launcher(id -> { });
+            ToolShortcuts shortcuts = ToolShortcuts.load();
+            LauncherPanel launcher = new LauncherPanel(model(), shortcuts, id -> { });
             LauncherCard card = tile(launcher, "json.format");
             assertNotNull(card);
             card.setFavorite(true, true);
 
             assertEquals("json.format", ConfigManager.get("nav.favorites", ""));
-            assertTrue(launcher.isFavorite("json.format"));
+            assertTrue(shortcuts.isFavorite("json.format"));
 
-            launcher.setFavoriteOnly(true);
+            launcher.setCategory(ToolSidebar.FAVORITES);
             assertEquals(Set.of("json.format"), tileIds(launcher));
         });
     }
@@ -122,9 +124,9 @@ class LauncherPanelTest {
             LauncherPanel launcher = launcher(id -> { });
             tile(launcher, "jsonpath.tester").setFavorite(true, true);
 
-            // 切换分类会重建磁贴，收藏状态必须从持久化里恢复
-            launcher.setCategoryFilter("codec");
-            launcher.setCategoryFilter(null);
+            // 切换分类会重建卡片，收藏状态必须从持久化里恢复
+            launcher.setCategory("codec");
+            launcher.setCategory(ToolSidebar.ALL);
             LauncherCard restored = tile(launcher, "jsonpath.tester");
             assertNotNull(restored);
             assertTrue(restored.isFavorite());
@@ -132,7 +134,24 @@ class LauncherPanelTest {
     }
 
     @Test
-    void clickingATileReportsTheStableToolId() throws Exception {
+    void recentlyOpenedToolsAreListed() throws Exception {
+        onEdt(() -> {
+            ToolShortcuts shortcuts = ToolShortcuts.load();
+            shortcuts.markOpened("regex.tester");
+            shortcuts.markOpened("http.client");
+            LauncherPanel launcher = new LauncherPanel(model(), shortcuts, id -> { });
+            launcher.setCategory(ToolSidebar.RECENT);
+
+            List<String> order = new ArrayList<>();
+            for (LauncherCard card : tiles(launcher)) {
+                order.add(card.getToolId());
+            }
+            assertEquals(Arrays.asList("http.client", "regex.tester"), order, "最近打开应置顶排序");
+        });
+    }
+
+    @Test
+    void clickingACardReportsTheStableToolId() throws Exception {
         AtomicReference<String> opened = new AtomicReference<>();
         onEdt(() -> {
             LauncherPanel launcher = launcher(opened::set);
@@ -142,21 +161,25 @@ class LauncherPanelTest {
     }
 
     @Test
-    void tilesCarryChineseTitleAndEnglishSubtitle() throws Exception {
+    void cardsCarryTheToolSummaryAndCategoryTag() throws Exception {
         onEdt(() -> {
             LauncherPanel launcher = launcher(id -> { });
             LauncherCard card = tile(launcher, "json.format");
             assertNotNull(card);
             assertTrue(card.getAccessibleContext().getAccessibleName().startsWith("JSON 格式化"));
-            assertTrue(card.getToolTipText().contains("JSON Formatter"),
-                    "中文界面下副标题应是英文名: " + card.getToolTipText());
+            String expected = I18n.get("tool.json.format.summary");
+            if ("tool.json.format.summary".equals(expected)) {
+                expected = I18n.get("tool.summary.generic");
+            }
+            assertTrue(card.getToolTipText().contains(expected),
+                    "卡片说明应来自工具摘要: " + card.getToolTipText());
         });
     }
 
     // ---------------------------------------------------------------- 辅助
 
     private static LauncherPanel launcher(java.util.function.Consumer<String> open) {
-        return new LauncherPanel(model(), open);
+        return new LauncherPanel(model(), ToolShortcuts.load(), open);
     }
 
     private static ToolNavigationModel model() {

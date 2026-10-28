@@ -9,6 +9,7 @@ import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Layouts;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.swing.*;
@@ -71,8 +72,7 @@ public class WebSocketClientPanel extends ToolPanel implements ManagedResourceOw
 
     @Override
     protected JComponent build() {
-        JPanel mainPanel = new JPanel(new BorderLayout(0, 12));
-        mainPanel.setBorder(new EmptyBorder(16, 16, 16, 16));
+        JPanel mainPanel = Layouts.page();
 
         // --- 顶栏：WebSocket 地址与连接控制 ---
         topCard = Card.titled(I18n.get("tool.websocket.url")).setCollapsible(true);

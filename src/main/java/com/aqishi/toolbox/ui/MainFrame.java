@@ -25,8 +25,8 @@ import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Component;
-import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Graphics;
@@ -34,22 +34,25 @@ import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
- * 主窗口：顶栏 + 工具侧栏 + 工作区 + 状态栏。
+ * 主窗口：顶栏 + 侧栏 + 内容区（首页 / 工具页）+ 状态栏。
  *
- * <p>按效果图，应用启动后直接停在某个工具页：左侧是完整工具目录，中间是带标题的
- * 工作区，不再经过磁贴启动器。所有工具仍由 {@link ToolContentHost} 按需挂载，
+ * <p>结构对应效果页：启动后停在首页的工具卡片网格，点卡片进入工具页，
+ * 工具页左上角的「返回」回到首页。工具视图仍由 {@link ToolContentHost} 按需挂载，
  * 切走不销毁，因此在工具之间来回切换不会丢草稿。</p>
  *
  * <p>颜色统一由 {@link Tokens}、当前皮肤与强调色提供，切换外观即整窗刷新。</p>
  */
 public class MainFrame extends JFrame {
 
-    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter CLOCK_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final String VIEW_HOME = "home";
+    private static final String VIEW_TOOL = "tool";
+    private static final String LAST_CATEGORY_KEY = "nav.category";
 
     private final VaultService vaultService;
     private final SecureClipboard secureClipboard;
@@ -58,12 +61,16 @@ public class MainFrame extends JFrame {
     private ToolSidebar sidebar;
     private ToolHeader toolHeader;
     private ToolContentHost contentHost;
-    private WorkspacePanel workspace;
+    private LauncherPanel home;
     private JPanel body;
+    private JPanel views;
+    private CardLayout viewLayout;
+    private CenteredColumn toolColumn;
 
     private ToolNavigationModel navigationModel;
     private ToolRegistry toolRegistry;
     private ToolPanel[] tools;
+    private ToolShortcuts shortcuts;
 
     private String currentToolId;
     private boolean sidebarCollapsed;
@@ -76,7 +83,7 @@ public class MainFrame extends JFrame {
     private JLabel statusCpuLabel;
     private JLabel statusMemoryLabel;
     private JLabel statusThemeLabel;
-    private JLabel statusDateLabel;
+    private JLabel statusClockLabel;
     private List<JLabel> statusSegments;
 
     private void createTools() {
@@ -109,6 +116,7 @@ public class MainFrame extends JFrame {
         // 数据库 / Redis / Kafka 等工具经 SSH 隧道首次连接新主机时，与 SSH 终端一样弹出指纹确认
         SshTunnelBridge.setHostKeyPrompt(SshHostKeyPrompts.dialogs(this));
         navigationModel = new ToolNavigationModel(java.util.Arrays.asList(tools));
+        shortcuts = ToolShortcuts.load();
 
         try {
             java.net.URL iconUrl = MainFrame.class.getResource("icon.png");
@@ -137,11 +145,8 @@ public class MainFrame extends JFrame {
             @Override
             public void windowOpened(java.awt.event.WindowEvent e) {
                 SwingUtilities.invokeLater(() -> {
-                    workspace.requestFocusInWindow();
-                    if (!workspace.hasFocus() && topBar.getSearchField().isFocusOwner()) {
-                        workspace.requestFocus();
-                    }
-                    if (sidebar != null) sidebar.revealSelected();
+                    if (sidebar != null) sidebar.setCollapsed(sidebarCollapsed);
+                    body.requestFocusInWindow();
                 });
             }
 
@@ -246,35 +251,41 @@ public class MainFrame extends JFrame {
         boolean restoredCollapsed = Boolean.parseBoolean(
                 ConfigManager.get("nav.sidebarCollapsed", "false"));
         setSidebarCollapsed(restoredCollapsed);
-        restoreLastView();
-        SwingUtilities.invokeLater(workspace::requestFocusInWindow);
-    }
 
-    /** 恢复上次停留的工具；首次启动直接打开 JSON 格式化（目录存在时）。 */
-    private void restoreLastView() {
-        String saved = ConfigManager.get("nav.selectedTool", null);
-        if (saved != null && !saved.isEmpty() && navigationModel.findTool(saved) != null) {
-            selectTool(saved);
-            return;
-        }
-        if (navigationModel.findTool("json.format") != null) {
-            selectTool("json.format");
-        } else if (!navigationModel.getToolIds().isEmpty()) {
-            selectTool(navigationModel.getFirstToolId());
-        }
+        String restoredCategory = ConfigManager.get(LAST_CATEGORY_KEY, ToolSidebar.ALL);
+        showHome(restoredCategory == null || restoredCategory.isEmpty()
+                ? ToolSidebar.ALL : restoredCategory);
+        SwingUtilities.invokeLater(() -> body.requestFocusInWindow());
     }
 
     private JComponent buildHeader() {
         topBar = new TopBar();
         topBar.setSidebarListener(() -> setSidebarCollapsed(!sidebarCollapsed));
-        topBar.setQueryListener(query -> sidebar.setQuery(query));
-        topBar.setSearchDownListener(() -> sidebar.focusFirstVisibleTool());
+        topBar.setQueryListener(query -> {
+            if (home != null) {
+                home.setQuery(query);
+            }
+            // 在工具页搜索时直接回到首页展示结果，避免「输入了但看不到变化」
+            if (!isHomeVisible()) {
+                sidebar.setActiveCategory(ToolSidebar.ALL);
+                showView(VIEW_HOME);
+            }
+        });
+        topBar.setSearchDownListener(() -> {
+            if (home != null) {
+                home.focusFirstTile();
+            }
+        });
         topBar.setSkinListener(skin -> {
             ThemeManager.applySkin(skin);
             afterThemeChange();
         });
         topBar.setAccentListener(rgb -> {
-            ThemeManager.applyAccent(rgb);
+            if (rgb == 0) {
+                ThemeManager.clearAccent();
+            } else {
+                ThemeManager.applyAccent(rgb);
+            }
             afterThemeChange();
         });
         topBar.setThemeListener(name -> {
@@ -298,39 +309,41 @@ public class MainFrame extends JFrame {
     }
 
     private JComponent buildBody() {
-        sidebar = new ToolSidebar(
-                navigationModel,
-                this::selectTool,
+        sidebar = new ToolSidebar(navigationModel, shortcuts, this::showHome,
                 () -> setSidebarCollapsed(true));
-        sidebar.setSearchAction(() -> topBar.focusSearch());
-        sidebar.setFavoriteListener(toolId -> {
-            if (java.util.Objects.equals(currentToolId, toolId)) {
-                toolHeader.setFavorite(sidebar.isFavorite(toolId));
-            }
-            updateStatusBar();
-        });
 
         toolHeader = new ToolHeader();
         toolHeader.setFavoriteListener(this::toggleFavorite);
+        toolHeader.setBackListener(() -> showHome(sidebar.getActiveCategory()));
 
         contentHost = new ToolContentHost(java.util.Arrays.asList(tools));
         contentHost.setBorder(BorderFactory.createEmptyBorder());
         contentHost.setOpaque(false);
 
-        JPanel inner = new JPanel(new BorderLayout(0, 18));
-        inner.setOpaque(false);
-        inner.add(toolHeader, BorderLayout.NORTH);
-        inner.add(contentHost, BorderLayout.CENTER);
+        JPanel toolPage = new JPanel(new BorderLayout(0, 18));
+        toolPage.setOpaque(false);
+        toolPage.add(toolHeader, BorderLayout.NORTH);
+        toolPage.add(contentHost, BorderLayout.CENTER);
 
-        workspace = new WorkspacePanel();
-        workspace.setBorder(new EmptyBorder(22, 26, 22, 26));
-        workspace.add(inner);
-        workspace.setFocusable(true);
+        toolColumn = new CenteredColumn();
+        toolColumn.setBorder(new EmptyBorder(
+                Tokens.PAGE_PADDING_TOP, Tokens.PAGE_PADDING_X,
+                Tokens.SPACE_LG, Tokens.PAGE_PADDING_X));
+        toolColumn.add(toolPage);
+
+        home = new LauncherPanel(navigationModel, shortcuts, this::selectTool);
+
+        viewLayout = new CardLayout();
+        views = new JPanel(viewLayout);
+        views.setOpaque(false);
+        views.add(home, VIEW_HOME);
+        views.add(toolColumn, VIEW_TOOL);
 
         body = new JPanel(new BorderLayout());
         body.setOpaque(false);
+        body.setFocusable(true);
         body.add(sidebar, BorderLayout.WEST);
-        body.add(workspace, BorderLayout.CENTER);
+        body.add(views, BorderLayout.CENTER);
         return body;
     }
 
@@ -338,6 +351,11 @@ public class MainFrame extends JFrame {
 
     public ToolPanel findTool(String toolId) {
         return navigationModel != null ? navigationModel.findTool(toolId) : null;
+    }
+
+    /** 注册的工具总数，供外壳结构测试断言「功能零缺失」 */
+    int toolCount() {
+        return navigationModel == null ? 0 : navigationModel.getToolIds().size();
     }
 
     /** 从任意子组件回溯主窗口；工具面板用它打开跨工具跳转或刷新外壳。 */
@@ -351,23 +369,52 @@ public class MainFrame extends JFrame {
         ToolPanel tool = navigationModel.findTool(toolId);
         if (tool == null || !contentHost.showTool(toolId)) return;
         currentToolId = toolId;
+        shortcuts.markOpened(toolId);
         ConfigManager.set("nav.selectedTool", toolId);
         toolHeader.setTool(tool);
-        toolHeader.setFavorite(sidebar.isFavorite(toolId));
-        sidebar.setSelectedTool(toolId);
+        toolHeader.setFavorite(shortcuts.isFavorite(toolId));
+        sidebar.setCurrentTool(toolId, tool.getGroup());
+        sidebar.setActiveCategory(tool.getGroup());
+        showView(VIEW_TOOL);
         updateStatusBar();
-        workspace.revalidate();
-        workspace.repaint();
+        SwingUtilities.invokeLater(() -> toolColumn.scrollToTop());
+    }
+
+    /** 回到首页并展示指定分组 */
+    public void showHome(String category) {
+        currentToolId = null;
+        String target = category == null || category.isEmpty() ? ToolSidebar.ALL : category;
+        sidebar.setCurrentTool(null, null);
+        sidebar.setActiveCategory(target);
+        home.setCategory(target);
+        showView(VIEW_HOME);
+        ConfigManager.set(LAST_CATEGORY_KEY, target);
+        updateStatusBar();
+    }
+
+    private void showView(String name) {
+        viewLayout.show(views, name);
+        views.revalidate();
+        views.repaint();
+    }
+
+    private boolean isHomeVisible() {
+        return home != null && home.isShowing();
     }
 
     private void toggleFavorite(String toolId) {
-        sidebar.toggleFavorite(toolId);
+        boolean favorite = shortcuts.toggleFavorite(toolId);
+        if (java.util.Objects.equals(currentToolId, toolId)) {
+            toolHeader.setFavorite(favorite);
+        }
+        updateStatusBar();
     }
 
     private void setSidebarCollapsed(boolean collapsed) {
         sidebarCollapsed = collapsed;
         if (sidebar != null) sidebar.setVisible(!collapsed);
         if (topBar != null) topBar.setSidebarExpanded(!collapsed);
+        if (sidebar != null) sidebar.setCollapsed(collapsed);
         ConfigManager.set("nav.sidebarCollapsed", Boolean.toString(collapsed));
         if (body != null) {
             body.revalidate();
@@ -402,9 +449,9 @@ public class MainFrame extends JFrame {
             @Override public void actionPerformed(java.awt.event.ActionEvent event) {
                 if (!topBar.getSearchField().getText().isEmpty()) {
                     topBar.setQuery("");
-                    sidebar.setQuery("");
-                } else {
-                    sidebar.focusFirstVisibleTool();
+                    home.setQuery("");
+                } else if (!isHomeVisible()) {
+                    showHome(sidebar.getActiveCategory());
                 }
             }
         });
@@ -426,6 +473,7 @@ public class MainFrame extends JFrame {
     private void persistNavigationState() {
         ConfigManager.set("nav.selectedTool", currentToolId == null ? "" : currentToolId);
         ConfigManager.set("nav.sidebarCollapsed", Boolean.toString(sidebarCollapsed));
+        ConfigManager.set(LAST_CATEGORY_KEY, sidebar.getActiveCategory());
     }
 
     // ---------------------------------------------------------------- 外观刷新
@@ -434,6 +482,7 @@ public class MainFrame extends JFrame {
         ToolGlyph.invalidate();
         topBar.refreshThemeIndicators();
         sidebar.restyle();
+        if (home != null) home.restyle();
         if (toolHeader != null) toolHeader.refresh();
         restyleAfterThemeChange();
         SwingUtilities.invokeLater(() -> {
@@ -454,8 +503,9 @@ public class MainFrame extends JFrame {
         if (statusFavoriteLabel != null) {
             statusFavoriteLabel.setForeground(Tokens.secondaryForeground());
         }
-        if (statusDateLabel != null) {
-            statusDateLabel.setForeground(Tokens.mutedForeground());
+        if (statusClockLabel != null) {
+            statusClockLabel.setFont(Tokens.fontMono().deriveFont(12f));
+            statusClockLabel.setForeground(Tokens.secondaryForeground());
         }
         repaint();
     }
@@ -463,7 +513,8 @@ public class MainFrame extends JFrame {
     private void reloadInPlace() {
         setTitle(I18n.get("app.title"));
         topBar.refreshLabels();
-        sidebar.refresh();
+        sidebar.refreshLabels();
+        home.refresh();
         toolHeader.refresh();
         updateStatusBar();
         revalidate();
@@ -486,11 +537,13 @@ public class MainFrame extends JFrame {
         statusMemoryLabel = statusSegment();
         statusThemeLabel = statusSegment();
         statusThemeLabel.setName("workbench.status.theme");
-        statusDateLabel = statusSegment();
-        statusDateLabel.setName("workbench.status.date");
+        statusClockLabel = statusSegment();
+        statusClockLabel.setName("workbench.clock");
+        statusClockLabel.setFont(Tokens.fontMono().deriveFont(12f));
+        statusClockLabel.setForeground(Tokens.secondaryForeground());
         statusSegments = java.util.Arrays.asList(
                 statusReadyLabel, statusCurrentLabel, statusFavoriteLabel,
-                statusJdkLabel, statusCpuLabel, statusMemoryLabel, statusThemeLabel, statusDateLabel);
+                statusJdkLabel, statusCpuLabel, statusMemoryLabel, statusThemeLabel);
 
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         left.setOpaque(false);
@@ -510,11 +563,11 @@ public class MainFrame extends JFrame {
         right.add(statusDivider());
         right.add(statusThemeLabel);
         right.add(statusDivider());
-        right.add(statusDateLabel);
+        right.add(statusClockLabel);
 
         JPanel bar = chromePanel();
         bar.setLayout(new BorderLayout(UIUtils.SPACE_MD, 0));
-        bar.setBorder(new EmptyBorder(5, 14, 5, 14));
+        bar.setBorder(new EmptyBorder(4, 14, 4, 14));
         bar.add(left, BorderLayout.WEST);
         bar.add(right, BorderLayout.EAST);
 
@@ -567,14 +620,16 @@ public class MainFrame extends JFrame {
         long max = rt.maxMemory();
         int memPct = max > 0 ? (int) (used * 100L / max) : 0;
 
-        statusReadyLabel.setText(localized("status.ready.short", "Ready"));
+        statusReadyLabel.setText(I18n.get("status.ready.short"));
         ToolPanel current = currentToolId == null ? null : navigationModel.findTool(currentToolId);
-        statusCurrentLabel.setText(java.text.MessageFormat.format(
-                localized("status.currentTool", "Current tool: {0}"),
-                current == null ? "—" : current.getLabel()));
-        int favoriteCount = sidebar == null ? 0 : sidebar.getFavoriteIds().size();
-        statusFavoriteLabel.setText(favoriteCount == 0 ? "" : java.text.MessageFormat.format(
-                localized("status.favorites", "Favorites: {0}"), favoriteCount));
+        statusCurrentLabel.setText(current == null
+                ? java.text.MessageFormat.format(
+                        I18n.get("status.toolCount"), model().getToolIds().size())
+                : java.text.MessageFormat.format(
+                        I18n.get("status.currentTool"), current.getLabel()));
+        statusFavoriteLabel.setText(shortcuts.favoriteCount() == 0 ? ""
+                : java.text.MessageFormat.format(
+                        I18n.get("status.favorites"), shortcuts.favoriteCount()));
         statusJdkLabel.setText("JDK " + System.getProperty("java.version"));
 
         double cpuLoad = -1;
@@ -588,30 +643,32 @@ public class MainFrame extends JFrame {
         }
         statusCpuLabel.setText(cpuLoad >= 0 ? String.format("CPU %.1f%%", cpuLoad * 100) : "CPU --%");
         statusMemoryLabel.setText(java.text.MessageFormat.format(
-                localized("status.memory", "内存 {0} / {1} ({2}%)"),
+                I18n.get("status.memory"),
                 FormatUtils.bytes(used), FormatUtils.bytes(max), memPct));
         statusThemeLabel.setText(java.text.MessageFormat.format(
-                localized("status.theme", "Theme: {0}"), ThemeManager.skin().label()));
-        statusDateLabel.setText(LocalDate.now().format(DATE_FORMAT));
+                I18n.get("status.theme"), ThemeManager.skin().label()));
+        statusClockLabel.setText(LocalDateTime.now().format(CLOCK_FORMAT));
     }
 
-    private static String localized(String key, String fallback) {
-        String value = I18n.get(key);
-        return key.equals(value) ? fallback : value;
+    private ToolNavigationModel model() {
+        return navigationModel;
     }
 
     /**
-     * 工作区底色与内容宽度：效果页把正文限制在 1020px 并居中，
-     * 超宽屏下卡片不会横跨整块屏幕，阅读长度更稳定。
+     * 工具页容器：内容限制在 1180px 并居中，超宽屏下表单不会被拉成极长的一行。
+     *
+     * <p>滚动由各工具面板自己负责（表格、终端、日志都需要独立滚动条），
+     * 因此这里只做水平居中，不套第二层滚动视图。</p>
      */
-    private static final class WorkspacePanel extends JPanel {
+    private static final class CenteredColumn extends JPanel {
 
-        private static final int MAX_CONTENT_WIDTH = 1020;
-
-        WorkspacePanel() {
+        CenteredColumn() {
             super(null);
             setOpaque(false);
-            setCursor(Cursor.getDefaultCursor());
+        }
+
+        void scrollToTop() {
+            // 工具页内部滚动由面板自己管理，这里不额外处理
         }
 
         @Override
@@ -619,7 +676,7 @@ public class MainFrame extends JFrame {
             if (getComponentCount() == 0) return;
             java.awt.Insets insets = getInsets();
             int available = Math.max(1, getWidth() - insets.left - insets.right);
-            int width = Math.min(MAX_CONTENT_WIDTH, available);
+            int width = Math.min(Tokens.PAGE_MAX_WIDTH, available);
             int x = insets.left + Math.max(0, (available - width) / 2);
             int height = Math.max(1, getHeight() - insets.top - insets.bottom);
             getComponent(0).setBounds(x, insets.top, width, height);

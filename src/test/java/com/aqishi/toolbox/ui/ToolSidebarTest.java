@@ -1,8 +1,8 @@
 package com.aqishi.toolbox.ui;
 
+import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.ConfigManagerTestSupport;
-import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.vault.VaultUiTestSupport;
 import org.junit.jupiter.api.AfterEach;
@@ -12,30 +12,28 @@ import org.junit.jupiter.api.io.TempDir;
 
 import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.util.Arrays;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 工具目录侧栏的行为测试。
+ * 侧栏导航测试。
  *
- * <p>侧栏不再是分类入口，而是完整工具列表：这里验证平铺条目、稳定工具 ID、
- * 搜索、收藏持久化与选中高亮。分类本身的顺序由目录模型保证。</p>
+ * <p>效果页的侧栏是「视图入口 + 分类」，不再逐个列出工具：这里验证三档视图入口、
+ * 分类计数、选中高亮与折叠开关，以及收藏数量随 {@link ToolShortcuts} 实时刷新。</p>
  */
 class ToolSidebarTest {
 
@@ -50,6 +48,7 @@ class ToolSidebarTest {
         support = new VaultUiTestSupport(temp.resolve("profile"));
         configScope = ConfigManagerTestSupport.install(support.paths());
         ConfigManager.set("nav.favorites", "");
+        ConfigManager.set("nav.recent", "");
         ConfigManager.set("locale", "zh_CN");
         I18n.init();
     }
@@ -61,113 +60,85 @@ class ToolSidebarTest {
     }
 
     @Test
-    void listsEveryToolAsANavigationRow() throws Exception {
+    void listsTheThreeViewsAndEveryCategory() throws Exception {
         onEdt(() -> {
-            ToolSidebar sidebar = sidebar();
-            assertNotNull(named(sidebar, "nav.tool.hash.codec"), "每个工具都应有独立入口");
-            assertNotNull(named(sidebar, "nav.tool.radix.encoding"));
-            assertNotNull(named(sidebar, "nav.tool.regex.tester"));
-            assertNotNull(named(sidebar, "nav.tool.http.client"));
+            ToolSidebar sidebar = sidebar(ToolShortcuts.load(), ignored -> { });
+            assertNotNull(named(sidebar, "nav.category.all"));
+            assertNotNull(named(sidebar, "nav.category.favorites"));
+            assertNotNull(named(sidebar, "nav.category.recent"));
+            assertNotNull(named(sidebar, "nav.category.crypto"));
+            assertNotNull(named(sidebar, "nav.category.convert"));
+            assertNotNull(named(sidebar, "nav.category.codec"));
+            assertNotNull(named(sidebar, "nav.category.network"));
+            assertNull(find(sidebar, JButton.class,
+                    button -> button.getName() != null && button.getName().startsWith("nav.tool.")),
+                    "工具入口改由首页卡片承担，侧栏不再平铺工具");
         });
     }
 
     @Test
-    void clickingARowReportsTheStableToolId() throws Exception {
-        AtomicReference<String> opened = new AtomicReference<>();
+    void clickingACategoryReportsItsId() throws Exception {
+        AtomicReference<String> selected = new AtomicReference<>();
         onEdt(() -> {
-            ToolSidebar sidebar = new ToolSidebar(model(), opened::set, () -> { });
-            named(sidebar, "nav.tool.regex.tester").doClick(0);
+            ToolSidebar sidebar = sidebar(ToolShortcuts.load(), selected::set);
+            named(sidebar, "nav.category.codec").doClick(0);
         });
-        assertEquals("regex.tester", opened.get());
+        assertEquals("codec", selected.get());
     }
 
     @Test
-    void selectionHighlightFollowsTheOpenTool() throws Exception {
+    void activeEntryFollowsTheRequestedCategory() throws Exception {
         onEdt(() -> {
-            ToolSidebar sidebar = sidebar();
-            sidebar.setSelectedTool("radix.encoding");
-            assertEquals("radix.encoding", sidebar.getSelectedToolId());
-            assertEquals("convert", sidebar.getSelectedCategory());
-
-            JButton item = named(sidebar, "nav.tool.radix.encoding");
-            item.setSize(220, 34);
-            BufferedImage snapshot = new BufferedImage(220, 34, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D graphics = snapshot.createGraphics();
-            item.paint(graphics);
-            graphics.dispose();
-
-            assertEquals(Tokens.activeSurface().getRGB(), snapshot.getRGB(214, 16));
+            ToolSidebar sidebar = sidebar(ToolShortcuts.load(), ignored -> { });
+            sidebar.setActiveCategory("convert");
+            assertEquals("convert", sidebar.getActiveCategory());
+            assertActiveBackground(sidebar, "nav.category.convert");
+            assertTrue(!isActive(sidebar, "nav.category.all"), "其它入口不应保持高亮");
         });
     }
 
     @Test
-    void searchFiltersChineseNamesAndShowsAnEmptyState() throws Exception {
+    void favoriteAndRecentCountsFollowTheShortcutStore() throws Exception {
         onEdt(() -> {
-            ToolSidebar sidebar = sidebar();
-            sidebar.setQuery("正则");
-            assertNotNull(named(sidebar, "nav.tool.regex.tester"));
-            assertEquals(null, find(sidebar, JButton.class,
-                    button -> "nav.tool.http.client".equals(button.getName())));
+            ToolShortcuts shortcuts = ToolShortcuts.load();
+            ToolSidebar sidebar = sidebar(shortcuts, ignored -> { });
+            assertEquals("", badgeText(sidebar, "nav.category.favorites"));
 
-            sidebar.setQuery("no-such-tool-xyz");
-            assertNotNull(find(sidebar, javax.swing.JLabel.class,
-                    label -> I18n.get("nav.empty").equals(label.getText())));
+            shortcuts.toggleFavorite("regex.tester");
+            assertEquals("1", badgeText(sidebar, "nav.category.favorites"));
+
+            shortcuts.markOpened("http.client");
+            assertEquals("1", badgeText(sidebar, "nav.category.recent"));
         });
     }
 
     @Test
-    void searchAlsoMatchesEnglishKeywords() throws Exception {
+    void categoryBadgeCountsItsTools() throws Exception {
         onEdt(() -> {
-            ToolSidebar sidebar = sidebar();
-            sidebar.setQuery("regexp");
-            assertNotNull(named(sidebar, "nav.tool.regex.tester"));
-            assertEquals(null, find(sidebar, JButton.class,
-                    button -> "nav.tool.http.client".equals(button.getName())));
+            ToolSidebar sidebar = sidebar(ToolShortcuts.load(), ignored -> { });
+            assertEquals("2", badgeText(sidebar, "nav.category.codec"));
+            assertEquals("5", badgeText(sidebar, "nav.category.all"));
         });
     }
 
     @Test
-    void favoritesArePersistedAndToggleableFromTheRowStar() throws Exception {
+    void selectionSurvivesALabelRefresh() throws Exception {
         onEdt(() -> {
-            ToolSidebar sidebar = sidebar();
-            JButton star = named(sidebar, "nav.favorite.regex.tester");
-            star.doClick(0);
-
-            assertTrue(sidebar.isFavorite("regex.tester"));
-            assertEquals("regex.tester", ConfigManager.get("nav.favorites", ""));
-            assertNotNull(named(sidebar, "nav.favorite.regex.tester"));
-        });
-    }
-
-    @Test
-    void favoriteStateSurvivesAFilterRebuild() throws Exception {
-        onEdt(() -> {
-            ToolSidebar sidebar = sidebar();
-            sidebar.setFavorite("http.client", true);
-            sidebar.setQuery("http");
-            sidebar.setQuery("");
-            assertTrue(sidebar.isFavorite("http.client"));
-        });
-    }
-
-    @Test
-    void refreshLabelsKeepsTheCurrentSelection() throws Exception {
-        onEdt(() -> {
-            ToolSidebar sidebar = sidebar();
-            sidebar.setSelectedTool("radix.encoding");
+            ToolSidebar sidebar = sidebar(ToolShortcuts.load(), ignored -> { });
+            sidebar.setActiveCategory("network");
             sidebar.refreshLabels();
-            assertEquals("radix.encoding", sidebar.getSelectedToolId());
-            assertNotNull(named(sidebar, "nav.tool.radix.encoding"));
+            assertEquals("network", sidebar.getActiveCategory());
+            assertActiveBackground(sidebar, "nav.category.network");
         });
     }
 
     @Test
-    void focusSearchDelegatesToTheInjectedAction() throws Exception {
+    void collapseButtonReportsToItsListener() throws Exception {
         AtomicReference<Integer> calls = new AtomicReference<>(0);
         onEdt(() -> {
-            ToolSidebar sidebar = sidebar();
-            sidebar.setSearchAction(() -> calls.updateAndGet(v -> v + 1));
-            sidebar.focusSearch();
+            ToolSidebar sidebar = new ToolSidebar(model(), ToolShortcuts.load(), ignored -> { },
+                    () -> calls.updateAndGet(value -> value + 1));
+            named(sidebar, "workbench.sidebarCollapse").doClick(0);
         });
         assertEquals(1, calls.get());
     }
@@ -175,21 +146,22 @@ class ToolSidebarTest {
     @Test
     void sidebarDrawsItsNavigationSurface() throws Exception {
         onEdt(() -> {
-            ToolSidebar sidebar = sidebar();
+            ToolSidebar sidebar = sidebar(ToolShortcuts.load(), ignored -> { });
             sidebar.setSize(240, 400);
             layoutAll(sidebar);
             BufferedImage snapshot = new BufferedImage(240, 400, BufferedImage.TYPE_INT_ARGB);
             Graphics2D graphics = snapshot.createGraphics();
             sidebar.paint(graphics);
             graphics.dispose();
-            assertEquals(Tokens.navigationBackground().getRGB(), snapshot.getRGB(200, 200));
+            assertEquals(Tokens.navigationBackground().getRGB(), snapshot.getRGB(200, 380));
         });
     }
 
     // ---------------------------------------------------------------- 辅助
 
-    private static ToolSidebar sidebar() {
-        return new ToolSidebar(model(), id -> { }, () -> { });
+    private static ToolSidebar sidebar(ToolShortcuts shortcuts,
+                                       java.util.function.Consumer<String> listener) {
+        return new ToolSidebar(model(), shortcuts, listener, () -> { });
     }
 
     private static ToolNavigationModel model() {
@@ -197,6 +169,7 @@ class ToolSidebarTest {
                 tool("crypto", "hash.codec", "哈希计算", "安全", "digest"),
                 tool("convert", "radix.encoding", "进制转换", "编码", "binary"),
                 tool("codec", "regex.tester", "正则测试", "编码", "regexp", "正则"),
+                tool("codec", "json.format", "JSON 格式化", "编码", "json"),
                 tool("network", "http.client", "HTTP 接口测试", "网络", "http", "request")));
     }
 
@@ -207,6 +180,29 @@ class ToolSidebarTest {
             @Override public String getGroupLabel() { return groupLabel; }
             @Override protected JComponent build() { return new JPanel(); }
         };
+    }
+
+    private static boolean isActive(Container root, String name) {
+        JButton button = named(root, name);
+        return Boolean.TRUE.equals(button.getClientProperty("active"));
+    }
+
+    private static void assertActiveBackground(Container root, String name) {
+        JButton item = named(root, name);
+        item.setSize(220, 34);
+        BufferedImage snapshot = new BufferedImage(220, 34, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = snapshot.createGraphics();
+        item.paint(graphics);
+        graphics.dispose();
+        assertEquals(Tokens.activeSurface().getRGB(), snapshot.getRGB(214, 16),
+                "选中行应铺强调色浅底");
+    }
+
+    /** 计数徽标是导航行的第三个子组件（WEST 图标、CENTER 文本、EAST 计数） */
+    private static String badgeText(Container root, String name) {
+        JButton item = named(root, name);
+        assertEquals(3, item.getComponentCount(), "导航行结构应为 图标 + 文本 + 计数");
+        return ((JLabel) item.getComponent(2)).getText();
     }
 
     private static JButton named(Container root, String name) {

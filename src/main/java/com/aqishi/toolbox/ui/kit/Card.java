@@ -23,10 +23,11 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * 卡片容器：圆角描边 + 可选标题带 + 内容区 + 可选折叠支持。
+ * 面板容器：圆角描边 + 可选标题 + 内容区 + 可选折叠支持。
  *
- * <p>用来替代到处出现的 {@code TitledBorder}。标题带与内容之间只用一条细线分隔，
- * 不叠加阴影或额外留白；背景与描边在绘制时从 {@link Tokens} 读取，切换主题即跟随。</p>
+ * <p>对应效果页的 {@code .panel}：白底、1px 描边、12px 圆角、20px 内边距，
+ * 标题是 13px 加粗的次要色文字。用来替代到处出现的 {@code TitledBorder}，
+ * 背景与描边在绘制时从 {@link Tokens} 读取，切换主题即跟随。</p>
  *
  * <p>支持原生折叠功能：配置卡片可一键折叠收缩为单行标题栏，极大地释放主要操作区域的可视空间，
  * 折叠后标题右侧的动作栏（连接/开始/停止等）依然可见可用。</p>
@@ -102,16 +103,17 @@ public class Card extends JPanel {
         add(content, BorderLayout.CENTER);
         if (title != null) {
             buildHeader(title, subtitle);
+            applyContentPadding();
         }
     }
 
     private void buildHeader(String title, String subtitle) {
-        header = new JPanel(new BorderLayout(Tokens.SPACE_SM, 0));
+        header = new JPanel(new HeaderLayout());
         header.setOpaque(false);
 
         titleLabel = new JLabel(title);
         titleLabel.setFont(Tokens.fontSectionTitle());
-        titleLabel.setForeground(Tokens.foreground());
+        titleLabel.setForeground(Tokens.secondaryForeground());
 
         collapseIndicator = new JLabel(new ChevronIcon(true, 14));
         collapseIndicator.setVisible(false);
@@ -132,25 +134,28 @@ public class Card extends JPanel {
             titleBox.add(subtitleLabel);
         }
 
-        // 用 BoxLayout 而不是 FlowLayout：动作多于两三个时，窄窗口下不会把标题挤没或换行
-        actionBox = new JPanel();
-        actionBox.setLayout(new javax.swing.BoxLayout(actionBox, javax.swing.BoxLayout.X_AXIS));
+        // 动作行可换行：按钮一多、窗口一窄就折到下一行，而不是被裁掉
+        actionBox = new JPanel(new WrapRowLayout(
+                Tokens.SPACE_SM, Tokens.SPACE_SM, WrapRowLayout.Align.RIGHT));
         actionBox.setOpaque(false);
         actionBox.setVisible(false);
 
-        JPanel leftBox = new JPanel(new BorderLayout(Tokens.SPACE_XS, 0));
-        leftBox.setOpaque(false);
-        leftBox.add(collapseIndicator, BorderLayout.WEST);
-        leftBox.add(titleBox, BorderLayout.CENTER);
-
-        header.add(leftBox, BorderLayout.CENTER);
-        header.add(actionBox, BorderLayout.EAST);
+        header.add(collapseIndicator);
+        header.add(titleBox);
+        header.add(actionBox);
 
         headerWrapper = new JPanel(new BorderLayout());
         headerWrapper.setOpaque(false);
         headerWrapper.setBorder(new EmptyBorder(
-                Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.SPACE_SM + 2, Tokens.CARD_PADDING));
+                16, Tokens.CARD_PADDING, 2, Tokens.CARD_PADDING));
         headerWrapper.add(header, BorderLayout.CENTER);
+        header.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent event) {
+                // 动作行是否折行取决于宽度：宽度变化后头部高度需要重算
+                headerWrapper.revalidate();
+            }
+        });
 
         headerHairline = new Hairline();
 
@@ -178,7 +183,7 @@ public class Card extends JPanel {
             }
         };
         headerWrapper.addMouseListener(clickAdapter);
-        leftBox.addMouseListener(clickAdapter);
+        header.addMouseListener(clickAdapter);
         titleBox.addMouseListener(clickAdapter);
         titleLabel.addMouseListener(clickAdapter);
         collapseIndicator.addMouseListener(clickAdapter);
@@ -187,9 +192,13 @@ public class Card extends JPanel {
     private void applyContentPadding() {
         if (flush) {
             content.setBorder(BorderFactory.createEmptyBorder(1, 1, 1, 1));
+        } else if (header != null) {
+            // 标题自带 16px 上边距与 2px 下边距，正文只需再补 10px 就与效果页的标题间距一致
+            content.setBorder(new EmptyBorder(
+                    10, Tokens.CARD_PADDING, Tokens.CARD_PADDING, Tokens.CARD_PADDING));
         } else {
             content.setBorder(new EmptyBorder(
-                    Tokens.SPACE_MD, Tokens.CARD_PADDING, Tokens.CARD_PADDING, Tokens.CARD_PADDING));
+                    Tokens.CARD_PADDING, Tokens.CARD_PADDING, Tokens.CARD_PADDING, Tokens.CARD_PADDING));
         }
     }
 
@@ -198,6 +207,21 @@ public class Card extends JPanel {
         this.flush = value;
         applyContentPadding();
         return this;
+    }
+
+    /** 标题文字色：跟随主题的次要文字色 */
+    public void restyle() {
+        if (titleLabel != null) {
+            titleLabel.setFont(Tokens.fontSectionTitle());
+            titleLabel.setForeground(Tokens.secondaryForeground());
+        }
+        if (subtitleLabel != null) {
+            subtitleLabel.setFont(Tokens.fontCaption());
+            subtitleLabel.setForeground(Tokens.mutedForeground());
+        }
+        updateCollapseIndicator();
+        applyContentPadding();
+        repaint();
     }
 
     /** 内容容器，可直接按 BorderLayout 使用 */
@@ -382,7 +406,7 @@ public class Card extends JPanel {
         // 主题切换后重新取色取字，避免沿用旧主题的前景色
         if (titleLabel != null) {
             titleLabel.setFont(Tokens.fontSectionTitle());
-            titleLabel.setForeground(Tokens.foreground());
+            titleLabel.setForeground(Tokens.secondaryForeground());
         }
         if (subtitleLabel != null) {
             subtitleLabel.setFont(Tokens.fontCaption());
@@ -440,6 +464,125 @@ public class Card extends JPanel {
         float arc = Tokens.RADIUS_CARD;
         return new RoundRectangle2D.Float(
                 0.5f, 0.5f, getWidth() - 1f, getHeight() - 1f, arc, arc);
+    }
+
+    /**
+     * 卡片头部布局：标题在左、动作在右；放不下时动作整体折到第二行。
+     *
+     * <p>效果页的面板标题行经常带三到五个操作按钮。{@code BorderLayout.EAST}
+     * 会无条件按首选宽度放置动作区，窗口一窄就把右侧按钮挤出卡片；
+     * 这里按可用宽度先试一行，放不下就折行，卡片高度随之增加，按钮文字永远不会被截断。</p>
+     */
+    private static final class HeaderLayout implements java.awt.LayoutManager {
+
+        private static final int GAP = Tokens.SPACE_SM;
+
+        @Override
+        public void addLayoutComponent(String name, Component component) { }
+
+        @Override
+        public void removeLayoutComponent(Component component) { }
+
+        private static Dimension sizeOf(Component component) {
+            if (component == null || !component.isVisible()) {
+                return new Dimension(0, 0);
+            }
+            return component.getPreferredSize();
+        }
+
+        /** 容器宽度；首次布局时祖先也可能还没有宽度，按「放得下」处理 */
+        private static int available(java.awt.Container parent) {
+            int width = parent.getWidth();
+            java.awt.Container cursor = parent;
+            while (width <= 0 && cursor.getParent() != null) {
+                cursor = cursor.getParent();
+                width = cursor.getWidth();
+            }
+            java.awt.Insets insets = parent.getInsets();
+            return width <= 0 ? Integer.MAX_VALUE : Math.max(1, width - insets.left - insets.right);
+        }
+
+        private static int wrappedHeight(Component actions, int width) {
+            if (actions instanceof JPanel panel && panel.getLayout() instanceof WrapRowLayout wrap) {
+                return wrap.heightFor(panel, width);
+            }
+            return sizeOf(actions).height;
+        }
+
+        /** 一行放得下就并排，放不下就把动作整体折到标题下方 */
+        private static boolean stacked(java.awt.Container parent, int available) {
+            if (parent.getComponentCount() < 3) return false;
+            Dimension indicator = sizeOf(parent.getComponent(0));
+            Dimension title = sizeOf(parent.getComponent(1));
+            Dimension actions = sizeOf(parent.getComponent(2));
+            if (actions.width == 0) return false;
+            return indicator.width + title.width + GAP + actions.width > available;
+        }
+
+        @Override
+        public Dimension preferredLayoutSize(java.awt.Container parent) {
+            java.awt.Insets insets = parent.getInsets();
+            int available = available(parent);
+            Dimension indicator = parent.getComponentCount() > 0
+                    ? sizeOf(parent.getComponent(0)) : new Dimension(0, 0);
+            Dimension title = parent.getComponentCount() > 1
+                    ? sizeOf(parent.getComponent(1)) : new Dimension(0, 0);
+            Dimension actions = parent.getComponentCount() > 2
+                    ? sizeOf(parent.getComponent(2)) : new Dimension(0, 0);
+
+            int titleHeight = Math.max(indicator.height, title.height);
+            int actionHeight = actions.width == 0 ? 0
+                    : (stacked(parent, available)
+                            ? wrappedHeight(parent.getComponent(2), available)
+                            : actions.height);
+            int height = actionHeight == 0
+                    ? titleHeight
+                    : (stacked(parent, available)
+                            ? titleHeight + GAP + actionHeight
+                            : Math.max(titleHeight, actionHeight));
+            int width = indicator.width + title.width + (actions.width > 0 ? GAP + actions.width : 0);
+            return new Dimension(width + insets.left + insets.right,
+                    height + insets.top + insets.bottom);
+        }
+
+        @Override
+        public Dimension minimumLayoutSize(java.awt.Container parent) {
+            return preferredLayoutSize(parent);
+        }
+
+        @Override
+        public void layoutContainer(java.awt.Container parent) {
+            java.awt.Insets insets = parent.getInsets();
+            int available = available(parent);
+            Component indicator = parent.getComponentCount() > 0 ? parent.getComponent(0) : null;
+            Component title = parent.getComponentCount() > 1 ? parent.getComponent(1) : null;
+            Component actions = parent.getComponentCount() > 2 ? parent.getComponent(2) : null;
+            Dimension indicatorSize = sizeOf(indicator);
+            Dimension titleSize = sizeOf(title);
+            Dimension actionSize = sizeOf(actions);
+
+            int titleHeight = Math.max(indicatorSize.height, titleSize.height);
+            boolean stack = stacked(parent, available);
+
+            if (indicator != null && indicatorSize.height > 0) {
+                indicator.setBounds(insets.left, insets.top, indicatorSize.width, titleHeight);
+            }
+            if (title != null && titleSize.height > 0) {
+                title.setBounds(insets.left + indicatorSize.width, insets.top,
+                        Math.max(1, available - indicatorSize.width), titleHeight);
+            }
+            if (actions == null || actionSize.width == 0) {
+                return;
+            }
+            if (stack) {
+                int height = wrappedHeight(actions, available);
+                actions.setBounds(insets.left, insets.top + titleHeight + GAP, available, height);
+            } else {
+                actions.setBounds(insets.left + available - actionSize.width,
+                        insets.top + Math.max(0, (titleHeight - actionSize.height) / 2),
+                        actionSize.width, actionSize.height);
+            }
+        }
     }
 
     /** 卡片内部使用的 1px 细线 */

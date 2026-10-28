@@ -4,6 +4,7 @@ import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Layouts;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -36,8 +37,7 @@ public class ChmodPanel extends ToolPanel {
 
     @Override
     protected JComponent build() {
-        JPanel mainPanel = new JPanel(new BorderLayout(0, 16));
-        mainPanel.setBorder(new EmptyBorder(16, 16, 16, 16));
+        JPanel mainPanel = Layouts.page();
 
         // --- 顶栏：常用预设与快捷推导 ---
         Card topCard = Card.plain();

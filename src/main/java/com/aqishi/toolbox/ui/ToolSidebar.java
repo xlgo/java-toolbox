@@ -2,7 +2,6 @@ package com.aqishi.toolbox.ui;
 
 import com.aqishi.toolbox.ui.kit.KitBorders;
 import com.aqishi.toolbox.ui.kit.Tokens;
-import com.aqishi.toolbox.util.ConfigManager;
 import com.aqishi.toolbox.util.I18n;
 
 import javax.swing.BorderFactory;
@@ -15,12 +14,10 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingConstants;
-import javax.swing.SwingUtilities;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -29,372 +26,276 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
 import java.awt.RenderingHints;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 import java.util.function.Consumer;
 
 /**
- * 工具侧栏：按分组展示完整工具清单，并提供收藏与实时筛选。
+ * 侧边导航：效果页的三段结构——品牌、视图入口（全部工具 / 我的收藏 / 最近使用）、分类。
  *
- * <p>与效果页一致，侧栏不是「分类入口」而是真正的工具目录：每个工具一行，
- * 左侧是语义线框图标，右侧在悬停时露出收藏星标。收藏组固定置顶，但仍保留在
- * 各自分类中，方便用户既按常用也按领域查找。</p>
+ * <p>工具本身不再逐个列在侧栏里：80 个条目会把侧栏变成一条长滚动列表，
+ * 而效果页的做法是让首页的卡片承担工具选择，侧栏只负责「我在看哪一组」。
+ * 每个入口右侧带数量，用户不必点进去就知道收藏里有几个、某个分类有多少工具。</p>
  *
- * <p>组件不持有任何工具视图，只发出稳定的工具 ID；因此在这里反复筛选、收藏、
- * 切换语言都不会影响已经挂载的工具草稿。</p>
+ * <p>组件与计数在 EDT 上构建；收藏/最近使用变化时由 {@link ToolShortcuts} 通知刷新，
+ * 不重建任何工具视图。</p>
  */
 public final class ToolSidebar extends JPanel {
 
-    /** 兼容旧导航接口：当前侧栏没有分类过滤，该值仅作为「全部」语义保留。 */
+    /** 视图入口：全部 / 收藏 / 最近，以及分类 ID 前缀 */
     public static final String ALL = "all";
-
-    private static final String FAVORITES_KEY = "nav.favorites";
+    public static final String FAVORITES = "favorites";
+    public static final String RECENT = "recent";
 
     private final ToolNavigationModel model;
-    private final Consumer<String> selectionListener;
+    private final ToolShortcuts shortcuts;
+    private final Consumer<String> categoryListener;
     private final Runnable collapseListener;
-    private final JPanel navList = new NavList();
-    private final JLabel countLabel = new JLabel();
-    private final JLabel privacyLabel = new JLabel();
-    private final JLabel searchHint = new JLabel();
-    private final JLabel switchHint = new JLabel();
-    private final Set<String> favorites = new LinkedHashSet<>();
-    private final List<NavItem> items = new ArrayList<>();
 
-    private String query = "";
-    private String selectedToolId;
-    private Consumer<String> favoriteListener = ignored -> { };
-    private Runnable searchAction;
+    private final JLabel brandTitle = new JLabel();
+    private final JLabel brandSubtitle = new JLabel();
+    private final JButton collapseButton = new JButton();
+    private final JLabel groupCaption = new JLabel();
+    private final JLabel footerLabel = new JLabel();
+    private final JPanel items = new JPanel();
+    private final JPanel brandMark = new BrandMark();
+    private String activeCategory = ALL;
+    private String currentToolId;
+    private String currentToolCategory;
 
     public ToolSidebar(
             ToolNavigationModel model,
-            Consumer<String> selectionListener,
+            ToolShortcuts shortcuts,
+            Consumer<String> categoryListener,
             Runnable collapseListener) {
-        super(new BorderLayout());
+        super(new BorderLayout(0, 0));
         this.model = model;
-        this.selectionListener = selectionListener;
-        this.collapseListener = collapseListener;
+        this.shortcuts = shortcuts == null ? ToolShortcuts.load() : shortcuts;
+        this.categoryListener = categoryListener == null ? ignored -> { } : categoryListener;
+        this.collapseListener = collapseListener == null ? () -> { } : collapseListener;
+
         setOpaque(false);
         setName("workbench.sidebar");
+        setPreferredSize(new Dimension(Tokens.SIDEBAR_WIDTH, 0));
         setBorder(KitBorders.line(0, 0, 0, 1));
-        setPreferredSize(new Dimension(252, 0));
-        setMinimumSize(new Dimension(252, 0));
 
-        loadFavorites();
-        add(buildNav(), BorderLayout.CENTER);
-        add(buildFooter(), BorderLayout.SOUTH);
-        rebuild();
-        refreshLabels();
-    }
+        items.setOpaque(false);
+        items.setLayout(new BoxLayout(items, BoxLayout.Y_AXIS));
+        items.setBorder(BorderFactory.createEmptyBorder(
+                Tokens.SPACE_XS, Tokens.SPACE_SM, Tokens.SPACE_MD, Tokens.SPACE_SM));
 
-    // ---------------------------------------------------------------- 布局
-
-    private JComponent buildNav() {
-        navList.setOpaque(false);
-        navList.setLayout(new BoxLayout(navList, BoxLayout.Y_AXIS));
-        navList.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-        JScrollPane scroll = new JScrollPane(navList);
+        JScrollPane scroll = new JScrollPane(items);
         scroll.setBorder(BorderFactory.createEmptyBorder());
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.getVerticalScrollBar().setUnitIncrement(18);
-        return scroll;
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+
+        add(buildHeader(), BorderLayout.NORTH);
+        add(scroll, BorderLayout.CENTER);
+        add(buildFooter(), BorderLayout.SOUTH);
+
+        this.shortcuts.addListener(ignored -> refresh());
+        refresh();
+    }
+
+    // ---------------------------------------------------------------- 结构
+
+    private JComponent buildHeader() {
+        brandTitle.setFont(Tokens.fontTitle());
+        brandTitle.setForeground(Tokens.foreground());
+        brandSubtitle.setFont(Tokens.fontCaption());
+        brandSubtitle.setForeground(Tokens.mutedForeground());
+
+        JPanel copy = new JPanel();
+        copy.setOpaque(false);
+        copy.setLayout(new BoxLayout(copy, BoxLayout.Y_AXIS));
+        brandTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+        brandSubtitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+        brandTitle.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+        brandSubtitle.setMaximumSize(new Dimension(Integer.MAX_VALUE, 18));
+        copy.add(brandTitle);
+        copy.add(Box.createVerticalStrut(1));
+        copy.add(brandSubtitle);
+
+        brandMark.setPreferredSize(new Dimension(34, 34));
+        brandMark.setMinimumSize(new Dimension(34, 34));
+        brandMark.setMaximumSize(new Dimension(34, 34));
+
+        collapseButton.setName("workbench.sidebarCollapse");
+        collapseButton.setText(null);
+        collapseButton.setIcon(WorkbenchIcons.sidebar(false));
+        collapseButton.setFocusPainted(false);
+        collapseButton.setContentAreaFilled(false);
+        collapseButton.setBorderPainted(false);
+        collapseButton.setMargin(new Insets(2, 4, 2, 4));
+        collapseButton.setPreferredSize(new Dimension(26, 26));
+        collapseButton.setMaximumSize(new Dimension(26, 26));
+        collapseButton.putClientProperty("JComponent.minimumWidth", 0);
+        collapseButton.addActionListener(event -> this.collapseListener.run());
+
+        JPanel left = new JPanel(new BorderLayout(Tokens.SPACE_SM + 2, 0));
+        left.setOpaque(false);
+        left.add(brandMark, BorderLayout.WEST);
+        left.add(copy, BorderLayout.CENTER);
+
+        JPanel brand = new JPanel(new BorderLayout(Tokens.SPACE_SM, 0));
+        brand.setOpaque(false);
+        brand.add(left, BorderLayout.CENTER);
+        brand.add(collapseButton, BorderLayout.EAST);
+
+        JPanel header = new JPanel(new BorderLayout());
+        header.setOpaque(false);
+        header.setBorder(BorderFactory.createEmptyBorder(18, 18, 14, 14));
+        header.add(brand, BorderLayout.CENTER);
+        return header;
     }
 
     private JComponent buildFooter() {
-        JPanel footer = new JPanel();
+        footerLabel.setFont(Tokens.fontCaption());
+        footerLabel.setForeground(Tokens.mutedForeground());
+        JPanel footer = new JPanel(new BorderLayout());
         footer.setOpaque(false);
-        footer.setLayout(new BoxLayout(footer, BoxLayout.Y_AXIS));
         footer.setBorder(BorderFactory.createCompoundBorder(
                 KitBorders.line(1, 0, 0, 0),
-                new javax.swing.border.EmptyBorder(10, 14, 10, 14)));
-
-        for (JLabel label : new JLabel[]{countLabel, privacyLabel}) {
-            label.setFont(Tokens.fontCaption().deriveFont(11.5f));
-            label.setForeground(Tokens.mutedForeground());
-            label.setAlignmentX(Component.LEFT_ALIGNMENT);
-            footer.add(label);
-        }
-        footer.add(Box.createVerticalStrut(7));
-
-        JPanel keys = new JPanel();
-        keys.setOpaque(false);
-        keys.setLayout(new BoxLayout(keys, BoxLayout.X_AXIS));
-        keys.setAlignmentX(Component.LEFT_ALIGNMENT);
-        for (JLabel hint : new JLabel[]{searchHint, switchHint}) {
-            hint.setFont(Tokens.fontMono().deriveFont(10.5f));
-            hint.setForeground(Tokens.mutedForeground());
-            hint.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(Tokens.borderStrong()),
-                    new javax.swing.border.EmptyBorder(0, 4, 0, 4)));
-            keys.add(hint);
-            keys.add(Box.createHorizontalStrut(6));
-        }
-        keys.add(Box.createHorizontalGlue());
-        footer.add(keys);
+                BorderFactory.createEmptyBorder(10, 18, 12, 18)));
+        footer.add(footerLabel, BorderLayout.CENTER);
         return footer;
     }
 
-    // ---------------------------------------------------------------- 重建
+    // ---------------------------------------------------------------- 刷新
 
-    private void rebuild() {
-        navList.removeAll();
-        items.clear();
-
-        List<ToolPanel> favoritesMatched = new ArrayList<>();
-        if (!query.isEmpty()) {
-            for (ToolPanel tool : allTools()) {
-                if (favorites.contains(tool.getName()) && matches(tool)) {
-                    favoritesMatched.add(tool);
-                }
-            }
-        } else {
-            for (ToolPanel tool : allTools()) {
-                if (favorites.contains(tool.getName())) {
-                    favoritesMatched.add(tool);
-                }
-            }
-        }
-
-        if (!favoritesMatched.isEmpty()) {
-            navList.add(groupLabel("★ " + I18n.get("launcher.favorites")));
-            for (ToolPanel tool : favoritesMatched) {
-                addItem(tool);
-            }
-        }
-
-        for (ToolNavigationModel.Group group : model.getGroups()) {
-            List<ToolPanel> matched = new ArrayList<>();
-            for (ToolPanel tool : group.getTools()) {
-                if (matches(tool)) {
-                    matched.add(tool);
-                }
-            }
-            if (matched.isEmpty()) {
-                continue;
-            }
-            navList.add(groupLabel(group.getLabel()));
-            for (ToolPanel tool : matched) {
-                addItem(tool);
-            }
-        }
-
-        if (navList.getComponentCount() == 0) {
-            JLabel empty = new JLabel(I18n.get("nav.empty"));
-            empty.setFont(Tokens.fontBody());
-            empty.setForeground(Tokens.mutedForeground());
-            empty.setBorder(new javax.swing.border.EmptyBorder(10, 10, 10, 10));
-            empty.setAlignmentX(Component.LEFT_ALIGNMENT);
-            navList.add(empty);
-        }
-
-        navList.add(Box.createVerticalGlue());
-        navList.revalidate();
-        navList.repaint();
-        scrollToSelected();
-    }
-
-    private JLabel groupLabel(String text) {
-        JLabel label = new JLabel(text);
-        label.setFont(Tokens.fontCaption().deriveFont(Font.BOLD, 11f));
-        label.setForeground(Tokens.mutedForeground());
-        label.setBorder(new javax.swing.border.EmptyBorder(13, 10, 5, 10));
-        label.setAlignmentX(Component.LEFT_ALIGNMENT);
-        label.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
-        return label;
-    }
-
-    private void addItem(ToolPanel tool) {
-        NavItem item = new NavItem(tool);
-        item.setAlignmentX(Component.LEFT_ALIGNMENT);
-        item.setSelected(tool.getName().equals(selectedToolId));
-        items.add(item);
-        navList.add(item);
-    }
-
-    private List<ToolPanel> allTools() {
-        List<ToolPanel> tools = new ArrayList<>();
-        for (ToolNavigationModel.Group group : model.getGroups()) {
-            tools.addAll(group.getTools());
-        }
-        return tools;
-    }
-
-    private boolean matches(ToolPanel tool) {
-        return query.isEmpty() || tool.matchesSearch(query.toLowerCase(Locale.ROOT));
-    }
-
-    // ---------------------------------------------------------------- 状态
-
-    public void setQuery(String value) {
-        query = value == null ? "" : value.trim();
-        rebuild();
-    }
-
-    public String getQuery() {
-        return query;
-    }
-
-    public void setSelectedTool(String toolId) {
-        selectedToolId = toolId;
-        for (NavItem item : items) {
-            item.setSelected(item.tool.getName().equals(toolId));
-            item.repaint();
-        }
-        scrollToSelected();
-    }
-
-    public String getSelectedToolId() {
-        return selectedToolId;
-    }
-
-    public int getToolCount() {
-        return model.getToolIds().size();
-    }
-
-    /** 窗口首次显示后再次把选中项滚入可视区：构造阶段组件尚未布局，单次调用会落空。 */
-    public void revealSelected() {
-        scrollToSelected();
-    }
-
-    /** 兼容旧调用：侧栏已按工具平铺，没有分类高亮，仅同步到工具所属分组。 */
-    public String getSelectedCategory() {
-        ToolPanel tool = selectedToolId == null ? null : model.findTool(selectedToolId);
-        return tool == null ? ALL : tool.getGroup();
-    }
-
-    /** 兼容旧调用：传分类 ID 时定位到该分类的第一个工具。 */
-    public void setSelectedCategory(String categoryId) {
-        if (categoryId == null || ALL.equals(categoryId)) return;
-        for (ToolNavigationModel.Group group : model.getGroups()) {
-            if (group.getId().equals(categoryId) && !group.getTools().isEmpty()) {
-                setSelectedTool(group.getTools().get(0).getName());
-                return;
-            }
-        }
-    }
-
-    public boolean isFavorite(String toolId) {
-        return favorites.contains(toolId);
-    }
-
-    public void setFavorite(String toolId, boolean value) {
-        if (toolId == null) return;
-        if (value) favorites.add(toolId);
-        else favorites.remove(toolId);
-        persistFavorites();
-        rebuild();
-        favoriteListener.accept(toolId);
-    }
-
-    public void toggleFavorite(String toolId) {
-        setFavorite(toolId, !favorites.contains(toolId));
-    }
-
-    public Set<String> getFavoriteIds() {
-        return java.util.Collections.unmodifiableSet(new LinkedHashSet<>(favorites));
-    }
-
-    public void setFavoriteListener(Consumer<String> listener) {
-        favoriteListener = listener == null ? ignored -> { } : listener;
-    }
-
-    public void setSearchAction(Runnable action) {
-        this.searchAction = action;
-    }
-
-    public void focusSearch() {
-        if (searchAction != null) searchAction.run();
-    }
-
-    /** 搜索框按下方向键：把焦点交给第一个可见工具项。 */
-    public boolean focusFirstVisibleTool() {
-        if (items.isEmpty()) return false;
-        items.get(0).requestFocusInWindow();
-        return true;
-    }
-
-    public void setExpandedGroupIds(Collection<String> groupIds) {
-        // 平铺目录没有展开状态
-    }
-
-    public Set<String> getExpandedGroupIds() {
-        return new LinkedHashSet<>();
-    }
-
+    /** 重新构建导航项与计数；收藏/最近使用变化后会调用 */
     public void refresh() {
-        refreshLabels();
-        rebuild();
-    }
+        items.removeAll();
+        items.add(navItem("nav.category.all", ALL, I18n.get("nav.all"),
+                WorkbenchIcons.category("all"), countOf(ALL)));
+        items.add(Box.createVerticalStrut(2));
+        items.add(navItem("nav.category.favorites", FAVORITES, I18n.get("launcher.favorites"),
+                WorkbenchIcons.star(false, 16), countOf(FAVORITES)));
+        items.add(Box.createVerticalStrut(2));
+        items.add(navItem("nav.category.recent", RECENT, I18n.get("nav.recent"),
+                WorkbenchIcons.history(16), countOf(RECENT)));
 
-    public void refreshLabels() {
-        countLabel.setText(java.text.MessageFormat.format(
-                I18n.get("sidebar.count"), model.getToolIds().size(), I18n.get("launcher.favorites")));
-        countLabel.setToolTipText(countLabel.getText());
-        privacyLabel.setText(I18n.get("sidebar.privacy"));
-        privacyLabel.setToolTipText(privacyLabel.getText());
-        searchHint.setText(I18n.get("sidebar.shortcut.search"));
-        switchHint.setText(I18n.get("sidebar.shortcut.switch"));
-        for (NavItem item : items) {
-            item.refreshLabel();
+        items.add(Box.createVerticalStrut(Tokens.SPACE_MD));
+        items.add(new Separator());
+        items.add(Box.createVerticalStrut(Tokens.SPACE_SM));
+
+        groupCaption.setText(I18n.get("nav.categories"));
+        groupCaption.setFont(Tokens.fontCaption().deriveFont(Font.BOLD, 11.5f));
+        groupCaption.setForeground(Tokens.mutedForeground());
+        groupCaption.setBorder(BorderFactory.createEmptyBorder(0, 10, 6, 0));
+        groupCaption.setAlignmentX(Component.LEFT_ALIGNMENT);
+        items.add(groupCaption);
+
+        for (ToolNavigationModel.Group group : model.getGroups()) {
+            items.add(navItem("nav.category." + group.getId(), group.getId(), group.getLabel(),
+                    WorkbenchIcons.category(group.getId()), group.getTools().size()));
+            items.add(Box.createVerticalStrut(2));
         }
+        items.add(Box.createVerticalGlue());
+
+        brandTitle.setText(I18n.get("app.name"));
+        brandSubtitle.setText(I18n.get("nav.brand.subtitle"));
+        brandTitle.setToolTipText(brandTitle.getText());
+        collapseButton.setToolTipText(I18n.get("nav.collapse"));
+        footerLabel.setText(java.text.MessageFormat.format(
+                I18n.get("sidebar.count.short"), model.getToolIds().size()));
+
+        items.revalidate();
+        items.repaint();
         revalidate();
         repaint();
     }
 
     public void restyle() {
-        countLabel.setFont(Tokens.fontCaption().deriveFont(11.5f));
-        countLabel.setForeground(Tokens.mutedForeground());
-        privacyLabel.setFont(Tokens.fontCaption().deriveFont(11.5f));
-        privacyLabel.setForeground(Tokens.mutedForeground());
-        for (JLabel hint : new JLabel[]{searchHint, switchHint}) {
-            hint.setFont(Tokens.fontMono().deriveFont(10.5f));
-            hint.setForeground(Tokens.mutedForeground());
-            hint.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(Tokens.borderStrong()),
-                    new javax.swing.border.EmptyBorder(0, 4, 0, 4)));
-        }
-        // 分组标题的颜色在构造时固化，重建列表才能拿到新主题的次要文字色。
-        rebuild();
-        repaint();
-    }
-
-    private void scrollToSelected() {
-        if (selectedToolId == null) return;
-        SwingUtilities.invokeLater(() -> {
-            for (NavItem item : items) {
-                if (item.tool.getName().equals(selectedToolId)) {
-                    item.scrollRectToVisible(new java.awt.Rectangle(0, 0, item.getWidth(), item.getHeight()));
-                    return;
-                }
+        brandTitle.setFont(Tokens.fontTitle());
+        brandTitle.setForeground(Tokens.foreground());
+        brandSubtitle.setFont(Tokens.fontCaption());
+        brandSubtitle.setForeground(Tokens.mutedForeground());
+        groupCaption.setFont(Tokens.fontCaption().deriveFont(Font.BOLD, 11.5f));
+        groupCaption.setForeground(Tokens.mutedForeground());
+        footerLabel.setFont(Tokens.fontCaption());
+        footerLabel.setForeground(Tokens.mutedForeground());
+        collapseButton.setIcon(WorkbenchIcons.sidebar(false));
+        for (Component component : items.getComponents()) {
+            if (component instanceof NavItem item) {
+                item.restyle();
             }
-        });
+        }
+        refresh();
     }
 
-    // ---------------------------------------------------------------- 收藏持久化
+    /** 语言切换后重建文案 */
+    public void refreshLabels() {
+        refresh();
+    }
 
-    private void loadFavorites() {
-        String stored = ConfigManager.get(FAVORITES_KEY, "");
-        if (stored == null || stored.isEmpty()) return;
-        for (String id : stored.split(",")) {
-            String trimmed = id.trim();
-            if (!trimmed.isEmpty()) favorites.add(trimmed);
+    private int countOf(String category) {
+        return switch (category) {
+            case ALL -> model.getToolIds().size();
+            case FAVORITES -> shortcuts.favoriteCount();
+            case RECENT -> shortcuts.recentCount();
+            default -> {
+                for (ToolNavigationModel.Group group : model.getGroups()) {
+                    if (group.getId().equals(category)) {
+                        yield group.getTools().size();
+                    }
+                }
+                yield 0;
+            }
+        };
+    }
+
+    // ---------------------------------------------------------------- 状态
+
+    /** 首页当前展示的分组 */
+    public void setActiveCategory(String category) {
+        activeCategory = category == null || category.isEmpty() ? ALL : category;
+        repaintItems();
+    }
+
+    public String getActiveCategory() {
+        return activeCategory;
+    }
+
+    /** 打开工具时同步高亮它所属的分类；返回首页时清空 */
+    public void setCurrentTool(String toolId, String categoryId) {
+        currentToolId = toolId;
+        currentToolCategory = categoryId;
+        repaintItems();
+    }
+
+    public String getCurrentToolId() {
+        return currentToolId;
+    }
+
+    /** 收起时的图标方向 */
+    public void setCollapsed(boolean value) {
+        collapseButton.setIcon(WorkbenchIcons.sidebar(value));
+        collapseButton.setToolTipText(I18n.get(value ? "nav.expand" : "nav.collapse"));
+    }
+
+    private void repaintItems() {
+        for (Component component : items.getComponents()) {
+            if (component instanceof NavItem item) {
+                item.updateSelection();
+            }
         }
     }
 
-    private void persistFavorites() {
-        ConfigManager.set(FAVORITES_KEY, String.join(",", favorites));
-        ConfigManager.save();
+    private NavItem navItem(String name, String category, String text,
+                            javax.swing.Icon icon, int count) {
+        NavItem item = new NavItem(name, category, text, icon, count);
+        item.setAlignmentX(Component.LEFT_ALIGNMENT);
+        item.setMaximumSize(new Dimension(Integer.MAX_VALUE, Tokens.RAIL_ROW_HEIGHT));
+        item.addActionListener(event -> {
+            setActiveCategory(category);
+            this.categoryListener.accept(category);
+        });
+        return item;
     }
+
+    // ---------------------------------------------------------------- 绘制
 
     @Override
     protected void paintComponent(Graphics graphics) {
@@ -403,88 +304,10 @@ public final class ToolSidebar extends JPanel {
         super.paintComponent(graphics);
     }
 
-    // ---------------------------------------------------------------- 导航项
-
-    private final class NavItem extends JButton {
-
-        private final ToolPanel tool;
-        private final JButton star = new StarButton();
-        private boolean hover;
-        private Font labelFont;
-
-        private NavItem(ToolPanel tool) {
-            this.tool = tool;
-            setText(null);
+    /** 品牌标记：强调色圆角方块 + 白色扳手，对应效果页左侧的方形 logo */
+    private static final class BrandMark extends JPanel {
+        BrandMark() {
             setOpaque(false);
-            setContentAreaFilled(false);
-            setBorderPainted(false);
-            setFocusPainted(false);
-            setBorder(BorderFactory.createEmptyBorder());
-            setLayout(null);
-            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            setName("nav.tool." + tool.getName());
-            setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
-            setPreferredSize(new Dimension(230, 34));
-            setToolTipText(tool.getLabel());
-            getAccessibleContext().setAccessibleName(tool.getLabel());
-            getAccessibleContext().setAccessibleDescription(tool.getGroupLabel());
-
-            star.setName("nav.favorite." + tool.getName());
-            star.addActionListener(event -> toggleFavorite(tool.getName()));
-            add(star);
-
-            addActionListener(event -> selectionListener.accept(tool.getName()));
-            addMouseListener(new MouseAdapter() {
-                @Override public void mouseEntered(MouseEvent event) {
-                    hover = true;
-                    updateStar();
-                    repaint();
-                }
-                @Override public void mouseExited(MouseEvent event) {
-                    if (!contains(event.getPoint())) {
-                        hover = false;
-                        updateStar();
-                        repaint();
-                    }
-                }
-            });
-            applyTheme();
-            updateStar();
-        }
-
-        private void refreshLabel() {
-            setToolTipText(tool.getLabel());
-            getAccessibleContext().setAccessibleName(tool.getLabel());
-            getAccessibleContext().setAccessibleDescription(tool.getGroupLabel());
-            updateStar();
-            repaint();
-        }
-
-        private void applyTheme() {
-            labelFont = Tokens.fontBody();
-            updateStar();
-        }
-
-        private void updateStar() {
-            boolean faved = favorites.contains(tool.getName());
-            star.setVisible(hover || faved);
-            star.setIcon(WorkbenchIcons.star(faved, 13));
-            star.setToolTipText(I18n.get(faved
-                    ? "launcher.favorite.remove"
-                    : "launcher.favorite.add"));
-        }
-
-        @Override
-        public void updateUI() {
-            super.updateUI();
-            labelFont = Tokens.fontBody();
-            repaint();
-        }
-
-        @Override
-        public void doLayout() {
-            int size = 22;
-            star.setBounds(getWidth() - size - 6, (getHeight() - size) / 2, size, size);
         }
 
         @Override
@@ -492,79 +315,157 @@ public final class ToolSidebar extends JPanel {
             Graphics2D g = (Graphics2D) graphics.create();
             try {
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-                        RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-                int height = getHeight() - 2;
-                int arc = 8;
-                boolean selected = tool.getName().equals(selectedToolId);
-
-                if (selected) {
-                    g.setColor(Tokens.activeSurface());
-                    g.fill(new RoundRectangle2D.Float(0, 0, getWidth(), height, arc, arc));
-                    g.setColor(Tokens.accent());
-                    g.fill(new RoundRectangle2D.Float(0, 7, 3, Math.max(6, height - 14), 3, 3));
-                } else if (hover || isFocusOwner()) {
-                    g.setColor(Tokens.hoverSurface());
-                    g.fill(new RoundRectangle2D.Float(0, 0, getWidth(), height, arc, arc));
-                }
-                if (isFocusOwner()) {
-                    g.setColor(Tokens.accent());
-                    g.setStroke(new BasicStroke(1f));
-                    g.draw(new RoundRectangle2D.Float(0.5f, 0.5f, getWidth() - 1f, height - 1f, arc, arc));
-                }
-
-                Color ink = selected ? Tokens.foreground() : Tokens.secondaryForeground();
-                ToolGlyph.outline(tool.getName(), tool.getGroup(), 17,
-                        selected ? Tokens.accent() : Tokens.mutedForeground())
-                        .paintIcon(this, g, 10, (height - 17) / 2);
-
-                g.setFont(labelFont == null ? Tokens.fontBody() : labelFont);
-                g.setColor(ink);
-                FontMetrics metrics = g.getFontMetrics();
-                int textWidth = getWidth() - 38 - 28;
-                String shown = ellipsize(tool.getLabel(), metrics, Math.max(20, textWidth));
-                int baseline = (height + metrics.getAscent() - metrics.getDescent()) / 2;
-                g.drawString(shown, 35, baseline);
+                g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+                g.setColor(Tokens.accent());
+                g.fill(new RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 9, 9));
+                g.setColor(Tokens.accentText());
+                g.setStroke(new BasicStroke(1.7f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g.translate(getWidth() / 2f - 7f, getHeight() / 2f - 7f);
+                g.scale(14f / 16f, 14f / 16f);
+                // 扳手：斜柄 + 开口环
+                g.draw(new java.awt.geom.Line2D.Float(4.2f, 11.8f, 9.4f, 6.6f));
+                g.draw(new java.awt.geom.Arc2D.Float(8.8f, 2.4f, 6.4f, 6.4f, 42, 252,
+                        java.awt.geom.Arc2D.OPEN));
+                g.draw(new java.awt.geom.Line2D.Float(2.6f, 13.4f, 4.6f, 11.4f));
             } finally {
                 g.dispose();
             }
         }
     }
 
-    private static String ellipsize(String text, FontMetrics metrics, int maxWidth) {
-        if (text == null || metrics.stringWidth(text) <= maxWidth) return text == null ? "" : text;
-        String suffix = "…";
-        int end = text.length();
-        while (end > 0 && metrics.stringWidth(text.substring(0, end) + suffix) > maxWidth) {
-            end--;
+    private static final class Separator extends JComponent {
+        @Override
+        public Dimension getPreferredSize() {
+            return new Dimension(1, 1);
         }
-        return text.substring(0, Math.max(0, end)) + suffix;
-    }
 
-    private final class StarButton extends JButton {
-        private StarButton() {
-            setText(null);
-            setOpaque(false);
-            setContentAreaFilled(false);
-            setBorderPainted(false);
-            setFocusPainted(false);
-            setBorder(BorderFactory.createEmptyBorder());
-            setMargin(new Insets(0, 0, 0, 0));
-            setHorizontalAlignment(SwingConstants.CENTER);
-            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        }
-    }
-
-    private static final class NavList extends JPanel {
-        NavList() {
-            setOpaque(false);
+        @Override
+        public Dimension getMaximumSize() {
+            return new Dimension(Integer.MAX_VALUE, 1);
         }
 
         @Override
         protected void paintComponent(Graphics graphics) {
-            graphics.setColor(Tokens.navigationBackground());
-            graphics.fillRect(0, 0, getWidth(), getHeight());
+            graphics.setColor(Tokens.border());
+            graphics.fillRect(0, 0, getWidth(), 1);
+        }
+    }
+
+    /** 导航行：圆角底 + 图标 + 文本 + 计数徽标 */
+    private final class NavItem extends JButton {
+
+        private final String category;
+        private final JLabel text = new JLabel();
+        private final JLabel count = new CountBadge();
+
+        NavItem(String name, String category, String label,
+                javax.swing.Icon icon, int badge) {
+            super();
+            this.category = category;
+            setName(name);
+            setOpaque(false);
+            setContentAreaFilled(false);
+            setBorderPainted(false);
+            setFocusPainted(false);
+            setLayout(new BorderLayout(Tokens.SPACE_SM + 2, 0));
+            setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 8));
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setRolloverEnabled(true);
+            putClientProperty("JComponent.minimumWidth", 0);
+
+            JLabel glyph = new JLabel(icon);
+            glyph.setPreferredSize(new Dimension(18, 18));
+            glyph.setHorizontalAlignment(SwingConstants.CENTER);
+
+            text.setText(label);
+            text.setFont(Tokens.fontBody());
+            text.setForeground(Tokens.foreground());
+
+            count.setText(badge > 0 ? Integer.toString(badge) : "");
+            count.setFont(Tokens.fontCaption());
+            count.setHorizontalAlignment(SwingConstants.RIGHT);
+
+            setToolTipText(label);
+            getAccessibleContext().setAccessibleName(label);
+
+            add(glyph, BorderLayout.WEST);
+            add(text, BorderLayout.CENTER);
+            add(count, BorderLayout.EAST);
+
+            setPreferredSize(new Dimension(0, Tokens.RAIL_ROW_HEIGHT));
+            setMinimumSize(new Dimension(0, Tokens.RAIL_ROW_HEIGHT));
+            updateSelection();
+        }
+
+        void restyle() {
+            text.setFont(Tokens.fontBody());
+            count.setFont(Tokens.fontCaption());
+            updateSelection();
+        }
+
+        void updateSelection() {
+            boolean active = category.equals(activeCategory);
+            putClientProperty("active", active);
+            text.setFont(active ? Tokens.fontBodyStrong() : Tokens.fontBody());
+            text.setForeground(active ? Tokens.selectionForeground() : Tokens.foreground());
+            count.setForeground(active ? Tokens.selectionForeground() : Tokens.mutedForeground());
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            try {
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                boolean active = Boolean.TRUE.equals(getClientProperty("active"));
+                if (active) {
+                    g.setColor(Tokens.activeSurface());
+                    g.fill(new RoundRectangle2D.Float(
+                            0, 0, getWidth(), getHeight(), Tokens.RADIUS_CONTROL, Tokens.RADIUS_CONTROL));
+                } else if (getModel().isRollover()) {
+                    g.setColor(Tokens.hoverSurface());
+                    g.fill(new RoundRectangle2D.Float(
+                            0, 0, getWidth(), getHeight(), Tokens.RADIUS_CONTROL, Tokens.RADIUS_CONTROL));
+                }
+            } finally {
+                g.dispose();
+            }
             super.paintComponent(graphics);
         }
     }
+
+    /** 计数徽标：浅底圆角，选中时改用卡片底色以保持对比 */
+    private final class CountBadge extends JLabel {
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            if (!getText().isEmpty()) {
+                Graphics2D g = (Graphics2D) graphics.create();
+                try {
+                    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    Color parent = getParent() != null && getParent().getParent() instanceof NavItem item
+                            && Boolean.TRUE.equals(item.getClientProperty("active"))
+                            ? Tokens.cardBackground()
+                            : Tokens.panelAlt();
+                    g.setColor(parent);
+                    int height = Math.min(18, Math.max(14, getHeight() - 6));
+                    g.fill(new RoundRectangle2D.Float(0, (getHeight() - height) / 2f,
+                            getWidth(), height, height, height));
+                } finally {
+                    g.dispose();
+                }
+            }
+            super.paintComponent(graphics);
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            Dimension size = super.getPreferredSize();
+            if (getText().isEmpty()) {
+                return new Dimension(0, size.height);
+            }
+            FontMetrics metrics = getFontMetrics(getFont());
+            return new Dimension(metrics.stringWidth(getText()) + 14, Math.max(18, size.height));
+        }
+    }
+
 }

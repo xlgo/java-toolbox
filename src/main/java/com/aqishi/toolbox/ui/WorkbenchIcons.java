@@ -64,9 +64,12 @@ public final class WorkbenchIcons {
     /** 调色板：皮肤菜单的护眼项 */
     public static Icon palette(int size) { return new VectorIcon(Kind.PALETTE, size, null); }
 
+    /** 最近使用：带回转箭头的时钟 */
+    public static Icon history(int size) { return new VectorIcon(Kind.HISTORY, size, null); }
+
     private enum Kind {
         BRAND, SEARCH, SIDEBAR, SIDEBAR_COLLAPSED, CATEGORY, APPEARANCE, GLOBE, STATUS,
-        SUN, MOON, STAR, STAR_FILLED, GEAR, BACK, CLOSE, MORE, PALETTE
+        SUN, MOON, STAR, STAR_FILLED, GEAR, BACK, CLOSE, MORE, PALETTE, HISTORY
     }
 
     private static final class VectorIcon implements Icon {
@@ -125,6 +128,7 @@ public final class WorkbenchIcons {
                         case CLOSE -> paintClose(g);
                         case MORE -> paintMore(g);
                         case PALETTE -> paintPalette(g);
+                        case HISTORY -> paintHistory(g);
                         default -> { }
                     }
                 }
@@ -293,6 +297,14 @@ public final class WorkbenchIcons {
             g.fill(new Ellipse2D.Float(2.2f, 7.2f, 1.6f, 1.6f));
             g.fill(new Ellipse2D.Float(7.2f, 7.2f, 1.6f, 1.6f));
             g.fill(new Ellipse2D.Float(12.2f, 7.2f, 1.6f, 1.6f));
+        }
+
+        private void paintHistory(Graphics2D g) {
+            g.draw(new java.awt.geom.Arc2D.Float(2f, 2f, 12f, 12f, 60, 300, java.awt.geom.Arc2D.OPEN));
+            line(g, 2.2f, 2.2f, 2.2f, 5.4f);
+            line(g, 2.2f, 5.4f, 5.4f, 5.4f);
+            line(g, 8f, 4.8f, 8f, 8.4f);
+            line(g, 8f, 8.4f, 10.6f, 9.8f);
         }
 
         private void paintPalette(Graphics2D g) {

@@ -9,9 +9,12 @@ import com.aqishi.toolbox.feature.network.ssh.ui.SshConfigDialog;
 import com.aqishi.toolbox.feature.network.ssh.ui.SshSessionTabPanel;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.ToolGlyph;
+import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Fields;
+import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.ui.kit.Tokens;
 
 import javax.swing.*;
@@ -63,13 +66,18 @@ public class SshClientPanel extends ToolPanel implements ManagedResourceOwner {
 
     @Override
     protected JComponent build() {
+        JPanel root = Layouts.page();
+
         JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        mainSplit.setDividerLocation(260);
+        mainSplit.setBorder(null);
+        mainSplit.setOpaque(false);
+        mainSplit.setDividerSize(Tokens.SPACE_SM);
+        mainSplit.setDividerLocation(272);
         mainSplit.setContinuousLayout(true);
 
         // 1. 左侧：服务器连接列表与分组树
-        JPanel leftPanel = new JPanel(new BorderLayout(6, 6));
-        leftPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        JPanel leftPanel = new JPanel(new BorderLayout(0, Tokens.SPACE_SM));
+        leftPanel.setOpaque(false);
 
         // 搜索框
         JPanel searchBox = new JPanel(new BorderLayout(4, 4));
@@ -111,11 +119,11 @@ public class SshClientPanel extends ToolPanel implements ManagedResourceOwner {
         // 树节点右键菜单
         serverTree.setComponentPopupMenu(createTreePopupMenu());
 
-        JScrollPane treeScroll = new JScrollPane(serverTree);
-        treeScroll.setBorder(BorderFactory.createLineBorder(Tokens.border(), 1));
+        JScrollPane treeScroll = Fields.scroll(serverTree);
+        treeScroll.setHorizontalScrollBarPolicy(javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 
-        // 底部工具栏按钮
-        JPanel treeToolBar = new JPanel(new GridLayout(2, 2, 4, 4));
+        // 底部工具栏按钮：放不下时自动折行，不会把最后一颗按钮裁掉
+        JPanel treeToolBar = Layouts.wrapRow(Tokens.SPACE_SM, Tokens.SPACE_SM);
         JButton addBtn = Buttons.primary("+ 新增");
         addBtn.addActionListener(e -> openConfigDialog(null));
 
@@ -133,8 +141,12 @@ public class SshClientPanel extends ToolPanel implements ManagedResourceOwner {
         treeToolBar.add(delBtn);
         treeToolBar.add(connBtn);
 
+        Card treeCard = Card.plain();
+        treeCard.setFlush(true);
+        treeCard.setContent(treeScroll);
+
         leftPanel.add(searchBox, BorderLayout.NORTH);
-        leftPanel.add(treeScroll, BorderLayout.CENTER);
+        leftPanel.add(treeCard, BorderLayout.CENTER);
         leftPanel.add(treeToolBar, BorderLayout.SOUTH);
 
         mainSplit.setLeftComponent(leftPanel);
@@ -147,12 +159,16 @@ public class SshClientPanel extends ToolPanel implements ManagedResourceOwner {
         welcomeTabPanel = createWelcomePanel();
         sessionTabbedPane.addTab("起始页", welcomeTabPanel);
 
-        mainSplit.setRightComponent(sessionTabbedPane);
+        Card sessionCard = Card.plain();
+        sessionCard.setFlush(true);
+        sessionCard.setContent(sessionTabbedPane);
+        mainSplit.setRightComponent(sessionCard);
 
         // 加载服务器数据
         refreshServerTree();
 
-        return mainSplit;
+        root.add(mainSplit, BorderLayout.CENTER);
+        return root;
     }
 
     private JPopupMenu createTreePopupMenu() {
@@ -322,32 +338,38 @@ public class SshClientPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private JPanel createWelcomePanel() {
-        Card welcomeCard = new Card("SSH 远程终端客户端", "快捷管理 Linux/Unix 服务器，集成 ANSI 交互终端与 SFTP 文件管理");
-        
         JPanel box = new JPanel();
         box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
         box.setOpaque(false);
 
-        JLabel iconLabel = new JLabel("💻", SwingConstants.CENTER);
-        iconLabel.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 48));
-        iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JLabel icon = new JLabel(ToolGlyph.of("ssh", "network", 56));
+        icon.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JPanel btnBox = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 12));
-        btnBox.setOpaque(false);
+        JLabel title = new JLabel(I18n.get("tool.ssh.welcome.title"));
+        title.setFont(Tokens.fontPageTitle());
+        title.setForeground(Tokens.foreground());
+        title.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel hint = new JLabel(I18n.get("tool.ssh.welcome.hint"));
+        hint.setFont(Tokens.fontBody());
+        hint.setForeground(Tokens.secondaryForeground());
+        hint.setAlignmentX(Component.CENTER_ALIGNMENT);
+
         JButton newConnBtn = Buttons.primary("+ 新增服务器配置");
         newConnBtn.addActionListener(e -> openConfigDialog(null));
-        btnBox.add(newConnBtn);
-        btnBox.setAlignmentX(Component.CENTER_ALIGNMENT);
+        newConnBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        box.add(iconLabel);
-        box.add(Box.createVerticalStrut(16));
-        box.add(btnBox);
+        box.add(icon);
+        box.add(Box.createVerticalStrut(Tokens.SPACE_LG));
+        box.add(title);
+        box.add(Box.createVerticalStrut(Tokens.SPACE_XS + 2));
+        box.add(hint);
+        box.add(Box.createVerticalStrut(Tokens.SPACE_LG + 4));
+        box.add(newConnBtn);
 
-        welcomeCard.add(box, BorderLayout.CENTER);
-        
         JPanel wrap = new JPanel(new GridBagLayout());
         wrap.setOpaque(false);
-        wrap.add(welcomeCard);
+        wrap.add(box);
         return wrap;
     }
 }

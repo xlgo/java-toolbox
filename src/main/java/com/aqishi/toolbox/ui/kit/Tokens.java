@@ -7,8 +7,10 @@ import java.awt.Font;
 /**
  * 设计令牌：间距、圆角、控件尺寸、字体与语义颜色。
  *
- * <p>所有颜色都从当前 LAF 的 {@link UIManager} 推导，不硬编码浅色或深色壳层颜色，
- * 因此切换 FlatLaf 任意主题后卡片、边框和次要文字都会随之变化。</p>
+ * <p>数值来自新版效果页（tool-v2）：工作区 28/32px 留白、卡片 12px 圆角、20px 内边距、
+ * 控件 34px 高。颜色不在这里写死，而是从当前主题的 {@link UIManager} 表读取，
+ * 由 {@code ThemeManager} 按五套主题（浅色 / 深色 / 午夜蓝 / 森林绿 / 奶油暖）写入。
+ * 这样任何一套主题切换后，卡片、边框与次要文字都会随之变化，不需要重建组件。</p>
  */
 public final class Tokens {
 
@@ -28,42 +30,55 @@ public final class Tokens {
     /** 24px：大分区之间 */
     public static final int SPACE_XL = 24;
 
+    /** 页面左右留白：效果页的 32px */
+    public static final int PAGE_PADDING_X = 32;
+    /** 页面上留白：效果页的 28px */
+    public static final int PAGE_PADDING_TOP = 28;
+    /** 页面下留白：效果页的 48px，保证最后一行卡片不贴底 */
+    public static final int PAGE_PADDING_BOTTOM = 48;
+    /** 正文最大宽度：超宽屏下内容居中，阅读行长稳定 */
+    public static final int PAGE_MAX_WIDTH = 1180;
+
     // ---------------------------------------------------------------- 圆角
 
-    /** 卡片圆角 */
-    public static final int RADIUS_CARD = 14;
+    /** 卡片 / 面板圆角 */
+    public static final int RADIUS_CARD = 12;
     /** 控件圆角 */
     public static final int RADIUS_CONTROL = 8;
-    /** 启动器磁贴圆角：比表单卡片更大，接近移动端的圆润观感 */
-    public static final int RADIUS_TILE = 18;
+    /** 工具磁贴圆角：与面板同档，效果页不再使用更大的圆角 */
+    public static final int RADIUS_TILE = 12;
 
     // ---------------------------------------------------------------- 尺寸
 
-    /** 常规控件最小高度 */
-    public static final int CONTROL_HEIGHT = 32;
+    /** 常规控件高度 */
+    public static final int CONTROL_HEIGHT = 34;
     /** 紧凑控件高度（工具条内的图标按钮等） */
     public static final int CONTROL_HEIGHT_SM = 28;
     /** 导航行高 */
     public static final int NAV_ROW_HEIGHT = 32;
     /** 表格行高 */
     public static final int TABLE_ROW_HEIGHT = 26;
-    /** 卡片内边距 */
-    public static final int CARD_PADDING = 14;
+    /** 卡片 / 面板内边距 */
+    public static final int CARD_PADDING = 20;
 
-    // ---------------------------------------------------------------- 启动器
+    // ---------------------------------------------------------------- 首页
 
-    /** 工具磁贴宽度（单列最小宽度） */
-    public static final int TILE_WIDTH = 180;
+    /** 工具磁贴最小宽度（效果页 248px） */
+    public static final int TILE_WIDTH = 248;
     /** 工具磁贴高度 */
-    public static final int TILE_HEIGHT = 138;
+    public static final int TILE_HEIGHT = 186;
     /** 磁贴内图标底块的边长 */
-    public static final int TILE_ICON = 48;
+    public static final int TILE_ICON = 40;
     /** 磁贴之间的间距 */
-    public static final int TILE_GAP = 16;
+    public static final int TILE_GAP = 14;
     /** 分类导航条目高度 */
-    public static final int RAIL_ROW_HEIGHT = 38;
+    public static final int RAIL_ROW_HEIGHT = 32;
     /** 顶栏高度 */
-    public static final int TOPBAR_HEIGHT = 56;
+    public static final int TOPBAR_HEIGHT = 54;
+    /** 侧栏宽度 */
+    public static final int SIDEBAR_WIDTH = 232;
+    /** 状态栏高度 */
+    public static final int STATUSBAR_HEIGHT = 30;
 
     // ---------------------------------------------------------------- 字体
 
@@ -108,19 +123,24 @@ public final class Tokens {
         return base().deriveFont(Font.BOLD, 13f);
     }
 
-    /** 卡片 / 分区标题 */
+    /** 卡片内的次级标题（效果页的 .panel h4：13px 加粗、次要色） */
     public static Font fontSectionTitle() {
         return base().deriveFont(Font.BOLD, 13f);
     }
 
-    /** 页面级标题（当前工具名、侧栏应用名） */
+    /** 侧栏应用名、区块标题 */
     public static Font fontTitle() {
-        return base().deriveFont(Font.BOLD, 15f);
+        return base().deriveFont(Font.BOLD, 17f);
     }
 
-    /** 工作区工具标题：效果页的 22px 粗体 */
+    /** 工具页标题：效果页 21px 粗体 */
     public static Font fontPageTitle() {
-        return base().deriveFont(Font.BOLD, 22f);
+        return base().deriveFont(Font.BOLD, 21f);
+    }
+
+    /** 首页标题：效果页 24px 粗体 */
+    public static Font fontHomeTitle() {
+        return base().deriveFont(Font.BOLD, 24f);
     }
 
     /** 辅助说明、状态栏 */
@@ -160,56 +180,52 @@ public final class Tokens {
         return (0.2126 * color.getRed() + 0.7152 * color.getGreen() + 0.0722 * color.getBlue()) / 255.0;
     }
 
-    /** 工作区底色 */
+    /** 工作区底色：效果页的 --bg */
     public static Color surface() {
         Color color = first("Panel.background", "control");
-        return color == null ? new Color(0xF2F2F2) : color;
+        return color == null ? new Color(0xEEF0F3) : color;
     }
 
-    /** 侧边导航的底色，第三方主题下由当前工作区与卡片底色推导。 */
+    /** 侧边导航底色：效果页的 --sidebar */
     public static Color navigationBackground() {
         Color color = first("Toolbox.navigationBackground");
-        return color == null ? blend(surface(), cardBackground(), 0.5f) : color;
+        return color == null ? new Color(0xF7F8FA) : color;
     }
 
-    /** 顶栏、状态栏等应用外壳区域的底色。 */
+    /** 顶栏、状态栏等应用外壳区域的底色 */
     public static Color chromeBackground() {
         Color color = first("Toolbox.chromeBackground");
         return color == null ? cardBackground() : color;
     }
 
-    /**
-     * 卡片背景：使用内容类控件的背景（浅色主题下接近白色，深色主题下接近编辑器底色），
-     * 叠在 {@link #surface()} 之上自然形成一层轻微的高低差。
-     */
+    /** 卡片 / 面板背景：效果页的 --surface */
     public static Color cardBackground() {
-        Color content = first("TextField.background", "Table.background", "TextArea.background");
+        Color content = first("Toolbox.cardBackground", "TextField.background", "Table.background");
         Color surface = surface();
         if (content == null) {
             return surface;
         }
-        // 与工作区底色差异过小时，向亮度反方向再推一点，确保卡片可辨识
         if (colorDistance(content, surface) < 6) {
             return shift(surface, isDark() ? 0.06f : -0.02f);
         }
         return content;
     }
 
-    /** 卡片头部底色：与效果页一致，卡片标题同属白色面板，不再单独铺色 */
+    /** 卡片头部底色：效果页面板标题与内容同底色，不再单独铺色 */
     public static Color cardHeaderBackground() {
         return cardBackground();
     }
 
     /** 描边色 */
     public static Color border() {
-        Color color = first("Component.borderColor", "Separator.foreground", "controlShadow");
-        return color == null ? new Color(0xC8C8C8) : color;
+        Color color = first("Toolbox.borderColor", "Component.borderColor", "Separator.foreground");
+        return color == null ? new Color(0xDDE1E8) : color;
     }
 
     /** 更明显的描边，用于输入框与次级按钮 */
     public static Color borderStrong() {
         Color color = first("Toolbox.borderStrongColor");
-        return color == null ? blend(border(), foreground(), 0.16f) : color;
+        return color == null ? new Color(0xC9CFDA) : color;
     }
 
     /** 代码块与等宽文本底色 */
@@ -224,7 +240,7 @@ public final class Tokens {
         return color == null ? cardBackground() : color;
     }
 
-    /** 次级面板底色 */
+    /** 次级面板底色（统计块、标签底、表头） */
     public static Color panelAlt() {
         Color color = first("Toolbox.panelAltBackground");
         return color == null ? surface() : color;
@@ -252,7 +268,7 @@ public final class Tokens {
     /** 主文字色 */
     public static Color foreground() {
         Color color = first("Label.foreground", "textText");
-        return color == null ? Color.DARK_GRAY : color;
+        return color == null ? new Color(0x191D26) : color;
     }
 
     /** 次要 / 说明文字色 */
@@ -262,6 +278,12 @@ public final class Tokens {
             color = blend(foreground(), cardBackground(), 0.45f);
         }
         return color;
+    }
+
+    /** 装饰性弱文字：卡片标签、占位提示。对比度低于正文，只用于不影响理解的信息 */
+    public static Color faintForeground() {
+        Color color = first("Toolbox.faintForeground");
+        return color == null ? blend(mutedForeground(), cardBackground(), 0.35f) : color;
     }
 
     /** 比 muted 更实一档的正文说明色，用于工具描述与副标题 */
@@ -274,28 +296,37 @@ public final class Tokens {
     public static Color accent() {
         Color color = first("Toolbox.accentColor", "Component.accentColor", "Component.focusColor",
                 "ProgressBar.foreground", "textHighlight");
-        return color == null ? new Color(0x2F6FEB) : color;
+        return color == null ? new Color(0x2456D6) : color;
+    }
+
+    /** 强调色上的文字色：浅色主题为白，深色主题的亮青/亮紫则转深色 */
+    public static Color accentText() {
+        Color color = first("Toolbox.accentText");
+        if (color != null) {
+            return color;
+        }
+        return luminance(accent()) > 0.62 ? new Color(0x0D1524) : Color.WHITE;
     }
 
     /** 成功态 */
     public static Color success() {
-        Color color = first("Actions.Green");
-        return color == null ? (isDark() ? new Color(0x5FA85F) : new Color(0x2E7D32)) : color;
+        Color color = first("Toolbox.successColor", "Actions.Green");
+        return color == null ? (isDark() ? new Color(0x4CC38A) : new Color(0x12805C)) : color;
     }
 
     /** 警告态 */
     public static Color warning() {
-        Color color = first("Actions.Yellow");
-        return color == null ? (isDark() ? new Color(0xC9A227) : new Color(0xB26A00)) : color;
+        Color color = first("Toolbox.warningColor", "Actions.Yellow");
+        return color == null ? (isDark() ? new Color(0xE7BA6A) : new Color(0xB26A00)) : color;
     }
 
     /** 错误态 */
     public static Color danger() {
-        Color color = first("Component.error.borderColor", "Actions.Red");
-        return color == null ? (isDark() ? new Color(0xD05B5B) : new Color(0xC62828)) : color;
+        Color color = first("Toolbox.dangerColor", "Component.error.borderColor", "Actions.Red");
+        return color == null ? (isDark() ? new Color(0xFF8A7A) : new Color(0xD92D20)) : color;
     }
 
-    /** 强调色的浅底，用于标签、徽章 */
+    /** 强调色的浅底，用于标签、徽章、选中行 */
     public static Color accentSoft() {
         Color color = first("Toolbox.selectionBackground");
         return color == null ? blend(accent(), cardBackground(), isDark() ? 0.78f : 0.91f) : color;
@@ -317,19 +348,20 @@ public final class Tokens {
         return color == null ? foreground() : color;
     }
 
-    /**
-     * 磁贴投影色。
-     *
-     * <p>深色主题用纯黑做柔和的暗角，浅色主题用冷灰，投影才不会显脏。</p>
-     */
+    /** 卡片投影色：深色主题纯黑，浅色主题冷灰 */
     public static Color shadow() {
-        return isDark() ? new Color(0, 0, 0) : new Color(0x263449);
+        return isDark() ? new Color(0, 0, 0) : new Color(0x192346);
     }
 
-    /** 启动器页面底色：比工作区再淡一档，让彩色磁贴浮起来 */
+    /** 首页底色：与工作区同色，卡片靠描边而不是换底色区分 */
     public static Color launcherBackground() {
         Color color = first("Toolbox.launcherBackground");
         return color == null ? surface() : color;
+    }
+
+    /** 收藏星标的选中色 */
+    public static Color favorite() {
+        return new Color(0xE8A13A);
     }
 
     // ---------------------------------------------------------------- 颜色工具
@@ -347,6 +379,12 @@ public final class Tokens {
     public static Color shift(Color color, float amount) {
         Color target = amount >= 0 ? Color.WHITE : Color.BLACK;
         return blend(color, target, Math.abs(amount));
+    }
+
+    /** 带透明度的颜色（用于投影） */
+    public static Color alpha(Color color, int alpha) {
+        return new Color(color.getRed(), color.getGreen(), color.getBlue(),
+                Math.max(0, Math.min(255, alpha)));
     }
 
     private static int colorDistance(Color a, Color b) {

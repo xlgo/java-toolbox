@@ -10,6 +10,7 @@ import com.aqishi.toolbox.util.Json;
 import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Layouts;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 
@@ -87,8 +88,7 @@ public class MqttClientPanel extends ToolPanel implements ManagedResourceOwner {
 
     @Override
     protected JComponent build() {
-        JPanel mainPanel = new JPanel(new BorderLayout(0, 10));
-        mainPanel.setBorder(new EmptyBorder(12, 12, 12, 12));
+        JPanel mainPanel = Layouts.page();
 
         // 1. 顶栏：MQTT Broker 连接配置
         mainPanel.add(buildConnectionCard(), BorderLayout.NORTH);

@@ -6,6 +6,7 @@ import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.feature.system.domain.HostsFile;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
@@ -39,8 +40,7 @@ public class HostsManagerPanel extends ToolPanel {
     protected JComponent build() {
         detectSystemHostsFile();
 
-        JPanel mainPanel = new JPanel(new BorderLayout(0, 12));
-        mainPanel.setBorder(new EmptyBorder(16, 16, 16, 16));
+        JPanel mainPanel = Layouts.page();
 
         // --- 顶栏：系统文件路径、搜索与操作 ---
         Card topCard = Card.plain();

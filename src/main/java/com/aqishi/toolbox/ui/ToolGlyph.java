@@ -1,6 +1,7 @@
 package com.aqishi.toolbox.ui;
 
 import com.aqishi.toolbox.ui.kit.Skin;
+import com.aqishi.toolbox.ui.kit.Tokens;
 
 import javax.swing.Icon;
 import java.awt.BasicStroke;
@@ -8,7 +9,6 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
-import java.awt.LinearGradientPaint;
 import java.awt.RenderingHints;
 import java.awt.geom.Arc2D;
 import java.awt.geom.Ellipse2D;
@@ -20,13 +20,13 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 工具磁贴图标：渐变圆角底 + 白色线性字形。
+ * 工具图标：浅强调色圆角底 + 强调色线性字形。
  *
- * <p>效果图里每张卡片都有一个 44px 的彩色图标。这里不使用位图资源：
- * 描边矢量在任何 DPI 下都清晰，颜色又能跟着皮肤实时推导，无需维护 76 份图片。</p>
+ * <p>效果页里每张卡片都有一个 40px 的图标座。这里不使用位图资源：
+ * 描边矢量在任何 DPI 下都清晰，颜色又能跟着主题实时推导，无需维护 80 份图片。</p>
  *
  * <p>字形按工具语义挑选（摘要用 #、加密用锁、数据库用圆柱……），
- * 同一分类共享色相，因此一眼能看出「这个工具属于哪一组」。</p>
+ * 底色带一点分类色相偏移，因此整屏扫描时仍能看出工具属于哪一组。</p>
  */
 public final class ToolGlyph {
 
@@ -167,35 +167,24 @@ public final class ToolGlyph {
 
                 Skin skin = ThemeManager.skin();
                 Color seed = seedFor(toolId, categoryId);
-                Color from = skin.glyphFrom(seed);
-                Color to = skin.glyphTo(seed);
-                float radius = size * 0.28f;
+                float radius = size * 0.25f;
 
-                // 主体：左上到右下的对角渐变，模拟效果图里的柔光
-                g.setPaint(new LinearGradientPaint(
-                        0f, 0f, size * 0.85f, size,
-                        new float[]{0f, 1f},
-                        new Color[]{from, to}));
+                // 效果页的图标座：浅强调底色 + 同色系字形，不再使用彩色渐变。
+                // 底色跟着分类做极轻的色相偏移，整屏仍有分组感，但不会喧宾夺主。
+                Color tint = Tokens.blend(Tokens.accentSoft(), seed, skin.isDark() ? 0.16f : 0.10f);
+                g.setColor(tint);
                 g.fill(new RoundRectangle2D.Float(0f, 0f, size, size, radius, radius));
 
-                // 顶部高光：一条极淡的白色内弧，让图标不显得扁平
-                g.setPaint(new LinearGradientPaint(
-                        0f, 0f, 0f, size * 0.6f,
-                        new float[]{0f, 1f},
-                        new Color[]{new Color(255, 255, 255, 46), new Color(255, 255, 255, 0)}));
-                g.fill(new RoundRectangle2D.Float(0f, 0f, size, size * 0.66f, radius, radius));
-
-                // 内描边：在深色底上勾出边缘
-                g.setColor(new Color(255, 255, 255, 36));
-                g.setStroke(new BasicStroke(Math.max(1f, size / 44f)));
+                g.setColor(Tokens.blend(tint, Tokens.accent(), 0.45f));
+                g.setStroke(new BasicStroke(Math.max(1f, size / 46f)));
                 g.draw(new RoundRectangle2D.Float(0.5f, 0.5f, size - 1f, size - 1f, radius, radius));
 
-                // 字形：占图标内侧约 56%，用白色描边绘制
+                // 字形：占图标内侧约 56%，用强调色描边绘制
                 float inset = size * 0.22f;
                 float scale = (size - inset * 2) / GRID;
                 g.translate(inset, inset);
                 g.scale(scale, scale);
-                g.setColor(skin.glyphInk());
+                g.setColor(Tokens.accent());
                 g.setStroke(new BasicStroke(1.9f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                 paint(glyph, g);
             } finally {
@@ -703,8 +692,10 @@ public final class ToolGlyph {
         return glyphOf(toolId).name();
     }
 
-    /** 当前皮肤下的磁贴图标底色，用于在测试里校验配色跟随皮肤 */
+    /** 当前主题下的图标底色，用于在测试里校验配色跟随主题 */
     static Color tileColorFor(String toolId, String categoryId) {
-        return ThemeManager.skin().glyphFrom(seedFor(toolId, categoryId));
+        Color seed = seedFor(toolId, categoryId);
+        return Tokens.blend(Tokens.accentSoft(), seed,
+                ThemeManager.skin().isDark() ? 0.16f : 0.10f);
     }
 }

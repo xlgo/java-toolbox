@@ -35,23 +35,21 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
 import java.awt.RenderingHints;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Ellipse2D;
-import java.awt.geom.Path2D;
+import java.awt.geom.Line2D;
 import java.awt.geom.RoundRectangle2D;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.function.Consumer;
 
 /**
- * 应用顶栏：品牌、全局搜索、五档外观、强调色、语言与实时时钟。
+ * 应用顶栏：侧栏开关、居中搜索、五套主题色卡与外观菜单。
  *
- * <p>效果页把搜索放在窗口最上方而不是侧栏里，因为它同时承担工具跳转与筛选；
- * 顶栏右侧直接暴露主题圆点，常用外观切换无需再打开菜单。项目仍保留 50 多套
- * 历史主题与中英切换，它们收进齿轮菜单，不占用主操作区。</p>
+ * <p>对应效果页的 {@code .topbar}：搜索框在窗口正中（不是靠左），右侧直接摆出
+ * 五个主题圆点与当前主题名，换肤是一步操作。主题库里的其它外观、强调色与语言
+ * 收进齿轮菜单，不占用主操作区。</p>
  *
  * <p>搜索带 140ms 去抖，中文输入法组字期间不触发，避免拼音被当成关键词筛掉全部工具。</p>
  */
@@ -60,21 +58,22 @@ public final class TopBar extends JPanel {
     private static final DateTimeFormatter CLOCK_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final int SEARCH_DEBOUNCE_MS = 140;
 
+    /** 顶栏直接展示的主题：与效果页的五个色卡一一对应 */
+    private static final Skin[] SWATCHES = {
+            Skin.LIGHT, Skin.DARK, Skin.MIDNIGHT, Skin.FOREST, Skin.PAPER
+    };
+
     private final JButton sidebarButton = new JButton();
-    private final JLabel appName = new JLabel();
-    private final JLabel appTag = new JLabel();
     private final SearchBox searchBox = new SearchBox();
     private final JTextField searchField = searchBox.field();
     private final JLabel themeLabel = new JLabel();
-    private final JPanel themeDots = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-    private final JPanel accentDots = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-    private final JLabel clock = new JLabel("--:--:--");
+    private final JLabel themeName = new JLabel();
+    private final JPanel swatchRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
     private final JButton appearanceButton = new JButton();
     private JComponent leadingPanel;
     private JComponent trailingPanel;
     private SearchArea searchArea;
     private final Timer searchDebounce;
-    private final Timer clockTimer;
 
     private Consumer<String> queryListener = ignored -> { };
     private Consumer<Skin> skinListener = ignored -> { };
@@ -91,7 +90,7 @@ public final class TopBar extends JPanel {
         super(null);
         setOpaque(false);
         setName("workbench.topbar");
-        setBorder(new javax.swing.border.EmptyBorder(8, 14, 8, 14));
+        setBorder(new javax.swing.border.EmptyBorder(0, 14, 0, 14));
 
         leadingPanel = buildLeading();
         searchArea = new SearchArea(searchBox);
@@ -103,20 +102,8 @@ public final class TopBar extends JPanel {
         searchDebounce = new Timer(SEARCH_DEBOUNCE_MS, event -> queryListener.accept(searchField.getText()));
         searchDebounce.setRepeats(false);
 
-        clockTimer = new Timer(1000, event -> updateClock());
-        clockTimer.setInitialDelay(0);
-        clockTimer.start();
-
-        addComponentListener(new ComponentAdapter() {
-            @Override
-            public void componentResized(ComponentEvent event) {
-                adaptToWidth();
-            }
-        });
-
         refreshLabels();
         refreshThemeIndicators();
-        updateClock();
     }
 
     // ---------------------------------------------------------------- 组件
@@ -125,92 +112,63 @@ public final class TopBar extends JPanel {
         JPanel leading = new JPanel();
         leading.setOpaque(false);
         leading.setLayout(new BoxLayout(leading, BoxLayout.X_AXIS));
+        // 顶栏 54px、控件 34px：上下各留 10px，行内控件与搜索框基线对齐
+        leading.setBorder(new javax.swing.border.EmptyBorder(10, 0, 10, 0));
 
         sidebarButton.setName("workbench.sidebarToggle");
         sidebarButton.setText(null);
         sidebarButton.setIcon(WorkbenchIcons.sidebar(false));
-        sidebarButton.setFocusPainted(true);
-        sidebarButton.putClientProperty("JButton.buttonType", "toolBarButton");
+        sidebarButton.setFocusPainted(false);
+        sidebarButton.setContentAreaFilled(false);
+        sidebarButton.setBorderPainted(false);
         sidebarButton.putClientProperty("JComponent.minimumWidth", 0);
         sidebarButton.setMargin(new Insets(2, 5, 2, 5));
         sidebarButton.setPreferredSize(new Dimension(30, Tokens.CONTROL_HEIGHT));
         sidebarButton.setMaximumSize(new Dimension(30, Tokens.CONTROL_HEIGHT));
         sidebarButton.addActionListener(event -> sidebarListener.run());
 
-        JLabel brandIcon = new JLabel(WorkbenchIcons.brand(20));
-        brandIcon.setPreferredSize(new Dimension(20, 20));
-        brandIcon.setVerticalAlignment(SwingConstants.CENTER);
-
-        appName.setFont(Tokens.fontBodyStrong());
-        appName.setForeground(Tokens.foreground());
-        appTag.setFont(Tokens.fontCaption().deriveFont(Font.BOLD, 10.5f));
-        appTag.setForeground(Tokens.accent());
-        appTag.setBorder(BorderFactory.createEmptyBorder(1, 0, 0, 0));
-
-        JPanel brandText = new JPanel();
-        brandText.setOpaque(false);
-        brandText.setLayout(new BoxLayout(brandText, BoxLayout.Y_AXIS));
-        appName.setAlignmentX(Component.LEFT_ALIGNMENT);
-        appTag.setAlignmentX(Component.LEFT_ALIGNMENT);
-        brandText.add(appName);
-        brandText.add(appTag);
-
         leading.add(sidebarButton);
-        leading.add(Box.createHorizontalStrut(6));
-        leading.add(brandIcon);
-        leading.add(Box.createHorizontalStrut(8));
-        leading.add(brandText);
-        leading.add(Box.createHorizontalStrut(8));
         return leading;
     }
 
     private JComponent buildTrailing() {
-        JPanel trailing = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        JPanel trailing = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         trailing.setOpaque(false);
+        trailing.setBorder(new javax.swing.border.EmptyBorder(10, 0, 10, 0));
 
-        themeLabel.setFont(Tokens.fontCaption().deriveFont(Font.BOLD, 11f));
-        themeLabel.setForeground(Tokens.mutedForeground());
-        themeDots.setOpaque(false);
-        accentDots.setOpaque(false);
-        // 主题文字与强调色点占宽最多；窗口首次布局前先收起，待拿到真实宽度后再按阈值显示，
-        // 否则最小窗口首帧会把搜索框压到不可用。
-        themeLabel.setVisible(false);
-        accentDots.setVisible(false);
+        themeLabel.setFont(Tokens.fontCaption());
+        themeLabel.setForeground(Tokens.secondaryForeground());
+        themeLabel.setPreferredSize(new Dimension(30, Tokens.CONTROL_HEIGHT));
+        themeLabel.setVerticalAlignment(SwingConstants.CENTER);
+        swatchRow.setOpaque(false);
+        swatchRow.setPreferredSize(new Dimension(148, Tokens.CONTROL_HEIGHT));
 
-        for (Skin skin : new Skin[]{Skin.LIGHT, Skin.DARK, Skin.MIDNIGHT, Skin.FOREST, Skin.PAPER}) {
-            ThemeDot dot = new ThemeDot(skin);
-            dot.setName("top.theme." + skin.name().toLowerCase());
-            dot.addActionListener(event -> skinListener.accept(skin));
-            themeDots.add(dot);
-        }
-        String[] accentKeys = {"teal", "blue", "red", "amber", "violet", "pink", "slate"};
-        for (int i = 0; i < ThemeManager.ACCENTS.length; i++) {
-            int rgb = ThemeManager.ACCENTS[i];
-            AccentDot dot = new AccentDot(rgb, accentKeys[i]);
-            dot.setName("top.accent." + accentKeys[i]);
-            dot.addActionListener(event -> accentListener.accept(rgb));
-            accentDots.add(dot);
+        for (Skin skin : SWATCHES) {
+            ThemeSwatch swatch = new ThemeSwatch(skin);
+            swatch.setName("top.theme." + skin.name().toLowerCase());
+            swatch.addActionListener(event -> skinListener.accept(skin));
+            swatchRow.add(swatch);
         }
 
-        clock.setName("workbench.clock");
-        clock.setFont(Tokens.fontMono().deriveFont(12f));
-        clock.setForeground(Tokens.secondaryForeground());
-        clock.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
+        themeName.setFont(Tokens.fontBody());
+        themeName.setForeground(Tokens.foreground());
+        themeName.setPreferredSize(new Dimension(58, Tokens.CONTROL_HEIGHT));
+        themeName.setVerticalAlignment(SwingConstants.CENTER);
 
         appearanceButton.setName("workbench.appearance");
         appearanceButton.setIcon(WorkbenchIcons.gear(16));
         appearanceButton.setText(null);
-        appearanceButton.setFocusPainted(true);
-        appearanceButton.putClientProperty("JButton.buttonType", "toolBarButton");
+        appearanceButton.setFocusPainted(false);
+        appearanceButton.setContentAreaFilled(false);
+        appearanceButton.setBorderPainted(false);
         appearanceButton.putClientProperty("JComponent.minimumWidth", 0);
         appearanceButton.setMargin(new Insets(2, 5, 2, 5));
         appearanceButton.setPreferredSize(new Dimension(30, Tokens.CONTROL_HEIGHT));
         appearanceButton.addActionListener(event -> showAppearanceMenu());
 
         trailing.add(themeLabel);
-        trailing.add(themeDots);
-        trailing.add(accentDots);
-        trailing.add(clock);
+        trailing.add(swatchRow);
+        trailing.add(themeName);
         trailing.add(appearanceButton);
         return trailing;
     }
@@ -221,26 +179,18 @@ public final class TopBar extends JPanel {
         repaint();
     }
 
-    /**
-     * 在布局前按实际宽度收起非必要控件。
-     *
-     * <p>仅靠 componentResized 会晚一帧：首帧仍按大窗口的宽度预留主题色点，
-     * 最小窗口就会把搜索框压到一百来像素。布局阶段先做一次判定可以消除这个空窗。</p>
-     */
     private void updateResponsiveVisibility(int width) {
-        boolean showLabel = width >= 1060;
-        boolean showAccents = width >= 1280;
-        boolean showClock = width >= 820;
+        boolean showLabel = width >= 980;
+        boolean showName = width >= 900;
         if (themeLabel.isVisible() != showLabel) themeLabel.setVisible(showLabel);
-        if (accentDots.isVisible() != showAccents) accentDots.setVisible(showAccents);
-        if (clock.isVisible() != showClock) clock.setVisible(showClock);
+        if (themeName.isVisible() != showName) themeName.setVisible(showName);
     }
 
     @Override
     public Dimension getPreferredSize() {
         // null 布局不会从子组件推导高度；顶栏高度必须显式回报，
         // 否则放进 BorderLayout.NORTH 时会被压成 0。
-        return new Dimension(640, 48);
+        return new Dimension(640, Tokens.TOPBAR_HEIGHT);
     }
 
     @Override
@@ -262,11 +212,18 @@ public final class TopBar extends JPanel {
         // 右侧控件远多于左侧，后者会明显偏左。
         int side = Math.max(leadingSize.width, trailingSize.width);
         int available = getWidth() - insetLeft - insetRight - side * 2 - Tokens.SPACE_LG;
-        int searchWidth = Math.min(520, Math.max(120, available));
+        int searchWidth = Math.min(460, Math.max(120, available));
         int searchX = insetLeft + (getWidth() - insetLeft - insetRight - searchWidth) / 2;
-        int searchHeight = Math.min(32, contentHeight);
+        int searchHeight = Math.min(34, contentHeight);
         searchArea.setBounds(searchX, insetTop + (contentHeight - searchHeight) / 2,
                 searchWidth, searchHeight);
+    }
+
+    @Override
+    protected void paintComponent(Graphics graphics) {
+        graphics.setColor(Tokens.chromeBackground());
+        graphics.fillRect(0, 0, getWidth(), getHeight());
+        super.paintComponent(graphics);
     }
 
     // ---------------------------------------------------------------- 搜索
@@ -277,12 +234,7 @@ public final class TopBar extends JPanel {
         }
     }
 
-    /**
-     * 搜索区：把搜索框限制在 520px 并居中。
-     *
-     * <p>BorderLayout 的 CENTER 会无条件拉满剩余宽度，窗口变大后搜索框会横跨
-     * 大半个顶栏，和效果页的紧凑居中不符。这里用单子组件布局显式限宽。</p>
-     */
+    /** 搜索区：把搜索框限制在 460px 并居中。 */
     private static final class SearchArea extends JPanel {
 
         private final SearchBox box;
@@ -296,31 +248,31 @@ public final class TopBar extends JPanel {
 
         @Override
         public void doLayout() {
-            int width = Math.min(520, getWidth());
+            int width = Math.min(460, getWidth());
             int x = Math.max(0, (getWidth() - width) / 2);
             box.setBounds(x, 0, width, getHeight());
         }
 
         @Override
         public Dimension getPreferredSize() {
-            return new Dimension(520, 32);
+            return new Dimension(460, 34);
         }
     }
 
-    /** 圆角搜索框：内部是无边框文本框，键盘提示与放大镜都由这层负责绘制。 */
+    /** 圆角搜索框：内部是无边框文本框，放大镜与快捷键提示都由这层负责绘制。 */
     private final class SearchBox extends JPanel {
 
         private final JTextField field = new JTextField();
-        private final JLabel hint = new JLabel("Ctrl K");
+        private final JLabel hint = new JLabel("/");
         private boolean focus;
 
         SearchBox() {
             super(new BorderLayout(6, 0));
             setOpaque(false);
             setBorder(new javax.swing.border.EmptyBorder(0, 10, 0, 8));
-            setPreferredSize(new Dimension(520, 32));
-            setMinimumSize(new Dimension(190, 32));
-            setMaximumSize(new Dimension(520, 32));
+            setPreferredSize(new Dimension(460, 34));
+            setMinimumSize(new Dimension(190, 34));
+            setMaximumSize(new Dimension(460, 34));
 
             field.setName("workbench.search");
             field.setOpaque(false);
@@ -364,12 +316,11 @@ public final class TopBar extends JPanel {
                 }
             });
 
-            hint.setFont(Tokens.fontMono().deriveFont(10f));
+            hint.setFont(Tokens.fontCaption());
             hint.setForeground(Tokens.mutedForeground());
-            hint.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(Tokens.borderStrong()),
-                    new javax.swing.border.EmptyBorder(0, 4, 0, 4)));
+            hint.setPreferredSize(new Dimension(18, 18));
             hint.setHorizontalAlignment(SwingConstants.CENTER);
+            hint.setBorder(BorderFactory.createLineBorder(Tokens.borderStrong()));
 
             add(field, BorderLayout.CENTER);
             add(hint, BorderLayout.EAST);
@@ -388,11 +339,10 @@ public final class TopBar extends JPanel {
 
         void restyle() {
             field.setFont(Tokens.fontBody());
-            hint.setFont(Tokens.fontMono().deriveFont(10f));
+            hint.setFont(Tokens.fontCaption());
             hint.setForeground(Tokens.mutedForeground());
-            hint.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(Tokens.borderStrong()),
-                    new javax.swing.border.EmptyBorder(0, 4, 0, 4)));
+            hint.setBorder(BorderFactory.createLineBorder(Tokens.borderStrong()));
+            repaint();
         }
 
         @Override
@@ -401,15 +351,11 @@ public final class TopBar extends JPanel {
             try {
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 RoundRectangle2D shape = new RoundRectangle2D.Float(
-                        0.5f, 0.5f, getWidth() - 1f, getHeight() - 1f, 8, 8);
-                g.setColor(Tokens.fieldBackground());
+                        0.5f, 0.5f, getWidth() - 1f, getHeight() - 1f,
+                        Tokens.RADIUS_CONTROL, Tokens.RADIUS_CONTROL);
+                g.setColor(Tokens.panelAlt());
                 g.fill(shape);
-                if (focus) {
-                    g.setColor(Tokens.accentSoft());
-                    g.setStroke(new BasicStroke(4f));
-                    g.draw(new RoundRectangle2D.Float(2f, 2f, getWidth() - 4f, getHeight() - 4f, 8, 8));
-                }
-                g.setColor(focus ? Tokens.accent() : Tokens.borderStrong());
+                g.setColor(focus ? Tokens.accent() : Tokens.border());
                 g.setStroke(new BasicStroke(1f));
                 g.draw(shape);
             } finally {
@@ -440,12 +386,18 @@ public final class TopBar extends JPanel {
         menu.addSeparator();
         menu.add(sectionLabel(I18n.get("top.accent.label")));
         ButtonGroup accentGroup = new ButtonGroup();
+        JRadioButtonMenuItem follow = new JRadioButtonMenuItem(I18n.get("top.accent.follow"));
+        follow.setFont(Tokens.fontBody());
+        follow.setSelected(!ThemeManager.hasCustomAccent());
+        follow.addActionListener(event -> accentListener.accept(0));
+        accentGroup.add(follow);
+        menu.add(follow);
         for (int color : ThemeManager.ACCENTS) {
             JRadioButtonMenuItem item = new JRadioButtonMenuItem(
                     I18n.get("top.accent." + String.format("%06X", color).toLowerCase()));
             item.setFont(Tokens.fontBody());
             item.setIcon(accentIcon(color));
-            item.setSelected(ThemeManager.accentRgb() == color);
+            item.setSelected(ThemeManager.hasCustomAccent() && ThemeManager.accentRgb() == color);
             item.addActionListener(event -> accentListener.accept(color));
             accentGroup.add(item);
             menu.add(item);
@@ -579,12 +531,10 @@ public final class TopBar extends JPanel {
     }
 
     public void refreshLabels() {
-        appName.setText(I18n.get("app.name.brand"));
-        appTag.setText(I18n.get("app.name.tag"));
         themeLabel.setText(I18n.get("top.theme"));
-        searchField.putClientProperty("JTextField.placeholderText", I18n.get("top.search.placeholder.long"));
+        searchField.putClientProperty("JTextField.placeholderText",
+                I18n.get("top.search.placeholder.card"));
         searchField.getAccessibleContext().setAccessibleName(I18n.get("nav.search.accessible"));
-        clock.setToolTipText(I18n.get("top.clock.tip"));
         appearanceButton.setToolTipText(I18n.get("launcher.appearance.title"));
         appearanceButton.getAccessibleContext().setAccessibleName(I18n.get("launcher.appearance.title"));
         setSidebarExpanded(sidebarExpanded);
@@ -594,58 +544,44 @@ public final class TopBar extends JPanel {
     }
 
     public void refreshThemeIndicators() {
-        appName.setFont(Tokens.fontBodyStrong());
-        appName.setForeground(Tokens.foreground());
-        appTag.setFont(Tokens.fontCaption().deriveFont(Font.BOLD, 10.5f));
-        appTag.setForeground(Tokens.accent());
-        themeLabel.setFont(Tokens.fontCaption().deriveFont(Font.BOLD, 11f));
-        themeLabel.setForeground(Tokens.mutedForeground());
-        clock.setFont(Tokens.fontMono().deriveFont(12f));
-        clock.setForeground(Tokens.secondaryForeground());
+        themeLabel.setFont(Tokens.fontCaption());
+        themeLabel.setForeground(Tokens.secondaryForeground());
+        themeName.setFont(Tokens.fontBody());
+        themeName.setForeground(Tokens.foreground());
+        for (Component component : swatchRow.getComponents()) {
+            if (component instanceof ThemeSwatch swatch) {
+                swatch.setSelectedKey(swatch.skin == ThemeManager.skin());
+                swatch.repaint();
+            }
+        }
+        themeName.setText(ThemeManager.skin().label());
         searchBox.restyle();
-        for (Component component : themeDots.getComponents()) {
-            if (component instanceof ThemeDot dot) {
-                dot.setSelected(dot.skin == ThemeManager.skin());
-                dot.repaint();
-            }
-        }
-        for (Component component : accentDots.getComponents()) {
-            if (component instanceof AccentDot dot) {
-                dot.setSelected(dot.rgb == ThemeManager.accentRgb());
-                dot.repaint();
-            }
-        }
         repaint();
-    }
-
-    @Override
-    public void setVisible(boolean visible) {
-        super.setVisible(visible);
-        if (!visible) clockTimer.stop();
-        else if (!clockTimer.isRunning()) clockTimer.start();
-    }
-
-    private void updateClock() {
-        clock.setText(LocalTime.now().format(CLOCK_FORMAT));
     }
 
     // ---------------------------------------------------------------- 自绘控件
 
-    private final class ThemeDot extends JToggleButton {
+    /**
+     * 主题色卡：效果页的圆形色块，左上半是主题底色、右下半是强调色。
+     *
+     * <p>用两段纯色拼出「这个主题长什么样」，比只画一个纯色点更有辨识度，
+     * 也不需要为每套主题维护缩略图。</p>
+     */
+    private final class ThemeSwatch extends JToggleButton {
 
         private final Skin skin;
         private boolean hover;
 
-        private ThemeDot(Skin skin) {
+        private ThemeSwatch(Skin skin) {
             this.skin = skin;
             setText(null);
             setOpaque(false);
             setContentAreaFilled(false);
             setBorderPainted(false);
-            setFocusPainted(true);
-            setPreferredSize(new Dimension(20, 20));
-            setMinimumSize(new Dimension(20, 20));
-            setMaximumSize(new Dimension(20, 20));
+            setFocusPainted(false);
+            setPreferredSize(new Dimension(26, Tokens.CONTROL_HEIGHT));
+            setMinimumSize(new Dimension(26, Tokens.CONTROL_HEIGHT));
+            setMaximumSize(new Dimension(26, Tokens.CONTROL_HEIGHT));
             setToolTipText(skin.label());
             getAccessibleContext().setAccessibleName(skin.label());
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -661,13 +597,20 @@ public final class TopBar extends JPanel {
             });
         }
 
+        void setSelectedKey(boolean value) {
+            setSelected(value);
+        }
+
         @Override
         protected void paintComponent(Graphics graphics) {
             Graphics2D g = (Graphics2D) graphics.create();
             try {
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int inset = isSelected() ? 4 : 3;
-                int size = getWidth() - inset * 2;
+                int size = Math.min(getWidth(), Tokens.CONTROL_HEIGHT) - 8;
+                int x = (getWidth() - size) / 2;
+                int y = (getHeight() - size) / 2;
+                Ellipse2D circle = new Ellipse2D.Float(x, y, size, size);
+
                 if (isSelected()) {
                     g.setColor(Tokens.accentSoft());
                     g.fill(new Ellipse2D.Float(0, 0, getWidth(), getHeight()));
@@ -675,77 +618,24 @@ public final class TopBar extends JPanel {
                     g.setColor(Tokens.hoverSurface());
                     g.fill(new Ellipse2D.Float(1, 1, getWidth() - 2, getHeight() - 2));
                 }
-                Ellipse2D circle = new Ellipse2D.Float(inset, inset, size, size);
+
                 g.setClip(circle);
-                Color first = dotColor(skin, true);
-                Color second = dotColor(skin, false);
-                g.setColor(first);
-                g.fillRect(0, 0, getWidth(), getHeight());
-                Path2D half = new Path2D.Float();
-                half.moveTo(0, 0);
-                half.lineTo(getWidth(), getHeight());
-                half.lineTo(0, getHeight());
+                Color base = ThemeManager.palette(skin).workspace();
+                Color accent = ThemeManager.palette(skin).accent();
+                g.setColor(base);
+                g.fill(circle);
+                g.setColor(accent);
+                java.awt.geom.Path2D half = new java.awt.geom.Path2D.Float();
+                half.moveTo(x, y + size);
+                half.lineTo(x + size, y);
+                half.lineTo(x + size, y + size);
                 half.closePath();
-                g.setColor(second);
                 g.fill(half);
                 g.setClip(null);
+
                 g.setColor(isSelected() ? Tokens.accent() : Tokens.borderStrong());
-                g.setStroke(new BasicStroke(isSelected() ? 2f : 1.4f));
+                g.setStroke(new BasicStroke(isSelected() ? 2f : 1.2f));
                 g.draw(circle);
-            } finally {
-                g.dispose();
-            }
-        }
-    }
-
-    private static Color dotColor(Skin skin, boolean upper) {
-        return switch (skin) {
-            case LIGHT -> upper ? new Color(0xFFFFFF) : new Color(0xDFE5DC);
-            case DARK -> upper ? new Color(0x2A3038) : new Color(0x0E1013);
-            case MIDNIGHT -> upper ? new Color(0x274B8F) : new Color(0x070D1A);
-            case FOREST -> upper ? new Color(0x2F5D3A) : new Color(0x0A120D);
-            case PAPER -> upper ? new Color(0xFFFAF0) : new Color(0xD9C491);
-            case EYE_CARE -> upper ? new Color(0xFBF4E3) : new Color(0xD9C491);
-        };
-    }
-
-    private final class AccentDot extends JToggleButton {
-
-        private final int rgb;
-        private final String key;
-
-        private AccentDot(int rgb, String key) {
-            this.rgb = rgb;
-            this.key = key;
-            setText(null);
-            setOpaque(false);
-            setContentAreaFilled(false);
-            setBorderPainted(false);
-            setFocusPainted(true);
-            setPreferredSize(new Dimension(16, 16));
-            setMinimumSize(new Dimension(16, 16));
-            setMaximumSize(new Dimension(16, 16));
-            setToolTipText(I18n.get("top.accent." + key));
-            getAccessibleContext().setAccessibleName(getToolTipText());
-            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        }
-
-        @Override
-        protected void paintComponent(Graphics graphics) {
-            Graphics2D g = (Graphics2D) graphics.create();
-            try {
-                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                if (isSelected()) {
-                    g.setColor(Tokens.cardBackground());
-                    g.fill(new Ellipse2D.Float(0, 0, getWidth(), getHeight()));
-                    g.setColor(new Color(rgb));
-                    g.setStroke(new BasicStroke(1.5f));
-                    g.draw(new Ellipse2D.Float(0.8f, 0.8f, getWidth() - 1.6f, getHeight() - 1.6f));
-                    g.fill(new Ellipse2D.Float(4, 4, getWidth() - 8, getHeight() - 8));
-                } else {
-                    g.setColor(new Color(rgb));
-                    g.fill(new Ellipse2D.Float(1, 1, getWidth() - 2, getHeight() - 2));
-                }
             } finally {
                 g.dispose();
             }

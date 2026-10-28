@@ -206,10 +206,16 @@ public final class Fields {
         return area;
     }
 
-    /** 无边框滚动容器：边框交给外层卡片，避免双层描边 */
+    /**
+     * 带细描边的滚动容器。
+     *
+     * <p>效果页的文本域是「白底 + 1px 描边」。文本域本身放进滚动区后边框会被视口裁掉，
+     * 因此描边加在滚动区外侧；表格、终端、日志同样适用，读起来是一个独立的内容块，
+     * 而不是浮在面板上的空白区域。</p>
+     */
     public static JScrollPane scroll(java.awt.Component view) {
         JScrollPane scroll = new JScrollPane(view);
-        scroll.setBorder(javax.swing.BorderFactory.createEmptyBorder());
+        scroll.setBorder(KitBorders.lineSubtle(1, 1, 1, 1));
         scroll.setViewportBorder(null);
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
@@ -229,9 +235,8 @@ public final class Fields {
      * 铺满型卡片（{@code Card.flush}）请继续用 {@link #scroll(java.awt.Component)}。</p>
      */
     public static JScrollPane scrollBoxed(java.awt.Component view) {
-        JScrollPane scroll = scroll(view);
-        scroll.setBorder(KitBorders.lineSubtle(1, 1, 1, 1));
-        return scroll;
+        // 描边已由 scroll() 统一提供
+        return scroll(view);
     }
 
     /**

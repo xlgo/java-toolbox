@@ -9,6 +9,7 @@ import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Card;
+import com.aqishi.toolbox.ui.kit.Layouts;
 import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.UIUtils;
 
@@ -114,8 +115,7 @@ public class QrCodePanel extends ToolPanel implements ManagedResourceOwner {
 
     @Override
     protected JComponent build() {
-        JPanel mainPanel = new JPanel(new BorderLayout(0, 12));
-        mainPanel.setBorder(new EmptyBorder(16, 16, 16, 16));
+        JPanel mainPanel = Layouts.page();
 
         JTabbedPane tabbedPane = new JTabbedPane();
         tabbedPane.addTab("二维码生成器", buildGeneratorPanel());

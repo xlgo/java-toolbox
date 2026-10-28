@@ -36,11 +36,10 @@ class UiSnapshotTest {
         shot("home-cream", ThemeManager.CREAM_THEME, ToolSidebar.ALL, null, output);
         shot("tool-json-light", ThemeManager.LIGHT_THEME, ToolSidebar.ALL, "json.format", output);
         String[] samples = {
-                "hash.codec", "regex.tester", "timestamp", "url.tool", "color.convert",
-                "calculator", "qrcode", "data.generator", "port.scanner", "text.diff",
-                "database.connector", "redis.management", "kafka.connector", "http.client",
-                "maven.tree", "thread.dump", "wechat.sender", "k8s.manager", "bpmn.designer",
-                "flowchart", "ssh", "cert.management", "ddl.entity"
+                "xml.format", "sql.format", "string.tool", "text.escape", "text.diff",
+                "jsonpath.tester", "xpath.tool", "file.encoding", "format.convert",
+                "base64.image", "radix.encoding", "structured.diff", "table.sql",
+                "json.dto", "mybatis.sql", "maven.tree"
         };
         for (String tool : samples) {
             shot("tool-" + tool, ThemeManager.LIGHT_THEME, ToolSidebar.ALL, tool, output);

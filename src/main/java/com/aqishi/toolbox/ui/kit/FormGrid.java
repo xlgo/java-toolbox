@@ -72,7 +72,8 @@ public class FormGrid extends JPanel {
      */
     public FormGrid row(JLabel label, Component field, Component trailing, boolean stretch) {
         JLabel labelComponent = label;
-        labelComponent.setFont(Tokens.fontBody());
+        labelComponent.setFont(Tokens.fontFieldLabel());
+        labelComponent.setForeground(Tokens.secondaryForeground());
         labelComponent.setHorizontalAlignment(javax.swing.SwingConstants.RIGHT);
         labelComponent.setLabelFor(field instanceof JComponent ? (JComponent) field : null);
 

@@ -31,15 +31,13 @@ class UiSnapshotTest {
         Files.createDirectories(output);
         shot("home-light", ThemeManager.LIGHT_THEME, ToolSidebar.ALL, null, output);
         shot("home-wide", ThemeManager.LIGHT_THEME, ToolSidebar.ALL, null, output, 1600, 900);
+        shot("home-narrow", ThemeManager.LIGHT_THEME, ToolSidebar.ALL, null, output, 900, 600);
         shot("tool-dark", ThemeManager.DARK_THEME, ToolSidebar.ALL, "json.format", output);
         shot("home-dark", ThemeManager.DARK_THEME, ToolSidebar.ALL, null, output);
         shot("home-cream", ThemeManager.CREAM_THEME, ToolSidebar.ALL, null, output);
         shot("tool-json-light", ThemeManager.LIGHT_THEME, ToolSidebar.ALL, "json.format", output);
         String[] samples = {
-                "xml.format", "sql.format", "string.tool", "text.escape", "text.diff",
-                "jsonpath.tester", "xpath.tool", "file.encoding", "format.convert",
-                "base64.image", "radix.encoding", "structured.diff", "table.sql",
-                "json.dto", "mybatis.sql", "maven.tree"
+                "timestamp", "text.diff", "hash.codec", "color.convert", "port.scanner", "data.generator"
         };
         for (String tool : samples) {
             shot("tool-" + tool, ThemeManager.LIGHT_THEME, ToolSidebar.ALL, tool, output);
@@ -53,7 +51,9 @@ class UiSnapshotTest {
                 java.awt.Rectangle bounds = javax.swing.SwingUtilities.convertRectangle(
                         button.getParent(), button.getBounds(), root);
                 System.out.println("[button] " + button.getText() + " " + bounds
-                        + " pref=" + button.getPreferredSize() + " min=" + button.getMinimumSize());
+                        + " pref=" + button.getPreferredSize() + " min=" + button.getMinimumSize()
+                        + " parent=" + (button.getParent() == null ? "-"
+                            : button.getParent().getClass().getSimpleName() + button.getParent().getBounds()));
             }
             if (child instanceof java.awt.Container container) {
                 dumpButtons(container);

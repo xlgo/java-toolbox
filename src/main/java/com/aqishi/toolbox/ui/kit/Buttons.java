@@ -78,6 +78,24 @@ public final class Buttons {
         return button;
     }
 
+    /**
+     * 带图标的次操作按钮。
+     *
+     * <p>图标必须在计算尺寸之前设置，否则会沿用「只有文字」时钉死的首选尺寸，
+     * 加上图标后文字被压成省略号。</p>
+     */
+    public static JButton secondary(String text, javax.swing.Icon icon) {
+        JButton button = new JButton(text);
+        button.setIcon(icon);
+        button.setIconTextGap(Tokens.SPACE_XS + 2);
+        return base(button);
+    }
+
+    /** 后加图标或改文案后重新按当前内容钉一次尺寸 */
+    public static void refit(AbstractButton button) {
+        applyHeight(button);
+    }
+
     /** 切换按钮，用于分段控制 */
     public static JToggleButton toggle(String text, boolean selected) {
         JToggleButton button = new JToggleButton(text, selected);

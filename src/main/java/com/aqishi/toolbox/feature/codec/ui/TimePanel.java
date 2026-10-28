@@ -4,6 +4,7 @@ import com.aqishi.toolbox.catalog.ToolCatalog;
 import com.aqishi.toolbox.feature.codec.domain.TimeConversions;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
 import com.aqishi.toolbox.ui.ToolPanel;
+import com.aqishi.toolbox.ui.WorkbenchIcons;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
 import com.aqishi.toolbox.ui.kit.Fields;
@@ -54,7 +55,7 @@ public class TimePanel extends ToolPanel implements ManagedResourceOwner {
         topSecValueLabel.setForeground(Tokens.foreground());
 
         final JButton refreshBtn = Buttons.secondary("↻ 刷新当前");
-        final JButton copyTopBtn = Buttons.secondary("❐ 复制");
+        final JButton copyTopBtn = Buttons.secondary("复制", WorkbenchIcons.copy(15));
         refreshBtn.addActionListener(e -> updateCurrentTimeLabels());
         copyTopBtn.addActionListener(e -> {
             UIUtils.copyToClipboard(topMsValueLabel.getText());
@@ -98,7 +99,8 @@ public class TimePanel extends ToolPanel implements ManagedResourceOwner {
         leftResultField.setEditable(false);
         leftResultField.setFont(Tokens.fontMono().deriveFont(Font.BOLD, 14f));
 
-        final JButton copyLeftResultBtn = Buttons.ghost("❐");
+        final JButton copyLeftResultBtn = iconButton();
+        copyLeftResultBtn.setToolTipText(I18n.get("tool.timestamp.copyConverted"));
         copyLeftResultBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
         copyLeftResultBtn.addActionListener(e -> {
             if (!leftResultField.getText().isEmpty()) {
@@ -238,7 +240,8 @@ public class TimePanel extends ToolPanel implements ManagedResourceOwner {
         }
         box.add(field, BorderLayout.CENTER);
 
-        final JButton copyBtn = Buttons.ghost("❐");
+        final JButton copyBtn = iconButton();
+        copyBtn.setToolTipText(I18n.get("tool.timestamp.copyResult"));
         copyBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
         copyBtn.addActionListener(e -> {
             if (!field.getText().isEmpty()) {
@@ -248,6 +251,14 @@ public class TimePanel extends ToolPanel implements ManagedResourceOwner {
         });
         box.add(copyBtn, BorderLayout.EAST);
         return box;
+    }
+
+    /** 图标按钮：34px 方形、只有一张「复制」矢量图，不再用字符占位 */
+    private static JButton iconButton() {
+        JButton button = Buttons.compact("");
+        button.setIcon(WorkbenchIcons.copy(15));
+        button.setFocusPainted(false);
+        return button;
     }
 
     private void updateCurrentTimeLabels() {

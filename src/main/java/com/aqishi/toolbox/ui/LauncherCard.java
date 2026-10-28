@@ -37,6 +37,8 @@ public final class LauncherCard extends JButton {
     /** 卡片阴影预留的空白，避免投影被组件边界裁掉 */
     private static final int SHADOW_INSET = 3;
     private static final int PADDING = 18;
+    /** 图标与标题之间的呼吸感，效果页是 10px */
+    private static final int ICON_TEXT_GAP = 11;
     private static final int ICON_SIZE = Tokens.TILE_ICON;
     private static final int STAR_SIZE = 22;
     private static final int DESC_LINES = 2;
@@ -148,8 +150,8 @@ public final class LauncherCard extends JButton {
     }
 
     private void refreshFonts() {
-        titleFont = Tokens.fontBodyStrong().deriveFont(Font.BOLD, 14f);
-        subtitleFont = Tokens.fontBody().deriveFont(Font.PLAIN, 12f);
+        titleFont = Tokens.fontCardTitle();
+        subtitleFont = Tokens.fontCardBody();
         tagFont = Tokens.fontCaption().deriveFont(Font.PLAIN, 11f);
     }
 
@@ -184,11 +186,13 @@ public final class LauncherCard extends JButton {
             g.setColor(Tokens.cardBackground());
             g.fill(shape);
 
-            g.setStroke(new BasicStroke(1f));
-            g.setColor(hover || isFocusOwner() ? Tokens.borderStrong() : Tokens.border());
+            g.setStroke(new BasicStroke(isFocusOwner() ? 2f : 1f));
+            g.setColor(isFocusOwner() ? Tokens.accent()
+                    : hover ? Tokens.borderStrong() : Tokens.border());
+            float inset = isFocusOwner() ? 1f : 0.5f;
             g.draw(new RoundRectangle2D.Float(
-                    card.x + 0.5f, card.y - lift + 0.5f,
-                    card.width - 1f, card.height - 1f, radius, radius));
+                    card.x + inset, card.y - lift + inset,
+                    card.width - inset * 2, card.height - inset * 2, radius, radius));
 
             int left = card.x + PADDING;
             int top = card.y - lift + PADDING;
@@ -209,15 +213,16 @@ public final class LauncherCard extends JButton {
 
     private void paintShadow(Graphics2D g, Rectangle card, float radius, int lift) {
         Color base = Tokens.shadow();
+        // 三层递减的光晕，模拟效果页的 0 10px 30px rgba(25,35,70,.10)
         for (int layer = 3; layer >= 1; layer--) {
             int spread = layer * 2;
-            int alpha = Math.max(6, 22 / layer);
+            int alpha = Math.max(5, 16 / layer);
             g.setColor(Tokens.alpha(base, alpha));
             g.fill(new RoundRectangle2D.Float(
                     card.x - spread,
-                    card.y - lift + spread * 0.7f,
+                    card.y - lift + spread * 0.8f,
                     card.width + spread * 2f,
-                    card.height + spread,
+                    card.height + spread * 1.2f,
                     radius + spread, radius + spread));
         }
     }
@@ -226,7 +231,8 @@ public final class LauncherCard extends JButton {
         int left = card.x + PADDING;
         int maxWidth = card.width - PADDING * 2;
 
-        int titleY = card.y - lift + PADDING + ICON_SIZE + 12 + g.getFontMetrics(titleFont).getAscent();
+        int titleY = card.y - lift + PADDING + ICON_SIZE + ICON_TEXT_GAP
+                + g.getFontMetrics(titleFont).getAscent();
         g.setFont(titleFont);
         g.setColor(Tokens.foreground());
         FontMetrics titleMetrics = g.getFontMetrics();
@@ -236,7 +242,7 @@ public final class LauncherCard extends JButton {
         g.setColor(Tokens.secondaryForeground());
         FontMetrics metrics = g.getFontMetrics();
         int lineHeight = metrics.getHeight();
-        int y = titleY + 8 + metrics.getAscent();
+        int y = titleY + 7 + metrics.getAscent();
         for (String line : wrap(subtitle, metrics, maxWidth, DESC_LINES)) {
             g.drawString(line, left, y);
             y += lineHeight;
@@ -244,57 +250,77 @@ public final class LauncherCard extends JButton {
 
         if (!tag.isEmpty()) {
             g.setFont(tagFont);
-            g.setColor(Tokens.mutedForeground());
+            g.setColor(Tokens.faintForeground());
             FontMetrics tagMetrics = g.getFontMetrics();
             int tagBaseline = card.y - lift + card.height - PADDING;
             g.drawString(ellipsize(tag, tagMetrics, maxWidth), left, tagBaseline);
         }
     }
 
-    /** 按像素宽度折行，最后一行用省略号收尾 */
+    /**
+     * 按像素宽度折行，尽量在词边界断开，最后一行用省略号收尾。
+     *
+     * <p>逐字符折行会在 Latin 单词中间断开（例如 "P / roperties"），中英混排的
+     * 说明文字读起来很别扭。这里记录每一行最近一个可断点（空格、顿号、逗号、
+     * 斜杠等），超宽时回到该断点换行；找不到断点才按字符硬断。</p>
+     */
     private static List<String> wrap(String text, FontMetrics metrics, int maxWidth, int maxLines) {
         List<String> lines = new ArrayList<>();
         if (text == null || text.isEmpty()) {
             return lines;
         }
         StringBuilder current = new StringBuilder();
+        int lastBreak = -1;
         int index = 0;
+        int consumedChars = 0;
         while (index < text.length()) {
             char ch = text.charAt(index);
             if (ch == '\n') {
                 lines.add(current.toString());
+                consumedChars += current.length() + 1;
                 current.setLength(0);
+                lastBreak = -1;
                 index++;
                 if (lines.size() == maxLines) {
                     break;
                 }
                 continue;
             }
-            String candidate = current.toString() + ch;
-            if (metrics.stringWidth(candidate) > maxWidth && current.length() > 0) {
-                lines.add(current.toString());
+            current.append(ch);
+            if (isBreakOpportunity(ch)) {
+                lastBreak = current.length();
+            }
+            if (metrics.stringWidth(current.toString()) > maxWidth && current.length() > 1) {
+                int breakAt = lastBreak > 0 && lastBreak < current.length() ? lastBreak : current.length() - 1;
+                String head = current.substring(0, breakAt).trim();
+                String tail = current.substring(breakAt).trim();
+                lines.add(head);
+                consumedChars += head.length();
                 current.setLength(0);
+                current.append(tail);
+                lastBreak = -1;
                 if (lines.size() == maxLines) {
                     break;
                 }
-                continue;
             }
-            current.append(ch);
             index++;
         }
         if (lines.size() < maxLines && current.length() > 0) {
-            lines.add(current.toString());
+            lines.add(current.toString().trim());
+            consumedChars += current.length();
         }
-        // 内容还有剩余时，把最后一行改为省略号
-        int consumed = 0;
-        for (String line : lines) {
-            consumed += line.length();
-        }
-        if (consumed < text.replace("\n", "").length() && !lines.isEmpty()) {
+        boolean truncated = consumedChars < text.replace("\n", "").trim().length();
+        if (truncated && !lines.isEmpty()) {
             int last = lines.size() - 1;
             lines.set(last, ellipsize(lines.get(last) + "…", metrics, maxWidth));
         }
         return lines;
+    }
+
+    /** 可断行的位置：空白与中英文标点 */
+    private static boolean isBreakOpportunity(char ch) {
+        return Character.isWhitespace(ch)
+                || "、，。；：/|,.;:!?)]}）】”’".indexOf(ch) >= 0;
     }
 
     /** 按像素宽度截断并补省略号 */

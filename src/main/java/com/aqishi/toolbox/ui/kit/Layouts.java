@@ -240,9 +240,9 @@ public final class Layouts {
         }
     }
 
-    /** 纵向堆叠，默认卡片间距 */
+    /** 纵向堆叠，默认卡片间距（效果页的 .panel + .panel 是 14px） */
     public static JPanel stack(Component... children) {
-        return stack(Tokens.SPACE_LG, children);
+        return stack(Tokens.SPACE_LG - 2, children);
     }
 
     /** 等宽分栏 */

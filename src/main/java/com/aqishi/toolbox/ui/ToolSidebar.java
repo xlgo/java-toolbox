@@ -103,7 +103,7 @@ public final class ToolSidebar extends JPanel {
     private JComponent buildHeader() {
         brandTitle.setFont(Tokens.fontTitle());
         brandTitle.setForeground(Tokens.foreground());
-        brandSubtitle.setFont(Tokens.fontCaption());
+        brandSubtitle.setFont(Tokens.fontCaption().deriveFont(11.5f));
         brandSubtitle.setForeground(Tokens.mutedForeground());
 
         JPanel copy = new JPanel();
@@ -199,7 +199,11 @@ public final class ToolSidebar extends JPanel {
         brandTitle.setToolTipText(brandTitle.getText());
         collapseButton.setToolTipText(I18n.get("nav.collapse"));
         footerLabel.setText(java.text.MessageFormat.format(
-                I18n.get("sidebar.count.short"), model.getToolIds().size()));
+                        I18n.get("sidebar.count.short"), model.getToolIds().size())
+                + " · " + java.text.MessageFormat.format(
+                        I18n.get("sidebar.foot.favorites"), shortcuts.favoriteCount())
+                + " · " + java.text.MessageFormat.format(
+                        I18n.get("sidebar.foot.recent"), shortcuts.recentCount()));
 
         items.revalidate();
         items.repaint();
@@ -210,7 +214,7 @@ public final class ToolSidebar extends JPanel {
     public void restyle() {
         brandTitle.setFont(Tokens.fontTitle());
         brandTitle.setForeground(Tokens.foreground());
-        brandSubtitle.setFont(Tokens.fontCaption());
+        brandSubtitle.setFont(Tokens.fontCaption().deriveFont(11.5f));
         brandSubtitle.setForeground(Tokens.mutedForeground());
         groupCaption.setFont(Tokens.fontCaption().deriveFont(Font.BOLD, 11.5f));
         groupCaption.setForeground(Tokens.mutedForeground());
@@ -374,15 +378,15 @@ public final class ToolSidebar extends JPanel {
             putClientProperty("JComponent.minimumWidth", 0);
 
             JLabel glyph = new JLabel(icon);
-            glyph.setPreferredSize(new Dimension(18, 18));
+            glyph.setPreferredSize(new Dimension(16, 16));
             glyph.setHorizontalAlignment(SwingConstants.CENTER);
 
             text.setText(label);
-            text.setFont(Tokens.fontBody());
+            text.setFont(Tokens.fontNavItem());
             text.setForeground(Tokens.foreground());
 
             count.setText(badge > 0 ? Integer.toString(badge) : "");
-            count.setFont(Tokens.fontCaption());
+            count.setFont(Tokens.fontCaption().deriveFont(11.5f));
             count.setHorizontalAlignment(SwingConstants.RIGHT);
 
             setToolTipText(label);
@@ -398,15 +402,15 @@ public final class ToolSidebar extends JPanel {
         }
 
         void restyle() {
-            text.setFont(Tokens.fontBody());
-            count.setFont(Tokens.fontCaption());
+            text.setFont(Tokens.fontNavItem());
+            count.setFont(Tokens.fontCaption().deriveFont(11.5f));
             updateSelection();
         }
 
         void updateSelection() {
             boolean active = category.equals(activeCategory);
             putClientProperty("active", active);
-            text.setFont(active ? Tokens.fontBodyStrong() : Tokens.fontBody());
+            text.setFont(active ? Tokens.fontNavItemSelected() : Tokens.fontNavItem());
             text.setForeground(active ? Tokens.selectionForeground() : Tokens.foreground());
             count.setForeground(active ? Tokens.selectionForeground() : Tokens.mutedForeground());
             repaint();

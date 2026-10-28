@@ -150,13 +150,13 @@ public final class TopBar extends JPanel {
             swatchRow.add(swatch);
         }
 
-        themeName.setFont(Tokens.fontBody());
+        themeName.setFont(Tokens.fontBody().deriveFont(12.5f));
         themeName.setForeground(Tokens.foreground());
         themeName.setPreferredSize(new Dimension(58, Tokens.CONTROL_HEIGHT));
         themeName.setVerticalAlignment(SwingConstants.CENTER);
 
         appearanceButton.setName("workbench.appearance");
-        appearanceButton.setIcon(WorkbenchIcons.gear(16));
+        appearanceButton.setIcon(WorkbenchIcons.more(16));
         appearanceButton.setText(null);
         appearanceButton.setFocusPainted(false);
         appearanceButton.setContentAreaFilled(false);
@@ -546,7 +546,7 @@ public final class TopBar extends JPanel {
     public void refreshThemeIndicators() {
         themeLabel.setFont(Tokens.fontCaption());
         themeLabel.setForeground(Tokens.secondaryForeground());
-        themeName.setFont(Tokens.fontBody());
+        themeName.setFont(Tokens.fontBody().deriveFont(12.5f));
         themeName.setForeground(Tokens.foreground());
         for (Component component : swatchRow.getComponents()) {
             if (component instanceof ThemeSwatch swatch) {
@@ -606,7 +606,7 @@ public final class TopBar extends JPanel {
             Graphics2D g = (Graphics2D) graphics.create();
             try {
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int size = Math.min(getWidth(), Tokens.CONTROL_HEIGHT) - 8;
+                int size = Math.min(getWidth(), Tokens.CONTROL_HEIGHT) - 12;
                 int x = (getWidth() - size) / 2;
                 int y = (getHeight() - size) / 2;
                 Ellipse2D circle = new Ellipse2D.Float(x, y, size, size);

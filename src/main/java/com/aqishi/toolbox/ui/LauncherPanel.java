@@ -68,7 +68,7 @@ public final class LauncherPanel extends JPanel {
         titleLabel.setForeground(Tokens.foreground());
         titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         subtitleLabel.setName("home.subtitle");
-        subtitleLabel.setFont(Tokens.fontBody());
+        subtitleLabel.setFont(Tokens.fontBody().deriveFont(13.5f));
         subtitleLabel.setForeground(Tokens.secondaryForeground());
         subtitleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
@@ -158,7 +158,7 @@ public final class LauncherPanel extends JPanel {
         titleLabel.setFont(Tokens.fontHomeTitle());
         titleLabel.setForeground(Tokens.foreground());
         subtitleLabel.setName("home.subtitle");
-        subtitleLabel.setFont(Tokens.fontBody());
+        subtitleLabel.setFont(Tokens.fontBody().deriveFont(13.5f));
         subtitleLabel.setForeground(Tokens.secondaryForeground());
         refresh();
     }

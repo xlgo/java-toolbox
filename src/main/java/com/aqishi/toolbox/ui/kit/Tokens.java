@@ -65,14 +65,14 @@ public final class Tokens {
 
     /** 工具磁贴最小宽度（效果页 248px） */
     public static final int TILE_WIDTH = 248;
-    /** 工具磁贴高度 */
-    public static final int TILE_HEIGHT = 186;
+    /** 工具磁贴高度：图标 + 标题 + 两行说明 + 标签，与效果页卡片高度一致 */
+    public static final int TILE_HEIGHT = 168;
     /** 磁贴内图标底块的边长 */
     public static final int TILE_ICON = 40;
     /** 磁贴之间的间距 */
     public static final int TILE_GAP = 14;
     /** 分类导航条目高度 */
-    public static final int RAIL_ROW_HEIGHT = 32;
+    public static final int RAIL_ROW_HEIGHT = 34;
     /** 顶栏高度 */
     public static final int TOPBAR_HEIGHT = 54;
     /** 侧栏宽度 */
@@ -126,6 +126,31 @@ public final class Tokens {
     /** 卡片内的次级标题（效果页的 .panel h4：13px 加粗、次要色） */
     public static Font fontSectionTitle() {
         return base().deriveFont(Font.BOLD, 13f);
+    }
+
+    /** 表单字段标签：效果页的 12.5px 次要色 */
+    public static Font fontFieldLabel() {
+        return base().deriveFont(Font.PLAIN, 12.5f);
+    }
+
+    /** 首页卡片标题：效果页的 15px 加粗 */
+    public static Font fontCardTitle() {
+        return base().deriveFont(Font.BOLD, 15f);
+    }
+
+    /** 首页卡片说明：效果页的 12.5px */
+    public static Font fontCardBody() {
+        return base().deriveFont(Font.PLAIN, 12.5f);
+    }
+
+    /** 导航项：效果页的 13.5px */
+    public static Font fontNavItem() {
+        return base().deriveFont(Font.PLAIN, 13.5f);
+    }
+
+    /** 导航项选中态 */
+    public static Font fontNavItemSelected() {
+        return base().deriveFont(Font.BOLD, 13.5f);
     }
 
     /** 侧栏应用名、区块标题 */

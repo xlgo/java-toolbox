@@ -67,9 +67,12 @@ public final class WorkbenchIcons {
     /** 最近使用：带回转箭头的时钟 */
     public static Icon history(int size) { return new VectorIcon(Kind.HISTORY, size, null); }
 
+    /** 复制：两张叠放的纸 */
+    public static Icon copy(int size) { return new VectorIcon(Kind.COPY, size, null); }
+
     private enum Kind {
         BRAND, SEARCH, SIDEBAR, SIDEBAR_COLLAPSED, CATEGORY, APPEARANCE, GLOBE, STATUS,
-        SUN, MOON, STAR, STAR_FILLED, GEAR, BACK, CLOSE, MORE, PALETTE, HISTORY
+        SUN, MOON, STAR, STAR_FILLED, GEAR, BACK, CLOSE, MORE, PALETTE, HISTORY, COPY
     }
 
     private static final class VectorIcon implements Icon {
@@ -129,6 +132,7 @@ public final class WorkbenchIcons {
                         case MORE -> paintMore(g);
                         case PALETTE -> paintPalette(g);
                         case HISTORY -> paintHistory(g);
+                        case COPY -> paintCopy(g);
                         default -> { }
                     }
                 }
@@ -297,6 +301,11 @@ public final class WorkbenchIcons {
             g.fill(new Ellipse2D.Float(2.2f, 7.2f, 1.6f, 1.6f));
             g.fill(new Ellipse2D.Float(7.2f, 7.2f, 1.6f, 1.6f));
             g.fill(new Ellipse2D.Float(12.2f, 7.2f, 1.6f, 1.6f));
+        }
+
+        private void paintCopy(Graphics2D g) {
+            roundRect(g, 2.2f, 2.2f, 8.6f, 10.6f, 1.8f);
+            roundRect(g, 5.4f, 4.6f, 8.4f, 10.2f, 1.8f);
         }
 
         private void paintHistory(Graphics2D g) {

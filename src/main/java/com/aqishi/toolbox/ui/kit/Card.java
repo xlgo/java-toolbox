@@ -54,7 +54,6 @@ public class Card extends JPanel {
     private boolean collapsible = false;
     private boolean collapsed = false;
     private JLabel collapseIndicator;
-    private Hairline headerHairline;
     private JPanel headerWrapper;
     private List<Consumer<Boolean>> collapseListeners;
 
@@ -147,7 +146,7 @@ public class Card extends JPanel {
         headerWrapper = new JPanel(new BorderLayout());
         headerWrapper.setOpaque(false);
         headerWrapper.setBorder(new EmptyBorder(
-                16, Tokens.CARD_PADDING, 2, Tokens.CARD_PADDING));
+                17, Tokens.CARD_PADDING, 0, Tokens.CARD_PADDING));
         headerWrapper.add(header, BorderLayout.CENTER);
         header.addComponentListener(new java.awt.event.ComponentAdapter() {
             @Override
@@ -157,8 +156,7 @@ public class Card extends JPanel {
             }
         });
 
-        headerHairline = new Hairline();
-
+        // 效果页的面板标题与正文同底色、中间不画分隔线，只靠留白分层
         JPanel headerBlock = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics graphics) {
@@ -169,7 +167,6 @@ public class Card extends JPanel {
         };
         headerBlock.setOpaque(false);
         headerBlock.add(headerWrapper, BorderLayout.CENTER);
-        headerBlock.add(headerHairline, BorderLayout.SOUTH);
         add(headerBlock, BorderLayout.NORTH);
 
         java.awt.event.MouseAdapter clickAdapter = new java.awt.event.MouseAdapter() {
@@ -342,9 +339,6 @@ public class Card extends JPanel {
         content.setVisible(!value);
         if (footer != null) {
             footer.setVisible(!value);
-        }
-        if (headerHairline != null) {
-            headerHairline.setVisible(!value);
         }
         updateCollapseIndicator();
         updateCursorAndTooltip();

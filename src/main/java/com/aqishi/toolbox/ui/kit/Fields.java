@@ -99,12 +99,30 @@ public final class Fields {
         return button;
     }
 
-    /** 表单标签（右对齐，与输入框基线对齐） */
+    /** 表单标签（右对齐，与输入框基线对齐；比正文轻一档，避免抢输入内容的注意力） */
     public static JLabel label(String text) {
-        JLabel label = new JLabel(text);
-        label.setFont(Tokens.fontBody());
-        label.setHorizontalAlignment(SwingConstants.RIGHT);
-        return label;
+        return new FieldLabel(text);
+    }
+
+    /** 表单标签：换主题后重新取色 */
+    private static final class FieldLabel extends JLabel {
+
+        FieldLabel(String text) {
+            super(text);
+            setHorizontalAlignment(SwingConstants.RIGHT);
+            restyle();
+        }
+
+        private void restyle() {
+            setFont(Tokens.fontFieldLabel());
+            setForeground(Tokens.secondaryForeground());
+        }
+
+        @Override
+        public void updateUI() {
+            super.updateUI();
+            restyle();
+        }
     }
 
     /** 说明文字（单行） */

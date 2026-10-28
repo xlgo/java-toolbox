@@ -49,7 +49,7 @@ public final class ToolHeader extends JPanel {
         title.setFont(Tokens.fontPageTitle());
         title.setForeground(Tokens.foreground());
         description.setName("workbench.toolDescription");
-        description.setFont(Tokens.fontBody());
+        description.setFont(Tokens.fontCardBody());
         description.setForeground(Tokens.secondaryForeground());
 
         badge.setPreferredSize(new Dimension(44, 44));
@@ -143,7 +143,7 @@ public final class ToolHeader extends JPanel {
     public void refresh() {
         title.setFont(Tokens.fontPageTitle());
         title.setForeground(Tokens.foreground());
-        description.setFont(Tokens.fontBody());
+        description.setFont(Tokens.fontCardBody());
         description.setForeground(Tokens.secondaryForeground());
         back.setFont(Tokens.fontBody());
         back.setText(I18n.get("nav.back"));

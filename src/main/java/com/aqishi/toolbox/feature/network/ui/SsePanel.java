@@ -46,7 +46,7 @@ public final class SsePanel extends ToolPanel implements ManagedResourceOwner {
         address.add(method, BorderLayout.WEST);
         address.add(url);
         address.add(Layouts.wrapRow(reconnect, start, stop), BorderLayout.EAST);
-        Card configCard = Card.titled(I18n.get("sse.config", "SSE 连接配置")).setCollapsible(true);
+        Card configCard = Card.titled(I18n.get("sse.config")).setCollapsible(true);
         configCard.setContent(Layouts.stack(Tokens.SPACE_SM, address, request, Fields.note(I18n.get("sse.hint"))));
         root.add(configCard, BorderLayout.NORTH);
         var model =

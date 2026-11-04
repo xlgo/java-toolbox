@@ -62,6 +62,13 @@ public class WeChatBulkSender implements AutoCloseable {
             Process helper = process.getAndSet(null);
             if (helper != null && helper.isAlive()) terminate(helper);
             for (String name : SCRIPTS) Files.deleteIfExists(directory.resolve(name));
+            Path cache = directory.resolve("__pycache__");
+            if (Files.isDirectory(cache)) {
+                try (var files = Files.list(cache)) {
+                    for (Path file : files.toList()) Files.deleteIfExists(file);
+                }
+                Files.deleteIfExists(cache);
+            }
             Files.deleteIfExists(directory);
         }
     }

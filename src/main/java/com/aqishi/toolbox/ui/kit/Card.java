@@ -7,6 +7,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
+import com.aqishi.toolbox.util.I18n;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -366,7 +367,7 @@ public class Card extends JPanel {
             if (titleLabel != null) titleLabel.setCursor(cursor);
             if (collapseIndicator != null) collapseIndicator.setCursor(cursor);
 
-            String tip = collapsible ? (collapsed ? "点击展开配置" : "点击折叠配置") : null;
+            String tip = collapsible ? (collapsed ? I18n.get("card.expand") : I18n.get("card.collapse")) : null;
             if (collapseIndicator != null) collapseIndicator.setToolTipText(tip);
             if (titleLabel != null) titleLabel.setToolTipText(tip);
         }

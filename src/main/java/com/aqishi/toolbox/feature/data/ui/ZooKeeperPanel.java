@@ -7,6 +7,7 @@ import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshTunnelBridge;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
 import com.aqishi.toolbox.ui.ToolPanel;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Card;
@@ -60,7 +61,10 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
 
     private volatile ZooKeeper zooKeeper;
     private volatile boolean connected;
+    private volatile boolean closed;
     private volatile List<SshTunnelBridge.BridgeResult> activeSshBridges = new ArrayList<>();
+    private final java.util.concurrent.atomic.AtomicLong connectGeneration = new java.util.concurrent.atomic.AtomicLong();
+    private final Runnable sshChanges = this::refreshSshConfigs;
 
     public ZooKeeperPanel() {
         super(ToolCatalog.ZOOKEEPER_MANAGEMENT);
@@ -89,7 +93,7 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
             sshCombo.setEnabled(useSshCheck.isSelected() && !connected);
             if (!useSshCheck.isSelected()) releaseSshBridges();
         });
-        SshConfigStore.getInstance().addChangeListener(this::refreshSshConfigs);
+        SshConfigStore.getInstance().addChangeListener(sshChanges);
 
         JPanel sshRow = Layouts.box(Tokens.SPACE_MD, 0);
         sshRow.add(useSshCheck, BorderLayout.WEST);
@@ -180,6 +184,7 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
         }
 
         closeConnection();
+        final long gen = connectGeneration.incrementAndGet();
         connectBtn.setEnabled(false);
         statusLabel.setText("正在连接...");
 
@@ -233,6 +238,13 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
             protected void done() {
                 try {
                     ConnectionResult result = get();
+                    if (closed || gen != connectGeneration.get()) {
+                        DaemonThreads.factory("zk-discard").newThread(() -> {
+                            closeQuietly(result.client);
+                            closeBridges(result.bridges);
+                        }).start();
+                        return;
+                    }
                     zooKeeper = result.client;
                     activeSshBridges = result.bridges;
                     connected = true;
@@ -243,6 +255,9 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
                     if (connectionCard != null && !connectionCard.isCollapsed()) connectionCard.setCollapsed(true);
                     refreshRoot();
                 } catch (Exception error) {
+                    if (closed || gen != connectGeneration.get()) {
+                        return;
+                    }
                     connected = false;
                     connectBtn.setText("连接");
                     connectBtn.setEnabled(true);
@@ -274,15 +289,31 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void closeConnection() {
+        connectGeneration.incrementAndGet();
         ZooKeeper client = zooKeeper;
         zooKeeper = null;
         connected = false;
-        closeQuietly(client);
-        releaseSshBridges();
+        List<SshTunnelBridge.BridgeResult> bridges = activeSshBridges;
+        activeSshBridges = new ArrayList<>();
+        if (client == null && (bridges == null || bridges.isEmpty())) {
+            return;
+        }
+        Runnable closeTask = () -> {
+            closeQuietly(client);
+            closeBridges(bridges);
+        };
+        if (!closed && SwingUtilities.isEventDispatchThread()) {
+            DaemonThreads.factory("zk-close").newThread(closeTask).start();
+        } else {
+            closeTask.run();
+        }
     }
 
     /** Called by the main window before the shared SSH bridge manager shuts down. */
+    @Override
     public void closeResources() {
+        closed = true;
+        SshConfigStore.getInstance().removeChangeListener(sshChanges);
         closeConnection();
     }
 
@@ -540,7 +571,14 @@ public class ZooKeeperPanel extends ToolPanel implements ManagedResourceOwner {
     private void releaseSshBridges() {
         List<SshTunnelBridge.BridgeResult> bridges = activeSshBridges;
         activeSshBridges = new ArrayList<>();
-        closeBridges(bridges);
+        if (bridges == null || bridges.isEmpty()) {
+            return;
+        }
+        if (!closed && SwingUtilities.isEventDispatchThread()) {
+            DaemonThreads.factory("zk-ssh-close").newThread(() -> closeBridges(bridges)).start();
+        } else {
+            closeBridges(bridges);
+        }
     }
 
     private static void closeBridges(List<SshTunnelBridge.BridgeResult> bridges) {

@@ -1,26 +1,22 @@
 package com.aqishi.toolbox.feature.network.ssh.ui;
 
-import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
-import com.aqishi.toolbox.util.I18n;
-import com.aqishi.toolbox.util.UIUtils;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
+import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
 import com.aqishi.toolbox.ui.kit.Buttons;
 import com.aqishi.toolbox.ui.kit.Tokens;
+import com.aqishi.toolbox.util.I18n;
+import com.aqishi.toolbox.util.UIUtils;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
-import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
-import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
-import com.aqishi.toolbox.feature.network.ssh.infra.SshConfigStore;
-import com.aqishi.toolbox.feature.network.ssh.infra.SshSessionInstance;
+import java.util.function.Consumer;
 
 /**
  * 端口转发 / 服务隧道管理面板
@@ -177,19 +173,20 @@ public class SshTunnelPanel extends JPanel {
     private void openInBrowser() {
         SshTunnelConfig tunnel = getSelectedTunnel();
         if (tunnel != null) {
-            if (!ensureTunnelReady(tunnel)) return;
-
-            String url = tunnel.getBrowserUrl();
-            try {
-                if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                    Desktop.getDesktop().browse(new java.net.URI(url));
-                    statusHintLabel.setText("已在系统浏览器中打开: " + url);
-                } else {
-                    UIUtils.info(this, "当前环境不支持自动打开浏览器，请手动访问: " + url);
+            ensureTunnelReady(tunnel, ok -> {
+                if (!ok) return;
+                String url = tunnel.getBrowserUrl();
+                try {
+                    if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                        Desktop.getDesktop().browse(new java.net.URI(url));
+                        statusHintLabel.setText("已在系统浏览器中打开: " + url);
+                    } else {
+                        UIUtils.info(this, "当前环境不支持自动打开浏览器，请手动访问: " + url);
+                    }
+                } catch (Exception ex) {
+                    UIUtils.error(this, "打开浏览器失败: " + ex.getMessage() + "\n链接: " + url);
                 }
-            } catch (Exception ex) {
-                UIUtils.error(this, "打开浏览器失败: " + ex.getMessage() + "\n链接: " + url);
-            }
+            });
         } else {
             UIUtils.info(this, "请先在列表中选择要浏览的 HTTP 服务隧道");
         }
@@ -233,52 +230,82 @@ public class SshTunnelPanel extends JPanel {
     private void startSelectedTunnel() {
         SshTunnelConfig tunnel = getSelectedTunnel();
         if (tunnel != null) {
-            if (ensureTunnelReady(tunnel)) {
-                statusHintLabel.setText("服务连接已开启：" + tunnel.getLocalConnectionString());
-            }
+            ensureTunnelReady(tunnel, ok -> {
+                if (ok) {
+                    statusHintLabel.setText("服务连接已开启：" + tunnel.getLocalConnectionString());
+                }
+            });
         } else {
             UIUtils.info(this, "请选择要开启的远程服务隧道");
         }
     }
 
     /** Starts the forward and verifies the SSH-side target before exposing it to a client. */
-    private boolean ensureTunnelReady(SshTunnelConfig tunnel) {
+    private void ensureTunnelReady(SshTunnelConfig tunnel, Consumer<Boolean> onComplete) {
         if (!sessionInstance.isConnected()) {
             statusHintLabel.setText("提示：SSH 未连接，无法开启隧道");
             UIUtils.warn(this, "SSH 连接尚未建立，请先建立 SSH 连接。", "提示");
-            return false;
+            if (onComplete != null) onComplete.accept(false);
+            return;
         }
 
-        boolean started = tunnel.getStatus() == SshTunnelConfig.Status.RUNNING
-                && tunnel.getAssignedLocalPort() > 0;
-        if (!started) {
-            started = sessionInstance.startTunnel(tunnel);
-        }
-        if (started) {
-            try {
-                sessionInstance.verifyTunnelTarget(tunnel);
-            } catch (Exception error) {
-                sessionInstance.stopTunnel(tunnel);
-                tunnel.setErrorMessage("远程目标不可用：" + error.getMessage());
-                started = false;
+        new SwingWorker<Boolean, Void>() {
+            @Override
+            protected Boolean doInBackground() {
+                boolean started = tunnel.getStatus() == SshTunnelConfig.Status.RUNNING
+                        && tunnel.getAssignedLocalPort() > 0;
+                if (!started) {
+                    started = sessionInstance.startTunnel(tunnel);
+                }
+                if (started) {
+                    try {
+                        sessionInstance.verifyTunnelTarget(tunnel);
+                    } catch (Exception error) {
+                        sessionInstance.stopTunnel(tunnel);
+                        tunnel.setErrorMessage("远程目标不可用：" + error.getMessage());
+                        started = false;
+                    }
+                }
+                return started;
             }
-        }
-        refreshTable();
-        if (!started) {
-            String message = tunnel.getErrorMessage();
-            if (message == null || message.trim().isEmpty()) message = "隧道无法连接远程目标";
-            statusHintLabel.setText("开启失败：" + message);
-            UIUtils.error(this, "开启隧道失败：" + message);
-        }
-        return started;
+
+            @Override
+            protected void done() {
+                boolean started = false;
+                try {
+                    started = get();
+                } catch (Exception ignored) {
+                }
+                refreshTable();
+                if (!started) {
+                    String message = tunnel.getErrorMessage();
+                    if (message == null || message.trim().isEmpty()) message = "隧道无法连接远程目标";
+                    statusHintLabel.setText("开启失败：" + message);
+                    UIUtils.error(SshTunnelPanel.this, "开启隧道失败：" + message);
+                }
+                if (onComplete != null) {
+                    onComplete.accept(started);
+                }
+            }
+        }.execute();
     }
 
     private void stopSelectedTunnel() {
         SshTunnelConfig tunnel = getSelectedTunnel();
         if (tunnel != null) {
-            sessionInstance.stopTunnel(tunnel);
-            refreshTable();
-            statusHintLabel.setText("服务连接已关闭");
+            new SwingWorker<Void, Void>() {
+                @Override
+                protected Void doInBackground() {
+                    sessionInstance.stopTunnel(tunnel);
+                    return null;
+                }
+
+                @Override
+                protected void done() {
+                    refreshTable();
+                    statusHintLabel.setText("服务连接已关闭");
+                }
+            }.execute();
         } else {
             UIUtils.info(this, "请选择要关闭的远程服务隧道");
         }
@@ -322,10 +349,9 @@ public class SshTunnelPanel extends JPanel {
             refreshTable();
 
             if (sessionInstance.isConnected()) {
-                boolean ok = ensureTunnelReady(newTunnel);
-                statusHintLabel.setText(ok
+                ensureTunnelReady(newTunnel, ok -> statusHintLabel.setText(ok
                         ? "服务连接已开启：" + newTunnel.getLocalConnectionString()
-                        : "开启失败：" + newTunnel.getErrorMessage());
+                        : "开启失败：" + newTunnel.getErrorMessage()));
             }
         }
     }

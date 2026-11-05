@@ -1,14 +1,21 @@
 package com.aqishi.toolbox.feature.network.ssh.infra;
 
 import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
+import com.aqishi.toolbox.feature.network.ssh.domain.SshHostKeyPrompt;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
 import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
-import com.jcraft.jsch.ChannelShell;
-import com.jcraft.jsch.ChannelSftp;
+import com.aqishi.toolbox.util.Errors;
+import com.aqishi.toolbox.util.I18n;
 import com.jcraft.jsch.ChannelDirectTCPIP;
+import com.jcraft.jsch.ChannelSftp;
+import com.jcraft.jsch.ChannelShell;
+import com.jcraft.jsch.HostKey;
+import com.jcraft.jsch.HostKeyRepository;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.Session;
+import com.jcraft.jsch.UserInfo;
 
+import javax.swing.SwingUtilities;
 import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -22,13 +29,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
-import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
-import com.aqishi.toolbox.feature.network.ssh.domain.SshHostKeyPrompt;
-import com.aqishi.toolbox.feature.network.ssh.domain.SshSecurityUtils;
-import com.aqishi.toolbox.feature.network.ssh.domain.SshTunnelConfig;
-import com.aqishi.toolbox.util.Errors;
-import com.aqishi.toolbox.util.I18n;
 
 /**
  * 代表一个活动的 SSH 连接会话，包含终端、SFTP、端口转发及自动恢复能力。
@@ -182,7 +184,8 @@ public class SshSessionInstance implements AutoCloseable {
                 throw new IllegalStateException(I18n.get("secrets.ssh.locked"));
             }
             jSch = new JSch();
-            configureHostKeyChecking(jSch);
+            AtomicBoolean hostKeyChanged = new AtomicBoolean();
+            configureHostKeyChecking(jSch, hostKeyChanged);
 
             if (config.getAuthType() == SshConnectionConfig.AuthType.PRIVATE_KEY) {
                 String passphrase = config.resolvedPassphrase();
@@ -216,7 +219,7 @@ public class SshSessionInstance implements AutoCloseable {
             // 首次连接通过指纹确认，之后使用 known_hosts 拒绝未确认的变更。
             properties.put("StrictHostKeyChecking", "ask");
             session.setConfig(properties);
-            session.setUserInfo(new FingerprintUserInfo(hostKeyPrompt, () -> manualDisconnect || closed));
+            session.setUserInfo(new FingerprintUserInfo(hostKeyPrompt, () -> manualDisconnect || closed, hostKeyChanged));
             if (config.getKeepAliveSec() > 0) {
                 session.setServerAliveInterval(config.getKeepAliveSec() * 1000);
             }
@@ -258,16 +261,58 @@ public class SshSessionInstance implements AutoCloseable {
         }
     }
 
-    private void configureHostKeyChecking(JSch client) {
+    private void configureHostKeyChecking(JSch client, AtomicBoolean changed) {
         // JSch's known_hosts repository is intentionally kept separate from server profiles.
         try {
             java.io.File dataDir = com.aqishi.toolbox.vault.ApplicationPaths.systemDefault()
                     .getDataDirectory().toFile();
             if (!dataDir.exists()) dataDir.mkdirs();
             client.setKnownHosts(new File(dataDir, "ssh_known_hosts").getAbsolutePath());
+            client.setHostKeyRepository(checkingRepository(client.getHostKeyRepository(), changed));
         } catch (Exception error) {
             throw new IllegalStateException("无法初始化 SSH 主机指纹存储", error);
         }
+    }
+
+    static HostKeyRepository checkingRepository(HostKeyRepository delegate, AtomicBoolean changed) {
+        return new HostKeyRepository() {
+            @Override
+            public int check(String host, byte[] key) {
+                int result = delegate.check(host, key);
+                if (result == CHANGED) changed.set(true);
+                return result;
+            }
+
+            @Override
+            public void add(HostKey key, UserInfo userInfo) {
+                delegate.add(key, userInfo);
+            }
+
+            @Override
+            public void remove(String host, String type) {
+                delegate.remove(host, type);
+            }
+
+            @Override
+            public void remove(String host, String type, byte[] key) {
+                delegate.remove(host, type, key);
+            }
+
+            @Override
+            public String getKnownHostsRepositoryID() {
+                return delegate.getKnownHostsRepositoryID();
+            }
+
+            @Override
+            public HostKey[] getHostKey() {
+                return delegate.getHostKey();
+            }
+
+            @Override
+            public HostKey[] getHostKey(String host, String type) {
+                return delegate.getHostKey(host, type);
+            }
+        };
     }
 
     private void scheduleConnectionMonitor() {
@@ -573,7 +618,7 @@ public class SshSessionInstance implements AutoCloseable {
      */
     public void disconnect() {
         manualDisconnect = true;
-        if (abortPendingConnect()) {
+        if (abortPendingConnect() || SwingUtilities.isEventDispatchThread()) {
             submitLifecycle(this::disconnectLocked);
             return;
         }
@@ -698,10 +743,14 @@ public class SshSessionInstance implements AutoCloseable {
     private static final class FingerprintUserInfo implements com.jcraft.jsch.UserInfo {
         private final SshHostKeyPrompt prompt;
         private final java.util.function.BooleanSupplier cancelled;
+        private final AtomicBoolean hostKeyChanged;
 
-        FingerprintUserInfo(SshHostKeyPrompt prompt, java.util.function.BooleanSupplier cancelled) {
+        FingerprintUserInfo(SshHostKeyPrompt prompt,
+                            java.util.function.BooleanSupplier cancelled,
+                            AtomicBoolean hostKeyChanged) {
             this.prompt = prompt;
             this.cancelled = cancelled;
+            this.hostKeyChanged = hostKeyChanged;
         }
 
         @Override public String getPassphrase() { return null; }
@@ -711,14 +760,17 @@ public class SshSessionInstance implements AutoCloseable {
 
         @Override
         public boolean promptYesNo(String message) {
-            // 用户已经点了断开或关闭：不再弹出指纹确认框，直接拒绝。
-            if (prompt == null || cancelled.getAsBoolean()) return false;
-            return prompt.confirmHostKey(message);
+            // 用户已经点了断开或关闭，或主机公钥发生变更：不再弹出指纹确认框，直接拒绝。
+            if (prompt == null || cancelled.getAsBoolean()
+                    || (hostKeyChanged != null && hostKeyChanged.get())) {
+                return false;
+            }
+            return prompt.confirmHostKey(message) && !cancelled.getAsBoolean();
         }
 
         @Override
         public void showMessage(String message) {
-            if (prompt != null) {
+            if (prompt != null && !cancelled.getAsBoolean()) {
                 prompt.showMessage(message);
             }
         }

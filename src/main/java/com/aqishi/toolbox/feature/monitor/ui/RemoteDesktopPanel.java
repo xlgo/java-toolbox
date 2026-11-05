@@ -145,6 +145,11 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
     // 控制端连接缓存
     private DesktopChannel activeControlChannel;
     private RemoteControlWindow activeControlWindow;
+    private volatile String pendingControlTargetId;
+    private volatile String activeControllerId;
+    private Timer joinTimer;
+    private Timer hostJoinTimer;
+    private static final int MAX_JOIN_RETRIES = 20;
 
     // 被控端连接缓存
     private volatile SecureDesktopChannel activeHostChannel;
@@ -182,9 +187,9 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
     public RemoteDesktopPanel() {
         super(ToolCatalog.REMOTE_DESKTOP);
         try {
-            this.robot = new Robot();
+
         } catch (Exception e) {
-            Errors.log("初始化 Robot 失败，本机将无法被远程控制", e);
+
         }
         this.controlIceConnector = new Ice4jDirectConnector();
         this.hostIceConnector = new Ice4jDirectConnector();
@@ -195,6 +200,31 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
         this.hostTcpConnector.setRateLimiter(hostHandshakeLimiter);
         this.hostTcpOutboundConnector.setRateLimiter(hostHandshakeLimiter);
         this.consentStrategy = new RemoteConsentDialog(null, CONSENT_TIMEOUT_SECONDS);
+    }
+
+    private synchronized Robot ensureRobot() {
+        if (this.robot == null) {
+            try {
+                this.robot = new Robot();
+            } catch (Exception e) {
+                Errors.log("初始化 Robot 失败，本机将无法被远程控制", e);
+            }
+        }
+        return this.robot;
+    }
+
+    private void stopJoinTimer() {
+        if (joinTimer != null) {
+            joinTimer.stop();
+            joinTimer = null;
+        }
+    }
+
+    private void stopHostJoinTimer() {
+        if (hostJoinTimer != null) {
+            hostJoinTimer.stop();
+            hostJoinTimer = null;
+        }
     }
 
     @Override
@@ -226,8 +256,8 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
      * 卡片高度因此只有两行。连接动作是这张卡片唯一的主操作，放标题右侧。</p>
      */
     private Card buildSignalConfigCard() {
-        serverUrlField = Fields.text("ws://170.106.158.103:21701");
-        groupField = Fields.text("arges123213");
+        serverUrlField = Fields.text("ws://127.0.0.1:21701");
+        groupField = Fields.text("room-" + java.util.UUID.randomUUID().toString().substring(0, 8));
         nameField = Fields.text(System.getProperty("user.name"));
 
         connectServerBtn = Buttons.primary(I18n.get("remote_desktop.connect_btn_connect"));
@@ -281,7 +311,9 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
     private void setupConnectionListeners() {
         connectServerBtn.addActionListener(e -> {
             if (signalClient != null && signalClient.isOpen()) {
+                stopJoinTimer();
                 signalClient.close();
+                signalClient = null;
                 connectServerBtn.setText(I18n.get("remote_desktop.connect_btn_connect"));
                 startControlBtn.setEnabled(false);
                 clientStatusLabel.setText(I18n.get("remote_desktop.status_unconnected"));
@@ -316,6 +348,9 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
 
                         @Override
                         public void onAnswerReceived(String fromId, String sdp) {
+                            if (fromId == null || !fromId.equals(pendingControlTargetId)) {
+                                return;
+                            }
                             appendLog(controlLogArea, I18n.get("remote_desktop.control_log_negotiating"));
                             if (BUSY_ANSWER.equals(sdp)) {
                                 controlIceConnector.stop();
@@ -349,7 +384,9 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                         @Override
                         public void onIceCandidateReceived(String fromId, String candidate) {
                             if (isTcpCandidate(candidate)) {
-                                controlTcpConnector.addCandidate(candidate);
+                                if (fromId != null && fromId.equals(pendingControlTargetId)) {
+                                    controlTcpConnector.addCandidate(candidate);
+                                }
                             }
                         }
 
@@ -366,8 +403,14 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                     clientStatusLabel.setText(I18n.get("remote_desktop.status_connecting"));
                     clientStatusLabel.setForeground(Tokens.warning());
 
-                    Timer joinTimer = new Timer(500, null);
+                    stopJoinTimer();
+                    final int[] joinAttempts = {0};
+                    joinTimer = new Timer(500, null);
                     joinTimer.addActionListener(evt -> {
+                        if (signalClient == null || ++joinAttempts[0] > MAX_JOIN_RETRIES) {
+                            stopJoinTimer();
+                            return;
+                        }
                         if (signalClient.isOpen()) {
                             String myId = RemoteSessionIds.generate();
                             String group = groupField.getText().trim();
@@ -378,7 +421,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                             clientStatusLabel.setForeground(Tokens.success());
                             connectServerBtn.setText(I18n.get("remote_desktop.connect_btn_disconnect"));
                             startControlBtn.setEnabled(true);
-                            joinTimer.stop();
+                            stopJoinTimer();
                         }
                     });
                     joinTimer.start();
@@ -443,6 +486,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                         I18n.get("remote_desktop.prompt_title"));
                 return;
             }
+            pendingControlTargetId = targetId;
             controlTcpConnector.reset();
             controlTcpListenerConnector.reset();
             appendLog(controlLogArea, I18n.get("remote_desktop.control_log_connecting", targetId));
@@ -578,13 +622,18 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                 @Override
                 public void onOfferReceived(String fromId, String sdp) {
                     appendLog(hostLogArea, I18n.get("remote_desktop.host_log_connect_req", fromId));
-                    if (activeHostChannel != null) {
+                    if (fromId == null) {
+                        return;
+                    }
+                    if (activeHostChannel != null || hostSessionConfig != null
+                            || (activeControllerId != null && !activeControllerId.equals(fromId))) {
                         // A second controller must not replace (or tear down) a live session.
                         appendLog(hostLogArea, I18n.get("tool.remotedesktop.host_log_busy", fromId));
                         hostSignalClient.sendAnswer(fromId, BUSY_ANSWER);
                         return;
                     }
                     stopHostSession();
+                    activeControllerId = fromId;
                     hostTcpConnector.reset();
                     hostTcpOutboundConnector.reset();
                     if (!Ice4jDirectConnector.isDescription(sdp)) {
@@ -592,6 +641,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                                 describePeerVersion(sdp), NEGOTIATION_VERSION));
                         // Our marker makes an older controller log its own version mismatch.
                         // No TCP fallback: an old peer would talk plaintext.
+                        activeControllerId = null;
                         hostSignalClient.sendAnswer(fromId, NEGOTIATION_VERSION);
                         return;
                     }
@@ -621,6 +671,8 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                                                 if (!error.getReason().isUserActionable()
                                                         && activeHostChannel == null) {
                                                     startHostTcpFallback(fromId);
+                                                } else if (activeHostChannel == null) {
+                                                    stopHostSession();
                                                 }
                                             });
                                 },
@@ -648,12 +700,17 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                 @Override
                 public void onIceCandidateReceived(String fromId, String candidate) {
                     if (isTcpCandidate(candidate)) {
-                        hostTcpOutboundConnector.addCandidate(candidate);
+                        if (fromId != null && fromId.equals(activeControllerId)) {
+                            hostTcpOutboundConnector.addCandidate(candidate);
+                        }
                     }
                 }
 
                 @Override
                 public void onPeerDisconnected(String peerId) {
+                    if (peerId != null && !peerId.equals(activeControllerId)) {
+                        return;
+                    }
                     appendLog(hostLogArea, I18n.get("remote_desktop.host_log_peer_disconnected"));
                     stopHostSession();
                 }
@@ -661,8 +718,14 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
 
             hostSignalClient.connect();
 
-            Timer hostJoinTimer = new Timer(500, null);
+            stopHostJoinTimer();
+            final int[] hostJoinAttempts = {0};
+            hostJoinTimer = new Timer(500, null);
             hostJoinTimer.addActionListener(evt -> {
+                if (hostSignalClient == null || ++hostJoinAttempts[0] > MAX_JOIN_RETRIES) {
+                    stopHostJoinTimer();
+                    return;
+                }
                 if (hostSignalClient.isOpen()) {
                     String myHostId = RemoteSessionIds.generate();
                     String group = groupField.getText().trim();
@@ -673,7 +736,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
                     hostStatusLabel.setText(I18n.get("remote_desktop.host_status_waiting", group, myHostId));
                     hostStatusLabel.setForeground(Tokens.success());
                     appendLog(hostLogArea, I18n.get("remote_desktop.host_log_join_success", group, myHostId));
-                    hostJoinTimer.stop();
+                    stopHostJoinTimer();
                 }
             });
             hostJoinTimer.start();
@@ -856,6 +919,9 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
             if (failedPaths.incrementAndGet() < 2 || selected.get()) return;
             appendLog(hostLogArea, "双向 TCP 直连等待超时；UDP 与 TCP 均失败，"
                     + "未使用中转数据通道。");
+            if (activeHostChannel == null) {
+                stopHostSession();
+            }
         };
 
         int tcpPort = hostTcpConnector.startListener(
@@ -908,10 +974,11 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
     private void pushScreenFrame() {
         HostSessionAccess access = hostAccess;
         DesktopChannel channel = activeHostChannel;
-        if (channel == null || robot == null || access == null
+        Robot activeRobot = ensureRobot();
+        if (channel == null || activeRobot == null || access == null
                 || !access.granted().has(RemotePermissions.Permission.VIEW)) return;
         try {
-            BufferedImage screenImg = robot.createScreenCapture(new Rectangle(hostScreenSize));
+            BufferedImage screenImg = activeRobot.createScreenCapture(new Rectangle(hostScreenSize));
             BufferedImage pushImg = screenImg;
             if (hostScreenSize.width > 1920) {
                 int targetW = 1920;
@@ -986,6 +1053,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
     }
 
     private void simulateMouse(Map<String, Object> event) {
+        if (ensureRobot() == null) return;
         if (robot == null) return;
         String action = (String) event.get("action");
         Number buttonNum = (Number) event.get("button");
@@ -1018,6 +1086,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
     }
 
     private void simulateKeyboard(Map<String, Object> event) {
+        if (ensureRobot() == null) return;
         if (robot == null) return;
         String action = (String) event.get("action");
         int keyCode = ((Number) event.get("keyCode")).intValue();
@@ -1135,6 +1204,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
 
     private void stopHostSession() {
         HostSessionAccess access = hostAccess;
+        activeControllerId = null;
         hostAccess = null;
         if (access != null) {
             // Revoke first so nothing queued behind this call can still act.
@@ -1197,6 +1267,7 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
      */
     private void releaseHostService() {
         stopHostSession();
+        stopHostJoinTimer();
         if (hostSignalClient != null) {
             hostSignalClient.close();
             hostSignalClient = null;
@@ -1435,6 +1506,8 @@ public class RemoteDesktopPanel extends ToolPanel implements ManagedResourceOwne
             }
         }
         releaseHostService();
+        stopJoinTimer();
+        pendingControlTargetId = null;
         if (signalClient != null) {
             signalClient.close();
         }

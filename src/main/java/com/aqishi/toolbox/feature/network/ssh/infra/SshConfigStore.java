@@ -384,11 +384,30 @@ public class SshConfigStore {
             if (existing != config) existing.copyConnectionFrom(config);
             target = existing;
         }
+        // New credentials typed while the vault is open go straight into it before writing to disk.
+        if (secrets.status() == SecretStore.Status.UNLOCKED && target.hasLocalSecrets()) {
+            Map<String, String> fields = SecretFields.clean(target.localSecretFields());
+            if (!fields.isEmpty()) {
+                String encoded = SecretFields.encode(fields);
+                target.applyVaultSecrets(fields);
+                target.clearLocalSecrets();
+                target.setSecretStored(true);
+                if (config != target) {
+                    config.applyVaultSecrets(fields);
+                    config.clearLocalSecrets();
+                    config.setSecretStored(true);
+                }
+                secrets.put(SECRET_NAMESPACE, target.getId(), encoded)
+                        .whenComplete((ignored, error) -> callbackExecutor.execute(this::notifyChanged));
+            } else {
+                target.clearLocalSecrets();
+                if (config != target) config.clearLocalSecrets();
+            }
+        }
         save();
         if (wasSecretStored && !target.isSecretStored()) {
             forgetVaultSecret(target.getId());
         }
-        // New credentials typed while the vault is open go straight into it.
         if (target.hasLocalSecrets()) migrateLocalSecrets();
     }
 

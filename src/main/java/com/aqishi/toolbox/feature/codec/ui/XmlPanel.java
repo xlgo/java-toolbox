@@ -6,6 +6,8 @@ import org.xml.sax.InputSource;
 
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Transformer;
@@ -57,9 +59,7 @@ public class XmlPanel extends AbstractTreeFormatPanel {
     @Override
     protected void buildTree(String xml) throws Exception {
         InputSource src = new InputSource(new StringReader(xml.trim()));
-        Document doc = DocumentBuilderFactory.newInstance()
-                .newDocumentBuilder()
-                .parse(src);
+        Document doc = newSecureDocumentBuilder().parse(src);
         org.w3c.dom.Element rootElement = doc.getDocumentElement();
 
         DefaultMutableTreeNode rootTreeNode = convertDomNodeToTreeNode(rootElement);
@@ -85,12 +85,9 @@ public class XmlPanel extends AbstractTreeFormatPanel {
         if (xml == null || xml.trim().isEmpty()) return "";
 
         InputSource src = new InputSource(new StringReader(xml.trim()));
-        Document document = DocumentBuilderFactory.newInstance()
-                .newDocumentBuilder()
-                .parse(src);
+        Document document = newSecureDocumentBuilder().parse(src);
 
-        TransformerFactory transformerFactory = TransformerFactory.newInstance();
-        Transformer transformer = transformerFactory.newTransformer();
+        Transformer transformer = newSecureTransformer();
 
         if (pretty) {
             transformer.setOutputProperty(OutputKeys.INDENT, "yes");
@@ -107,6 +104,25 @@ public class XmlPanel extends AbstractTreeFormatPanel {
             result = result.replaceAll(">\\s+<", "><").trim();
         }
         return result;
+    }
+
+    private static DocumentBuilder newSecureDocumentBuilder() throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        factory.setXIncludeAware(false);
+        factory.setExpandEntityReferences(false);
+        return factory.newDocumentBuilder();
+    }
+
+    private static Transformer newSecureTransformer() throws Exception {
+        TransformerFactory tf = TransformerFactory.newInstance();
+        tf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        tf.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        tf.setAttribute(XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
+        return tf.newTransformer();
     }
 
     private DefaultMutableTreeNode convertDomNodeToTreeNode(org.w3c.dom.Node node) {

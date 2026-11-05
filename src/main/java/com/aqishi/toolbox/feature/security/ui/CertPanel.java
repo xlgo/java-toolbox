@@ -34,7 +34,11 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * 证书管理面板：根证书创建、证书签发、证书解析、免费证书自动申请。
@@ -520,7 +524,7 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
             step1Btn.setEnabled(false);
             stopStep2Countdown();
             acmeCancelBtn.setEnabled(false);
-            new Thread(() -> {
+            Thread step1Worker = new Thread(() -> {
                 try {
                     boolean ok = doAcmeStep1();
                     SwingUtilities.invokeLater(() -> {
@@ -533,7 +537,9 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
                 } catch (Exception ex) {
                     SwingUtilities.invokeLater(() -> step1Btn.setEnabled(true));
                 }
-            }, "acme-step1").start();
+            }, "acme-step1");
+            step1Worker.setDaemon(true);
+            step1Worker.start();
         });
 
         step2Btn.addActionListener(e -> {
@@ -553,6 +559,7 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
                     });
                 }
             }, "acme-step2");
+            worker.setDaemon(true);
             acmeWorker = worker;
             worker.start();
         });
@@ -658,7 +665,9 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
         currentIssuance = null;
         if (abandoned != null && abandoned.isOpen()) {
             appendAcmeLog(I18n.get("tool.cert.acme.log.abandoned"));
-            new Thread(abandoned::cleanup, "acme-cleanup").start();
+            Thread cleanupThread = new Thread(abandoned::cleanup, "acme-cleanup");
+            cleanupThread.setDaemon(true);
+            cleanupThread.start();
         }
     }
 
@@ -673,11 +682,45 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
         });
     }
 
+    private static void runOnEdt(Runnable action) throws Exception {
+        if (SwingUtilities.isEventDispatchThread()) {
+            action.run();
+        } else {
+            SwingUtilities.invokeAndWait(action);
+        }
+    }
+
     private boolean doAcmeStep1() {
         try {
-            acmeLogArea.setText("");
-            acmeCertOut.setText("");
-            acmeKeyOut.setText("");
+            AtomicReference<String> directoryUrlRef = new AtomicReference<>();
+            AtomicReference<String> emailRef = new AtomicReference<>();
+            AtomicReference<String> rawDomainsRef = new AtomicReference<>();
+            AtomicReference<String> domainKeyAlgRef = new AtomicReference<>();
+            AtomicReference<Integer> challengeTypeIdxRef = new AtomicReference<>();
+            AtomicReference<String> cfTokenRef = new AtomicReference<>();
+            AtomicReference<String> httpPortRef = new AtomicReference<>();
+            AtomicReference<String> webDirRef = new AtomicReference<>();
+
+            runOnEdt(() -> {
+                acmeLogArea.setText("");
+                acmeCertOut.setText("");
+                acmeKeyOut.setText("");
+
+                int caIdx = acmeCaCombo.getSelectedIndex();
+                if (caIdx == 0) directoryUrlRef.set(AcmeClient.LETSENCRYPT_PROD);
+                else if (caIdx == 1) directoryUrlRef.set(AcmeClient.LETSENCRYPT_STAGE);
+                else if (caIdx == 2) directoryUrlRef.set(AcmeClient.ZEROSSL_PROD);
+                else directoryUrlRef.set(acmeCustomCaUrlField.getText().trim());
+
+                emailRef.set(acmeEmailField.getText().trim());
+                rawDomainsRef.set(acmeDomainsField.getText().trim());
+                domainKeyAlgRef.set((String) acmeKeyAlgCombo.getSelectedItem());
+                challengeTypeIdxRef.set(acmeChallengeCombo.getSelectedIndex());
+                cfTokenRef.set(acmeCfTokenField.getText().trim());
+                httpPortRef.set(acmeHttpPortField.getText().trim());
+                webDirRef.set(acmeWebDirField.getText().trim());
+            });
+
             // A previous order that was never validated still owns TXT records / files: remove them first.
             AcmeIssuance previous = currentIssuance;
             currentIssuance = null;
@@ -685,15 +728,9 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
                 previous.cleanup();
             }
 
-            String directoryUrl;
-            int caIdx = acmeCaCombo.getSelectedIndex();
-            if (caIdx == 0) directoryUrl = AcmeClient.LETSENCRYPT_PROD;
-            else if (caIdx == 1) directoryUrl = AcmeClient.LETSENCRYPT_STAGE;
-            else if (caIdx == 2) directoryUrl = AcmeClient.ZEROSSL_PROD;
-            else directoryUrl = acmeCustomCaUrlField.getText().trim();
-
-            String email = acmeEmailField.getText().trim();
-            String rawDomains = acmeDomainsField.getText().trim();
+            String directoryUrl = directoryUrlRef.get();
+            String email = emailRef.get();
+            String rawDomains = rawDomainsRef.get();
             if (rawDomains.isEmpty()) {
                 appendAcmeLog("❌ 错误：申请域名不能为空！");
                 return false;
@@ -711,7 +748,7 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
             kpg.initialize(2048);
             currentAccountKeyPair = kpg.generateKeyPair();
 
-            String domainKeyAlg = (String) acmeKeyAlgCombo.getSelectedItem();
+            String domainKeyAlg = domainKeyAlgRef.get();
             int idxAlg = CertUtils.indexOfKeyAlg(domainKeyAlg);
             currentDomainKeyPair = CertUtils.generateKeyPair(idxAlg < 0 ? 0 : idxAlg);
 
@@ -723,12 +760,12 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
 
             currentOrder = currentAcmeClient.createOrder(currentAccountKeyPair, currentDomainList);
 
-            int challengeTypeIdx = acmeChallengeCombo.getSelectedIndex();
+            int challengeTypeIdx = challengeTypeIdxRef.get();
             String preferType = (challengeTypeIdx == 0 || challengeTypeIdx == 1) ? "dns-01" : "http-01";
 
             ChallengeProvisioner provisioner;
             if (challengeTypeIdx == 0) {
-                String cfToken = acmeCfTokenField.getText().trim();
+                String cfToken = cfTokenRef.get();
                 if (cfToken.isEmpty()) {
                     appendAcmeLog(I18n.get("tool.cert.acme.error.noToken"));
                     return false;
@@ -739,11 +776,11 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
             } else if (challengeTypeIdx == 1) {
                 provisioner = ChallengeProvisioners.manualDns(DnsTxtLookup.system(), AcmePoller.propagationDefaults());
             } else if (challengeTypeIdx == 2) {
-                int port = Integer.parseInt(acmeHttpPortField.getText().trim());
+                int port = Integer.parseInt(httpPortRef.get());
                 appendAcmeLog(I18n.get("tool.cert.acme.log.httpServer", String.valueOf(port)));
                 provisioner = ChallengeProvisioners.builtinHttp(port);
             } else {
-                provisioner = ChallengeProvisioners.webRoot(acmeWebDirField.getText().trim());
+                provisioner = ChallengeProvisioners.webRoot(webDirRef.get());
             }
 
             AcmeIssuance issuance = new AcmeIssuance(currentAcmeClient, currentAccountKeyPair,
@@ -856,33 +893,66 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
     //  其它辅助操作实现
     // ================================================================
 
-    private void doCreateRootCa() {
-        try {
-            String alg = (String) rootAlgCombo.getSelectedItem();
-            String cn = rootCnField.getText().trim();
-            String o = rootOField.getText().trim();
-            String ou = rootOuField.getText().trim();
-            String l = rootLField.getText().trim();
-            String st = rootStField.getText().trim();
-            String c = rootCField.getText().trim();
-            int years = (Integer) rootYearsSpinner.getValue();
+    private void runCertWorker(Callable<Runnable> backgroundTask,
+                               Runnable onSuccess,
+                               Consumer<Exception> onError) {
+        if (SwingUtilities.isEventDispatchThread() && getView().isShowing()) {
+            new SwingWorker<Runnable, Void>() {
+                @Override
+                protected Runnable doInBackground() throws Exception {
+                    return backgroundTask.call();
+                }
 
-            if (cn.isEmpty()) {
-                UIUtils.error(rootCertOut, "通用名称不能为空");
-                return;
+                @Override
+                protected void done() {
+                    try {
+                        get().run();
+                        if (onSuccess != null) onSuccess.run();
+                    } catch (Exception ex) {
+                        Throwable cause = ex instanceof ExecutionException && ex.getCause() != null
+                                ? ex.getCause() : ex;
+                        onError.accept(cause instanceof Exception e ? e : new RuntimeException(cause));
+                    }
+                }
+            }.execute();
+        } else {
+            try {
+                backgroundTask.call().run();
+                if (onSuccess != null) onSuccess.run();
+            } catch (Exception ex) {
+                onError.accept(ex);
             }
+        }
+    }
 
+    private void doCreateRootCa() {
+        String alg = (String) rootAlgCombo.getSelectedItem();
+        String cn = rootCnField.getText().trim();
+        String o = rootOField.getText().trim();
+        String ou = rootOuField.getText().trim();
+        String l = rootLField.getText().trim();
+        String st = rootStField.getText().trim();
+        String c = rootCField.getText().trim();
+        int years = (Integer) rootYearsSpinner.getValue();
+
+        if (cn.isEmpty()) {
+            UIUtils.error(rootCertOut, "通用名称不能为空");
+            return;
+        }
+
+        runCertWorker(() -> {
             CertUtils.CertResult result = CertUtils.createRootCA(alg, cn, o, ou, l, st, c, years);
-
-            rootCertOut.setText(result.getCertificatePem());
-            rootKeyOut.setText(result.getPrivateKeyPem());
-
-            UIUtils.info(rootCertOut, "✅ 根证书创建成功！");
-        } catch (Exception ex) {
+            String certPem = result.getCertificatePem();
+            String keyPem = result.getPrivateKeyPem();
+            return () -> {
+                rootCertOut.setText(certPem);
+                rootKeyOut.setText(keyPem);
+            };
+        }, () -> UIUtils.info(rootCertOut, "✅ 根证书创建成功！"), ex -> {
             rootCertOut.setText("");
             rootKeyOut.setText("");
             UIUtils.error(rootCertOut, "创建根证书失败：" + ex.getMessage());
-        }
+        });
     }
 
     /**
@@ -919,52 +989,61 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void doSignCertificate() {
-        try {
-            String caCertPem = signCaCertArea.getText().trim();
-            String caKeyPem = signCaKeyArea.getText().trim();
+        String caCertPem = signCaCertArea.getText().trim();
+        String caKeyPem = signCaKeyArea.getText().trim();
 
-            if (caCertPem.isEmpty() || caKeyPem.isEmpty()) {
-                UIUtils.error(signCertOut, "请先填入 CA 证书和 CA 私钥");
-                return;
-            }
+        if (caCertPem.isEmpty() || caKeyPem.isEmpty()) {
+            UIUtils.error(signCertOut, "请先填入 CA 证书和 CA 私钥");
+            return;
+        }
 
-            String alg = (String) signAlgCombo.getSelectedItem();
-            String cn = signCnField.getText().trim();
-            String o = signOField.getText().trim();
-            String ou = signOuField.getText().trim();
-            String l = signLField.getText().trim();
-            String st = signStField.getText().trim();
-            String c = signCField.getText().trim();
-            String san = signSanField.getText().trim();
-            int years = (Integer) signYearsSpinner.getValue();
+        String alg = (String) signAlgCombo.getSelectedItem();
+        String cn = signCnField.getText().trim();
+        String o = signOField.getText().trim();
+        String ou = signOuField.getText().trim();
+        String l = signLField.getText().trim();
+        String st = signStField.getText().trim();
+        String c = signCField.getText().trim();
+        String san = signSanField.getText().trim();
+        int years = (Integer) signYearsSpinner.getValue();
 
-            if (cn.isEmpty()) {
-                UIUtils.error(signCertOut, "通用名称不能为空");
-                return;
-            }
+        if (cn.isEmpty()) {
+            UIUtils.error(signCertOut, "通用名称不能为空");
+            return;
+        }
 
-            encCertOut.setText("");
-            encKeyOut.setText("");
-            if (signDualCheck.isSelected() && isSm2Selected()) {
+        encCertOut.setText("");
+        encKeyOut.setText("");
+        boolean dualSelected = signDualCheck.isSelected() && isSm2Selected();
+        runCertWorker(() -> {
+            if (dualSelected) {
                 CertUtils.Sm2DualCertResult dual = CertUtils.signSm2DualCertificates(
                         caCertPem, caKeyPem, cn, o, ou, l, st, c, san, years);
-                signCertOut.setText(dual.getSigning().getCertificatePem());
-                signKeyOut.setText(dual.getSigning().getPrivateKeyPem());
-                encCertOut.setText(dual.getEncryption().getCertificatePem());
-                encKeyOut.setText(dual.getEncryption().getPrivateKeyPem());
+                String signCertPem = dual.getSigning().getCertificatePem();
+                String signKeyPem = dual.getSigning().getPrivateKeyPem();
+                String encCertPem = dual.getEncryption().getCertificatePem();
+                String encKeyPem = dual.getEncryption().getPrivateKeyPem();
+                return () -> {
+                    signCertOut.setText(signCertPem);
+                    signKeyOut.setText(signKeyPem);
+                    encCertOut.setText(encCertPem);
+                    encKeyOut.setText(encKeyPem);
+                };
             } else {
                 CertUtils.CertResult result = CertUtils.signCertificate(
                         caCertPem, caKeyPem, alg, cn, o, ou, l, st, c, san, years);
-                signCertOut.setText(result.getCertificatePem());
-                signKeyOut.setText(result.getPrivateKeyPem());
+                String certPem = result.getCertificatePem();
+                String keyPem = result.getPrivateKeyPem();
+                return () -> {
+                    signCertOut.setText(certPem);
+                    signKeyOut.setText(keyPem);
+                };
             }
-
-            UIUtils.info(signCertOut, "✅ 证书签发成功！");
-        } catch (Exception ex) {
+        }, () -> UIUtils.info(signCertOut, "✅ 证书签发成功！"), ex -> {
             signCertOut.setText("");
             signKeyOut.setText("");
             UIUtils.error(signCertOut, "签发证书失败：" + ex.getMessage());
-        }
+        });
     }
 
     private void doParse() {
@@ -1104,7 +1183,9 @@ public class CertPanel extends ToolPanel implements ManagedResourceOwner {
         AcmeIssuance abandoned = currentIssuance;
         currentIssuance = null;
         if (abandoned != null && (worker == null || !worker.isAlive())) {
-            new Thread(abandoned::cleanup, "acme-cleanup").start();
+            Thread cleanupThread = new Thread(abandoned::cleanup, "acme-cleanup");
+            cleanupThread.setDaemon(true);
+            cleanupThread.start();
         }
         try {
             AcmeChallengeHelper.stopHttpServer();

@@ -94,11 +94,14 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
 
     private JButton testBtn;
     private JButton connBtn;
-    private boolean isConnected = false;
-    private Connection connection = null;
-    private JdbcConnectionResource connectionResource;
-    private DatabaseMetadataService metadataService;
+    private volatile boolean isConnected = false;
+    private volatile Connection connection = null;
+    private volatile JdbcConnectionResource connectionResource;
+    private volatile DatabaseMetadataService metadataService;
     private volatile SshTunnelBridge.BridgeResult activeSshBridge;
+    private final java.util.concurrent.atomic.AtomicLong connectGeneration = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.ExecutorService metadataExecutor = DaemonThreads.single("db-metadata");
+    private final Runnable sshChanges = this::refreshSshConfigs;
 
     // Database & Schema Switchers in Workspace
     private JComboBox<String> dbSwitchCombo;
@@ -369,7 +372,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         sshCombo = Fields.combo(sshList.toArray(new SshConnectionConfig[0]));
         sshCombo.setEnabled(false);
         useSshCheck.addActionListener(e -> sshCombo.setEnabled(useSshCheck.isSelected()));
-        SshConfigStore.getInstance().addChangeListener(this::refreshSshConfigs);
+        SshConfigStore.getInstance().addChangeListener(sshChanges);
 
         JPanel sshRow = Layouts.box(Tokens.SPACE_MD, 0);
         sshRow.add(useSshCheck, BorderLayout.WEST);
@@ -697,7 +700,13 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     private void releaseSshBridge() {
         SshTunnelBridge.BridgeResult bridge = activeSshBridge;
         activeSshBridge = null;
-        if (bridge != null) bridge.close();
+        if (bridge != null) {
+            if (!closed && SwingUtilities.isEventDispatchThread()) {
+                DaemonThreads.factory("jdbc-ssh-close").newThread(bridge::close).start();
+            } else {
+                bridge.close();
+            }
+        }
     }
 
     private void refreshSshConfigs() {
@@ -798,6 +807,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         connBtn.setEnabled(false);
         testBtn.setEnabled(false);
         consoleLog("正在建立连接：" + url);
+        final long gen = connectGeneration.incrementAndGet();
 
         new SwingWorker<JdbcConnectionResource, Void>() {
             private String error = null;
@@ -810,7 +820,13 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
             @Override
             protected void done() {
                 try {
-                    connectionResource = get();
+                    JdbcConnectionResource opened = get();
+                    if (closed || gen != connectGeneration.get()) {
+                        DaemonThreads.factory("jdbc-discard").newThread(opened::close).start();
+                        releaseSshBridge();
+                        return;
+                    }
+                    connectionResource = opened;
                     connection = connectionResource.connection();
                     activeUrl = url;
                     isConnected = true;
@@ -841,6 +857,9 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                     // Load database & schema lists
                     loadDatabaseNames();
                 } catch (Exception ex) {
+                    if (closed || gen != connectGeneration.get()) {
+                        return;
+                    }
                     error = Errors.describeRoot(ex);
                     connBtn.setEnabled(true);
                     testBtn.setEnabled(true);
@@ -852,6 +871,7 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void disconnect() {
+        connectGeneration.incrementAndGet();
         cancelSqlExecution();
         lastQueryResult = null;
         activeUrl = null;
@@ -859,11 +879,24 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         connectionResource = null;
         connection = null;
         metadataService = null;
-        if (resource != null) {
-            resource.close();
-            consoleLog("数据库连接已关闭。");
+        SshTunnelBridge.BridgeResult bridge = activeSshBridge;
+        activeSshBridge = null;
+        if (resource != null || bridge != null) {
+            Runnable closeTask = () -> {
+                if (resource != null) {
+                    resource.close();
+                    consoleLog("数据库连接已关闭。");
+                }
+                if (bridge != null) {
+                    bridge.close();
+                }
+            };
+            if (!closed && SwingUtilities.isEventDispatchThread()) {
+                DaemonThreads.factory("jdbc-disconnect").newThread(closeTask).start();
+            } else {
+                closeTask.run();
+            }
         }
-        releaseSshBridge();
         isConnected = false;
         connBtn.setText("连接");
         testBtn.setEnabled(true);
@@ -913,14 +946,22 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
         if (!isConnected || connection == null) return;
         String dbType = (String) dbTypeCombo.getSelectedItem();
         String urlDb = databaseField.getText().trim();
+        final DatabaseMetadataService service = metadataService;
+        final long gen = connectGeneration.get();
+        if (service == null) return;
         new SwingWorker<List<String>, Void>() {
+            private String activeDb;
+
             @Override
             protected List<String> doInBackground() throws Exception {
-                return metadataService.listDatabases(dbType, urlDb);
+                List<String> dbs = service.listDatabases(dbType, urlDb);
+                activeDb = service.activeCatalog();
+                return dbs;
             }
 
             @Override
             protected void done() {
+                if (closed || !isConnected || gen != connectGeneration.get()) return;
                 try {
                     List<String> dbs = get();
                     ignoreSwitchEvents = true;
@@ -929,7 +970,6 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                         dbSwitchCombo.addItem(db);
                     }
 
-                    String activeDb = metadataService.activeCatalog();
                     if (activeDb != null && !activeDb.isEmpty()) {
                         dbSwitchCombo.setSelectedItem(activeDb);
                     }
@@ -946,14 +986,22 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
 
     private void loadSchemaNames() {
         if (!isConnected || connection == null) return;
+        final DatabaseMetadataService service = metadataService;
+        final long gen = connectGeneration.get();
+        if (service == null) return;
         new SwingWorker<List<String>, Void>() {
+            private String activeSchema;
+
             @Override
             protected List<String> doInBackground() throws Exception {
-                return metadataService.listSchemas();
+                List<String> schemas = service.listSchemas();
+                activeSchema = service.activeSchema();
+                return schemas;
             }
 
             @Override
             protected void done() {
+                if (closed || !isConnected || gen != connectGeneration.get()) return;
                 try {
                     List<String> schemas = get();
                     ignoreSwitchEvents = true;
@@ -963,7 +1011,6 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
                     }
 
                     // Try auto selecting active schema
-                    String activeSchema = metadataService.activeSchema();
                     if (activeSchema != null && !activeSchema.isEmpty()) {
                         schemaSwitchCombo.setSelectedItem(activeSchema);
                     } else {
@@ -1146,20 +1193,37 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void cacheAllTableColumns(List<String> tables) {
+        if (tables == null || tables.isEmpty()) {
+            return;
+        }
         // Swing 组件状态在提交前捕获，后台线程只碰 JDBC
         String selectedDb = (String) dbSwitchCombo.getSelectedItem();
         String selectedSchema = (String) schemaSwitchCombo.getSelectedItem();
-        new Thread(() -> {
-            for (String table : tables) {
-                if (!isConnected || metadataService == null) break;
-                try {
-                    List<String> cols = metadataService.columnsOf(selectedDb, selectedSchema, table);
-                    tableColumnsCache.put(table.toLowerCase(), cols);
-                } catch (Throwable ignored) {
-                    Errors.ignored("读取表字段元数据失败，字段补全列表留空", ignored);
-                }
+        final long gen = connectGeneration.get();
+        final DatabaseMetadataService service = metadataService;
+        if (!isConnected || service == null) {
+            return;
+        }
+        metadataExecutor.submit(() -> {
+            if (closed || !isConnected || gen != connectGeneration.get() || metadataService != service) {
+                return;
             }
-        }).start();
+            try {
+                Map<String, List<String>> colsByTable = service.allTableColumns(selectedDb, selectedSchema);
+                Map<String, List<String>> normalized = new HashMap<>();
+                for (Map.Entry<String, List<String>> entry : colsByTable.entrySet()) {
+                    normalized.put(entry.getKey().toLowerCase(Locale.ROOT), entry.getValue());
+                }
+                SwingUtilities.invokeLater(() -> {
+                    if (!closed && isConnected && gen == connectGeneration.get()) {
+                        tableColumnsCache.clear();
+                        tableColumnsCache.putAll(normalized);
+                    }
+                });
+            } catch (Throwable ignored) {
+                Errors.ignored("读取表字段元数据失败，字段补全列表留空", ignored);
+            }
+        });
     }
 
     private void filterMetadataTree() {
@@ -1714,13 +1778,17 @@ public class DatabasePanel extends ToolPanel implements ManagedResourceOwner {
     public void closeResources() {
         if (!closeStarted.compareAndSet(false, true)) return;
         closed = true;
+        connectGeneration.incrementAndGet();
+        SshConfigStore.getInstance().removeChangeListener(sshChanges);
         cancelSqlExecution();
         cancellationExecutor.shutdown();
+        DaemonThreads.shutdownQuietly(metadataExecutor);
         activeUrl = null;
         secretManager.removeListener(urlVaultListener);
         JdbcConnectionResource resource = connectionResource;
         connectionResource = null;
         connection = null;
+        metadataService = null;
         if (resource != null) resource.close();
         releaseSshBridge();
     }

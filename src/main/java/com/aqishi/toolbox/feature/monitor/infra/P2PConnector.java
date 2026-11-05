@@ -9,6 +9,7 @@ import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import com.aqishi.toolbox.feature.monitor.domain.IceProbeCodec;
+import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
 import com.aqishi.toolbox.util.Errors;
 
 /**
@@ -417,11 +418,11 @@ public class P2PConnector {
         // Match ICE-style pacing: modest initial checks followed by
         // progressively slower retransmission. This avoids triggering
         // UDP flood/port-scan protection in consumer and enterprise routers.
-        this.clientConnectorExecutor = Executors.newSingleThreadScheduledExecutor();
+        this.clientConnectorExecutor = DaemonThreads.scheduled("p2p-connector-probe");
         this.keepAliveFuture = this.clientConnectorExecutor.scheduleAtFixedRate(
                 () -> runProbeRound(generation), 0, PROBE_TICK_MS, TimeUnit.MILLISECONDS);
 
-        this.sessionTimeoutScheduler = Executors.newSingleThreadScheduledExecutor();
+        this.sessionTimeoutScheduler = DaemonThreads.scheduled("p2p-connector-timeout");
         this.sessionTimeoutScheduler.schedule(() -> {
             synchronized (P2PConnector.this) {
                 if (generation != sessionGeneration.get() || handshakeDone.get()) return;

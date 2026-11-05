@@ -17,6 +17,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 容器文件传输：经 K8s exec WebSocket 通道下载/上传单个文件。
@@ -25,6 +28,10 @@ import java.util.concurrent.CountDownLatch;
  * 在途连接与工作线程登记到 {@link TransferRegistry} 以便应用退出时统一取消。</p>
  */
 final class K8sPodFileTransfer {
+
+    private static final long TRANSFER_TIMEOUT_SECONDS = 600L;
+    private static final long BACKPRESSURE_WAIT_TIMEOUT_MS = 30_000L;
+    private static final long DRAIN_WAIT_TIMEOUT_MS = 30_000L;
 
     private K8sPodFileTransfer() {
     }
@@ -44,6 +51,10 @@ final class K8sPodFileTransfer {
         File localFile = chooser.getSelectedFile();
 
         JDialog progressDialog = progress(parent, "正在下载文件");
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        AtomicReference<org.java_websocket.client.WebSocketClient> clientRef = new AtomicReference<>();
+        CountDownLatch latch = new CountDownLatch(1);
+        bindCancelOnClose(progressDialog, cancelled, clientRef, latch);
 
         ctx.transfers().startWorker("k8s-file-download", () -> {
             boolean success = false;
@@ -57,12 +68,11 @@ final class K8sPodFileTransfer {
                 final StringBuilder execStatus = new StringBuilder();
 
                 String fullPath = execUrl(ctx, ns, podName, containerName,
-                        "stdin=false&stdout=true&stderr=true&tty=false&command=cat"
-                                + "&command=" + URLEncoder.encode(finalContainerPath, "UTF-8"));
+                        "stdin=false&stdout=true&stderr=true&tty=false&command=cat&command=--"
+                                + "&command=" + URLEncoder.encode(finalContainerPath, StandardCharsets.UTF_8));
 
                 URI uri = new URI(fullPath);
                 Map<String, String> headers = authHeaders(ctx);
-                CountDownLatch latch = new CountDownLatch(1);
 
                 client = new org.java_websocket.client.WebSocketClient(uri, headers) {
                     @Override protected void onSetSSLParameters(javax.net.ssl.SSLParameters parameters) {
@@ -78,6 +88,9 @@ final class K8sPodFileTransfer {
 
                     @Override
                     public void onMessage(java.nio.ByteBuffer bytes) {
+                        if (cancelled.get()) {
+                            return;
+                        }
                         if (bytes.remaining() > 0) {
                             byte channel = bytes.get();
                             byte[] data = new byte[bytes.remaining()];
@@ -108,17 +121,25 @@ final class K8sPodFileTransfer {
                     }
                 };
 
+                clientRef.set(client);
                 applyTls(client, ctx);
 
                 ctx.transfers().register(client);
-                client.connect();
-                latch.await();
+                if (!cancelled.get()) {
+                    client.connect();
+                    if (!latch.await(TRANSFER_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                        stderr.append("Transfer timed out");
+                        client.close();
+                    }
+                }
 
-                ExecStatus status = ExecStatus.of(execStatus.toString(), stderr.toString());
-                if (status.isSuccess()) {
-                    success = true;
-                } else {
-                    errorMsg = status.message();
+                if (!cancelled.get()) {
+                    ExecStatus status = ExecStatus.of(execStatus.toString(), stderr.toString());
+                    if (status.isSuccess()) {
+                        success = true;
+                    } else {
+                        errorMsg = status.message();
+                    }
                 }
             } catch (Exception ex) {
                 errorMsg = Errors.describeRoot(ex);
@@ -136,6 +157,10 @@ final class K8sPodFileTransfer {
             final String finalError = errorMsg;
             SwingUtilities.invokeLater(() -> {
                 progressDialog.dispose();
+                if (cancelled.get()) {
+                    try { localFile.delete(); } catch (Exception ignored) { }
+                    return;
+                }
                 if (finalSuccess) {
                     UIUtils.info(parent, "文件下载成功！");
                 } else {
@@ -161,6 +186,10 @@ final class K8sPodFileTransfer {
         final String finalContainerPath = containerPath.trim();
 
         JDialog progressDialog = progress(parent, "正在上传文件");
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        AtomicReference<org.java_websocket.client.WebSocketClient> clientRef = new AtomicReference<>();
+        CountDownLatch latch = new CountDownLatch(1);
+        bindCancelOnClose(progressDialog, cancelled, clientRef, latch);
 
         ctx.transfers().startWorker("k8s-file-upload", () -> {
             boolean success = false;
@@ -173,11 +202,10 @@ final class K8sPodFileTransfer {
                 String escapedPath = finalContainerPath.replace("'", "'\\''");
                 String fullPath = execUrl(ctx, ns, podName, containerName,
                         "stdin=true&stdout=true&stderr=true&tty=false&command=sh&command=-c"
-                                + "&command=" + URLEncoder.encode("cat > '" + escapedPath + "'", "UTF-8"));
+                                + "&command=" + URLEncoder.encode("cat > '" + escapedPath + "'", StandardCharsets.UTF_8));
 
                 URI uri = new URI(fullPath);
                 Map<String, String> headers = authHeaders(ctx);
-                CountDownLatch latch = new CountDownLatch(1);
 
                 client = new org.java_websocket.client.WebSocketClient(uri, headers) {
                     @Override protected void onSetSSLParameters(javax.net.ssl.SSLParameters parameters) {
@@ -190,13 +218,29 @@ final class K8sPodFileTransfer {
                             try (FileInputStream fis = new FileInputStream(localFile)) {
                                 byte[] buffer = new byte[8192];
                                 int read;
-                                while ((read = fis.read(buffer)) != -1) {
+                                while (!cancelled.get() && isOpen() && (read = fis.read(buffer)) != -1) {
+                                    org.java_websocket.WebSocket conn = getConnection();
+                                    long waitStart = System.currentTimeMillis();
+                                    while (!cancelled.get() && isOpen() && conn != null && conn.hasBufferedData()) {
+                                        if (System.currentTimeMillis() - waitStart > BACKPRESSURE_WAIT_TIMEOUT_MS) {
+                                            throw new IOException("Upload buffer drain timed out");
+                                        }
+                                        Thread.sleep(5);
+                                    }
+                                    if (cancelled.get() || !isOpen()) {
+                                        break;
+                                    }
                                     byte[] frame = new byte[read + 1];
                                     frame[0] = 0; // channel 0 (stdin)
                                     System.arraycopy(buffer, 0, frame, 1, read);
                                     send(frame);
                                 }
-                                Thread.sleep(800);
+                                org.java_websocket.WebSocket conn = getConnection();
+                                long flushDeadline = System.currentTimeMillis() + DRAIN_WAIT_TIMEOUT_MS;
+                                while (!cancelled.get() && isOpen() && conn != null && conn.hasBufferedData()
+                                        && System.currentTimeMillis() < flushDeadline) {
+                                    Thread.sleep(5);
+                                }
                             } catch (Exception e) {
                                 stderr.append(e.getMessage());
                             } finally {
@@ -234,17 +278,25 @@ final class K8sPodFileTransfer {
                     }
                 };
 
+                clientRef.set(client);
                 applyTls(client, ctx);
 
                 ctx.transfers().register(client);
-                client.connect();
-                latch.await();
+                if (!cancelled.get()) {
+                    client.connect();
+                    if (!latch.await(TRANSFER_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                        stderr.append("Transfer timed out");
+                        client.close();
+                    }
+                }
 
-                ExecStatus status = ExecStatus.of(execStatus.toString(), stderr.toString());
-                if (status.isSuccess()) {
-                    success = true;
-                } else {
-                    errorMsg = status.message();
+                if (!cancelled.get()) {
+                    ExecStatus status = ExecStatus.of(execStatus.toString(), stderr.toString());
+                    if (status.isSuccess()) {
+                        success = true;
+                    } else {
+                        errorMsg = status.message();
+                    }
                 }
             } catch (Exception ex) {
                 errorMsg = Errors.describeRoot(ex);
@@ -259,6 +311,9 @@ final class K8sPodFileTransfer {
             final String finalError = errorMsg;
             SwingUtilities.invokeLater(() -> {
                 progressDialog.dispose();
+                if (cancelled.get()) {
+                    return;
+                }
                 if (finalSuccess) {
                     UIUtils.info(parent, "文件上传成功！");
                 } else {
@@ -268,6 +323,27 @@ final class K8sPodFileTransfer {
         });
 
         progressDialog.setVisible(true);
+    }
+
+    private static void bindCancelOnClose(
+            JDialog progressDialog,
+            AtomicBoolean cancelled,
+            AtomicReference<org.java_websocket.client.WebSocketClient> clientRef,
+            CountDownLatch latch) {
+        progressDialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                cancelled.set(true);
+                org.java_websocket.client.WebSocketClient client = clientRef.get();
+                if (client != null) {
+                    try {
+                        client.close();
+                    } catch (Exception ignored) {
+                    }
+                }
+                latch.countDown();
+            }
+        });
     }
 
     private static JDialog progress(Component parent, String title) {
@@ -283,8 +359,12 @@ final class K8sPodFileTransfer {
     private static String execUrl(K8sClusterContext ctx, String ns, String podName,
                                   String containerName, String query) {
         return K8sExecTerminal.toWebSocketUrl(ctx.serverUrl())
-                + "/api/v1/namespaces/" + ns + "/pods/" + podName + "/exec"
-                + "?container=" + containerName + "&" + query;
+                + "/api/v1/namespaces/" + encode(ns) + "/pods/" + encode(podName) + "/exec"
+                + "?container=" + encode(containerName) + "&" + query;
+    }
+
+    private static String encode(String segment) {
+        return URLEncoder.encode(segment, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     private static Map<String, String> authHeaders(K8sClusterContext ctx) {

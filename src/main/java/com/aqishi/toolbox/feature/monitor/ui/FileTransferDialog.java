@@ -31,6 +31,8 @@ public class FileTransferDialog extends JDialog {
     static final int CHUNK_SIZE = 64 * 1024;
     /** Upper bound on simultaneously open incoming files per session. */
     static final int MAX_CONCURRENT_RECEIVES = 16;
+    /** Maximum allowed file size per transfer (2 GiB). */
+    static final long MAX_FILE_SIZE = 2L * 1024 * 1024 * 1024;
 
     private final DesktopChannel channel;
     private final ObjectMapper mapper = Json.mapper();
@@ -128,8 +130,8 @@ public class FileTransferDialog extends JDialog {
                     // 对端给的名字不可信：只保留最后一段并替换非法字符，防止 ../ 写出下载目录。
                     String fileName = ReceivedFileNames.sanitize((String) msg.get("fileName"));
                     Number fileSizeNum = (Number) msg.get("fileSize");
-                    long fileSize = fileSizeNum.longValue();
-                    if (fileSize < 0 || fileId == null || fileId.length() != 36
+                    long fileSize = fileSizeNum == null ? -1L : fileSizeNum.longValue();
+                    if (fileSize < 0 || fileSize > MAX_FILE_SIZE || fileId == null || fileId.length() != 36
                             || receivers.size() >= MAX_CONCURRENT_RECEIVES || receivers.containsKey(fileId)) {
                         log.accept("Rejected incoming file request (invalid id/size or too many transfers)");
                         return;
@@ -373,6 +375,7 @@ public class FileTransferDialog extends JDialog {
         long fileSize;
         File targetFile;
         java.io.RandomAccessFile raf;
+        private long nextExpectedChunk = 0;
 
         FileReceiver(String fileId, String fileName, long fileSize, File targetFile) throws IOException {
             this.fileId = fileId;
@@ -384,13 +387,22 @@ public class FileTransferDialog extends JDialog {
 
         synchronized void writeChunk(long index, byte[] data, int offset, int length) throws IOException {
             if (raf == null) throw new IOException("receiver closed");
-            if (index < 0 || length > CHUNK_SIZE || index > (fileSize - length) / CHUNK_SIZE) {
-                throw new IOException("chunk outside the declared file size");
+            if (index != nextExpectedChunk) {
+                throw new IOException("Out of order chunk");
+            }
+            if (index < 0 || length < 0 || length > CHUNK_SIZE || length > fileSize || index > (fileSize - length) / CHUNK_SIZE) {
+                throw new IOException("Chunk exceeds declared file size");
             }
             long pos = index * CHUNK_SIZE;
-            if (pos + length > fileSize) throw new IOException("chunk outside the declared file size");
+            if (pos + length > fileSize) throw new IOException("Chunk exceeds declared file size");
             raf.seek(pos);
             raf.write(data, offset, length);
+            nextExpectedChunk++;
+        }
+
+        synchronized void writeChunk(int index, byte[] data) throws IOException {
+            if (data == null) throw new IOException("null chunk data");
+            writeChunk((long) index, data, 0, data.length);
         }
 
         synchronized void close() {

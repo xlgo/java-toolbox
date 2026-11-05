@@ -422,13 +422,14 @@ public class RemoteControlWindow extends JFrame {
             granted = control.permissions();
             if (changed) SwingUtilities.invokeLater(() -> {
                 if (consentWaitTimer != null) consentWaitTimer.stop();
-        if (heartbeatTimer != null) heartbeatTimer.stop();
+
                 applyPermissions();
             });
             return;
         }
         granted = RemotePermissions.none();
         if (!windowClosed.compareAndSet(false, true)) return;
+        if (heartbeatTimer != null) heartbeatTimer.stop();
         String key = SessionControlMessages.REASON_TIMEOUT.equals(control.reason())
                 ? "tool.remotedesktop.control_denied_timeout"
                 : "tool.remotedesktop.control_denied";
@@ -477,6 +478,7 @@ public class RemoteControlWindow extends JFrame {
     private void closeAndDispose() {
         windowClosed.set(true);
         if (consentWaitTimer != null) consentWaitTimer.stop();
+        if (heartbeatTimer != null) heartbeatTimer.stop();
         if (floatToolbarWindow != null) {
             floatToolbarWindow.dispose();
         }

@@ -297,13 +297,17 @@ public class SftpPanel extends JPanel {
                         long fileSize = selectedFile.length();
                         sftp.put(fis, remoteFile, new com.jcraft.jsch.SftpProgressMonitor() {
                             private long count = 0;
+                            private int lastPercent = -1;
                             @Override
                             public void init(int op, String src, String dest, long max) {}
                             @Override
                             public boolean count(long count) {
                                 this.count += count;
                                 int percent = fileSize > 0 ? (int) ((this.count * 100) / fileSize) : 100;
-                                SwingUtilities.invokeLater(() -> progressBar.setValue(percent));
+                                if (percent != lastPercent) {
+                                    lastPercent = percent;
+                                    SwingUtilities.invokeLater(() -> progressBar.setValue(percent));
+                                }
                                 return true;
                             }
                             @Override
@@ -367,13 +371,17 @@ public class SftpPanel extends JPanel {
 
                     sftp.get(remoteFile, fos, new com.jcraft.jsch.SftpProgressMonitor() {
                         private long count = 0;
+                        private int lastPercent = -1;
                         @Override
                         public void init(int op, String src, String dest, long max) {}
                         @Override
                         public boolean count(long count) {
                             this.count += count;
                             int percent = fileSize > 0 ? (int) ((this.count * 100) / fileSize) : 100;
-                            SwingUtilities.invokeLater(() -> progressBar.setValue(percent));
+                            if (percent != lastPercent) {
+                                lastPercent = percent;
+                                SwingUtilities.invokeLater(() -> progressBar.setValue(percent));
+                            }
                             return true;
                         }
                         @Override

@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import com.aqishi.toolbox.feature.monitor.domain.RemoteSessionIds;
@@ -59,7 +60,7 @@ public class DesktopSignalServer extends WebSocketServer {
         String group = wsToGroup.remove(conn);
         wsToName.remove(conn);
         if (id != null) {
-            idToWs.remove(id);
+            idToWs.remove(id, conn);
             log("客户端断开: ID=" + id + ", Group=" + group);
             if (group != null) {
                 broadcastUserList(group);
@@ -90,6 +91,23 @@ public class DesktopSignalServer extends WebSocketServer {
                         name = "";
                     }
 
+                    if (id == null || id.trim().isEmpty()) {
+                        id = RemoteSessionIds.generate();
+                    } else {
+                        id = id.trim();
+                    }
+                    WebSocket existing = idToWs.get(id);
+                    if (existing != null && existing != conn && existing.isOpen()) {
+                        Map<String, Object> errResp = new HashMap<>();
+                        errResp.put("type", "error");
+                        errResp.put("reason", "id_in_use");
+                        conn.send(mapper.writeValueAsString(errResp));
+                        return;
+                    }
+                    String prevId = wsToId.get(conn);
+                    if (prevId != null && !prevId.equals(id)) {
+                        idToWs.remove(prevId, conn);
+                    }
                     idToWs.put(id, conn);
                     wsToId.put(conn, id);
                     wsToGroup.put(conn, group);
@@ -116,7 +134,10 @@ public class DesktopSignalServer extends WebSocketServer {
                     }
 
                     String fromId = wsToId.get(conn);
-                    if (fromId == null || toId == null || msgStr == null) return;
+                    String senderGroup = wsToGroup.get(conn);
+                    Object claimedFrom = json.get("from");
+                    if (fromId == null || toId == null || msgStr == null || senderGroup == null) return;
+                    if (claimedFrom != null && !fromId.equals(claimedFrom)) return;
 
                     WebSocket targetWs = idToWs.get(toId);
                     if (targetWs != null && targetWs.isOpen()) {
@@ -126,6 +147,7 @@ public class DesktopSignalServer extends WebSocketServer {
                         forward.put("msg", msgStr);
                         forward.put("data", msgStr);
 
+                        if (!Objects.equals(senderGroup, wsToGroup.get(targetWs))) return;
                         targetWs.send(mapper.writeValueAsString(forward));
                     } else {
                         log("转发失败: 目标 ID " + toId + " 不在线");
@@ -137,10 +159,14 @@ public class DesktopSignalServer extends WebSocketServer {
                 case "ice": {
                     String toId = (String) json.get("to");
                     String fromId = wsToId.get(conn);
-                    if (fromId == null || toId == null) return;
+                    String senderGroup = wsToGroup.get(conn);
+                    Object claimedFrom = json.get("from");
+                    if (fromId == null || toId == null || senderGroup == null) return;
+                    if (claimedFrom != null && !fromId.equals(claimedFrom)) return;
 
                     WebSocket targetWs = idToWs.get(toId);
                     if (targetWs != null && targetWs.isOpen()) {
+                        if (!Objects.equals(senderGroup, wsToGroup.get(targetWs))) return;
                         json.put("from", fromId);
                         targetWs.send(mapper.writeValueAsString(json));
                     } else {

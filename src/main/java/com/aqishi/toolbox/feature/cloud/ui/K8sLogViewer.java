@@ -36,7 +36,7 @@ final class K8sLogViewer {
             @Override
             protected List<String> doInBackground() throws Exception {
                 String resp = ctx.request("GET",
-                        "/api/v1/namespaces/" + ns + "/pods/" + podName, null);
+                        "/api/v1/namespaces/" + encode(ns) + "/pods/" + encode(podName), null);
                 JsonNode root = Json.mapper().readTree(resp);
                 List<String> list = new ArrayList<>();
                 JsonNode specs = root.path("spec").path("containers");
@@ -104,6 +104,26 @@ final class K8sLogViewer {
                 new java.util.concurrent.atomic.AtomicReference<>();
         final java.util.concurrent.atomic.AtomicReference<java.util.concurrent.atomic.AtomicBoolean> activeCancel =
                 new java.util.concurrent.atomic.AtomicReference<>();
+        final Object logBufferLock = new Object();
+        final StringBuilder pendingLog = new StringBuilder();
+        final Runnable flushPendingLogs = () -> {
+            String chunk;
+            synchronized (logBufferLock) {
+                if (pendingLog.length() == 0) {
+                    return;
+                }
+                chunk = pendingLog.toString();
+                pendingLog.setLength(0);
+            }
+            java.util.concurrent.atomic.AtomicBoolean currentCancel = activeCancel.get();
+            if (currentCancel != null && currentCancel.get()) {
+                return;
+            }
+            area.append(chunk);
+            trimToLastLines(area, MAX_FOLLOW_LINES);
+            area.setCaretPosition(area.getDocument().getLength());
+        };
+        final javax.swing.Timer followFlushTimer = new javax.swing.Timer(100, e -> flushPendingLogs.run());
 
         JScrollBar verticalBar = sp.getVerticalScrollBar();
         verticalBar.addAdjustmentListener(e -> {
@@ -112,6 +132,10 @@ final class K8sLogViewer {
         });
 
         Runnable stopFollowing = () -> {
+            followFlushTimer.stop();
+            synchronized (logBufferLock) {
+                pendingLog.setLength(0);
+            }
             java.util.concurrent.atomic.AtomicBoolean cancel = activeCancel.getAndSet(null);
             if (cancel != null) {
                 cancel.set(true);
@@ -120,7 +144,7 @@ final class K8sLogViewer {
             final HttpURLConnection conn = activeConn.getAndSet(null);
 
             if (t != null || conn != null) {
-                new Thread(() -> {
+                Thread closer = new Thread(() -> {
                     if (t != null) {
                         t.interrupt();
                     }
@@ -131,7 +155,9 @@ final class K8sLogViewer {
                             Errors.ignored("断开 K8s 日志追踪连接失败，连接已废弃", ex);
                         }
                     }
-                }).start();
+                }, "k8s-log-follow-stop");
+                closer.setDaemon(true);
+                closer.start();
             }
         };
 
@@ -139,8 +165,12 @@ final class K8sLogViewer {
             String c = (String) containerCombo.getSelectedItem();
             if (c == null) return;
             area.setText("正在开启追踪日志...\n");
+            synchronized (logBufferLock) {
+                pendingLog.setLength(0);
+            }
             java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean();
             activeCancel.set(cancelled);
+            followFlushTimer.start();
             Thread t = new Thread(() -> {
                 HttpURLConnection conn = null;
                 try {
@@ -172,16 +202,19 @@ final class K8sLogViewer {
                              java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is, StandardCharsets.UTF_8))) {
                             String line;
                             while (!cancelled.get() && (line = reader.readLine()) != null) {
-                                final String finalLine = line;
-                                SwingUtilities.invokeLater(() -> {
-                                    if (cancelled.get()) {
-                                        return;
+                                synchronized (logBufferLock) {
+                                    pendingLog.append(line).append('\n');
+                                    if (pendingLog.length() > 512 * 1024) {
+                                        int keepFrom = pendingLog.indexOf("\n", pendingLog.length() - 256 * 1024);
+                                        if (keepFrom > 0) {
+                                            pendingLog.delete(0, keepFrom + 1);
+                                        }
                                     }
-                                    area.append(finalLine + "\n");
-                                    trimToLastLines(area, MAX_FOLLOW_LINES);
-                                    area.setCaretPosition(area.getDocument().getLength());
-                                });
+                                }
                             }
+                        }
+                        if (!cancelled.get()) {
+                            SwingUtilities.invokeLater(flushPendingLogs);
                         }
                     } else {
                         try (InputStream es = conn.getErrorStream();
@@ -201,7 +234,10 @@ final class K8sLogViewer {
                     }
                 } catch (Exception ex) {
                     if (!cancelled.get()) {
-                        SwingUtilities.invokeLater(() -> area.append("\n[追踪日志断开]: " + ex.getMessage() + "\n"));
+                        SwingUtilities.invokeLater(() -> {
+                            flushPendingLogs.run();
+                            area.append("\n[追踪日志断开]: " + ex.getMessage() + "\n");
+                        });
                     }
                 } finally {
                     if (conn != null) {
@@ -226,7 +262,8 @@ final class K8sLogViewer {
                 new SwingWorker<String, Void>() {
                     @Override
                     protected String doInBackground() throws Exception {
-                        String path = "/api/v1/namespaces/" + ns + "/pods/" + podName + "/log?container=" + c + "&tailLines=" + currentTailLines[0];
+                        String path = "/api/v1/namespaces/" + encode(ns) + "/pods/" + encode(podName)
+                                + "/log?container=" + encode(c) + "&tailLines=" + currentTailLines[0];
                         return ctx.request("GET", path, null);
                     }
 
@@ -253,7 +290,8 @@ final class K8sLogViewer {
             new SwingWorker<String, Void>() {
                 @Override
                 protected String doInBackground() throws Exception {
-                    String path = "/api/v1/namespaces/" + ns + "/pods/" + podName + "/log?container=" + c + "&tailLines=" + currentTailLines[0];
+                    String path = "/api/v1/namespaces/" + encode(ns) + "/pods/" + encode(podName)
+                            + "/log?container=" + encode(c) + "&tailLines=" + currentTailLines[0];
                     return ctx.request("GET", path, null);
                 }
 

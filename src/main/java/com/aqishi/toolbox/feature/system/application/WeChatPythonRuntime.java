@@ -2,8 +2,17 @@ package com.aqishi.toolbox.feature.system.application;
 
 import com.aqishi.toolbox.util.I18n;
 import java.io.IOException;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.AclEntry;
+import java.nio.file.attribute.AclEntryFlag;
+import java.nio.file.attribute.AclEntryPermission;
+import java.nio.file.attribute.AclEntryType;
+import java.nio.file.attribute.AclFileAttributeView;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
@@ -11,6 +20,39 @@ import java.util.function.BooleanSupplier;
 
 final class WeChatPythonRuntime {
     private WeChatPythonRuntime() { }
+
+    static Path createSecureTempDirectory(String prefix) throws IOException {
+        Path dir;
+        if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
+            dir = Files.createTempDirectory(prefix,
+                    PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+        } else {
+            dir = Files.createTempDirectory(prefix);
+        }
+        restrictPermissions(dir);
+        return dir;
+    }
+
+    static void restrictPermissions(Path path) {
+        try {
+            if (Files.getFileStore(path).supportsFileAttributeView("posix")) {
+                Files.setPosixFilePermissions(path, PosixFilePermissions.fromString(
+                        Files.isDirectory(path) ? "rwx------" : "rw-------"));
+            } else {
+                AclFileAttributeView acl = Files.getFileAttributeView(path, AclFileAttributeView.class);
+                if (acl != null) {
+                    AclEntry owner = AclEntry.newBuilder()
+                            .setType(AclEntryType.ALLOW)
+                            .setPrincipal(Files.getOwner(path))
+                            .setPermissions(EnumSet.allOf(AclEntryPermission.class))
+                            .setFlags(AclEntryFlag.FILE_INHERIT, AclEntryFlag.DIRECTORY_INHERIT)
+                            .build();
+                    acl.setAcl(List.of(owner));
+                }
+            }
+        } catch (IOException | UnsupportedOperationException ignored) {
+        }
+    }
 
     static Process start(Path directory, String entry, BooleanSupplier stopped) throws Exception {
         for (List<String> command : List.of(List.of("python"), List.of("py", "-3"), List.of("python3"))) {

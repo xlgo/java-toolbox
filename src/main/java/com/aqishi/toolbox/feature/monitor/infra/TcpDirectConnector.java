@@ -52,6 +52,7 @@ public class TcpDirectConnector {
     }
 
     static final int MAX_PENDING_HANDSHAKES = 4;
+    static final int MAX_REMOTE_CANDIDATES = 16;
 
     private static final int CONNECT_TIMEOUT_MS = 700;
     private static final int RETRY_INTERVAL_MS = 800;
@@ -188,7 +189,7 @@ public class TcpDirectConnector {
     }
 
     public void addCandidate(String candidateString) {
-        if (candidateString == null) return;
+        if (candidateString == null || candidates.size() >= MAX_REMOTE_CANDIDATES) return;
         String[] parts = candidateString.trim().split("\\s+");
         if (parts.length < 6 || !"tcp".equalsIgnoreCase(parts[2])) return;
 
@@ -201,7 +202,7 @@ public class TcpDirectConnector {
         if (port < 1 || port > 65535) return;
 
         InetSocketAddress address = new InetSocketAddress(parts[4], port);
-        if (address.isUnresolved() || !candidates.add(address)) return;
+        if (address.isUnresolved() || candidates.size() >= MAX_REMOTE_CANDIDATES || !candidates.add(address)) return;
         Consumer<String> log = logCallback;
         if (log != null) log.accept("加入 TCP 直连候选: " + address);
         if (active.get()) submitConnect(address);

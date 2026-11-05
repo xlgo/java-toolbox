@@ -11,6 +11,7 @@ import com.aqishi.toolbox.feature.network.ssh.domain.SshConnectionConfig;
 import com.aqishi.toolbox.feature.network.ssh.infra.SshTunnelBridge;
 import com.aqishi.toolbox.domain.RedisProfile;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
 import com.aqishi.toolbox.infra.redis.RedisClient;
 import com.aqishi.toolbox.infra.redis.RedisResource;
 import com.aqishi.toolbox.infra.redis.RedisProfileStore;
@@ -29,6 +30,8 @@ import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.Errors;
 import com.aqishi.toolbox.util.UIUtils;
 import redis.clients.jedis.Jedis;
+import redis.clients.jedis.ScanParams;
+import redis.clients.jedis.ScanResult;
 import redis.clients.jedis.Tuple;
 
 import javax.swing.*;
@@ -44,6 +47,8 @@ import java.util.regex.Pattern;
  */
 public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
     private static final String KEY_BATCH_SIZE_SETTING = "redis.keys.batchSize";
+    private static final int MAX_COLLECTION_PREVIEW = 1000;
+    private final Runnable sshChanges = this::refreshSshConfigs;
     // Profile Management Support
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
@@ -136,8 +141,8 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
     private JTextField consoleInput;
     private JButton runCmdBtn;
 
-    private Jedis jedis;
-    private RedisResource redisResource;
+    private volatile Jedis jedis;
+    private volatile RedisResource redisResource;
     private final RedisClient redisClient = new RedisClient();
     private String connHost;
     private int connPort;
@@ -244,7 +249,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
         sshCombo = Fields.combo(sshList.toArray(new SshConnectionConfig[0]));
         sshCombo.setEnabled(false);
         useSshCheck.addActionListener(e -> sshCombo.setEnabled(useSshCheck.isSelected()));
-        SshConfigStore.getInstance().addChangeListener(this::refreshSshConfigs);
+        SshConfigStore.getInstance().addChangeListener(sshChanges);
 
         JPanel sshRow = Layouts.box(Tokens.SPACE_MD, 0);
         sshRow.add(useSshCheck, BorderLayout.WEST);
@@ -743,7 +748,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
                     client.ping();
                     jedis = client;
                     redisResource = resource;
-                    consoleOutput.append("自动重连成功\n");
+                    SwingUtilities.invokeLater(() -> consoleOutput.append("自动重连成功\n"));
                     return true;
                 } catch (Exception ex) {
                     jedis = null;
@@ -754,13 +759,16 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void closeJedis() {
-        synchronized (redisLock) {
-            RedisResource resource = redisResource;
-            redisResource = null;
-            jedis = null;
-            if (resource != null) {
-                resource.close();
-            }
+        RedisResource resource = redisResource;
+        redisResource = null;
+        jedis = null;
+        if (resource == null) {
+            return;
+        }
+        if (!closed && SwingUtilities.isEventDispatchThread()) {
+            DaemonThreads.factory("redis-disconnect").newThread(resource::close).start();
+        } else {
+            resource.close();
         }
     }
 
@@ -789,10 +797,15 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void releaseSshBridge() {
-        synchronized (redisLock) {
-            SshTunnelBridge.BridgeResult bridge = activeSshBridge;
-            activeSshBridge = null;
-            if (bridge != null) bridge.close();
+        SshTunnelBridge.BridgeResult bridge = activeSshBridge;
+        activeSshBridge = null;
+        if (bridge == null) {
+            return;
+        }
+        if (!closed && SwingUtilities.isEventDispatchThread()) {
+            DaemonThreads.factory("redis-ssh-close").newThread(bridge::close).start();
+        } else {
+            bridge.close();
         }
     }
 
@@ -872,6 +885,7 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
     @Override
     public void closeResources() {
         closed = true;
+        SshConfigStore.getInstance().removeChangeListener(sshChanges);
         keyGeneration.incrementAndGet();
         if (keyWorker != null) keyWorker.cancel(true);
         closeJedis();
@@ -973,13 +987,13 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
                     if ("string".equals(type)) {
                         res.put("value", jedis.get(key));
                     } else if ("hash".equals(type)) {
-                        res.put("value", jedis.hgetAll(key));
+                        res.put("value", scanHashPreview(jedis, key));
                     } else if ("list".equals(type)) {
-                        res.put("value", jedis.lrange(key, 0, -1));
+                        res.put("value", jedis.lrange(key, 0, MAX_COLLECTION_PREVIEW - 1));
                     } else if ("set".equals(type)) {
-                        res.put("value", jedis.smembers(key));
+                        res.put("value", scanSetPreview(jedis, key));
                     } else if ("zset".equals(type)) {
-                        res.put("value", jedis.zrangeWithScores(key, 0, -1));
+                        res.put("value", jedis.zrangeWithScores(key, 0, MAX_COLLECTION_PREVIEW - 1));
                     }
                     return res;
                 }
@@ -1045,6 +1059,52 @@ public class RedisPanel extends ToolPanel implements ManagedResourceOwner {
                 }
             }
         }.execute();
+    }
+
+    private static Map<String, String> scanHashPreview(Jedis client, String key) {
+        Map<String, String> result = new LinkedHashMap<>();
+        String cursor = ScanParams.SCAN_POINTER_START;
+        ScanParams params = new ScanParams().count(200);
+        do {
+            ScanResult<Map.Entry<String, String>> scanResult = client.hscan(key, cursor, params);
+            if (scanResult == null) {
+                break;
+            }
+            List<Map.Entry<String, String>> entries = scanResult.getResult();
+            if (entries != null) {
+                for (Map.Entry<String, String> entry : entries) {
+                    result.put(entry.getKey(), entry.getValue());
+                    if (result.size() >= MAX_COLLECTION_PREVIEW) {
+                        return result;
+                    }
+                }
+            }
+            cursor = scanResult.getCursor();
+        } while (cursor != null && !ScanParams.SCAN_POINTER_START.equals(cursor));
+        return result;
+    }
+
+    private static Set<String> scanSetPreview(Jedis client, String key) {
+        Set<String> result = new LinkedHashSet<>();
+        String cursor = ScanParams.SCAN_POINTER_START;
+        ScanParams params = new ScanParams().count(200);
+        do {
+            ScanResult<String> scanResult = client.sscan(key, cursor, params);
+            if (scanResult == null) {
+                break;
+            }
+            List<String> elements = scanResult.getResult();
+            if (elements != null) {
+                for (String element : elements) {
+                    result.add(element);
+                    if (result.size() >= MAX_COLLECTION_PREVIEW) {
+                        return result;
+                    }
+                }
+            }
+            cursor = scanResult.getCursor();
+        } while (cursor != null && !ScanParams.SCAN_POINTER_START.equals(cursor));
+        return result;
     }
 
     private void createNewKey() {

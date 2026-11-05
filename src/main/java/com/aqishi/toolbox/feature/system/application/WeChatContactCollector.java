@@ -27,11 +27,13 @@ public class WeChatContactCollector implements AutoCloseable {
     private final AtomicBoolean stopped = new AtomicBoolean();
 
     public List<ContactInfo> collect(Consumer<String> progress) throws Exception {
-        Path directory = Files.createTempDirectory("toolbox-wechat-reader-");
+        Path directory = WeChatPythonRuntime.createSecureTempDirectory("toolbox-wechat-reader-");
         try {
             for (String name : List.of("wechat_export.py", "wechat_contacts.py")) {
                 try (InputStream source = script(name)) {
-                    Files.copy(source, directory.resolve(name));
+                    Path scriptFile = directory.resolve(name);
+                    Files.copy(source, scriptFile);
+                    WeChatPythonRuntime.restrictPermissions(scriptFile);
                 }
             }
             checkStopped();

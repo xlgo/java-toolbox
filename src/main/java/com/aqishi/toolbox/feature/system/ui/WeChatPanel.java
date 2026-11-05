@@ -99,6 +99,7 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
     private long collectGeneration;
     private volatile boolean closed;
     private java.util.List<WeChatContactReader.ContactInfo> allContacts = new java.util.ArrayList<>();
+    private final java.util.Map<String, WeChatContactReader.ContactInfo> contactsByUsername = new java.util.HashMap<>();
 
     private volatile boolean stopRequested = false;
     private Thread sendThread = null;
@@ -806,6 +807,8 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
 
     private WeChatContactReader.ContactInfo findContactByUsername(String username) {
         if (username == null) return null;
+        WeChatContactReader.ContactInfo indexed = contactsByUsername.get(username);
+        if (indexed != null) return indexed;
         for (WeChatContactReader.ContactInfo c : allContacts) {
             if (username.equals(c.username)) {
                 return c;
@@ -815,8 +818,12 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void refreshContactTable() {
+        contactsByUsername.clear();
         wxcTableModel.setRowCount(0);
         for (WeChatContactReader.ContactInfo c : allContacts) {
+            if (c.username != null) {
+                contactsByUsername.put(c.username, c);
+            }
             wxcTableModel.addRow(new Object[]{
                     c.selected,
                     c.nickname != null ? c.nickname : "",
@@ -979,15 +986,13 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
         chooser.setFileFilter(new FileNameExtensionFilter("Excel 文件 (*.xlsx; *.xls)", "xlsx", "xls"));
         if (chooser.showOpenDialog(getView()) == JFileChooser.APPROVE_OPTION) {
             File file = chooser.getSelectedFile();
-            new SwingWorker<Integer, Void>() {
-                private String errorMsg = null;
-                private int added = 0;
-
+            new SwingWorker<java.util.List<String[]>, Void>() {
                 @Override
-                protected Integer doInBackground() throws Exception {
-                    try (Workbook workbook = file.getName().endsWith(".xlsx") ? 
-                            new XSSFWorkbook(new FileInputStream(file)) : new HSSFWorkbook(new FileInputStream(file))) {
-                        
+                protected java.util.List<String[]> doInBackground() throws Exception {
+                    java.util.List<String[]> rows = new java.util.ArrayList<>();
+                    try (FileInputStream fis = new FileInputStream(file);
+                         Workbook workbook = file.getName().endsWith(".xlsx")
+                                 ? new XSSFWorkbook(fis) : new HSSFWorkbook(fis)) {
                         Sheet sheet = workbook.getSheetAt(0);
                         int rowCount = sheet.getLastRowNum();
                         for (int i = 1; i <= rowCount; i++) {
@@ -995,26 +1000,27 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
                             if (row == null) continue;
                             Cell c0 = row.getCell(0);
                             Cell c1 = row.getCell(1);
-                            
+
                             String name = c0 != null ? getCellValueAsString(c0) : "";
                             String content = c1 != null ? getCellValueAsString(c1) : "";
-                            
+
                             if (!name.isEmpty()) {
-                                final int id = tableModel.getRowCount() + 1;
-                                SwingUtilities.invokeLater(() -> 
-                                    tableModel.addRow(new Object[]{id, name, content, "待发送", ""})
-                                );
-                                added++;
+                                rows.add(new String[]{name, content});
                             }
                         }
                     }
-                    return added;
+                    return rows;
                 }
 
                 @Override
                 protected void done() {
                     try {
-                        int count = get();
+                        java.util.List<String[]> rows = get();
+                        for (String[] item : rows) {
+                            int id = tableModel.getRowCount() + 1;
+                            tableModel.addRow(new Object[]{id, item[0], item[1], "待发送", ""});
+                        }
+                        int count = rows.size();
                         UIUtils.info(getView(), "导入成功！共导入 " + count + " 条有效联系人。");
                         log("成功从 Excel 导入 " + count + " 条数据。");
                     } catch (Exception ex) {
@@ -1243,13 +1249,20 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
                         break;
                     }
 
-                    String name = (String) tableModel.getValueAt(i, 1);
-                    String msg = (String) tableModel.getValueAt(i, 2);
-                    String status = (String) tableModel.getValueAt(i, 3);
+                    final int rowIndex = i;
+                    final String[] rowData = new String[3];
+                    SwingUtilities.invokeAndWait(() -> {
+                        rowData[0] = (String) tableModel.getValueAt(rowIndex, 1);
+                        rowData[1] = (String) tableModel.getValueAt(rowIndex, 2);
+                        rowData[2] = (String) tableModel.getValueAt(rowIndex, 3);
+                    });
+                    String name = rowData[0];
+                    String msg = rowData[1];
+                    String status = rowData[2];
 
                     if (I18n.get("wechat.send.legacyTriggered").equals(status) || I18n.get("wechat.send.confirmed").equals(status)
                             || I18n.get("wechat.send.pending").equals(status) || I18n.get("wechat.send.uncertain").equals(status)) {
-                        progressBar.setValue(i + 1);
+                        SwingUtilities.invokeLater(() -> progressBar.setValue(rowIndex + 1));
                         continue;
                     }
 
@@ -1427,7 +1440,7 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
                         robot.keyRelease(KeyEvent.VK_ESCAPE);
                     }
 
-                    progressBar.setValue(i + 1);
+                    SwingUtilities.invokeLater(() -> progressBar.setValue(rowIndex + 1));
 
                     // Wait interval
                     if (i < rowCount - 1 && !stopRequested) {
@@ -1446,6 +1459,7 @@ public class WeChatPanel extends ToolPanel implements ManagedResourceOwner {
             }
         });
 
+        sendThread.setDaemon(true);
         sendThread.start();
     }
 

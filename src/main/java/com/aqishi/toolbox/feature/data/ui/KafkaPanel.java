@@ -26,6 +26,7 @@ import com.aqishi.toolbox.feature.network.ssh.infra.KafkaTunnelSupport;
 import com.aqishi.toolbox.feature.network.ssh.infra.KafkaBrokerTunnels;
 import com.aqishi.toolbox.feature.network.ssh.domain.KafkaBrokerTunnelPlan;
 import com.aqishi.toolbox.infra.ManagedResourceOwner;
+import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
 import com.aqishi.toolbox.infra.kafka.KafkaClient;
 import com.aqishi.toolbox.infra.messaging.KafkaResource;
 import com.aqishi.toolbox.ui.ToolPanel;
@@ -72,6 +73,9 @@ import java.util.concurrent.ExecutionException;
 public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
 
     private static final int DEFAULT_KAFKA_PORT = 9093;
+    private static final int MAX_PREVIEW_BYTES = 256;
+    private static final int MAX_FILTER_SCAN_BYTES = 64 * 1024;
+    private static final long MAX_FETCH_TOTAL_BYTES = 64L * 1024 * 1024;
 
     private JComboBox<String> profileCombo;
     private JButton saveProfileBtn;
@@ -100,11 +104,14 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     /** 连接状态：常驻连接卡片标题带右侧，文字 + 语义色双重表达 */
     private JLabel connStatusLabel;
 
-    private boolean isConnected = false;
-    private AdminClient adminClient = null;
-    private KafkaResource adminResource;
-    private KafkaBrowserService browserService;
+    private volatile boolean isConnected = false;
+    private volatile AdminClient adminClient = null;
+    private volatile KafkaResource adminResource;
+    private volatile KafkaBrowserService browserService;
     private final KafkaClient kafkaClient = new KafkaClient();
+    private final java.util.concurrent.atomic.AtomicLong connectGeneration = new java.util.concurrent.atomic.AtomicLong();
+    private final Runnable sshChanges = this::refreshSshConfigs;
+    private volatile boolean closed;
     private String activeBootstrapServers = "";
     private Properties activeCustomProperties = new Properties();
     /** Bootstrap forwards of the current SSH connection (127.0.0.1, ephemeral ports). */
@@ -336,7 +343,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         sshCombo = Fields.combo(sshList.toArray(new SshConnectionConfig[0]));
         sshCombo.setEnabled(false);
         useSshCheck.addActionListener(e -> sshCombo.setEnabled(useSshCheck.isSelected()));
-        SshConfigStore.getInstance().addChangeListener(this::refreshSshConfigs);
+        SshConfigStore.getInstance().addChangeListener(sshChanges);
 
         JPanel sshRow = Layouts.box(Tokens.SPACE_MD, 0);
         sshRow.add(useSshCheck, BorderLayout.WEST);
@@ -1173,32 +1180,37 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
             return;
         }
 
-        String query = rawInput.trim().toLowerCase();
-        String normalizedQuery = query.replaceAll("\\s+", "");
+        String query = rawInput.trim().toLowerCase(Locale.ROOT);
+        String normalizedQuery = stripWhitespace(query);
 
         messageTableSorter.setRowFilter(new RowFilter<DefaultTableModel, Integer>() {
             @Override
             public boolean include(Entry<? extends DefaultTableModel, ? extends Integer> entry) {
+                // 优先匹配表格中已解码的 Key 与 Value 预览列
+                String keyCell = entry.getStringValue(5);
+                if (matchesFilterQuery(keyCell, query, normalizedQuery)) {
+                    return true;
+                }
+                String previewCell = entry.getStringValue(7);
+                if (matchesFilterQuery(previewCell, query, normalizedQuery)) {
+                    return true;
+                }
+
                 int modelRow = entry.getIdentifier();
                 if (modelRow >= 0 && modelRow < fetchedRecords.size()) {
                     ConsumerRecord<byte[], byte[]> rec = fetchedRecords.get(modelRow);
                     byte[] vBytes = rec.value();
-                    byte[] kBytes = rec.key();
-                    String val = vBytes != null ? new String(vBytes, StandardCharsets.UTF_8) : null;
-                    String key = kBytes != null ? new String(kBytes, StandardCharsets.UTF_8) : null;
-
-                    if (val != null) {
-                        String lowerVal = val.toLowerCase();
-                        if (lowerVal.contains(query)) return true;
-                        if (!normalizedQuery.isEmpty() && lowerVal.replaceAll("\\s+", "").contains(normalizedQuery)) {
+                    if (vBytes != null && vBytes.length > MAX_PREVIEW_BYTES && !isBinaryData(vBytes)) {
+                        String val = new String(vBytes, 0, Math.min(vBytes.length, MAX_FILTER_SCAN_BYTES), StandardCharsets.UTF_8);
+                        if (matchesFilterQuery(val, query, normalizedQuery)) {
                             return true;
                         }
                     }
 
-                    if (key != null) {
-                        String lowerKey = key.toLowerCase();
-                        if (lowerKey.contains(query)) return true;
-                        if (!normalizedQuery.isEmpty() && lowerKey.replaceAll("\\s+", "").contains(normalizedQuery)) {
+                    byte[] kBytes = rec.key();
+                    if (kBytes != null && kBytes.length > MAX_PREVIEW_BYTES && !isBinaryData(kBytes)) {
+                        String key = new String(kBytes, 0, Math.min(kBytes.length, MAX_FILTER_SCAN_BYTES), StandardCharsets.UTF_8);
+                        if (matchesFilterQuery(key, query, normalizedQuery)) {
                             return true;
                         }
                     }
@@ -1206,6 +1218,72 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                 return false;
             }
         });
+    }
+
+    private static String stripWhitespace(String input) {
+        StringBuilder sb = new StringBuilder(input.length());
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+            if (!Character.isWhitespace(c)) {
+                sb.append(Character.toLowerCase(c));
+            }
+        }
+        return sb.toString();
+    }
+
+    private static boolean matchesFilterQuery(String text, String lowerQuery, String normalizedQuery) {
+        if (text == null || text.isEmpty()) {
+            return false;
+        }
+        if (containsIgnoreCase(text, lowerQuery)) {
+            return true;
+        }
+        return !normalizedQuery.isEmpty() && containsIgnoreWhitespaceAndCase(text, normalizedQuery);
+    }
+
+    private static boolean containsIgnoreCase(String text, String lowerQuery) {
+        int qLen = lowerQuery.length();
+        if (qLen == 0) {
+            return true;
+        }
+        int limit = text.length() - qLen;
+        for (int i = 0; i <= limit; i++) {
+            if (text.regionMatches(true, i, lowerQuery, 0, qLen)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsIgnoreWhitespaceAndCase(String text, String normalizedLowerQuery) {
+        int tLen = text.length();
+        int qLen = normalizedLowerQuery.length();
+        if (qLen == 0) {
+            return true;
+        }
+        char first = normalizedLowerQuery.charAt(0);
+        for (int i = 0; i < tLen; i++) {
+            char c = text.charAt(i);
+            if (Character.isWhitespace(c) || Character.toLowerCase(c) != first) {
+                continue;
+            }
+            int ti = i + 1;
+            int qi = 1;
+            while (qi < qLen && ti < tLen) {
+                char tc = text.charAt(ti++);
+                if (Character.isWhitespace(tc)) {
+                    continue;
+                }
+                if (Character.toLowerCase(tc) != normalizedLowerQuery.charAt(qi)) {
+                    break;
+                }
+                qi++;
+            }
+            if (qi == qLen) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void selectTopic(String topicName) {
@@ -1510,13 +1588,25 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     private void releaseSshBridges() {
         KafkaBrokerTunnels perBroker = brokerTunnels;
         brokerTunnels = null;
-        if (perBroker != null) perBroker.close();
         List<SshTunnelBridge.BridgeResult> bridges = activeSshBridges;
         activeSshBridges = new ArrayList<>();
         activeSshRouting = null;
         activeSshBootstrapHosts = Collections.emptySet();
-        for (SshTunnelBridge.BridgeResult bridge : bridges) {
-            if (bridge != null) bridge.close();
+        if (perBroker == null && (bridges == null || bridges.isEmpty())) {
+            return;
+        }
+        Runnable closeTask = () -> {
+            if (perBroker != null) perBroker.close();
+            if (bridges != null) {
+                for (SshTunnelBridge.BridgeResult bridge : bridges) {
+                    if (bridge != null) bridge.close();
+                }
+            }
+        };
+        if (!closed && SwingUtilities.isEventDispatchThread()) {
+            DaemonThreads.factory("kafka-ssh-close").newThread(closeTask).start();
+        } else {
+            closeTask.run();
         }
     }
 
@@ -1587,6 +1677,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         connBtn.setEnabled(false);
         testBtn.setEnabled(false);
         consoleLog("正在建立 Kafka 连接: " + servers);
+        final long gen = connectGeneration.incrementAndGet();
 
         new SwingWorker<KafkaResource, Void>() {
             private String err = null;
@@ -1609,7 +1700,13 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
             @Override
             protected void done() {
                 try {
-                    adminResource = get();
+                    KafkaResource opened = get();
+                    if (closed || gen != connectGeneration.get()) {
+                        DaemonThreads.factory("kafka-discard").newThread(opened::close).start();
+                        releaseSshBridges();
+                        return;
+                    }
+                    adminResource = opened;
                     adminClient = kafkaClient.adminClient(adminResource);
                     isConnected = true;
                     activeBootstrapServers = resolvedServers == null ? servers : resolvedServers;
@@ -1634,6 +1731,10 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                     loadTopicsList();
                     loadGroupsList();
                 } catch (Exception ex) {
+                    if (closed || gen != connectGeneration.get()) {
+                        releaseSshBridges();
+                        return;
+                    }
                     err = Errors.describeRoot(ex);
                     connBtn.setEnabled(true);
                     testBtn.setEnabled(true);
@@ -1646,15 +1747,39 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void disconnect() {
+        connectGeneration.incrementAndGet();
         KafkaResource resource = adminResource;
         adminResource = null;
         adminClient = null;
         browserService = null;
-        if (resource != null) {
-            resource.close();
-            consoleLog("Kafka 管理端连接已关闭。");
+        KafkaBrokerTunnels perBroker = brokerTunnels;
+        brokerTunnels = null;
+        List<SshTunnelBridge.BridgeResult> bridges = activeSshBridges;
+        activeSshBridges = new ArrayList<>();
+        activeSshRouting = null;
+        activeSshBootstrapHosts = Collections.emptySet();
+
+        if (resource != null || perBroker != null || (bridges != null && !bridges.isEmpty())) {
+            Runnable closeTask = () -> {
+                if (resource != null) {
+                    resource.close();
+                    consoleLog("Kafka 管理端连接已关闭。");
+                }
+                if (perBroker != null) {
+                    perBroker.close();
+                }
+                if (bridges != null) {
+                    for (SshTunnelBridge.BridgeResult bridge : bridges) {
+                        if (bridge != null) bridge.close();
+                    }
+                }
+            };
+            if (!closed && SwingUtilities.isEventDispatchThread()) {
+                DaemonThreads.factory("kafka-disconnect").newThread(closeTask).start();
+            } else {
+                closeTask.run();
+            }
         }
-        releaseSshBridges();
 
         isConnected = false;
         connBtn.setText("连接");
@@ -1702,6 +1827,9 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
      */
     @Override
     public void closeResources() {
+        closed = true;
+        connectGeneration.incrementAndGet();
+        SshConfigStore.getInstance().removeChangeListener(sshChanges);
         cancelSubscribersWorker();
         if (partitionsWorker != null && !partitionsWorker.isDone()) {
             partitionsWorker.cancel(true);
@@ -1710,6 +1838,7 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         KafkaResource resource = adminResource;
         adminResource = null;
         adminClient = null;
+        browserService = null;
         if (resource != null) resource.close();
         releaseSshBridges();
     }
@@ -1894,8 +2023,20 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
         new SwingWorker<List<ConsumerRecord<byte[], byte[]>>, Void>() {
             @Override
             protected List<ConsumerRecord<byte[], byte[]>> doInBackground() throws Exception {
-                return browserService.fetchMessages(topic, partition, fromBeginning, limit,
-                        tunnelRouting());
+                List<ConsumerRecord<byte[], byte[]>> raw = browserService.fetchMessages(
+                        topic, partition, fromBeginning, limit, tunnelRouting());
+                List<ConsumerRecord<byte[], byte[]>> bounded = new ArrayList<>(raw.size());
+                long totalBytes = 0;
+                for (ConsumerRecord<byte[], byte[]> rec : raw) {
+                    long recBytes = (rec.key() != null ? rec.key().length : 0)
+                            + (rec.value() != null ? rec.value().length : 0);
+                    if (!bounded.isEmpty() && totalBytes + recBytes > MAX_FETCH_TOTAL_BYTES) {
+                        break;
+                    }
+                    bounded.add(rec);
+                    totalBytes += recBytes;
+                }
+                return bounded;
             }
 
             @Override
@@ -1906,34 +2047,50 @@ public class KafkaPanel extends ToolPanel implements ManagedResourceOwner {
                     fetchedRecords.addAll(list);
 
                     DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                    RowFilter<? super DefaultTableModel, ? super Integer> activeFilter =
+                            messageTableSorter.getRowFilter();
+                    messageTable.setRowSorter(null);
+                    try {
+                        messageTableModel.setRowCount(0);
+                        for (ConsumerRecord<byte[], byte[]> rec : list) {
+                            String timeStr = "";
+                            try {
+                                LocalDateTime ldt = LocalDateTime.ofInstant(Instant.ofEpochMilli(rec.timestamp()), ZoneId.systemDefault());
+                                timeStr = formatter.format(ldt);
+                            } catch (Exception ignored) {
+                                Errors.ignored("格式化消息时间戳失败，时间列留空", ignored);
+                            }
 
-                    for (ConsumerRecord<byte[], byte[]> rec : list) {
-                        String timeStr = "";
-                        try {
-                            LocalDateTime ldt = LocalDateTime.ofInstant(Instant.ofEpochMilli(rec.timestamp()), ZoneId.systemDefault());
-                            timeStr = formatter.format(ldt);
-                        } catch (Exception ignored) {
-                            Errors.ignored("格式化消息时间戳失败，时间列留空", ignored);
+                            byte[] kBytes = rec.key();
+                            int kLen = kBytes != null ? kBytes.length : 0;
+                            String kVal = kBytes != null
+                                    ? (isBinaryData(kBytes) ? bytesToHexShort(kBytes)
+                                    : new String(kBytes, 0, Math.min(kBytes.length, MAX_PREVIEW_BYTES), StandardCharsets.UTF_8))
+                                    : "[null]";
+
+                            byte[] vBytes = rec.value();
+                            int vLen = vBytes != null ? vBytes.length : 0;
+                            String vVal = vBytes != null
+                                    ? (isBinaryData(vBytes) ? bytesToHexShort(vBytes)
+                                    : new String(vBytes, 0, Math.min(vBytes.length, MAX_PREVIEW_BYTES), StandardCharsets.UTF_8))
+                                    : "[null]";
+
+                            int hCount = rec.headers() != null ? rec.headers().toArray().length : 0;
+
+                            // Clean values for grid display
+                            if (vVal.length() > 60) {
+                                vVal = vVal.substring(0, 60) + "...";
+                            }
+
+                            messageTableModel.addRow(new Object[]{
+                                    rec.partition(), rec.offset(), timeStr, hCount, kLen, kVal, vLen, vVal
+                            });
                         }
-
-                        byte[] kBytes = rec.key();
-                        int kLen = kBytes != null ? kBytes.length : 0;
-                        String kVal = kBytes != null ? (isBinaryData(kBytes) ? bytesToHexShort(kBytes) : new String(kBytes, StandardCharsets.UTF_8)) : "[null]";
-
-                        byte[] vBytes = rec.value();
-                        int vLen = vBytes != null ? vBytes.length : 0;
-                        String vVal = vBytes != null ? (isBinaryData(vBytes) ? bytesToHexShort(vBytes) : new String(vBytes, StandardCharsets.UTF_8)) : "[null]";
-                        
-                        int hCount = rec.headers() != null ? rec.headers().toArray().length : 0;
-
-                        // Clean values for grid display
-                        if (vVal.length() > 60) {
-                            vVal = vVal.substring(0, 60) + "...";
+                    } finally {
+                        messageTable.setRowSorter(messageTableSorter);
+                        if (activeFilter != null) {
+                            messageTableSorter.setRowFilter(activeFilter);
                         }
-
-                        messageTableModel.addRow(new Object[]{
-                                rec.partition(), rec.offset(), timeStr, hCount, kLen, kVal, vLen, vVal
-                        });
                     }
 
                     fetchStatusLabel.setText("已拉取 " + list.size() + " 条消息。");

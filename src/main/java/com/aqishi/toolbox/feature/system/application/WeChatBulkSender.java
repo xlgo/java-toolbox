@@ -36,12 +36,14 @@ public class WeChatBulkSender implements AutoCloseable {
     public void send(List<Request> jobs, int intervalMillis, Listener listener) throws Exception {
         if (jobs.isEmpty() || jobs.size() > 1000 || intervalMillis < 500 || intervalMillis > 60000)
             throw new IllegalArgumentException(I18n.get("wechat.send.invalid"));
-        Path directory = Files.createTempDirectory("toolbox-wechat-send-");
+        Path directory = WeChatPythonRuntime.createSecureTempDirectory("toolbox-wechat-send-");
         try {
             for (String name : SCRIPTS) {
                 InputStream resource = getClass().getResourceAsStream("/tools/" + name);
                 try (InputStream source = resource == null ? Files.newInputStream(Path.of("tools", name)) : resource) {
-                    Files.copy(source, directory.resolve(name));
+                    Path scriptFile = directory.resolve(name);
+                    Files.copy(source, scriptFile);
+                    WeChatPythonRuntime.restrictPermissions(scriptFile);
                 }
             }
             if (stopped.get()) throw new CancellationException();

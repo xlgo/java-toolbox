@@ -14,7 +14,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
+import com.aqishi.toolbox.infra.concurrency.DaemonThreads;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -248,7 +248,8 @@ public class DesktopSignalClient extends WebSocketClient {
     }
 
     private void startHeartbeat() {
-        heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
+        stopHeartbeat();
+        heartbeatScheduler = DaemonThreads.scheduled("desktop-signal-heartbeat");
         heartbeatScheduler.scheduleAtFixedRate(() -> {
             if (isOpen()) {
                 sendPing();

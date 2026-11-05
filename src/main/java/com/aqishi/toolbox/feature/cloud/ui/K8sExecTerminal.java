@@ -185,8 +185,8 @@ final class K8sExecTerminal {
         dialog.add(terminalWidget, BorderLayout.CENTER);
 
         try {
-            String fullPath = wsUrl + "/api/v1/namespaces/" + ns + "/pods/" + podName + "/exec"
-                    + "?container=" + containerName
+            String fullPath = wsUrl + "/api/v1/namespaces/" + encode(ns) + "/pods/" + encode(podName) + "/exec"
+                    + "?container=" + encode(containerName)
                     + "&stdin=true&stdout=true&stderr=true&tty=true"
                     + "&command=sh"
                     + "&command=-c"
@@ -315,5 +315,9 @@ final class K8sExecTerminal {
         if (ctx.socketFactory() != null) {
             client.setSocketFactory(ctx.webSocketFactory());
         }
+    }
+
+    private static String encode(String segment) {
+        return java.net.URLEncoder.encode(segment, StandardCharsets.UTF_8).replace("+", "%20");
     }
 }

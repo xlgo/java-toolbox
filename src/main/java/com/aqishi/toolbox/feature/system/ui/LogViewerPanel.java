@@ -161,42 +161,54 @@ public class LogViewerPanel extends ToolPanel implements ManagedResourceOwner {
     }
 
     private void prevPage() {
-        if (currentFile == null) {
+        if (currentFile == null || loading) {
             return;
         }
         if (!pageHistory.isEmpty()) {
             loadPage(pageHistory.pop(), false, true);
             return;
         }
-        long target = Math.max(0, pageStart);
-        long prev = pageStart > 0 ? computePrevStart(pageStart) : 0;
-        loadPage(prev < target ? prev : Math.max(0, target - 1), false, true);
+        final long target = Math.max(0, pageStart);
+        final Path file = currentFile;
+        final int lines = pageSize();
+        loadPageResolved(() -> {
+            long prev = target > 0 ? computePrevStart(file, target, lines) : 0;
+            return prev < target ? prev : Math.max(0, target - 1);
+        }, true);
     }
 
-    private long computePrevStart(long from) {
+    private static long computePrevStart(Path file, long from, int lines) {
         try {
-            return LogFileService.previousPageStart(currentFile, from, pageSize(), MAX_BACK_BYTES);
+            return LogFileService.previousPageStart(file, from, lines, MAX_BACK_BYTES);
         } catch (Exception ex) {
             return Math.max(0, from - MAX_BACK_BYTES);
         }
     }
 
     private void goTail() {
-        if (currentFile == null) {
+        if (currentFile == null || loading) {
             return;
         }
-        try {
-            long size = Files.size(currentFile);
-            pageHistory.clear();
-            long start = LogFileService.previousPageStart(currentFile, size, pageSize(), MAX_BACK_BYTES);
-            loadPage(start, false, true);
-        } catch (Exception ex) {
-            UIUtils.error(content, I18n.get("log.viewer.read.failed", ex.getMessage()));
-        }
+        pageHistory.clear();
+        final Path file = currentFile;
+        final int lines = pageSize();
+        loadPageResolved(() -> {
+            long size = Files.size(file);
+            return LogFileService.previousPageStart(file, size, lines, MAX_BACK_BYTES);
+        }, true);
+    }
+
+    @FunctionalInterface
+    private interface OffsetSupplier {
+        long getAsLong() throws Exception;
     }
 
     /** 载入从 {@code offset} 开始的一页。 */
     private void loadPage(long offset, boolean pushHistory, boolean replace) {
+        loadPageResolved(() -> offset, replace);
+    }
+
+    private void loadPageResolved(OffsetSupplier offsetSupplier, boolean replace) {
         if (currentFile == null || loading) {
             return;
         }
@@ -207,6 +219,7 @@ public class LogViewerPanel extends ToolPanel implements ManagedResourceOwner {
         new SwingWorker<LogFileService.Chunk, Void>() {
             @Override
             protected LogFileService.Chunk doInBackground() throws Exception {
+                long offset = offsetSupplier.getAsLong();
                 return LogFileService.readLines(file, offset, lines, MAX_PAGE_BYTES);
             }
 

@@ -263,8 +263,9 @@ public class BatchDigestPanel extends ToolPanel implements ManagedResourceOwner 
         chooser.setDialogTitle("选择待计算摘要的文件");
         if (chooser.showOpenDialog(getView()) == JFileChooser.APPROVE_OPTION) {
             File[] files = chooser.getSelectedFiles();
+            Set<File> existing = new HashSet<>(selectedFiles);
             for (File f : files) {
-                if (f.isFile() && !selectedFiles.contains(f)) {
+                if (f.isFile() && existing.add(f)) {
                     selectedFiles.add(f);
                 }
             }
@@ -278,13 +279,31 @@ public class BatchDigestPanel extends ToolPanel implements ManagedResourceOwner 
         chooser.setDialogTitle("选择要批量扫描的文件夹");
         if (chooser.showOpenDialog(getView()) == JFileChooser.APPROVE_OPTION) {
             File dir = chooser.getSelectedFile();
-            List<File> scanned = service.scanFiles(dir, true);
-            for (File f : scanned) {
-                if (!selectedFiles.contains(f)) {
-                    selectedFiles.add(f);
+            Set<File> existing = new HashSet<>(selectedFiles);
+            addDirBtn.setEnabled(false);
+            new SwingWorker<List<File>, Void>() {
+                @Override
+                protected List<File> doInBackground() {
+                    List<File> scanned = service.scanFiles(dir, true);
+                    List<File> added = new ArrayList<>();
+                    for (File f : scanned) {
+                        if (existing.add(f)) {
+                            added.add(f);
+                        }
+                    }
+                    return added;
                 }
-            }
-            refreshTablePlaceholder();
+
+                @Override
+                protected void done() {
+                    addDirBtn.setEnabled(true);
+                    try {
+                        selectedFiles.addAll(get());
+                        refreshTablePlaceholder();
+                    } catch (Exception ignored) {
+                    }
+                }
+            }.execute();
         }
     }
 
@@ -544,15 +563,26 @@ public class BatchDigestPanel extends ToolPanel implements ManagedResourceOwner 
             UIUtils.info(getView(), "请在密钥文本框中输入私钥 PEM！");
             return;
         }
-        try {
-            PrivateKey pk = CertUtils.parsePrivateKeyFromPem(keyPem);
-            byte[] sig = service.signFile(targetFile, pk, alg);
-            String b64 = Base64.getEncoder().encodeToString(sig);
-            signatureField.setText(b64);
-            UIUtils.info(getView(), "签名成功！已生成 Base64 签名串。");
-        } catch (Exception ex) {
-            UIUtils.error(getView(), "签名失败: " + ex.getMessage());
-        }
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() throws Exception {
+                PrivateKey pk = CertUtils.parsePrivateKeyFromPem(keyPem);
+                byte[] sig = service.signFile(targetFile, pk, alg);
+                return Base64.getEncoder().encodeToString(sig);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    String b64 = get();
+                    signatureField.setText(b64);
+                    UIUtils.info(getView(), "签名成功！已生成 Base64 签名串。");
+                } catch (Exception ex) {
+                    Throwable cause = ex instanceof ExecutionException && ex.getCause() != null ? ex.getCause() : ex;
+                    UIUtils.error(getView(), "签名失败: " + cause.getMessage());
+                }
+            }
+        }.execute();
     }
 
     private void runVerifyFile(String alg) {
@@ -568,23 +598,34 @@ public class BatchDigestPanel extends ToolPanel implements ManagedResourceOwner 
             UIUtils.info(getView(), "请输入公钥（或证书）PEM 和签名串！");
             return;
         }
-        try {
-            PublicKey pk;
-            if (keyPem.contains("CERTIFICATE")) {
-                pk = CertUtils.parseCertFromPem(keyPem).getPublicKey();
-            } else {
-                pk = CertUtils.parseCertFromPem(keyPem).getPublicKey(); // 尝试当作证书解析
+        new SwingWorker<Boolean, Void>() {
+            @Override
+            protected Boolean doInBackground() throws Exception {
+                PublicKey pk;
+                if (keyPem.contains("CERTIFICATE")) {
+                    pk = CertUtils.parseCertFromPem(keyPem).getPublicKey();
+                } else {
+                    pk = CertUtils.parseCertFromPem(keyPem).getPublicKey(); // 尝试当作证书解析
+                }
+                byte[] sigBytes = Base64.getDecoder().decode(sigStr);
+                return service.verifyFileSignature(targetFile, pk, sigBytes, alg);
             }
-            byte[] sigBytes = Base64.getDecoder().decode(sigStr);
-            boolean pass = service.verifyFileSignature(targetFile, pk, sigBytes, alg);
-            if (pass) {
-                UIUtils.info(getView(), "验签结果：PASS（签名校验成功，文件未被篡改）！");
-            } else {
-                UIUtils.error(getView(), "验签结果：FAIL（签名不匹配或文件已被修改）！");
+
+            @Override
+            protected void done() {
+                try {
+                    boolean pass = get();
+                    if (pass) {
+                        UIUtils.info(getView(), "验签结果：PASS（签名校验成功，文件未被篡改）！");
+                    } else {
+                        UIUtils.error(getView(), "验签结果：FAIL（签名不匹配或文件已被修改）！");
+                    }
+                } catch (Exception ex) {
+                    Throwable cause = ex instanceof ExecutionException && ex.getCause() != null ? ex.getCause() : ex;
+                    UIUtils.error(getView(), "验签异常: " + cause.getMessage());
+                }
             }
-        } catch (Exception ex) {
-            UIUtils.error(getView(), "验签异常: " + ex.getMessage());
-        }
+        }.execute();
     }
 
     private static String formatSize(long bytes) {

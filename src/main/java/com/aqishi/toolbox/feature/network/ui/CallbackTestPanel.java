@@ -63,6 +63,7 @@ public class CallbackTestPanel extends ToolPanel implements ManagedResourceOwner
     private final CallbackMockRuleRepository repository;
     private final CallbackMockService service;
     private final MockRuleValidator validator = new MockRuleValidator();
+    private static final int MAX_RECORDS = 500;
     private final List<MockRequestRecord> records = new ArrayList<MockRequestRecord>();
 
     private MockRuleSet ruleSet;
@@ -466,6 +467,12 @@ public class CallbackTestPanel extends ToolPanel implements ManagedResourceOwner
     private void appendRequest(MockRequestRecord record) {
         if (record == null || requestListModel == null) {
             return;
+        }
+        while (records.size() >= MAX_RECORDS) {
+            records.remove(0);
+            if (!requestListModel.isEmpty()) {
+                requestListModel.remove(0);
+            }
         }
         records.add(record);
         String matched = record.isFallback() ? t("callback.mock.fallbackHit")

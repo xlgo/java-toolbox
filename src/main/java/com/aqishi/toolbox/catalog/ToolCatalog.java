@@ -127,11 +127,15 @@ public final class ToolCatalog {
             "K8s", "Kubernetes", "部署", "YAML", "容器", "Deployment", "Service", "Ingress", "ConfigMap", "编排");
     public static final ToolDescriptor K8S_MANAGER = tool("k8s.manager", "cloud",
             "k8s", "kubernetes", "容器", "集群", "运维", "kubeconfig", "docker", "pod", "deployment");
+    public static final ToolDescriptor K8S_MANIFEST_DIFF = tool("k8s.manifest.diff", "cloud",
+            "K8s", "Kubernetes", "Manifest", "YAML", "Diff", "Helm", "GitOps", "ArgoCD", "Deployment", "Service");
 
     public static final ToolDescriptor CHMOD_CALC = tool("chmod.calc", "system",
             "chmod", "permission", "linux", "octal", "rwxrwxrwx", "755", "777", "644", "权限");
     public static final ToolDescriptor CRON_PARSER = tool("cron.parser", "system",
             "Cron", "定时", "调度", "表达式", "Cron表达式", "定时任务", "crontab");
+    public static final ToolDescriptor CRON_CONFLICT = tool("cron.conflict", "system",
+            "Cron", "Crontab", "Schedule", "Conflict", "Collision", "Overlap", "Batch");
     public static final ToolDescriptor HOSTS_MANAGER = tool("hosts.manager", "system",
             "hosts", "domain", "dns", "ip", "environment", "环境", "域名", "解析");
     public static final ToolDescriptor WECHAT_SENDER = tool("wechat.sender", "system",
@@ -152,6 +156,11 @@ public final class ToolCatalog {
             "JAR", "Class", "字节码", "class版本", "major version", "Unsupported class file major version",
             "MANIFEST", "Spring Boot", "fat jar", "依赖冲突", "重复类", "类冲突", "找类",
             "ClassNotFoundException", "NoSuchMethodError");
+    public static final ToolDescriptor STACKTRACE_ANALYZER = tool("stacktrace.analyzer", "system",
+            "Stack Trace", "StackTrace", "Exception", "Caused by", "Root Cause",
+            "NullPointerException", "NPE", "Error");
+    public static final ToolDescriptor JVM_OPTIONS = tool("jvm.options", "system",
+            "JVM", "Java", "VM Options", "GC", "Xmx", "Xms", "-XX", "HotSpot", "Tuning", "Flags");
 
     public static final ToolDescriptor DATA_GENERATOR = tool("data.generator", "generation",
             "生成", "Generator", "数据", "密码", "UUID", "假数据", "Mock");
@@ -190,16 +199,20 @@ public final class ToolCatalog {
             "p2p", "desktop", "control", "远程桌面", "远程控制");
 
     public static final ToolDescriptor STRUCTURED_DIFF = tool("structured.diff", "codec", "JSON YAML structural diff");
+    public static final ToolDescriptor PROTOBUF_DECODE = tool("protobuf.decode", "codec",
+            "Protobuf", "Proto", "decode_raw", "gRPC", "PB", "WireType", "Varint", "Hex", "Base64");
     public static final ToolDescriptor TABLE_SQL = tool("table.sql", "data", "CSV Excel SQL INSERT import");
     public static final ToolDescriptor JSON_DTO = tool("json.dto", "generation", "JSON Java DTO POJO Record Lombok");
     public static final ToolDescriptor MYBATIS_SQL = tool("mybatis.sql", "data", "MyBatis Preparing Parameters SQL Log");
     public static final ToolDescriptor MAVEN_TREE = tool("maven.tree", "system", "Maven Dependency Tree Conflict Exclusion");
     public static final ToolDescriptor SSE_CLIENT = tool("sse.client", "network", "SSE Server Sent Events EventSource text/event-stream streaming");
+    public static final ToolDescriptor GRAPHQL_CLIENT = tool("graphql.client", "network",
+            "GraphQL", "Query", "Mutation", "Schema", "Introspection", "GraphiQL", "Apollo", "API");
 
     private static final List<ToolCategory> CATEGORIES = Collections.unmodifiableList(Arrays.asList(
             SECURITY, CODEC, NETWORK, DATA, CLOUD, SYSTEM, GENERATION, COMPUTE, DIAGRAM, MONITOR));
     private static final List<ToolDescriptor> DESCRIPTORS = Collections.unmodifiableList(Arrays.asList(
-            STRUCTURED_DIFF, TABLE_SQL, JSON_DTO, MYBATIS_SQL, MAVEN_TREE, SSE_CLIENT,
+            STRUCTURED_DIFF, PROTOBUF_DECODE, TABLE_SQL, JSON_DTO, MYBATIS_SQL, MAVEN_TREE, SSE_CLIENT, GRAPHQL_CLIENT,
             HASH_CODEC, SYMMETRIC_CRYPTO, ASYMMETRIC_CRYPTO, CERT_MANAGEMENT, ACCOUNT_MANAGER,
             TOTP_AUTHENTICATOR, JWT_CODEC, FILE_BATCH_DIGEST, CERT_INSPECTOR, WEBHOOK_SIGNATURE,
             JWK_TOOL,
@@ -209,8 +222,8 @@ public final class ToolCatalog {
             HTTP_CLIENT, OPENAPI_WORKBENCH, CALLBACK_MOCK, WEBSOCKET_CLIENT, MQTT_CLIENT, SOCKET_DEBUG, SUBNET_CALC,
             PORT_SCANNER, NET_DIAGNOSTICS, HTTP_BENCH, SSH,
             DATABASE_CONNECTOR, REDIS_MANAGEMENT, KAFKA_CONNECTOR, ZOOKEEPER_MANAGEMENT, ETCD_MANAGEMENT,
-            DOCKER_MANAGEMENT, DOCKER_CONVERT, K8S_DEPLOYMENT, K8S_MANAGER, CHMOD_CALC, CRON_PARSER, HOSTS_MANAGER,
-            WECHAT_SENDER, LOG_VIEWER, THREAD_DUMP, GC_LOG, PORT_PROCESS, JAR_INSPECTOR,
+            DOCKER_MANAGEMENT, DOCKER_CONVERT, K8S_DEPLOYMENT, K8S_MANAGER, K8S_MANIFEST_DIFF, CHMOD_CALC, CRON_PARSER, CRON_CONFLICT, HOSTS_MANAGER,
+            WECHAT_SENDER, LOG_VIEWER, THREAD_DUMP, GC_LOG, PORT_PROCESS, JAR_INSPECTOR, STACKTRACE_ANALYZER, JVM_OPTIONS,
             DATA_GENERATOR, QRCODE, COLOR_CONVERT, DDL_ENTITY, ID_TOOLKIT,
             CALCULATOR, STATISTICS,
             SORT_VISUALIZER, SEARCH_ALGORITHM, HANOI, PINGAME, BPMN_DESIGNER, MERMAID, FLOWCHART,

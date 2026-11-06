@@ -29,6 +29,9 @@
 | HTTP 表单与文件上传 | 网络与接口 | [已完成] RAW/FORM/MULTIPART、同名字段和多文件、流式发送、进度与取消；模式/字段/文件路径跟随加密请求集合保存 |
 | MyBatis SQL 日志还原 | 数据与消息 | [已完成] 单组 Preparing/Parameters 类型转换、SQL 引用/注释识别及参数数量校验；不执行 SQL |
 | Maven 依赖来源分析 | 系统与自动化 | [已完成] 离线文本/JSON 依赖树导入、引入路径、版本/scope/omitted 信息及 exclusion 参考片段 |
+| 异常堆栈分析 | 系统与自动化 | [已完成] 稳定 ID `stacktrace.analyzer`；离线解析多行日志异常链、提取 Caused by / Suppressed 与根因、业务帧定位、框架帧折叠与去重，内置 50+ 常见异常排查建议 |
+| JVM 参数分析与解释 | 系统与自动化 | [已完成] 稳定 ID `jvm.options`；离线解析 shell 命令与环境变量启动参数，提取堆与 GC 分布，识别 GC 冲突、堆配置异常、参数重复覆盖与针对 JDK 8/11/17/21 版本的废弃/移除项，给出生产最佳实践建议 |
+| Protobuf 原始解码 | 编码、转换与文本 | [已完成] 稳定 ID `protobuf.decode`；支持 Hex 与 Base64 格式，无 .proto 模式下解析字段编号、WireType、Varint/ZigZag、启发式嵌套 Message 识别、UTF-8 字符串与原始字节 |
 
 ## P1：协议与运维协作
 
@@ -38,17 +41,17 @@
 
 | 功能 | 目标分类 | 依赖与首个交付切片 |
 |---|---|---|
-| GraphQL 客户端 | 网络与接口 | 依赖共享 HTTP 请求模型；先支持 Schema 导入、查询变量和响应树 |
+| GraphQL 客户端 | 网络与接口 | [已完成] 稳定 ID `graphql.client`；支持原生 GraphQL Query 与 JSON 变量分离编辑、自定义 Headers、GET/POST 模式、一键 Schema 内省解析可用 Query/Mutation 清单，以及响应美化与耗时统计 |
 | gRPC 客户端 | 网络与接口 | 依赖协议资源层；先支持 proto 导入、Unary 调用和元数据配置 |
 | etcd 管理 | 数据与消息 | [已完成] 稳定 ID `etcd.management`；v2 HTTP / v3 JSON 网关键值浏览、并发保护编辑、TTL、认证、TLS 和 SSH 隧道；连接凭据仅保留在当前会话，关闭时取消请求并释放临时隧道 |
 | 批量端口扫描与网络诊断 | 网络与接口 | [第一批及检查补充已完成] `port.scanner` 支持 IPv4/IPv6 段/CIDR、多目标、末尾通配符、组合端口组、限速与任务预算、SQLite 分页和导出；已补 TXT 导入、命名方案、所选端点诊断和停止时已完成结果保留。批量协议识别、结果对比与失败项重试待做；见 [使用指南](port_scanner_guide.md) |
 | SSE 流式调试 | 网络与接口 | [已完成] GET/POST 流式接收，解析 event/data/id/retry，GET 断线续传、状态显示与取消；有界显示队列 |
 | OAuth2 / OIDC / JWK 工具 | 安全与身份 | [部分完成（当前迭代）] JWK / JWKS 解析、指纹与 PEM 互转、OIDC Discovery 拉取 JWKS、非对称 JWT 验签与声明校验已完成；授权码流程解析待做 |
 | Git 仓库辅助工具 | 系统与自动化 | 依赖外部进程生命周期抽象；先支持状态查看、差异预览和常用命令模板 |
-| Docker / K8s Manifest Diff 与 Port Forward | 云原生与运维 | [部分完成] 通过本机 kubectl 管理 Pod / Service / Deployment 端口转发，可自动分配端口、查看日志和停止；Manifest 结构差异待做 |
+| Docker / K8s Manifest Diff 与 Port Forward | 云原生与运维 | [已完成] 稳定 ID `k8s.manifest.diff`；kubectl 端口转发已支持，多文档 YAML/JSON 结构差异对比完成，支持按 kind/namespace/name 对齐资源、容器/env 按 name 对齐，以及运行时元数据与 status 智能过滤 |
 | XPath / XSLT 工具 | 编码、转换与文本 | [已完成（当前迭代）] XPath 求值支持节点集/字符串/数值/布尔与默认命名空间自动映射，XSLT 单次转换；解析关闭 DTD 与外部实体 |
 | Webhook 签名验证器 | 安全与身份 | [已完成（当前迭代）] 厂商预设覆盖 GitHub / GitLab / Stripe / Slack / 钉钉 / 飞书 / 企业微信 / 微信支付 v3，另含通用 HMAC 模板；签名头解析、恒定时间比对与重放窗口提示 |
-| Cron 可视化编辑和冲突检测 | 系统与自动化 | 复用 Cron 解析器；先提供字段编辑、未来执行时间和任务冲突检查 |
+| Cron 可视化编辑和冲突检测 | 系统与自动化 | [已完成] 稳定 ID `cron.conflict`；支持批量任务导入、自定义时间窗（1h~30d）触发时间预测、并发重叠碰撞检测、频次统计与时间线生成 |
 | TCP 长度字段分帧 | 网络与接口 | [已完成] 1/2/4 字节无符号长度、大小端、偏移、头部长度、是否包含头部、显示时剥离头部及最大帧长；无效长度主动断开 |
 
 ## P2：平台扩展与协同

@@ -33,7 +33,7 @@ public final class OpenApiRequestExecutor {
         return execute(url, method, headers, body, Duration.ofSeconds(15));
     }
 
-    Response execute(String url, String method, Map<String, String> headers, String body, Duration timeout)
+    public Response execute(String url, String method, Map<String, String> headers, String body, Duration timeout)
             throws IOException, InterruptedException {
         var publisher = body == null || body.isEmpty() || "GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method)
                 ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body);

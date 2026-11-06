@@ -22,10 +22,16 @@ class DeveloperToolsTest {
                     for (ToolPanel panel :
                             List.of(
                                     new com.aqishi.toolbox.feature.codec.ui.StructuredDiffPanel(),
+                                    new com.aqishi.toolbox.feature.codec.ui.ProtobufDecodePanel(),
                                     new com.aqishi.toolbox.feature.data.ui.TableSqlPanel(),
                                     new com.aqishi.toolbox.feature.generation.ui.JsonDtoPanel(),
                                     new com.aqishi.toolbox.feature.data.ui.MyBatisLogPanel(),
                                     new com.aqishi.toolbox.feature.system.ui.MavenDependencyPanel(),
+                                    new com.aqishi.toolbox.feature.system.ui.StackTracePanel(),
+                                    new com.aqishi.toolbox.feature.system.ui.JvmOptionsPanel(),
+                                    new com.aqishi.toolbox.feature.system.ui.CronConflictPanel(),
+                                    new com.aqishi.toolbox.feature.cloud.ui.K8sManifestDiffPanel(),
+                                    new com.aqishi.toolbox.feature.network.ui.GraphQLPanel(),
                                     new com.aqishi.toolbox.feature.network.ui.SsePanel())) {
                         try {
                             JComponent view = panel.getView();
@@ -44,7 +50,11 @@ class DeveloperToolsTest {
         for (ToolPanel panel :
                 List.of(
                         new com.aqishi.toolbox.feature.generation.ui.JsonDtoPanel(),
+                        new com.aqishi.toolbox.feature.codec.ui.ProtobufDecodePanel(),
                         new com.aqishi.toolbox.feature.data.ui.MyBatisLogPanel(),
+                        new com.aqishi.toolbox.feature.system.ui.StackTracePanel(),
+                        new com.aqishi.toolbox.feature.system.ui.JvmOptionsPanel(),
+                        new com.aqishi.toolbox.feature.system.ui.CronConflictPanel(),
                         new com.aqishi.toolbox.feature.system.ui.MavenDependencyPanel())) {
             AtomicReference<TextWorkbench> workbench = new AtomicReference<>();
             try {

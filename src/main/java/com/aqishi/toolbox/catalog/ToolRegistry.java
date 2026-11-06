@@ -128,11 +128,16 @@ public final class ToolRegistry {
     public static ToolRegistry createDefault() {
         LinkedHashMap<String, Function<ToolboxContext, ToolPanel>> factories = new LinkedHashMap<>();
         factories.put("structured.diff", context -> new com.aqishi.toolbox.feature.codec.ui.StructuredDiffPanel());
+        factories.put("protobuf.decode", context -> new com.aqishi.toolbox.feature.codec.ui.ProtobufDecodePanel());
         factories.put("table.sql", context -> new com.aqishi.toolbox.feature.data.ui.TableSqlPanel());
         factories.put("json.dto", context -> new com.aqishi.toolbox.feature.generation.ui.JsonDtoPanel());
         factories.put("mybatis.sql", context -> new com.aqishi.toolbox.feature.data.ui.MyBatisLogPanel());
         factories.put("maven.tree", context -> new com.aqishi.toolbox.feature.system.ui.MavenDependencyPanel());
         factories.put("sse.client", context -> new com.aqishi.toolbox.feature.network.ui.SsePanel());
+        factories.put("graphql.client", context -> new com.aqishi.toolbox.feature.network.ui.GraphQLPanel());
+        factories.put("stacktrace.analyzer", context -> new com.aqishi.toolbox.feature.system.ui.StackTracePanel());
+        factories.put("jvm.options", context -> new com.aqishi.toolbox.feature.system.ui.JvmOptionsPanel());
+        factories.put("cron.conflict", context -> new com.aqishi.toolbox.feature.system.ui.CronConflictPanel());
         factories.put("hash.codec", context -> new CryptoPanel());
         factories.put("symmetric.crypto", context -> new SymmetricPanel());
         factories.put("asymmetric.crypto", context -> new AsymmetricPanel());
@@ -186,6 +191,7 @@ public final class ToolRegistry {
         factories.put("k8s.manager", context -> new K8sManagerPanel(
                 context.getKubernetesServiceFactory(),
                 VaultSecretStore.of(context.getVaultService())));
+        factories.put("k8s.manifest.diff", context -> new com.aqishi.toolbox.feature.cloud.ui.K8sManifestDiffPanel());
         factories.put("chmod.calc", context -> new ChmodPanel());
         factories.put("cron.parser", context -> new CronPanel());
         factories.put("hosts.manager", context -> new HostsManagerPanel());

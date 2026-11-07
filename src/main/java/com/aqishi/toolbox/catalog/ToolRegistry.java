@@ -128,6 +128,7 @@ public final class ToolRegistry {
     public static ToolRegistry createDefault() {
         LinkedHashMap<String, Function<ToolboxContext, ToolPanel>> factories = new LinkedHashMap<>();
         factories.put("structured.diff", context -> new com.aqishi.toolbox.feature.codec.ui.StructuredDiffPanel());
+        factories.put("pdf.merge", context -> new com.aqishi.toolbox.feature.codec.ui.PdfMergePanel());
         factories.put("protobuf.decode", context -> new com.aqishi.toolbox.feature.codec.ui.ProtobufDecodePanel());
         factories.put("table.sql", context -> new com.aqishi.toolbox.feature.data.ui.TableSqlPanel());
         factories.put("json.dto", context -> new com.aqishi.toolbox.feature.generation.ui.JsonDtoPanel());

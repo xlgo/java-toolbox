@@ -22,6 +22,7 @@ class DeveloperToolsTest {
                     for (ToolPanel panel :
                             List.of(
                                     new com.aqishi.toolbox.feature.codec.ui.StructuredDiffPanel(),
+                                    new com.aqishi.toolbox.feature.codec.ui.PdfMergePanel(),
                                     new com.aqishi.toolbox.feature.codec.ui.ProtobufDecodePanel(),
                                     new com.aqishi.toolbox.feature.data.ui.TableSqlPanel(),
                                     new com.aqishi.toolbox.feature.generation.ui.JsonDtoPanel(),

@@ -199,6 +199,8 @@ public final class ToolCatalog {
             "p2p", "desktop", "control", "远程桌面", "远程控制");
 
     public static final ToolDescriptor STRUCTURED_DIFF = tool("structured.diff", "codec", "JSON YAML structural diff");
+    public static final ToolDescriptor PDF_MERGE = tool("pdf.merge", "codec",
+            "PDF", "合并", "Merge", "PDF合并", "拼接", "文档", "Document", "Join");
     public static final ToolDescriptor PROTOBUF_DECODE = tool("protobuf.decode", "codec",
             "Protobuf", "Proto", "decode_raw", "gRPC", "PB", "WireType", "Varint", "Hex", "Base64");
     public static final ToolDescriptor TABLE_SQL = tool("table.sql", "data", "CSV Excel SQL INSERT import");
@@ -212,7 +214,7 @@ public final class ToolCatalog {
     private static final List<ToolCategory> CATEGORIES = Collections.unmodifiableList(Arrays.asList(
             SECURITY, CODEC, NETWORK, DATA, CLOUD, SYSTEM, GENERATION, COMPUTE, DIAGRAM, MONITOR));
     private static final List<ToolDescriptor> DESCRIPTORS = Collections.unmodifiableList(Arrays.asList(
-            STRUCTURED_DIFF, PROTOBUF_DECODE, TABLE_SQL, JSON_DTO, MYBATIS_SQL, MAVEN_TREE, SSE_CLIENT, GRAPHQL_CLIENT,
+            STRUCTURED_DIFF, PDF_MERGE, PROTOBUF_DECODE, TABLE_SQL, JSON_DTO, MYBATIS_SQL, MAVEN_TREE, SSE_CLIENT, GRAPHQL_CLIENT,
             HASH_CODEC, SYMMETRIC_CRYPTO, ASYMMETRIC_CRYPTO, CERT_MANAGEMENT, ACCOUNT_MANAGER,
             TOTP_AUTHENTICATOR, JWT_CODEC, FILE_BATCH_DIGEST, CERT_INSPECTOR, WEBHOOK_SIGNATURE,
             JWK_TOOL,

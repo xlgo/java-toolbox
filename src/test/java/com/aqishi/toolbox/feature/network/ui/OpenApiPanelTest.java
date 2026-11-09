@@ -6,7 +6,12 @@ import org.junit.jupiter.api.Test;
 
 import javax.swing.*;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -71,6 +76,56 @@ class OpenApiPanelTest {
             SwingUtilities.invokeAndWait(panel::closeResources);
             release.countDown();
             server.stop(0);
+        }
+    }
+
+    @Test
+    void loadingSpecUsesInlineStatusWithoutDialogs() throws Exception {
+        List<Object[]> dialogs = Collections.synchronizedList(new ArrayList<>());
+        Class<?> sinkType = Class.forName("com.aqishi.toolbox.util.UIUtils$DialogSink");
+        Object recordingSink = Proxy.newProxyInstance(sinkType.getClassLoader(),
+                new Class<?>[]{sinkType}, (proxy, method, args) -> {
+                    if ("message".equals(method.getName())) {
+                        dialogs.add(args == null ? new Object[0] : args);
+                    }
+                    Class<?> returnType = method.getReturnType();
+                    return returnType == boolean.class ? Boolean.FALSE
+                            : returnType == int.class ? 0 : null;
+                });
+        Method setter = Class.forName("com.aqishi.toolbox.util.UIUtils")
+                .getDeclaredMethod("setDialogSink", sinkType);
+        setter.setAccessible(true);
+        setter.invoke(null, recordingSink);
+
+        OpenApiPanel panel = new OpenApiPanel();
+        try {
+            SwingUtilities.invokeAndWait(panel::getView);
+            // build() 通过 invokeLater 自动解析示例，再排一个空任务保证它已执行完
+            SwingUtilities.invokeAndWait(() -> {});
+
+            JList<?> endpoints = field(panel, "endpointList", JList.class);
+            JLabel notice = field(panel, "importStatusLabel", JLabel.class);
+            assertTrue(endpoints.getModel().getSize() > 0, "示例规范应被自动加载");
+            assertFalse(notice.getText().isBlank(), "加载结果应显示在导入卡片的内联状态条上");
+            assertTrue(dialogs.isEmpty(), "加载规范不应弹出任何对话框");
+
+            Method parse = OpenApiPanel.class.getDeclaredMethod("parseCurrentText");
+            parse.setAccessible(true);
+            SwingUtilities.invokeAndWait(() -> {
+                try {
+                    parse.invoke(panel);
+                    field(panel, "specArea", JTextArea.class).setText("not: a: valid: spec");
+                    parse.invoke(panel);
+                } catch (ReflectiveOperationException error) {
+                    throw new AssertionError(error);
+                }
+            });
+            assertTrue(dialogs.isEmpty(), "解析成功或失败都不应弹窗");
+            assertFalse(field(panel, "importStatusLabel", JLabel.class).getText().isBlank(),
+                    "失败原因也应内联显示");
+        } finally {
+            SwingUtilities.invokeAndWait(panel::closeResources);
+            setter.invoke(null, new Object[]{null});
         }
     }
 

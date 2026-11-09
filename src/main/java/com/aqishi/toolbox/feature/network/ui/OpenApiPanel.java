@@ -73,6 +73,8 @@ public class OpenApiPanel extends ToolPanel implements ManagedResourceOwner {
     private JTextArea responseBodyArea;
     private JTextArea responseHeadersArea;
     private JLabel statusLabel;
+    /** 导入卡片内的常驻状态条：加载/解析/复制等轻量反馈一律内联，不弹对话框 */
+    private JLabel importStatusLabel;
     private JTextArea docSummaryArea;
 
     public OpenApiPanel() {
@@ -125,9 +127,14 @@ public class OpenApiPanel extends ToolPanel implements ManagedResourceOwner {
         importGrid.row(I18n.get("tool.openapi.label.url", "文档 URL"), urlBar);
         importGrid.row(I18n.get("tool.openapi.label.spec", "规范原文 (JSON / YAML)"), Fields.scroll(specArea));
 
-        JPanel importBottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        JPanel importBottom = new JPanel(new BorderLayout(Tokens.SPACE_SM, 0));
         importBottom.setOpaque(false);
-        importBottom.add(parseBtn);
+        importStatusLabel = Fields.caption(I18n.get("tool.openapi.status.ready"));
+        importBottom.add(importStatusLabel, BorderLayout.CENTER);
+        JPanel parseActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        parseActions.setOpaque(false);
+        parseActions.add(parseBtn);
+        importBottom.add(parseActions, BorderLayout.EAST);
 
         JPanel importBody = Layouts.box(0, Tokens.SPACE_SM);
         importBody.add(importGrid, BorderLayout.CENTER);
@@ -286,6 +293,16 @@ public class OpenApiPanel extends ToolPanel implements ManagedResourceOwner {
         return root;
     }
 
+    /** 内联显示状态，替代加载/解析/复制类弹窗。 */
+    private void showImportStatus(String message, boolean error) {
+        if (importStatusLabel == null) {
+            return;
+        }
+        importStatusLabel.setText(message);
+        importStatusLabel.setForeground(error ? Tokens.danger() : Tokens.accent());
+        importStatusLabel.setToolTipText(message);
+    }
+
     private void parseCurrentText() {
         try {
             String text = specArea.getText();
@@ -302,9 +319,9 @@ public class OpenApiPanel extends ToolPanel implements ManagedResourceOwner {
             if (!allEndpoints.isEmpty()) {
                 endpointList.setSelectedIndex(0);
             }
-            UIUtils.info(getView(), "成功解析 " + allEndpoints.size() + " 个 API 端点！");
+            showImportStatus(I18n.get("tool.openapi.status.loaded", allEndpoints.size()), false);
         } catch (Exception ex) {
-            UIUtils.error(getView(), "解析失败: " + ex.getMessage());
+            showImportStatus(I18n.get("tool.openapi.status.parseFailed", Errors.describeRoot(ex)), true);
         }
     }
 
@@ -312,6 +329,7 @@ public class OpenApiPanel extends ToolPanel implements ManagedResourceOwner {
         String url = urlInput.getText().trim();
         if (url.isEmpty()) return;
         fetchBtnEnabled(false);
+        showImportStatus(I18n.get("tool.openapi.status.fetching"), false);
         new SwingWorker<String, Void>() {
             @Override
             protected String doInBackground() throws Exception {
@@ -326,7 +344,7 @@ public class OpenApiPanel extends ToolPanel implements ManagedResourceOwner {
                     specArea.setText(fetched);
                     parseCurrentText();
                 } catch (Exception ex) {
-                    UIUtils.error(getView(), "抓取在线文档失败: " + ex.getMessage());
+                    showImportStatus(I18n.get("tool.openapi.status.fetchFailed", Errors.describeRoot(ex)), true);
                 }
             }
         }.execute();
@@ -351,7 +369,7 @@ public class OpenApiPanel extends ToolPanel implements ManagedResourceOwner {
                 specArea.setText(new String(bytes, StandardCharsets.UTF_8));
                 parseCurrentText();
             } catch (Exception ex) {
-                UIUtils.error(getView(), "读取文件失败: " + ex.getMessage());
+                showImportStatus(I18n.get("tool.openapi.status.readFailed", Errors.describeRoot(ex)), true);
             }
         }
     }
@@ -522,7 +540,7 @@ public class OpenApiPanel extends ToolPanel implements ManagedResourceOwner {
 
         String curl = service.buildCurl(baseUrl, ep, pathParams, queryParams, headers, body);
         UIUtils.copyToClipboard(curl);
-        UIUtils.info(getView(), "cURL 命令已复制到剪贴板！");
+        showImportStatus(I18n.get("tool.openapi.status.curlCopied"), false);
     }
 
     /**

@@ -15,43 +15,71 @@ import com.aqishi.toolbox.ui.kit.Tokens;
 import com.aqishi.toolbox.util.I18n;
 import com.aqishi.toolbox.util.UIUtils;
 
-import javax.swing.*;
+import javax.swing.DropMode;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JFileChooser;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JPasswordField;
+import javax.swing.JProgressBar;
+import javax.swing.JScrollPane;
+import javax.swing.JSeparator;
+import javax.swing.JTable;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
+import javax.swing.TransferHandler;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Desktop;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
-import java.awt.dnd.DnDConstants;
-import java.awt.dnd.DropTarget;
-import java.awt.dnd.DropTargetAdapter;
-import java.awt.dnd.DropTargetDropEvent;
+import java.awt.datatransfer.UnsupportedFlavorException;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.File;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * PDF 按照指定顺序合并面板。
+ * PDF 页面整理与合并面板。
+ *
+ * <p>能力：按系统导入顺序合并多个 PDF、删除列表中的文件、在页面整理对话框里删除任意页、
+ * 行内拖拽调序、外部文件拖入到指定位置、带打开口令的源文件（输出恒不加密）。</p>
+ *
+ * <p>所有"删除"只影响合并结果，不修改磁盘上的源文件。</p>
  */
 public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwner {
 
-    private static final String DEFAULT_OUTPUT_FILENAME = "合并.pdf";
+    private static final String ROW_PREFIX = "java-toolbox-pdf-row:";
+    private static final DataFlavor ROW_FLAVOR = createRowFlavor();
+    private static final int MAX_DIRECTORY_DEPTH = 8;
 
     private JPanel root;
     private final List<PdfMergeItem> items = new ArrayList<>();
     private final PdfTableModel tableModel = new PdfTableModel();
+    private final List<SwingWorker<?, ?>> readWorkers = new CopyOnWriteArrayList<>();
     private JTable table;
 
-    private JTextField outputPathField;
-    private JButton browseOutputBtn;
+    private javax.swing.JTextField outputPathField;
     private JLabel summaryLabel;
     private JProgressBar progressBar;
     private JLabel statusLabel;
@@ -64,6 +92,8 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
     private JButton moveBottomBtn;
     private JButton sortAscBtn;
     private JButton sortDescBtn;
+    private JButton pageEditBtn;
+    private JButton passwordBtn;
     private JButton removeBtn;
     private JButton clearBtn;
 
@@ -74,6 +104,7 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
 
     private File lastDirectory;
     private File lastGeneratedFile;
+    private String autoOutputPath = "";
 
     private SwingWorker<?, ?> currentWorker;
     private final AtomicBoolean cancellationFlag = new AtomicBoolean(false);
@@ -86,23 +117,24 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
     protected JComponent build() {
         this.root = Layouts.page();
 
-        // 1. 顶部控制栏
-        Card topCard = Card.titled(I18n.get("tool.pdfmerge.toolbar.title", "文件列表与排序操作"));
+        Card topCard = Card.titled(I18n.get("tool.pdfmerge.toolbar.title"));
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, Tokens.SPACE_SM, Tokens.SPACE_XS));
         toolbar.setOpaque(false);
 
-        JButton addFilesBtn = Buttons.primary(I18n.get("tool.pdfmerge.btn.addFiles", "添加 PDF 文件..."));
-        JButton addDirBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.addDir", "添加文件夹..."));
-        selectAllBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.selectAll", "全选"));
-        selectInverseBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.selectInverse", "反选"));
-        moveUpBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.moveUp", "↑ 上移"));
-        moveDownBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.moveDown", "↓ 下移"));
-        moveTopBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.moveTop", "⇈ 置顶"));
-        moveBottomBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.moveBottom", "⇊ 置底"));
-        sortAscBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.sortAsc", "名称升序 A-Z"));
-        sortDescBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.sortDesc", "名称降序 Z-A"));
-        removeBtn = Buttons.ghost(I18n.get("tool.pdfmerge.btn.remove", "移除选中"));
-        clearBtn = Buttons.ghost(I18n.get("tool.pdfmerge.btn.clear", "清空全部"));
+        JButton addFilesBtn = Buttons.primary(I18n.get("tool.pdfmerge.btn.addFiles"));
+        JButton addDirBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.addDir"));
+        selectAllBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.selectAll"));
+        selectInverseBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.selectInverse"));
+        moveUpBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.moveUp"));
+        moveDownBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.moveDown"));
+        moveTopBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.moveTop"));
+        moveBottomBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.moveBottom"));
+        sortAscBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.sortAsc"));
+        sortDescBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.sortDesc"));
+        pageEditBtn = Buttons.primary(I18n.get("tool.pdfmerge.btn.pageEdit"));
+        passwordBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.password"));
+        removeBtn = Buttons.ghost(I18n.get("tool.pdfmerge.btn.remove"));
+        clearBtn = Buttons.ghost(I18n.get("tool.pdfmerge.btn.clear"));
 
         addFilesBtn.addActionListener(e -> chooseFiles());
         addDirBtn.addActionListener(e -> chooseDirectory());
@@ -114,6 +146,8 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
         moveBottomBtn.addActionListener(e -> moveSelectedToEdge(false));
         sortAscBtn.addActionListener(e -> sortItems(true));
         sortDescBtn.addActionListener(e -> sortItems(false));
+        pageEditBtn.addActionListener(e -> openPageEditor(table.getSelectedRow()));
+        passwordBtn.addActionListener(e -> promptPassword(table.getSelectedRow()));
         removeBtn.addActionListener(e -> removeSelected());
         clearBtn.addActionListener(e -> clearAll());
 
@@ -131,99 +165,98 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
         toolbar.add(sortAscBtn);
         toolbar.add(sortDescBtn);
         toolbar.add(new JSeparator(SwingConstants.VERTICAL));
+        toolbar.add(pageEditBtn);
+        toolbar.add(passwordBtn);
+        toolbar.add(new JSeparator(SwingConstants.VERTICAL));
         toolbar.add(removeBtn);
         toolbar.add(clearBtn);
 
         topCard.setContent(toolbar);
         root.add(topCard, BorderLayout.NORTH);
 
-        // 2. 中间表格
         table = new JTable(tableModel);
         table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         table.setRowHeight(26);
         table.getTableHeader().setReorderingAllowed(false);
+        installTransferHandler();
+        table.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(e)
+                        && table.columnAtPoint(e.getPoint()) != 0) {
+                    openPageEditor(table.rowAtPoint(e.getPoint()));
+                }
+            }
+        });
 
-        // 设置列宽与对齐（0:选择, 1:#, 2:文件名, 3:页数, 4:提取范围, 5:大小, 6:文件路径）
         table.getColumnModel().getColumn(0).setPreferredWidth(45);
         table.getColumnModel().getColumn(0).setMaxWidth(55);
         table.getColumnModel().getColumn(1).setPreferredWidth(45);
         table.getColumnModel().getColumn(1).setMaxWidth(55);
-        table.getColumnModel().getColumn(2).setPreferredWidth(260);
-        table.getColumnModel().getColumn(3).setPreferredWidth(75);
-        table.getColumnModel().getColumn(4).setPreferredWidth(120);
+        table.getColumnModel().getColumn(2).setPreferredWidth(240);
+        table.getColumnModel().getColumn(3).setPreferredWidth(70);
+        table.getColumnModel().getColumn(4).setPreferredWidth(140);
         table.getColumnModel().getColumn(5).setPreferredWidth(85);
-        table.getColumnModel().getColumn(6).setPreferredWidth(280);
+        table.getColumnModel().getColumn(6).setPreferredWidth(260);
 
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
         centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
         table.getColumnModel().getColumn(1).setCellRenderer(centerRenderer);
         table.getColumnModel().getColumn(3).setCellRenderer(centerRenderer);
         table.getColumnModel().getColumn(4).setCellRenderer(centerRenderer);
-
         DefaultTableCellRenderer rightRenderer = new DefaultTableCellRenderer();
         rightRenderer.setHorizontalAlignment(SwingConstants.RIGHT);
         table.getColumnModel().getColumn(5).setCellRenderer(rightRenderer);
 
         table.getSelectionModel().addListSelectionListener(e -> updateButtonStates());
 
-        // 支持拖拽文件进入
-        enableDragAndDrop(table);
-
         JScrollPane scrollPane = new JScrollPane(table);
-        scrollPane.setPreferredSize(new Dimension(800, 320));
+        scrollPane.setPreferredSize(new Dimension(800, 300));
 
-        Card tableCard = Card.flush(I18n.get("tool.pdfmerge.table.title", "待合并 PDF 文件列表（勾选参与合并的文件，拖拽调序，双击“提取范围”可指定页码）"));
+        Card tableCard = Card.flush(I18n.get("tool.pdfmerge.table.title"));
         tableCard.setContent(scrollPane);
         root.add(tableCard, BorderLayout.CENTER);
 
-        // 3. 底部输出与操作
-        Card bottomCard = Card.titled(I18n.get("tool.pdfmerge.output.title", "合并输出与执行"));
+        Card bottomCard = Card.titled(I18n.get("tool.pdfmerge.output.title"));
         FormGrid form = new FormGrid();
 
-        summaryLabel = new JLabel(I18n.get("tool.pdfmerge.summary.empty", "尚未添加 PDF 文件"));
+        summaryLabel = new JLabel(I18n.get("tool.pdfmerge.summary.empty"));
         summaryLabel.setFont(summaryLabel.getFont().deriveFont(Font.BOLD));
         form.fullRow(summaryLabel);
 
         outputPathField = Fields.text("");
-        browseOutputBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.browse", "浏览..."));
+        JButton browseOutputBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.browse"));
         browseOutputBtn.addActionListener(e -> chooseOutputFile());
-
         JPanel outputPanel = new JPanel(new BorderLayout(Tokens.SPACE_SM, 0));
         outputPanel.setOpaque(false);
         outputPanel.add(outputPathField, BorderLayout.CENTER);
         outputPanel.add(browseOutputBtn, BorderLayout.EAST);
-        form.row(I18n.get("tool.pdfmerge.output.label", "输出路径:"), outputPanel);
+        form.row(I18n.get("tool.pdfmerge.output.label"), outputPanel);
 
         progressBar = new JProgressBar(0, 100);
         progressBar.setStringPainted(true);
         progressBar.setVisible(false);
-
         statusLabel = new JLabel(" ");
         statusLabel.setForeground(Tokens.mutedForeground());
-
         JPanel progressPanel = new JPanel(new BorderLayout(0, 4));
         progressPanel.setOpaque(false);
         progressPanel.add(progressBar, BorderLayout.CENTER);
         progressPanel.add(statusLabel, BorderLayout.SOUTH);
         form.fullRow(progressPanel);
 
-        // 按钮栏
         JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, Tokens.SPACE_SM, 0));
         actionPanel.setOpaque(false);
-
-        startBtn = Buttons.primary(I18n.get("tool.pdfmerge.btn.start", "开始合并"));
-        cancelBtn = Buttons.ghost(I18n.get("tool.pdfmerge.btn.cancel", "取消"));
+        startBtn = Buttons.primary(I18n.get("tool.pdfmerge.btn.start"));
+        cancelBtn = Buttons.ghost(I18n.get("tool.pdfmerge.btn.cancel"));
         cancelBtn.setEnabled(false);
-        openFileBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.openFile", "打开合并文件"));
+        openFileBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.openFile"));
         openFileBtn.setEnabled(false);
-        openDirBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.openDir", "打开所在文件夹"));
+        openDirBtn = Buttons.secondary(I18n.get("tool.pdfmerge.btn.openDir"));
         openDirBtn.setEnabled(false);
-
         startBtn.addActionListener(e -> startMerge());
         cancelBtn.addActionListener(e -> cancelMerge());
         openFileBtn.addActionListener(e -> openGeneratedFile());
         openDirBtn.addActionListener(e -> openGeneratedDir());
-
         actionPanel.add(startBtn);
         actionPanel.add(cancelBtn);
         actionPanel.add(openFileBtn);
@@ -235,16 +268,72 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
 
         updateButtonStates();
         updateSummary();
-
         return root;
+    }
+
+    /** 统一处理"外部文件拖入"与"表格行内拖拽调序"，避免两套 DnD 机制争抢事件。 */
+    private void installTransferHandler() {
+        table.setDragEnabled(true);
+        table.setDropMode(DropMode.INSERT_ROWS);
+        table.setTransferHandler(new TransferHandler() {
+            @Override
+            public int getSourceActions(JComponent c) {
+                return MOVE;
+            }
+
+            @Override
+            protected Transferable createTransferable(JComponent c) {
+                int row = table.getSelectedRow();
+                return row < 0 ? null : new RowTransferable(ROW_PREFIX + row);
+            }
+
+            @Override
+            public boolean canImport(TransferSupport support) {
+                return support.isDataFlavorSupported(DataFlavor.javaFileListFlavor)
+                        || support.isDataFlavorSupported(ROW_FLAVOR);
+            }
+
+            @Override
+            public boolean importData(TransferSupport support) {
+                if (!canImport(support)) {
+                    return false;
+                }
+                int insertRow = -1;
+                if (support.getDropLocation() instanceof JTable.DropLocation) {
+                    insertRow = ((JTable.DropLocation) support.getDropLocation()).getRow();
+                }
+                try {
+                    if (support.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+                        @SuppressWarnings("unchecked")
+                        List<File> dropped = (List<File>) support.getTransferable()
+                                .getTransferData(DataFlavor.javaFileListFlavor);
+                        List<File> pdfs = collectPdfs(dropped);
+                        if (!pdfs.isEmpty()) {
+                            addFilesAsync(pdfs, insertRow);
+                        } else {
+                            statusLabel.setText(I18n.get("tool.pdfmerge.status.noNewPdf"));
+                        }
+                        return true;
+                    }
+                    Object payload = support.getTransferable().getTransferData(ROW_FLAVOR);
+                    if (payload instanceof String && ((String) payload).startsWith(ROW_PREFIX)) {
+                        int from = Integer.parseInt(((String) payload).substring(ROW_PREFIX.length()));
+                        moveRow(from, insertRow);
+                        return true;
+                    }
+                } catch (Exception ex) {
+                    statusLabel.setText(I18n.get("tool.pdfmerge.status.dropError") + ex.getMessage());
+                }
+                return false;
+            }
+        });
     }
 
     private void chooseFiles() {
         JFileChooser chooser = new JFileChooser(lastDirectory);
-        chooser.setDialogTitle(I18n.get("tool.pdfmerge.choose.title", "选择 PDF 文件"));
+        chooser.setDialogTitle(I18n.get("tool.pdfmerge.choose.title"));
         chooser.setMultiSelectionEnabled(true);
-        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("PDF 文件 (*.pdf)", "pdf"));
-
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("PDF files (*.pdf)", "pdf"));
         if (chooser.showOpenDialog(root) == JFileChooser.APPROVE_OPTION) {
             File[] files = chooser.getSelectedFiles();
             List<File> toAdd = new ArrayList<>();
@@ -255,106 +344,293 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
             }
             if (!toAdd.isEmpty()) {
                 lastDirectory = toAdd.get(0).getParentFile();
-                addFilesAsync(toAdd);
+                addFilesAsync(collectPdfs(toAdd), -1);
             }
         }
     }
 
     private void chooseDirectory() {
         JFileChooser chooser = new JFileChooser(lastDirectory);
-        chooser.setDialogTitle(I18n.get("tool.pdfmerge.chooseDir.title", "选择包含 PDF 的文件夹"));
+        chooser.setDialogTitle(I18n.get("tool.pdfmerge.chooseDir.title"));
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-
         if (chooser.showOpenDialog(root) == JFileChooser.APPROVE_OPTION) {
             File dir = chooser.getSelectedFile();
             if (dir != null && dir.isDirectory()) {
                 lastDirectory = dir;
-                File[] files = dir.listFiles((d, name) -> name.toLowerCase(Locale.ROOT).endsWith(".pdf"));
-                if (files != null && files.length > 0) {
-                    addFilesAsync(List.of(files));
+                List<File> files = collectPdfs(List.of(dir));
+                if (!files.isEmpty()) {
+                    addFilesAsync(files, -1);
                 } else {
                     JOptionPane.showMessageDialog(root,
-                            I18n.get("tool.pdfmerge.msg.noPdfInDir", "该目录下未找到任何 .pdf 文件"),
-                            I18n.get("tool.pdfmerge.title", "PDF 合并"),
+                            I18n.get("tool.pdfmerge.msg.noPdfInDir"),
+                            I18n.get("tool.pdfmerge.title"),
                             JOptionPane.INFORMATION_MESSAGE);
                 }
             }
         }
     }
 
-    private void chooseOutputFile() {
-        File defaultFile = new File(suggestDefaultOutputPath());
-        File parentDir = defaultFile.getParentFile();
-        if (parentDir == null || !parentDir.exists()) {
-            parentDir = lastDirectory != null && lastDirectory.exists() ? lastDirectory : new File(System.getProperty("user.home"));
+    /** 保持系统返回的顺序，不排序；过滤非 PDF、递归目录、与已有项去重。 */
+    private List<File> collectPdfs(List<File> inputs) {
+        List<File> collected = new ArrayList<>();
+        if (inputs != null) {
+            for (File file : inputs) {
+                if (file == null) {
+                    continue;
+                }
+                if (file.isDirectory()) {
+                    collectDirectory(file, collected, 0);
+                } else if (isPdf(file)) {
+                    collected.add(file);
+                }
+            }
         }
+        Set<String> seen = new HashSet<>();
+        for (PdfMergeItem item : items) {
+            seen.add(normalizeKey(item.getFile()));
+        }
+        List<File> unique = new ArrayList<>();
+        for (File file : collected) {
+            if (seen.add(normalizeKey(file))) {
+                unique.add(file);
+            }
+        }
+        return unique;
+    }
 
-        JFileChooser chooser = new JFileChooser(parentDir);
-        chooser.setDialogTitle(I18n.get("tool.pdfmerge.chooseOutput.title", "选择合并后的保存路径"));
-        chooser.setSelectedFile(new File(parentDir, DEFAULT_OUTPUT_FILENAME));
-        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("PDF 文件 (*.pdf)", "pdf"));
+    private void collectDirectory(File dir, List<File> out, int depth) {
+        if (depth > MAX_DIRECTORY_DEPTH) {
+            return;
+        }
+        File[] children = dir.listFiles();
+        if (children == null) {
+            return;
+        }
+        for (File child : children) {
+            if (child.isDirectory()) {
+                collectDirectory(child, out, depth + 1);
+            } else if (isPdf(child)) {
+                out.add(child);
+            }
+        }
+    }
 
+    private void addFilesAsync(List<File> files, int insertRow) {
+        if (files == null || files.isEmpty()) {
+            statusLabel.setText(I18n.get("tool.pdfmerge.status.noNewPdf"));
+            return;
+        }
+        statusLabel.setText(I18n.get("tool.pdfmerge.status.reading"));
+
+        SwingWorker<List<PdfMergeItem>, Void> worker = new SwingWorker<>() {
+            @Override
+            protected List<PdfMergeItem> doInBackground() {
+                List<PdfMergeItem> result = new ArrayList<>();
+                for (File file : files) {
+                    PdfMerger.ProbeResult probe = PdfMerger.probe(file, null);
+                    PdfMergeItem item = new PdfMergeItem(file, file.length(), probe.getPageCount(), "");
+                    item.setEncrypted(probe.isEncrypted());
+                    if (probe.isNeedsPassword()) {
+                        item.setLoadError(I18n.get("tool.pdfmerge.state.needPassword"));
+                    } else if (probe.getError() != null) {
+                        item.setLoadError(probe.getError());
+                    }
+                    result.add(item);
+                }
+                return result;
+            }
+
+            @Override
+            protected void done() {
+                readWorkers.remove(this);
+                try {
+                    List<PdfMergeItem> loaded = get();
+                    int at = insertRow < 0 ? items.size() : Math.min(insertRow, items.size());
+                    items.addAll(at, loaded);
+                    tableModel.fireTableDataChanged();
+                    if (!loaded.isEmpty()) {
+                        table.setRowSelectionInterval(at, Math.min(items.size() - 1, at + loaded.size() - 1));
+                    }
+                    int needPassword = (int) loaded.stream().filter(PdfMergeItem::isPasswordRequired).count();
+                    int failed = (int) loaded.stream()
+                            .filter(it -> !it.isReadable() && !it.isPasswordRequired()).count();
+                    if (needPassword > 0 || failed > 0) {
+                        statusLabel.setText(String.format(
+                                I18n.get("tool.pdfmerge.status.addedWithIssues"),
+                                loaded.size(), needPassword, failed));
+                    } else {
+                        statusLabel.setText(String.format(
+                                I18n.get("tool.pdfmerge.status.added"),
+                                loaded.size()));
+                    }
+                    updateDefaultOutputPath(false);
+                    updateButtonStates();
+                    updateSummary();
+                } catch (Exception e) {
+                    statusLabel.setText(I18n.get("tool.pdfmerge.status.readError") + e.getMessage());
+                }
+            }
+        };
+        readWorkers.add(worker);
+        worker.execute();
+    }
+
+    private void promptPassword(int row) {
+        if (row < 0 || row >= items.size()) {
+            return;
+        }
+        PdfMergeItem item = items.get(row);
+        JPanel panel = new JPanel(new BorderLayout(Tokens.SPACE_SM, Tokens.SPACE_SM));
+        panel.add(new JLabel(String.format(
+                I18n.get("tool.pdfmerge.msg.passwordPrompt"),
+                item.getFileName())), BorderLayout.NORTH);
+        JPasswordField field = new JPasswordField(20);
+        panel.add(field, BorderLayout.CENTER);
+        int ret = JOptionPane.showConfirmDialog(root, panel,
+                I18n.get("tool.pdfmerge.msg.passwordTitle"),
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (ret != JOptionPane.OK_OPTION) {
+            return;
+        }
+        String password = new String(field.getPassword());
+        field.setText("");
+        item.setPassword(password.isEmpty() ? null : password);
+
+        SwingWorker<PdfMerger.ProbeResult, Void> worker = new SwingWorker<>() {
+            @Override
+            protected PdfMerger.ProbeResult doInBackground() {
+                return PdfMerger.probe(item.getFile(), item.getPassword());
+            }
+
+            @Override
+            protected void done() {
+                readWorkers.remove(this);
+                try {
+                    PdfMerger.ProbeResult probe = get();
+                    if (probe.isNeedsPassword()) {
+                        item.setLoadError(I18n.get("tool.pdfmerge.state.needPassword"));
+                        JOptionPane.showMessageDialog(root,
+                                I18n.get("tool.pdfmerge.msg.badPassword"),
+                                I18n.get("tool.pdfmerge.title"), JOptionPane.WARNING_MESSAGE);
+                    } else if (probe.getError() != null) {
+                        item.setLoadError(probe.getError());
+                        statusLabel.setText(I18n.get("tool.pdfmerge.status.readError") + probe.getError());
+                    } else {
+                        item.applyLoadedPageCount(probe.getPageCount());
+                        item.setEncrypted(probe.isEncrypted());
+                        statusLabel.setText(String.format(
+                                I18n.get("tool.pdfmerge.status.passwordOk"),
+                                item.getFileName(), probe.getPageCount()));
+                    }
+                    tableModel.fireTableDataChanged();
+                    updateButtonStates();
+                    updateSummary();
+                } catch (Exception e) {
+                    statusLabel.setText(I18n.get("tool.pdfmerge.status.readError") + e.getMessage());
+                }
+            }
+        };
+        readWorkers.add(worker);
+        worker.execute();
+    }
+
+    private void openPageEditor(int row) {
+        if (row < 0 || row >= items.size()) {
+            return;
+        }
+        PdfMergeItem item = items.get(row);
+        if (!item.isReadable()) {
+            promptPassword(row);
+            return;
+        }
+        PdfPageEditorDialog dialog = new PdfPageEditorDialog(
+                SwingUtilities.getWindowAncestor(root), item);
+        if (dialog.showDialog()) {
+            tableModel.fireTableDataChanged();
+            updateSummary();
+            statusLabel.setText(String.format(
+                    I18n.get("tool.pdfmerge.status.pagesUpdated"),
+                    item.getFileName(), item.getEffectivePageCount()));
+        }
+    }
+
+    private void moveRow(int from, int insertBefore) {
+        if (from < 0 || from >= items.size()) {
+            return;
+        }
+        int target = insertBefore < 0 ? items.size() : insertBefore;
+        PdfMergeItem moved = items.remove(from);
+        if (target > from) {
+            target--;
+        }
+        target = Math.max(0, Math.min(items.size(), target));
+        items.add(target, moved);
+        tableModel.fireTableDataChanged();
+        table.setRowSelectionInterval(target, target);
+        updateDefaultOutputPath(false);
+        updateButtonStates();
+    }
+
+    private void chooseOutputFile() {
+        File defaultFile = nextAvailableOutput();
+        JFileChooser chooser = new JFileChooser(defaultFile.getParentFile());
+        chooser.setDialogTitle(I18n.get("tool.pdfmerge.chooseOutput.title"));
+        chooser.setSelectedFile(defaultFile);
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("PDF files (*.pdf)", "pdf"));
         if (chooser.showSaveDialog(root) == JFileChooser.APPROVE_OPTION) {
             File file = chooser.getSelectedFile();
             if (!file.getName().toLowerCase(Locale.ROOT).endsWith(".pdf")) {
                 file = new File(file.getParentFile(), file.getName() + ".pdf");
             }
+            autoOutputPath = "";
             outputPathField.setText(file.getAbsolutePath());
             lastDirectory = file.getParentFile();
         }
     }
 
-    private void addFilesAsync(List<File> files) {
-        if (files == null || files.isEmpty()) {
+    private File suggestOutputDirectory() {
+        if (!items.isEmpty()) {
+            File parent = items.get(0).getFile().getParentFile();
+            if (parent != null) {
+                return parent;
+            }
+        }
+        if (lastDirectory != null && lastDirectory.exists()) {
+            return lastDirectory;
+        }
+        return new File(System.getProperty("user.home"));
+    }
+
+    /** 默认输出名走本地化键，且永不覆盖：冲突时自动加序号。 */
+    private File nextAvailableOutput() {
+        File dir = suggestOutputDirectory();
+        String base = I18n.get("tool.pdfmerge.output.defaultName");
+        File candidate = new File(dir, base + ".pdf");
+        if (!candidate.exists()) {
+            return candidate;
+        }
+        for (int i = 1; i < 10000; i++) {
+            candidate = new File(dir, base + "_" + i + ".pdf");
+            if (!candidate.exists()) {
+                return candidate;
+            }
+        }
+        return new File(dir, base + "_" + System.currentTimeMillis() + ".pdf");
+    }
+
+    private void updateDefaultOutputPath(boolean force) {
+        if (items.isEmpty()) {
+            if (force) {
+                outputPathField.setText("");
+                autoOutputPath = "";
+            }
             return;
         }
-
-        // 过滤非 pdf
-        List<File> pdfFiles = new ArrayList<>();
-        for (File f : files) {
-            if (f.isFile() && f.getName().toLowerCase(Locale.ROOT).endsWith(".pdf")) {
-                pdfFiles.add(f);
-            }
+        String current = outputPathField.getText().trim();
+        if (force || current.isEmpty() || current.equals(autoOutputPath)) {
+            autoOutputPath = nextAvailableOutput().getAbsolutePath();
+            outputPathField.setText(autoOutputPath);
         }
-        if (pdfFiles.isEmpty()) {
-            return;
-        }
-
-        statusLabel.setText(I18n.get("tool.pdfmerge.status.reading", "正在读取 PDF 文件信息..."));
-
-        new SwingWorker<List<PdfMergeItem>, Void>() {
-            @Override
-            protected List<PdfMergeItem> doInBackground() {
-                List<PdfMergeItem> newItems = new ArrayList<>();
-                for (File file : pdfFiles) {
-                    int pages = 0;
-                    try {
-                        pages = PdfMerger.readPageCount(file);
-                    } catch (Exception ignored) {
-                    }
-                    newItems.add(new PdfMergeItem(file, file.length(), pages, "全部"));
-                }
-                return newItems;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    List<PdfMergeItem> result = get();
-                    items.addAll(result);
-                    tableModel.fireTableDataChanged();
-                    if (!items.isEmpty()) {
-                        table.setRowSelectionInterval(items.size() - 1, items.size() - 1);
-                    }
-                    updateDefaultOutputPath(false);
-                    statusLabel.setText(" ");
-                    updateButtonStates();
-                    updateSummary();
-                } catch (Exception e) {
-                    statusLabel.setText(I18n.get("tool.pdfmerge.status.readError", "读取文件失败: ") + e.getMessage());
-                }
-            }
-        }.execute();
     }
 
     private void moveSelected(int delta) {
@@ -362,9 +638,7 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
         if (rows.length == 0) {
             return;
         }
-
         if (delta < 0) {
-            // 上移，从前往后处理
             if (rows[0] == 0) {
                 return;
             }
@@ -376,14 +650,12 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
             for (int r : rows) {
                 table.addRowSelectionInterval(r - 1, r - 1);
             }
-        } else if (delta > 0) {
-            // 下移，从后往前处理
+        } else {
             if (rows[rows.length - 1] == items.size() - 1) {
                 return;
             }
             for (int i = rows.length - 1; i >= 0; i--) {
-                int r = rows[i];
-                Collections.swap(items, r, r + 1);
+                Collections.swap(items, rows[i], rows[i] + 1);
             }
             tableModel.fireTableDataChanged();
             table.clearSelection();
@@ -400,17 +672,11 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
         if (rows.length == 0 || rows.length == items.size()) {
             return;
         }
-
         List<PdfMergeItem> selected = new ArrayList<>();
         List<PdfMergeItem> others = new ArrayList<>();
         for (int i = 0; i < items.size(); i++) {
-            if (isSelectedRow(rows, i)) {
-                selected.add(items.get(i));
-            } else {
-                others.add(items.get(i));
-            }
+            (isSelectedRow(rows, i) ? selected : others).add(items.get(i));
         }
-
         items.clear();
         if (toTop) {
             items.addAll(selected);
@@ -430,7 +696,9 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
 
     private boolean isSelectedRow(int[] rows, int r) {
         for (int row : rows) {
-            if (row == r) return true;
+            if (row == r) {
+                return true;
+            }
         }
         return false;
     }
@@ -439,9 +707,9 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
         if (items.size() <= 1) {
             return;
         }
-        Comparator<String> naturalComp = createNaturalComparator();
+        Comparator<String> natural = createNaturalComparator();
         items.sort((o1, o2) -> {
-            int cmp = naturalComp.compare(o1.getFileName(), o2.getFileName());
+            int cmp = natural.compare(o1.getFileName(), o2.getFileName());
             return ascending ? cmp : -cmp;
         });
         tableModel.fireTableDataChanged();
@@ -495,25 +763,30 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
         boolean hasSelection = selectedRows.length > 0;
         boolean isRunning = currentWorker != null && !currentWorker.isDone();
         boolean hasChecked = items.stream().anyMatch(PdfMergeItem::isSelected);
+        boolean singleSelection = selectedRows.length == 1
+                && selectedRows[0] >= 0 && selectedRows[0] < items.size();
 
         selectAllBtn.setEnabled(!isRunning && hasItems);
         selectInverseBtn.setEnabled(!isRunning && hasItems);
         moveUpBtn.setEnabled(!isRunning && hasSelection && selectedRows[0] > 0);
-        moveDownBtn.setEnabled(!isRunning && hasSelection && selectedRows[selectedRows.length - 1] < items.size() - 1);
+        moveDownBtn.setEnabled(!isRunning && hasSelection
+                && selectedRows[selectedRows.length - 1] < items.size() - 1);
         moveTopBtn.setEnabled(!isRunning && hasSelection && selectedRows[0] > 0);
-        moveBottomBtn.setEnabled(!isRunning && hasSelection && selectedRows[selectedRows.length - 1] < items.size() - 1);
+        moveBottomBtn.setEnabled(!isRunning && hasSelection
+                && selectedRows[selectedRows.length - 1] < items.size() - 1);
         sortAscBtn.setEnabled(!isRunning && items.size() > 1);
         sortDescBtn.setEnabled(!isRunning && items.size() > 1);
+        pageEditBtn.setEnabled(!isRunning && singleSelection && items.get(selectedRows[0]).isReadable());
+        passwordBtn.setEnabled(!isRunning && singleSelection && items.get(selectedRows[0]).isEncrypted());
         removeBtn.setEnabled(!isRunning && hasSelection);
         clearBtn.setEnabled(!isRunning && hasItems);
-
         startBtn.setEnabled(!isRunning && hasChecked);
         cancelBtn.setEnabled(isRunning);
     }
 
     private void updateSummary() {
         if (items.isEmpty()) {
-            summaryLabel.setText(I18n.get("tool.pdfmerge.summary.empty", "尚未添加 PDF 文件"));
+            summaryLabel.setText(I18n.get("tool.pdfmerge.summary.empty"));
             return;
         }
         int totalExpectedPages = 0;
@@ -528,51 +801,16 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
         }
         if (selectedCount == items.size()) {
             summaryLabel.setText(String.format(
-                    I18n.get("tool.pdfmerge.summary.format", "已添加 %d 个 PDF 文件，预计合并 %d 页 (总源文件大小: %s)"),
+                    I18n.get("tool.pdfmerge.summary.format"),
                     items.size(), totalExpectedPages, formatFileSize(totalBytes)));
         } else {
             summaryLabel.setText(String.format(
-                    I18n.get("tool.pdfmerge.summary.partialFormat", "已添加 %d 个 PDF 文件 (已勾选 %d 个)，预计合并 %d 页 (勾选源文件大小: %s)"),
+                    I18n.get("tool.pdfmerge.summary.partialFormat"),
                     items.size(), selectedCount, totalExpectedPages, formatFileSize(totalBytes)));
         }
     }
 
-    private String suggestDefaultOutputPath() {
-        File baseDir;
-        if (!items.isEmpty()) {
-            File firstFile = items.get(0).getFile();
-            File parent = firstFile.getParentFile();
-            baseDir = parent != null ? parent : firstFile.getParentFile();
-        } else if (lastDirectory != null && lastDirectory.exists()) {
-            baseDir = lastDirectory;
-        } else {
-            baseDir = new File(System.getProperty("user.home"));
-        }
-        return new File(baseDir, DEFAULT_OUTPUT_FILENAME).getAbsolutePath();
-    }
-
-    private void updateDefaultOutputPath(boolean force) {
-        if (items.isEmpty()) {
-            if (force) {
-                outputPathField.setText("");
-            }
-            return;
-        }
-        String currentText = outputPathField.getText().trim();
-        if (force || currentText.isEmpty() || currentText.endsWith(DEFAULT_OUTPUT_FILENAME)) {
-            outputPathField.setText(suggestDefaultOutputPath());
-        }
-    }
-
     private void startMerge() {
-        if (items.isEmpty()) {
-            JOptionPane.showMessageDialog(root,
-                    I18n.get("tool.pdfmerge.msg.noFiles", "请先添加待合并的 PDF 文件"),
-                    I18n.get("tool.pdfmerge.title", "PDF 合并"),
-                    JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
         List<PdfMergeItem> activeItems = new ArrayList<>();
         for (PdfMergeItem item : items) {
             if (item.isSelected()) {
@@ -581,52 +819,57 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
         }
         if (activeItems.isEmpty()) {
             JOptionPane.showMessageDialog(root,
-                    I18n.get("tool.pdfmerge.msg.noSelectedFiles", "请至少勾选一个待合并的 PDF 文件"),
-                    I18n.get("tool.pdfmerge.title", "PDF 合并"),
-                    JOptionPane.WARNING_MESSAGE);
+                    I18n.get("tool.pdfmerge.msg.noSelectedFiles"),
+                    I18n.get("tool.pdfmerge.title"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        int unreadable = (int) activeItems.stream().filter(it -> !it.isReadable()).count();
+        if (unreadable > 0) {
+            JOptionPane.showMessageDialog(root,
+                    String.format(I18n.get("tool.pdfmerge.msg.needPassword"), unreadable),
+                    I18n.get("tool.pdfmerge.title"), JOptionPane.WARNING_MESSAGE);
             return;
         }
 
         String outputPath = outputPathField.getText().trim();
-        if (outputPath.isEmpty()) {
-            outputPath = suggestDefaultOutputPath();
+        if (outputPath.isEmpty() || outputPath.equals(autoOutputPath)) {
+            outputPath = nextAvailableOutput().getAbsolutePath();
+            autoOutputPath = outputPath;
             outputPathField.setText(outputPath);
         }
-
         File outputFile = new File(outputPath);
         if (outputFile.exists()) {
+            String confirmTemplate = I18n.get("tool.pdfmerge.msg.overwriteConfirm");
+            String confirmMessage = confirmTemplate.contains("%s")
+                    ? String.format(confirmTemplate, outputPath)
+                    : confirmTemplate + outputPath;
             int ret = JOptionPane.showConfirmDialog(root,
-                    I18n.get("tool.pdfmerge.msg.overwriteConfirm", "目标文件已存在，是否覆盖？\n" + outputFile.getAbsolutePath()),
-                    I18n.get("tool.pdfmerge.msg.overwriteTitle", "确认覆盖"),
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.QUESTION_MESSAGE);
+                    confirmMessage,
+                    I18n.get("tool.pdfmerge.msg.overwriteTitle"),
+                    JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
             if (ret != JOptionPane.YES_OPTION) {
                 return;
             }
         }
 
+        int totalPages = activeItems.stream().mapToInt(PdfMergeItem::getEffectivePageCount).sum();
         cancellationFlag.set(false);
         progressBar.setVisible(true);
         progressBar.setValue(0);
-        progressBar.setMaximum(activeItems.size());
-        statusLabel.setText(I18n.get("tool.pdfmerge.status.starting", "正在准备合并..."));
-
+        progressBar.setMaximum(Math.max(1, totalPages));
+        statusLabel.setText(I18n.get("tool.pdfmerge.status.starting"));
         openFileBtn.setEnabled(false);
         openDirBtn.setEnabled(false);
         updateButtonStates();
 
         List<PdfMergeItem> snapshot = new ArrayList<>(activeItems);
         final File finalOutputFile = outputFile;
-
         currentWorker = new SwingWorker<Void, MergeProgress>() {
             @Override
             protected Void doInBackground() throws Exception {
-                PdfMerger.merge(
-                        snapshot,
-                        finalOutputFile,
+                PdfMerger.merge(snapshot, finalOutputFile,
                         (cur, total, name) -> publish(new MergeProgress(cur, total, name)),
-                        cancellationFlag::get
-                );
+                        cancellationFlag::get);
                 return null;
             }
 
@@ -636,7 +879,7 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
                     MergeProgress latest = chunks.get(chunks.size() - 1);
                     progressBar.setValue(latest.current);
                     statusLabel.setText(String.format(
-                            I18n.get("tool.pdfmerge.status.merging", "正在合并 (%d/%d): %s"),
+                            I18n.get("tool.pdfmerge.status.mergingPages"),
                             latest.current, latest.total, latest.fileName));
                 }
             }
@@ -650,33 +893,29 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
                     lastGeneratedFile = finalOutputFile;
                     openFileBtn.setEnabled(true);
                     openDirBtn.setEnabled(true);
-                    int totalPages = 0;
+                    int totalPagesWritten = 0;
                     try {
-                        totalPages = PdfMerger.readPageCount(finalOutputFile);
+                        totalPagesWritten = PdfMerger.readPageCount(finalOutputFile);
                     } catch (Exception ignored) {
                     }
                     statusLabel.setText(String.format(
-                            I18n.get("tool.pdfmerge.status.success", "合并完成！已生成 %s (共 %d 页, %s)"),
-                            finalOutputFile.getName(), totalPages, formatFileSize(finalOutputFile.length())));
-                    JOptionPane.showMessageDialog(root,
-                            I18n.get("tool.pdfmerge.msg.success", "PDF 文件合并成功！\n保存至: ") + finalOutputFile.getAbsolutePath(),
-                            I18n.get("tool.pdfmerge.title", "PDF 合并"),
-                            JOptionPane.INFORMATION_MESSAGE);
+                            I18n.get("tool.pdfmerge.status.success"),
+                            finalOutputFile.getName(), totalPagesWritten, formatFileSize(finalOutputFile.length())));
+                    updateDefaultOutputPath(false);
                 } catch (Exception e) {
                     Throwable cause = e.getCause();
                     if (cause instanceof InterruptedException || cancellationFlag.get()) {
-                        statusLabel.setText(I18n.get("tool.pdfmerge.status.cancelled", "合并已取消"));
+                        statusLabel.setText(I18n.get("tool.pdfmerge.status.cancelled"));
                     } else {
-                        statusLabel.setText(I18n.get("tool.pdfmerge.status.failed", "合并失败: ") + (cause != null ? cause.getMessage() : e.getMessage()));
+                        String message = cause != null ? cause.getMessage() : e.getMessage();
+                        statusLabel.setText(I18n.get("tool.pdfmerge.status.failed") + message);
                         JOptionPane.showMessageDialog(root,
-                                I18n.get("tool.pdfmerge.msg.failed", "合并过程中发生错误: ") + (cause != null ? cause.getMessage() : e.getMessage()),
-                                I18n.get("tool.pdfmerge.title", "PDF 合并"),
-                                JOptionPane.ERROR_MESSAGE);
+                                I18n.get("tool.pdfmerge.msg.failed") + message,
+                                I18n.get("tool.pdfmerge.title"), JOptionPane.ERROR_MESSAGE);
                     }
                 }
             }
         };
-
         currentWorker.execute();
         updateButtonStates();
     }
@@ -686,19 +925,15 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
         if (currentWorker != null && !currentWorker.isDone()) {
             currentWorker.cancel(true);
         }
-        statusLabel.setText(I18n.get("tool.pdfmerge.status.cancelling", "正在取消..."));
+        // 面板可能只被实例化而未 build（例如目录自检），此时组件尚未创建
+        if (statusLabel != null) {
+            statusLabel.setText(I18n.get("tool.pdfmerge.status.cancelling"));
+        }
     }
 
     private void openGeneratedFile() {
         if (lastGeneratedFile != null && lastGeneratedFile.exists()) {
-            try {
-                Desktop.getDesktop().open(lastGeneratedFile);
-            } catch (Exception e) {
-                JOptionPane.showMessageDialog(root,
-                        I18n.get("tool.pdfmerge.msg.openError", "无法打开文件: ") + e.getMessage(),
-                        I18n.get("tool.pdfmerge.title", "PDF 合并"),
-                        JOptionPane.ERROR_MESSAGE);
-            }
+            openWithDesktop(lastGeneratedFile);
         }
     }
 
@@ -706,52 +941,57 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
         if (lastGeneratedFile != null) {
             File dir = lastGeneratedFile.getParentFile();
             if (dir != null && dir.exists()) {
-                try {
-                    Desktop.getDesktop().open(dir);
-                } catch (Exception e) {
-                    JOptionPane.showMessageDialog(root,
-                            I18n.get("tool.pdfmerge.msg.openError", "无法打开目录: ") + e.getMessage(),
-                            I18n.get("tool.pdfmerge.title", "PDF 合并"),
-                            JOptionPane.ERROR_MESSAGE);
-                }
+                openWithDesktop(dir);
             }
         }
     }
 
-    private void enableDragAndDrop(Component comp) {
-        new DropTarget(comp, DnDConstants.ACTION_COPY, new DropTargetAdapter() {
-            @Override
-            public void drop(DropTargetDropEvent dtde) {
-                try {
-                    dtde.acceptDrop(DnDConstants.ACTION_COPY);
-                    Transferable t = dtde.getTransferable();
-                    if (t.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
-                        @SuppressWarnings("unchecked")
-                        List<File> droppedFiles = (List<File>) t.getTransferData(DataFlavor.javaFileListFlavor);
-                        if (droppedFiles != null && !droppedFiles.isEmpty()) {
-                            List<File> toAdd = new ArrayList<>();
-                            for (File f : droppedFiles) {
-                                if (f.isDirectory()) {
-                                    File[] sub = f.listFiles((d, name) -> name.toLowerCase(Locale.ROOT).endsWith(".pdf"));
-                                    if (sub != null) {
-                                        Collections.addAll(toAdd, sub);
-                                    }
-                                } else if (f.isFile() && f.getName().toLowerCase(Locale.ROOT).endsWith(".pdf")) {
-                                    toAdd.add(f);
-                                }
-                            }
-                            if (!toAdd.isEmpty()) {
-                                lastDirectory = toAdd.get(0).getParentFile();
-                                addFilesAsync(toAdd);
-                            }
-                        }
-                    }
-                    dtde.dropComplete(true);
-                } catch (Exception ex) {
-                    dtde.dropComplete(false);
-                }
+    /** 桌面打开能力不可用时降级为复制路径，Linux 无 xdg-open / headless 环境不会抛栈。 */
+    private void openWithDesktop(File target) {
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                Desktop.getDesktop().open(target);
+                return;
             }
-        });
+        } catch (Exception ignored) {
+            // 落到下面的统一降级
+        }
+        UIUtils.copyToClipboard(target.getAbsolutePath());
+        statusLabel.setText(I18n.get("tool.pdfmerge.msg.pathCopied") + target.getAbsolutePath());
+    }
+
+    @Override
+    public void closeResources() {
+        cancelMerge();
+        for (SwingWorker<?, ?> worker : readWorkers) {
+            if (!worker.isDone()) {
+                worker.cancel(true);
+            }
+        }
+        readWorkers.clear();
+        for (PdfMergeItem item : items) {
+            item.clearPassword();
+        }
+    }
+
+    private static DataFlavor createRowFlavor() {
+        try {
+            return new DataFlavor("application/x-java-toolbox-pdf-row;class=java.lang.String");
+        } catch (ClassNotFoundException e) {
+            return DataFlavor.stringFlavor;
+        }
+    }
+
+    private static boolean isPdf(File file) {
+        return file.isFile() && file.getName().toLowerCase(Locale.ROOT).endsWith(".pdf");
+    }
+
+    private static String normalizeKey(File file) {
+        try {
+            return file.toPath().toRealPath().toString();
+        } catch (Exception e) {
+            return file.toPath().toAbsolutePath().normalize().toString();
+        }
     }
 
     private static String formatFileSize(long bytes) {
@@ -771,27 +1011,48 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
                 int cmp;
                 if (Character.isDigit(token1.charAt(0)) && Character.isDigit(token2.charAt(0))) {
                     try {
-                        long n1 = Long.parseLong(token1);
-                        long n2 = Long.parseLong(token2);
-                        cmp = Long.compare(n1, n2);
+                        cmp = Long.compare(Long.parseLong(token1), Long.parseLong(token2));
                     } catch (NumberFormatException e) {
                         cmp = token1.compareTo(token2);
                     }
                 } else {
                     cmp = token1.compareToIgnoreCase(token2);
                 }
-                if (cmp != 0) return cmp;
+                if (cmp != 0) {
+                    return cmp;
+                }
             }
             return Integer.compare(s1.length(), s2.length());
         };
     }
 
-    @Override
-    public void closeResources() {
-        cancelMerge();
+    private static final class RowTransferable implements Transferable {
+        private final String value;
+
+        RowTransferable(String value) {
+            this.value = value;
+        }
+
+        @Override
+        public DataFlavor[] getTransferDataFlavors() {
+            return new DataFlavor[]{ROW_FLAVOR};
+        }
+
+        @Override
+        public boolean isDataFlavorSupported(DataFlavor flavor) {
+            return ROW_FLAVOR.equals(flavor);
+        }
+
+        @Override
+        public Object getTransferData(DataFlavor flavor) throws UnsupportedFlavorException {
+            if (!isDataFlavorSupported(flavor)) {
+                throw new UnsupportedFlavorException(flavor);
+            }
+            return value;
+        }
     }
 
-    private static class MergeProgress {
+    private static final class MergeProgress {
         final int current;
         final int total;
         final String fileName;
@@ -803,15 +1064,15 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
         }
     }
 
-    private class PdfTableModel extends AbstractTableModel {
+    private final class PdfTableModel extends AbstractTableModel {
         private final String[] COLUMNS = {
-                I18n.get("tool.pdfmerge.col.select", "选择"),
+                I18n.get("tool.pdfmerge.col.select"),
                 "#",
-                I18n.get("tool.pdfmerge.col.fileName", "文件名"),
-                I18n.get("tool.pdfmerge.col.pages", "页数"),
-                I18n.get("tool.pdfmerge.col.range", "提取范围"),
-                I18n.get("tool.pdfmerge.col.size", "大小"),
-                I18n.get("tool.pdfmerge.col.path", "文件路径")
+                I18n.get("tool.pdfmerge.col.fileName"),
+                I18n.get("tool.pdfmerge.col.pages"),
+                I18n.get("tool.pdfmerge.col.range"),
+                I18n.get("tool.pdfmerge.col.size"),
+                I18n.get("tool.pdfmerge.col.path")
         };
 
         @Override
@@ -831,16 +1092,12 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
 
         @Override
         public Class<?> getColumnClass(int columnIndex) {
-            if (columnIndex == 0) {
-                return Boolean.class;
-            }
-            return super.getColumnClass(columnIndex);
+            return columnIndex == 0 ? Boolean.class : super.getColumnClass(columnIndex);
         }
 
         @Override
         public boolean isCellEditable(int rowIndex, int columnIndex) {
-            // 第 0 列选择框，第 4 列提取范围允许编辑
-            return columnIndex == 0 || columnIndex == 4;
+            return columnIndex == 0;
         }
 
         @Override
@@ -852,11 +1109,20 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
                 case 1:
                     return rowIndex + 1;
                 case 2:
-                    return item.getFileName();
+                    return item.getFileName() + (item.isEncrypted()
+                            ? I18n.get("tool.pdfmerge.state.encryptedSuffix") : "");
                 case 3:
-                    return item.getPageCount() > 0 ? String.valueOf(item.getPageCount()) : "-";
+                    return item.isReadable() ? String.valueOf(item.getPageCount()) : "-";
                 case 4:
-                    return item.getPageRange().isEmpty() ? "全部" : item.getPageRange();
+                    if (!item.isReadable()) {
+                        return item.isPasswordRequired()
+                                ? I18n.get("tool.pdfmerge.state.needPassword")
+                                : I18n.get("tool.pdfmerge.state.unreadable");
+                    }
+                    return item.isAllPages()
+                            ? I18n.get("tool.pdfmerge.state.allPages")
+                            : String.format(I18n.get("tool.pdfmerge.state.keptPages"),
+                            item.getEffectivePageCount(), item.getPageCount());
                 case 5:
                     return formatFileSize(item.getFileSize());
                 case 6:
@@ -868,30 +1134,11 @@ public final class PdfMergePanel extends ToolPanel implements ManagedResourceOwn
 
         @Override
         public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
-            PdfMergeItem item = items.get(rowIndex);
             if (columnIndex == 0 && aValue instanceof Boolean) {
-                item.setSelected((Boolean) aValue);
+                items.get(rowIndex).setSelected((Boolean) aValue);
                 fireTableCellUpdated(rowIndex, columnIndex);
                 updateSummary();
                 updateButtonStates();
-            } else if (columnIndex == 4 && aValue != null) {
-                String val = aValue.toString().trim();
-                if (val.isEmpty() || "全部".equalsIgnoreCase(val) || "all".equalsIgnoreCase(val)) {
-                    item.setPageRange("全部");
-                } else {
-                    try {
-                        PageRangeParser.parse(val, item.getPageCount());
-                        item.setPageRange(val);
-                    } catch (Exception ex) {
-                        JOptionPane.showMessageDialog(root,
-                                I18n.get("tool.pdfmerge.msg.rangeError", "页码范围格式无效: ") + ex.getMessage(),
-                                I18n.get("tool.pdfmerge.title", "PDF 合并"),
-                                JOptionPane.WARNING_MESSAGE);
-                        return;
-                    }
-                }
-                fireTableCellUpdated(rowIndex, columnIndex);
-                updateSummary();
             }
         }
     }

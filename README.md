@@ -87,11 +87,11 @@
 | 运维 | Kafka 管理 | 管理 Kafka 集群，浏览主题与消费组，查看 Lag 详情，消息拉取/发布，以及**实时查看主题的订阅消费组与活跃成员分区分配** |
 | 运维 | MQTT 客户端 | MQTT v3.1 / v3.1.1 客户端测试，broker 连接、主题订阅 / 发布与实时消息收发 |
 | 运维 | TCP/UDP 调试 | 网络调试助手：TCP 客户端（可选 TLS、自动重连，首次连接失败也会重试，可随时取消）、TCP 服务端（客户端列表、单发 / 群发 / 断开、回显）、UDP（回复最后发送方、广播、组播），多会话标签页；文本 / HEX 收发、字符集、转义与换行符、自动附加 SUM8 / XOR8 / CRC-8 / CRC-16（Modbus、CCITT）/ CRC-32 校验，定时循环发送、常用消息列表、发送历史与发送文件；接收按分隔符 / 定长 / 空闲超时 / 长度字段分帧（1/2/4 字节、大小端、头部配置和帧长上限），可保存日志 |
-| 运维 | 端口扫描 | 端口扫描与网络连通性诊断，支持预设端口组（Web / DB / 运维）、自定义范围、并发扫描与已知服务识别 |
 | 运维 | K8s 集群管理 | 多集群管理，Kubeconfig 导入与 Namespace 切换，资源浏览、日志追踪、Exec 终端与容器文件传输；支持共享 SSH 隧道、原始 TLS 主机名校验及客户端证书认证；本机 kubectl 的 Pod / Service / Deployment 端口转发也可通过 SSH 访问集群，见 [指南](docs/k8s_manager_guide.md) |
 | 运维 | 线程转储分析 | 解析 jstack / jcmd / kill -3 输出（含 JDK 21 JSON 格式与多份转储），按状态统计、死锁检测（监视器与 ReentrantLock）、锁竞争排行、相同栈分组、线程池聚合、热点方法，以及多份转储间的卡死线程对比 |
 | 运维 | GC 日志分析 | 解析 JDK 9+ 统一日志与 JDK 8 格式（G1 / Parallel / Serial / CMS / ZGC 含分代 / Shenandoah / safepoint），统计停顿分位数、吞吐率、分配速率与 Full GC 原因，堆与停顿图表可拖拽缩放，识别堆底持续上涨（疑似泄漏）并给出调优建议 |
 | 运维 | 端口与进程 | 查看端口占用及对应进程（Windows netstat / tasklist，macOS lsof，Linux ss），按端口、范围或进程过滤，查看命令行，确认后结束进程或进程树；检查端口是否空闲，权限不足时给出提示 |
+| 运维 | 日志查看器 | 面向几百 MB 追加型日志：窗口式分页读取（不全文件载入）、实时跟随（tail）、正则过滤与命中高亮；逐行 UTF-8 解码避免中文乱码，文件截断 / 轮转自动重读，关闭即停跟随 |
 | 运维 | JAR / Class 分析 | 解析 class 文件（编译版本、预览特性、字段与方法签名），分析 JAR / WAR / Spring Boot fat jar 的 MANIFEST、Maven 坐标、最低 Java 版本与内嵌依赖；在目录中搜索类所在的 jar，检测重复类并区分内容是否一致 |
 | 运维 | 异常堆栈分析 | 离线解析 Java 异常堆栈（支持纯文本与多行日志），自动提取 Caused by / Suppressed 链与根因，定位首个业务调用帧，折叠框架帧，相同堆栈自动去重，内置 50+ 常见异常排查提示 |
 | 运维 | JVM 参数分析 | 离线解析单行 shell 命令、环境变量（JAVA_OPTS/CATALINA_OPTS）与多行参数；提取堆与 GC 分布，识别 GC 冲突、堆配置异常、参数覆盖及针对 JDK 8/11/17/21 版本的废弃/已移除项，提供生产优化建议与 60+ 核心参数解释 |
@@ -284,7 +284,7 @@ tools/wechat_send_store.py            # 联系人解析和新发送记录核验
 ```
 ## Roadmap
 
-`v1.9.1` 已交付 YAML/TOML/INI 格式转换、大文件日志查看器（Log Viewer）与 K8s 管理面板重构解耦，并升级跨平台原生安装包构建流水线（支持 Windows .msi / Linux .deb, .rpm / macOS .dmg）。下一阶段优先补齐 DNS/TLS/HTTP 诊断和工作区导入导出；完整范围、依赖和分类见 [功能路线图](docs/feature-roadmap.md)。
+`v1.9.1` 已交付 YAML/TOML/INI 格式转换、大文件日志查看器（Log Viewer）、DNS/TLS/HTTP 诊断与 K8s 管理面板重构解耦，并升级跨平台原生安装包构建流水线（支持 Windows .msi / Linux .deb, .rpm / macOS .dmg）。下一阶段优先补齐工作区导入导出；完整范围、依赖和分类见 [功能路线图](docs/feature-roadmap.md)。
 
 ## 详细功能文档
 针对网络打洞、容器交互及本地通讯录读取等工具，提供了专门的技术与使用指南文档：

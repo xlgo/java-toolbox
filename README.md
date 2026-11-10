@@ -93,6 +93,7 @@
 | 运维 | 端口与进程 | 查看端口占用及对应进程（Windows netstat / tasklist，macOS lsof，Linux ss），按端口、范围或进程过滤，查看命令行，确认后结束进程或进程树；检查端口是否空闲，权限不足时给出提示 |
 | 运维 | 日志查看器 | 面向几百 MB 追加型日志：窗口式分页读取（不全文件载入）、实时跟随（tail）、正则过滤与命中高亮；逐行 UTF-8 解码避免中文乱码，文件截断 / 轮转自动重读，关闭即停跟随 |
 | 运维 | JAR / Class 分析 | 解析 class 文件（编译版本、预览特性、字段与方法签名），分析 JAR / WAR / Spring Boot fat jar 的 MANIFEST、Maven 坐标、最低 Java 版本与内嵌依赖；在目录中搜索类所在的 jar，检测重复类并区分内容是否一致 |
+| 运维 | 类冲突与 Classpath 诊断 | 模拟 ClassLoader 类加载优先顺序，提取 public/protected 方法与字段签名做 ABI 深度比对，精准定位 NoSuchMethodError、NoSuchFieldError 破坏性冲突与已知依赖冲突库 |
 | 运维 | 异常堆栈分析 | 离线解析 Java 异常堆栈（支持纯文本与多行日志），自动提取 Caused by / Suppressed 链与根因，定位首个业务调用帧，折叠框架帧，相同堆栈自动去重，内置 50+ 常见异常排查提示 |
 | 运维 | JVM 参数分析 | 离线解析单行 shell 命令、环境变量（JAVA_OPTS/CATALINA_OPTS）与多行参数；提取堆与 GC 分布，识别 GC 冲突、堆配置异常、参数覆盖及针对 JDK 8/11/17/21 版本的废弃/已移除项，提供生产优化建议与 60+ 核心参数解释 |
 | 监控 | 视频监控 | 视频源与分屏布局管理，支持格子合并拆分和设备树；当前画面为预览占位，未内置 RTSP/视频解码器 |

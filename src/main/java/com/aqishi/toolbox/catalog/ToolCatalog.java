@@ -156,6 +156,10 @@ public final class ToolCatalog {
             "JAR", "Class", "字节码", "class版本", "major version", "Unsupported class file major version",
             "MANIFEST", "Spring Boot", "fat jar", "依赖冲突", "重复类", "类冲突", "找类",
             "ClassNotFoundException", "NoSuchMethodError");
+    public static final ToolDescriptor CLASSPATH_DIAGNOSTIC = tool("classpath.diagnostic", "system",
+            "Classpath", "类冲突", "依赖冲突", "NoSuchMethodError", "NoSuchFieldError",
+            "IncompatibleClassChangeError", "类加载", "ClassLoader", "遮蔽", "Masking",
+            "ABI", "字节码", "Jar", "拓扑", "排包");
     public static final ToolDescriptor STACKTRACE_ANALYZER = tool("stacktrace.analyzer", "system",
             "Stack Trace", "StackTrace", "Exception", "Caused by", "Root Cause",
             "NullPointerException", "NPE", "Error");
@@ -225,7 +229,7 @@ public final class ToolCatalog {
             PORT_SCANNER, NET_DIAGNOSTICS, HTTP_BENCH, SSH,
             DATABASE_CONNECTOR, REDIS_MANAGEMENT, KAFKA_CONNECTOR, ZOOKEEPER_MANAGEMENT, ETCD_MANAGEMENT,
             DOCKER_MANAGEMENT, DOCKER_CONVERT, K8S_DEPLOYMENT, K8S_MANAGER, K8S_MANIFEST_DIFF, CHMOD_CALC, CRON_PARSER, CRON_CONFLICT, HOSTS_MANAGER,
-            WECHAT_SENDER, LOG_VIEWER, THREAD_DUMP, GC_LOG, PORT_PROCESS, JAR_INSPECTOR, STACKTRACE_ANALYZER, JVM_OPTIONS,
+            WECHAT_SENDER, LOG_VIEWER, THREAD_DUMP, GC_LOG, PORT_PROCESS, JAR_INSPECTOR, CLASSPATH_DIAGNOSTIC, STACKTRACE_ANALYZER, JVM_OPTIONS,
             DATA_GENERATOR, QRCODE, COLOR_CONVERT, DDL_ENTITY, ID_TOOLKIT,
             CALCULATOR, STATISTICS,
             SORT_VISUALIZER, SEARCH_ALGORITHM, HANOI, PINGAME, BPMN_DESIGNER, MERMAID, FLOWCHART,

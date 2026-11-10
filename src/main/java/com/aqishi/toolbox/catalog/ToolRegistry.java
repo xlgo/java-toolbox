@@ -202,6 +202,7 @@ public final class ToolRegistry {
         factories.put("gc.log", context -> new GcLogPanel());
         factories.put("port.process", context -> new PortProcessPanel());
         factories.put("jar.inspector", context -> new JarInspectorPanel());
+        factories.put("classpath.diagnostic", context -> new com.aqishi.toolbox.feature.system.ui.ClasspathDiagnosticPanel());
         factories.put("data.generator", context -> new DataGeneratorPanel());
         factories.put("qrcode", context -> new QrCodePanel(
                 VaultSecretStore.of(context.getVaultService())));
